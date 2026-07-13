@@ -14,18 +14,20 @@ type ParsedMessage = {
   items: ContentItem[];
 };
 
+const ContentItems = type("string")
+  .pipe((content, ctx) => {
+    try {
+      return JSON.parse(content);
+    } catch {
+      return ctx.error("invalid content_json");
+    }
+  })
+  .pipe(ContentItem.array());
+
 const parseContent = (contentJson: string): ContentItem[] => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(contentJson);
-  } catch {
-    return [];
-  }
-  try {
-    return ContentItem.array().assert(parsed);
-  } catch {
-    return [];
-  }
+  const out = ContentItems(contentJson);
+  if (out instanceof type.errors) return [];
+  return out;
 };
 
 const parseMessage = (row: MessageRow): ParsedMessage => ({

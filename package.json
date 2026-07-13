@@ -25,9 +25,7 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "start": "node --import tsx src/cli.ts",
-    "dev": "tsx watch src/cli.ts"
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",
