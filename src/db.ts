@@ -52,24 +52,17 @@ const openDb = (dbPath: string): DatabaseSync => {
   }
 };
 
-const sessionColumns = [
-  "id",
-  "name",
-  "description",
-  "session_type",
-  "working_dir",
-  "created_at",
-  "updated_at",
-  "total_tokens",
-  "provider_name",
-  "archived_at",
-].join(", ");
+const sessionColumns =
+  "id, name, description, session_type, working_dir, created_at, " +
+  "updated_at, total_tokens, provider_name, archived_at";
 
-const keepSession = (row: SessionRow | type.errors): row is SessionRow =>
-  !(row instanceof type.errors);
-
-const keepMessage = (row: MessageRow | type.errors): row is MessageRow =>
-  !(row instanceof type.errors);
+const validateRows = <T>(
+  schema: (data: unknown) => T | type.errors,
+  rows: unknown[],
+): T[] =>
+  rows
+    .map((row) => schema(row))
+    .filter((r): r is T => !(r instanceof type.errors));
 
 const listSessions = (
   db: DatabaseSync,
@@ -85,11 +78,7 @@ const listSessions = (
   const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
   const sql = `SELECT ${sessionColumns} FROM sessions ${where} ORDER BY updated_at DESC LIMIT ?`;
   params.push(filter.limit);
-  return db
-    .prepare(sql)
-    .all(...params)
-    .map((row) => SessionRow(row))
-    .filter(keepSession);
+  return validateRows(SessionRow, db.prepare(sql).all(...params));
 };
 
 const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
@@ -103,16 +92,10 @@ const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
 };
 
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
-  const sql = [
-    "SELECT message_id, session_id, role, content_json,",
-    "created_timestamp, timestamp FROM messages",
-    "WHERE session_id = ? ORDER BY created_timestamp ASC",
-  ].join(" ");
-  return db
-    .prepare(sql)
-    .all(sessionId)
-    .map((row) => MessageRow(row))
-    .filter(keepMessage);
+  const sql =
+    "SELECT message_id, session_id, role, content_json, created_timestamp, " +
+    "timestamp FROM messages WHERE session_id = ? ORDER BY created_timestamp ASC";
+  return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
 export type { MessageRow, SessionFilter, SessionRow };

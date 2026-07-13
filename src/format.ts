@@ -42,7 +42,7 @@ const extractTexts = (items: ContentItem[]): string[] =>
   );
 
 const truncate = (s: string, max: number): string =>
-  s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`;
+  s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 
 const fmtTokens = (n: number | null): string =>
   n === null ? "-" : n.toLocaleString("en-US");
@@ -64,9 +64,8 @@ const formatTranscript = (messages: ParsedMessage[]): string => {
   for (const msg of messages) {
     const texts = extractTexts(msg.items);
     if (texts.length === 0) continue;
-    const marker = msg.role === "user" ? "▸" : "◆";
-    const label = msg.role === "user" ? "PROMPT" : "OUTPUT";
-    lines.push(`${marker} ${label}  [${msg.timestamp}]`);
+    const tag = msg.role === "user" ? "▸ PROMPT" : "◆ OUTPUT";
+    lines.push(`${tag}  [${msg.timestamp}]`);
     lines.push(texts.join("\n"));
     lines.push("");
   }
