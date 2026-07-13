@@ -1,0 +1,11 @@
+{
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "no-unused-vars": ["error", { "args": "all", "argsIgnorePattern": "^_" }],
+    "typescript/no-floating-promises": "error",
+    "typescript/return-await": ["error", "in-try-catch"]
+  },
+  "ignorePatterns": ["**/*.js", "**/node_modules/**"]
+}

@@ -1,0 +1,8 @@
+id: no-inline-export
+language: TypeScript
+rule:
+  kind: export_statement
+  not:
+    has:
+      kind: export_clause
+      stopBy: end

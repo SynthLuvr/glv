@@ -1,0 +1,4 @@
+id: no-function-declaration
+language: TypeScript
+rule:
+  kind: function_declaration

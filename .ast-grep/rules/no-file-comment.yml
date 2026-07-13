@@ -1,0 +1,9 @@
+# Flags files that begin with a top-level comment (`//` line or `/*` block).
+# Uses a program-level regex because ast-grep treats comments as trivia, so a
+# `kind: comment` rule cannot be constrained to the start of the file via
+# relational operators (precededBy/followedBy do not see comment nodes).
+id: no-file-comment
+language: TypeScript
+rule:
+  kind: program
+  regex: '^(//|/\*)'
