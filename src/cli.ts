@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 import type { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
 import { runList } from "./commands/list.js";

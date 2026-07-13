@@ -8,12 +8,8 @@
   "engines": {
     "node": "==26"
   },
-  "bin": {
-    "glv": "src/cli.ts"
-  },
   "scripts": {
     "build": "tsc",
-    "glv": "tsx src/cli.ts",
     "format:arrows": "pnpm convert-to-arrow .",
     "format:biome": "pnpm biome format --write .",
     "format:braces": "pnpm strip-braces .",
@@ -29,7 +25,9 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "node --import tsx src/cli.ts",
+    "dev": "tsx watch src/cli.ts"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",
