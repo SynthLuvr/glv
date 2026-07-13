@@ -1,7 +1,34 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { MessageRow, SessionFilter, SessionRow } from "./types.js";
+
+type SessionRow = {
+  id: string;
+  name: string;
+  description: string;
+  session_type: string;
+  working_dir: string;
+  created_at: string;
+  updated_at: string;
+  total_tokens: number | null;
+  provider_name: string | null;
+  archived_at: string | null;
+};
+
+type MessageRow = {
+  message_id: string | null;
+  session_id: string;
+  role: string;
+  content_json: string;
+  created_timestamp: number;
+  timestamp: string;
+};
+
+type SessionFilter = {
+  type: string;
+  limit: number;
+  includeArchived: boolean;
+};
 
 const defaultDbPath = (): string =>
   join(homedir(), ".local", "share", "goose", "sessions", "sessions.db");
@@ -44,7 +71,6 @@ const listSessions = (
     params.push(filter.type);
   }
   if (!filter.includeArchived) clauses.push("archived_at IS NULL");
-
   const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
   const sql = `SELECT ${sessionColumns} FROM sessions ${where} ORDER BY updated_at DESC LIMIT ?`;
   params.push(filter.limit);
@@ -65,4 +91,5 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return db.prepare(sql).all(sessionId) as unknown as MessageRow[];
 };
 
+export type { MessageRow, SessionFilter, SessionRow };
 export { getSession, listMessages, listSessions, openDb, resolveDbPath };

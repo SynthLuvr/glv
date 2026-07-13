@@ -1,15 +1,28 @@
-import type {
-  ContentItem,
-  MessageRow,
-  ParsedMessage,
-  SessionRow,
-} from "./types.js";
+import { type } from "arktype";
+import type { MessageRow, SessionRow } from "./db.js";
+
+const ContentItem = type({
+  type: "string",
+  "text?": "string",
+});
+
+type ContentItem = typeof ContentItem.infer;
+
+type ParsedMessage = {
+  role: string;
+  timestamp: string;
+  items: ContentItem[];
+};
 
 const parseContent = (contentJson: string): ContentItem[] => {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(contentJson);
-    if (!Array.isArray(parsed)) return [];
-    return parsed as ContentItem[];
+    parsed = JSON.parse(contentJson);
+  } catch {
+    return [];
+  }
+  try {
+    return ContentItem.array().assert(parsed);
   } catch {
     return [];
   }
@@ -22,9 +35,9 @@ const parseMessage = (row: MessageRow): ParsedMessage => ({
 });
 
 const extractTexts = (items: ContentItem[]): string[] =>
-  items
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text as string);
+  items.flatMap((item) =>
+    item.type === "text" && item.text !== undefined ? [item.text] : [],
+  );
 
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`;
@@ -72,6 +85,7 @@ const renderTable = (
   return [fmtRow(headers), ...rows.map(fmtRow)].join("\n");
 };
 
+export type { ContentItem, ParsedMessage };
 export {
   extractTexts,
   fmtTokens,

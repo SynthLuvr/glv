@@ -1,3 +1,4 @@
+export type { MessageRow, SessionFilter, SessionRow } from "./db.js";
 export {
   getSession,
   listMessages,
@@ -5,6 +6,7 @@ export {
   openDb,
   resolveDbPath,
 } from "./db.js";
+export type { ContentItem, ParsedMessage } from "./format.js";
 export {
   extractTexts,
   fmtTokens,
@@ -15,10 +17,3 @@ export {
   renderTable,
   truncate,
 } from "./format.js";
-export type {
-  ContentItem,
-  MessageRow,
-  ParsedMessage,
-  SessionFilter,
-  SessionRow,
-} from "./types.js";

@@ -4,15 +4,15 @@ import { runList } from "./commands/list.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
 
-interface SessionsOpts {
+type SessionsOpts = {
   type: string;
   all?: boolean;
   limit: string;
-}
+};
 
-interface LimitOpts {
+type LimitOpts = {
   limit: string;
-}
+};
 
 const program = new Command();
 

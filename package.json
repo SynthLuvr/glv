@@ -43,6 +43,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "arktype": "^2.2.3",
     "commander": "^15.0.0"
   }
 }

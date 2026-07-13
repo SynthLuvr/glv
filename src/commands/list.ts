@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { SessionFilter, SessionRow } from "../db.js";
 import { listSessions } from "../db.js";
 import { fmtTokens, renderTable } from "../format.js";
-import type { SessionFilter, SessionRow } from "../types.js";
 
 const HEADERS = ["ID", "Name", "Working Dir", "Updated", "Tokens"];
 
