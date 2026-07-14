@@ -2,3 +2,9 @@ id: no-function-declaration
 language: TypeScript
 rule:
   kind: function_declaration
+
+---
+id: no-function-declaration
+language: Tsx
+rule:
+  kind: function_declaration
