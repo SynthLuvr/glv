@@ -11,10 +11,8 @@ body {
   background: #fafafa;
 }
 
-/* two-panel shell */
 .app { display: flex; height: 100vh; overflow: hidden; }
 
-/* sidebar */
 .sidebar {
   width: 24rem;
   min-width: 20rem;
@@ -34,7 +32,6 @@ body {
 .sidebar-head h1 { margin: 0; font-size: 1.05rem; }
 .empty { padding: 2.5rem 1rem; color: #6b6b6b; text-align: center; }
 
-/* session table (sidebar) */
 table { width: 100%; border-collapse: collapse; }
 th,
 td {
@@ -56,7 +53,6 @@ td a { color: #2563eb; text-decoration: none; font-weight: 500; }
 td a:hover { text-decoration: underline; }
 code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; }
 
-/* detail pane */
 .detail { flex: 1; overflow-y: auto; padding: 2rem 2.5rem; }
 .detail-inner { max-width: 52rem; margin: 0 auto; }
 .placeholder {
@@ -71,7 +67,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; 
 .placeholder h2 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.25rem; }
 .placeholder p { margin: 0; }
 
-/* session metadata header */
 .session-header {
   margin-bottom: 1.75rem;
   padding-bottom: 1rem;
@@ -89,7 +84,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; 
 .session-meta dt { font-weight: 600; color: #4b4b4b; }
 .session-meta dd { margin: 0; }
 
-/* messages */
 .message { margin-bottom: 1.5rem; }
 .message-head {
   display: flex;

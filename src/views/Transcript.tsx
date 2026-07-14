@@ -1,9 +1,6 @@
 import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format.js";
-import { extractTexts, fmtTokens } from "../format.js";
-
-const displayName = (name: string): string =>
-  name === "" ? "(unnamed)" : name;
+import { displayName, extractTexts, fmtTokens } from "../format.js";
 
 const MetaItem = ({ label, value }: { label: string; value: string }) => (
   <div>

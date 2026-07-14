@@ -1,8 +1,5 @@
 import type { SessionRow } from "../db.js";
-import { fmtTokens } from "../format.js";
-
-const displayName = (name: string): string =>
-  name === "" ? "(unnamed)" : name;
+import { displayName, fmtTokens } from "../format.js";
 
 const SessionItem = ({
   session,

@@ -18,40 +18,121 @@ CREATE TABLE sessions (
   provider_name TEXT,
   archived_at TIMESTAMP
 );
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content_json TEXT NOT NULL,
+  created_timestamp INTEGER NOT NULL,
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  tokens INTEGER,
+  metadata_json TEXT
+);
 `;
+
+type SessionSeed = {
+  id: string;
+  name: string;
+  type: string;
+  dir: string;
+  updated: string;
+  tokens: number | null;
+  provider: string | null;
+};
+
+const SESSIONS: readonly SessionSeed[] = [
+  {
+    id: "alpha",
+    name: "Alpha Session",
+    type: "user",
+    dir: "/tmp/alpha",
+    updated: "2026-07-13 10:00:00",
+    tokens: 1234,
+    provider: "anthropic",
+  },
+  {
+    id: "beta",
+    name: "Beta Session",
+    type: "user",
+    dir: "/tmp/beta",
+    updated: "2026-07-13 09:00:00",
+    tokens: 50,
+    provider: null,
+  },
+  {
+    id: "silent",
+    name: "Silent Run",
+    type: "hidden",
+    dir: "/tmp/silent",
+    updated: "2026-07-13 11:00:00",
+    tokens: 10,
+    provider: null,
+  },
+];
+
+const insertSessions = (
+  db: DatabaseSync,
+  sessions: readonly SessionSeed[],
+): void => {
+  const stmt = db.prepare(
+    "INSERT INTO sessions (id, name, session_type, working_dir, updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  );
+  for (const s of sessions)
+    stmt.run(s.id, s.name, s.type, s.dir, s.updated, s.tokens, s.provider);
+};
+
+type MessageSeed = {
+  sessionId: string;
+  role: string;
+  content: string;
+  ts: number;
+};
+
+const MESSAGES: readonly MessageSeed[] = [
+  {
+    sessionId: "alpha",
+    role: "user",
+    content: JSON.stringify([{ type: "text", text: "What is goose?" }]),
+    ts: 1,
+  },
+  {
+    sessionId: "alpha",
+    role: "assistant",
+    content: JSON.stringify([
+      { type: "thinking", thinking: "hmm" },
+      { type: "toolRequest", id: "1" },
+    ]),
+    ts: 2,
+  },
+  {
+    sessionId: "alpha",
+    role: "user",
+    content: JSON.stringify([{ type: "toolResponse", id: "1" }]),
+    ts: 3,
+  },
+  {
+    sessionId: "alpha",
+    role: "assistant",
+    content: JSON.stringify([{ type: "text", text: "Goose is an agent" }]),
+    ts: 4,
+  },
+];
+
+const insertMessages = (
+  db: DatabaseSync,
+  messages: readonly MessageSeed[],
+): void => {
+  const stmt = db.prepare(
+    "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
+  );
+  for (const m of messages) stmt.run(m.sessionId, m.role, m.content, m.ts);
+};
 
 const seed = (db: DatabaseSync): void => {
   db.exec(SCHEMA);
-  const insert = db.prepare(
-    "INSERT INTO sessions (id, name, session_type, working_dir, updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-  insert.run(
-    "alpha",
-    "Alpha Session",
-    "user",
-    "/tmp/alpha",
-    "2026-07-13 10:00:00",
-    1234,
-    "anthropic",
-  );
-  insert.run(
-    "beta",
-    "Beta Session",
-    "user",
-    "/tmp/beta",
-    "2026-07-13 09:00:00",
-    50,
-    null,
-  );
-  insert.run(
-    "silent",
-    "Silent Run",
-    "hidden",
-    "/tmp/silent",
-    "2026-07-13 11:00:00",
-    10,
-    null,
-  );
+  insertSessions(db, SESSIONS);
+  insertMessages(db, MESSAGES);
 };
 
 let db: DatabaseSync;
@@ -117,93 +198,10 @@ describe("web viewer GET /", () => {
   });
 });
 
-const MESSAGES_SCHEMA = `${SCHEMA}
-CREATE TABLE messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  message_id TEXT,
-  session_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  content_json TEXT NOT NULL,
-  created_timestamp INTEGER NOT NULL,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  tokens INTEGER,
-  metadata_json TEXT
-);
-`;
-
-const seedTranscripts = (mdb: DatabaseSync): void => {
-  mdb.exec(MESSAGES_SCHEMA);
-  const insSession = mdb.prepare(
-    "INSERT INTO sessions (id, name, session_type, working_dir, updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-  insSession.run(
-    "alpha",
-    "Alpha Session",
-    "user",
-    "/tmp/alpha",
-    "2026-07-13 10:00:00",
-    1234,
-    "anthropic",
-  );
-  insSession.run(
-    "beta",
-    "Beta Session",
-    "user",
-    "/tmp/beta",
-    "2026-07-13 09:00:00",
-    50,
-    null,
-  );
-  const insMessage = mdb.prepare(
-    "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
-  );
-  insMessage.run(
-    "alpha",
-    "user",
-    JSON.stringify([{ type: "text", text: "What is goose?" }]),
-    1,
-  );
-  insMessage.run(
-    "alpha",
-    "assistant",
-    JSON.stringify([
-      { type: "thinking", thinking: "hmm" },
-      { type: "toolRequest", id: "1" },
-    ]),
-    2,
-  );
-  insMessage.run(
-    "alpha",
-    "user",
-    JSON.stringify([{ type: "toolResponse", id: "1" }]),
-    3,
-  );
-  insMessage.run(
-    "alpha",
-    "assistant",
-    JSON.stringify([{ type: "text", text: "Goose is an agent" }]),
-    4,
-  );
-};
-
-let mdb: DatabaseSync;
-let mdir: string;
-
-beforeAll(() => {
-  mdir = mkdtempSync(join(tmpdir(), "glv-web-msg-"));
-  mdb = new DatabaseSync(join(mdir, "sessions.db"));
-  seedTranscripts(mdb);
-});
-
-afterAll(() => {
-  mdb.close();
-  rmSync(mdir, { recursive: true, force: true });
-});
-
 const renderSession = async (
   id: string,
 ): Promise<{ status: number; html: string }> => {
-  const res = await createApp(mdb).request(`/sessions/${id}`);
+  const res = await createApp(db).request(`/sessions/${id}`);
   return { status: res.status, html: await res.text() };
 };
 
