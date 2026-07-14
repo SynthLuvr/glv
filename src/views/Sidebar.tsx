@@ -12,21 +12,24 @@ const SessionItem = ({
 }: {
   session: SessionRow;
   selected: boolean;
-}) => (
-  <tr class={selected ? "selected" : undefined}>
-    <td>
-      <a href={`/sessions/${session.id}`} hx-get={`/sessions/${session.id}`}>
-        {displayName(session.name)}
-      </a>
-    </td>
-    <td>
-      <code>{session.working_dir}</code>
-    </td>
-    <td>{session.updated_at}</td>
-    <td>{fmtTokens(session.total_tokens)}</td>
-    <td>{session.provider_name ?? "—"}</td>
-  </tr>
-);
+}) => {
+  const href = `/sessions/${session.id}`;
+  return (
+    <tr class={selected ? "selected" : undefined}>
+      <td>
+        <a href={href} hx-get={href}>
+          {displayName(session.name)}
+        </a>
+      </td>
+      <td>
+        <code>{session.working_dir}</code>
+      </td>
+      <td>{session.updated_at}</td>
+      <td>{fmtTokens(session.total_tokens)}</td>
+      <td>{session.provider_name ?? "—"}</td>
+    </tr>
+  );
+};
 
 // Rendered as `<tbody id="session-list">` so it can be swapped out-of-band by
 // htmx (re-rendered with the new selection) without reloading the page.
