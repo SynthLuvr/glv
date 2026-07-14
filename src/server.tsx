@@ -21,9 +21,7 @@ const VIEWER_FILTER: SessionFilter = {
   includeArchived: false,
 };
 
-// Served from the `htmx.org` dependency rather than a committed copy, so the
-// version is pinned in package.json and resolved regardless of the directory
-// the server was launched from.
+// Resolved via import.meta so the asset is found regardless of launch directory.
 const htmxSource = readFileSync(
   fileURLToPath(import.meta.resolve("htmx.org/dist/htmx.min.js")),
   "utf8",
