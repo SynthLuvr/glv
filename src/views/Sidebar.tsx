@@ -1,5 +1,10 @@
 import type { SessionRow } from "../db.js";
-import { displayName, fmtTokens } from "../format.js";
+import {
+  displayName,
+  fmtRelative,
+  fmtTokens,
+  truncateMiddle,
+} from "../format.js";
 
 type SidebarProps = {
   sessions: SessionRow[];
@@ -15,60 +20,61 @@ const SessionItem = ({
 }) => {
   const href = `/sessions/${session.id}`;
   return (
-    <tr class={selected ? "selected" : undefined}>
-      <td>
-        <a href={href} hx-get={href}>
-          {displayName(session.name)}
-        </a>
-      </td>
-      <td>
-        <code>{session.working_dir}</code>
-      </td>
-      <td>{session.updated_at}</td>
-      <td>{fmtTokens(session.total_tokens)}</td>
-      <td>{session.provider_name ?? "—"}</td>
-    </tr>
+    <a
+      class={`session-item${selected ? " selected" : ""}`}
+      href={href}
+      hx-get={href}
+    >
+      <span class="session-name">{displayName(session.name)}</span>
+      <span class="session-sub">
+        <time title={session.updated_at}>
+          {fmtRelative(session.updated_at)}
+        </time>
+        {session.provider_name !== null && (
+          <span class="provider-badge">{session.provider_name}</span>
+        )}
+        {session.total_tokens !== null && (
+          <span class="token-count">{fmtTokens(session.total_tokens)}</span>
+        )}
+      </span>
+      <span class="session-dir" title={session.working_dir}>
+        {truncateMiddle(session.working_dir, 42)}
+      </span>
+    </a>
   );
 };
 
-// Rendered as `<tbody id="session-list">` so it can be swapped out-of-band by
+// Rendered as `<div id="session-list">` so it can be swapped out-of-band by
 // htmx (re-rendered with the new selection) without reloading the page.
 const SessionList = ({
   sessions,
   selectedId,
   oob = false,
 }: SidebarProps & { oob?: boolean }) => (
-  <tbody id="session-list" hx-swap-oob={oob ? "true" : undefined}>
+  <div
+    id="session-list"
+    class="session-list"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML scrollTop:top"
+    hx-push-url="true"
+    hx-swap-oob={oob ? "true" : undefined}
+  >
     {sessions.map((session) => (
       <SessionItem session={session} selected={session.id === selectedId} />
     ))}
-  </tbody>
+  </div>
 );
 
 const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Goose Sessions</h1>
+      <span class="session-count">{sessions.length}</span>
     </div>
     {sessions.length === 0 ? (
       <p class="empty">No sessions found.</p>
     ) : (
-      <table
-        hx-target="#detail-pane"
-        hx-swap="innerHTML scrollTop:top"
-        hx-push-url="true"
-      >
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Working Dir</th>
-            <th>Updated</th>
-            <th>Tokens</th>
-            <th>Provider</th>
-          </tr>
-        </thead>
-        <SessionList sessions={sessions} selectedId={selectedId} />
-      </table>
+      <SessionList sessions={sessions} selectedId={selectedId} />
     )}
   </aside>
 );
