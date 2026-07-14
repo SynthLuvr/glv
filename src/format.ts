@@ -47,8 +47,11 @@ const truncate = (s: string, max: number): string =>
 const fmtTokens = (n: number | null): string =>
   n === null ? "-" : n.toLocaleString("en-US");
 
+const displayName = (name: string): string =>
+  name === "" ? "(unnamed)" : name;
+
 const formatSessionHeader = (s: SessionRow): string => {
-  const name = s.name === "" ? "(unnamed)" : s.name;
+  const name = displayName(s.name);
   const lines = [
     `Session: ${s.id} — ${name}`,
     `Working dir: ${s.working_dir}`,
@@ -88,6 +91,7 @@ const renderTable = (
 
 export type { ContentItem, ParsedMessage };
 export {
+  displayName,
   extractTexts,
   fmtTokens,
   formatSessionHeader,
