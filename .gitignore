@@ -1,3 +1,4 @@
 node_modules
 dist
 *.js
+!public/htmx.min.js

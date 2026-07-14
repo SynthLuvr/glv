@@ -51,6 +51,8 @@ th {
 tr.selected { background: #eef4ff; }
 td a { color: #2563eb; text-decoration: none; font-weight: 500; }
 td a:hover { text-decoration: underline; }
+/* dim a session link while its transcript is loading via htmx */
+td a.htmx-request { color: #9aa0a6; }
 code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; }
 
 .detail { flex: 1; overflow-y: auto; padding: 2rem 2.5rem; }
@@ -113,6 +115,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>{title}</title>
       <style>{STYLES}</style>
+      <script src="/htmx.min.js" defer></script>
     </head>
     <body>{children}</body>
   </html>
