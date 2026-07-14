@@ -6,3 +6,13 @@ rule:
     has:
       kind: export_clause
       stopBy: end
+
+---
+id: no-inline-export
+language: Tsx
+rule:
+  kind: export_statement
+  not:
+    has:
+      kind: export_clause
+      stopBy: end
