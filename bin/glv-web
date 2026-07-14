@@ -1,5 +1,4 @@
 #!/bin/sh
-# Launcher for the glv web viewer — starts the local sessions browser.
 
 SELF="$0"
 while [ -L "$SELF" ]; do

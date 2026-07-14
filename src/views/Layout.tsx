@@ -61,5 +61,4 @@ const Layout = ({ title, children }: LayoutProps) => (
   </html>
 );
 
-export type { LayoutProps };
 export { Layout };

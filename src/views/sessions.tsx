@@ -1,18 +1,10 @@
 import type { SessionRow } from "../db.js";
 import { fmtTokens } from "../format.js";
 
-type SessionsPageProps = {
-  sessions: SessionRow[];
-};
-
 const displayName = (name: string): string =>
   name === "" ? "(unnamed)" : name;
 
-type SessionItemProps = {
-  session: SessionRow;
-};
-
-const SessionItem = ({ session }: SessionItemProps) => (
+const SessionItem = ({ session }: { session: SessionRow }) => (
   <tr>
     <td title={session.id}>{displayName(session.name)}</td>
     <td>
@@ -24,11 +16,7 @@ const SessionItem = ({ session }: SessionItemProps) => (
   </tr>
 );
 
-type SessionsTableProps = {
-  sessions: SessionRow[];
-};
-
-const SessionsTable = ({ sessions }: SessionsTableProps) => (
+const SessionsTable = ({ sessions }: { sessions: SessionRow[] }) => (
   <table>
     <thead>
       <tr>
@@ -47,7 +35,7 @@ const SessionsTable = ({ sessions }: SessionsTableProps) => (
   </table>
 );
 
-const SessionsPage = ({ sessions }: SessionsPageProps) => (
+const SessionsPage = ({ sessions }: { sessions: SessionRow[] }) => (
   <main>
     <h1>Goose Sessions</h1>
     {sessions.length === 0 ? (
@@ -58,5 +46,4 @@ const SessionsPage = ({ sessions }: SessionsPageProps) => (
   </main>
 );
 
-export type { SessionItemProps, SessionsPageProps, SessionsTableProps };
-export { SessionItem, SessionsPage, SessionsTable };
+export { SessionsPage };
