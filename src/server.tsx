@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
@@ -22,10 +21,11 @@ const VIEWER_FILTER: SessionFilter = {
   includeArchived: false,
 };
 
-// Resolved relative to this module so the asset is found regardless of the
-// directory the server was launched from.
+// Served from the `htmx.org` dependency rather than a committed copy, so the
+// version is pinned in package.json and resolved regardless of the directory
+// the server was launched from.
 const htmxSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "..", "public", "htmx.min.js"),
+  fileURLToPath(import.meta.resolve("htmx.org/dist/htmx.min.js")),
   "utf8",
 );
 

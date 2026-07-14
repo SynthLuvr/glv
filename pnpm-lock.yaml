@@ -20,6 +20,9 @@ importers:
       hono:
         specifier: ^4.12.30
         version: 4.12.30
+      htmx.org:
+        specifier: 2.0.4
+        version: 2.0.4
     devDependencies:
       '@ast-grep/cli':
         specifier: ^0.44.1
@@ -852,6 +855,9 @@ packages:
   hono@4.12.30:
     resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
     engines: {node: '>=16.9.0'}
+
+  htmx.org@2.0.4:
+    resolution: {integrity: sha512-HLxMCdfXDOJirs3vBZl/ZLoY+c7PfM4Ahr2Ad4YXh6d22T5ltbTXFFkpx9Tgb2vvmWFMbIc3LqN2ToNkZJvyYQ==}
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
@@ -1699,6 +1705,8 @@ snapshots:
     optional: true
 
   hono@4.12.30: {}
+
+  htmx.org@2.0.4: {}
 
   isexe@2.0.0: {}
 
