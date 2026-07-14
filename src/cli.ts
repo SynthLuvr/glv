@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
 import { runList } from "./commands/list.js";
+import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
 
@@ -12,6 +13,10 @@ type SessionsOpts = {
 
 type LimitOpts = {
   limit: string;
+};
+
+type ServeOpts = {
+  port: string;
 };
 
 const program = new Command();
@@ -66,6 +71,16 @@ program
   .description("Show prompts and final outputs for a session")
   .action((sessionId: string) => {
     useDb((db) => runView(db, sessionId));
+  });
+
+program
+  .command("serve")
+  .description("Start a local web viewer for goose sessions")
+  .option("-p, --port <number>", "port to listen on", "3000")
+  .action((opts: ServeOpts) => {
+    const dbPath = (program.opts() as { db?: string }).db;
+    const db = openDb(resolveDbPath(dbPath));
+    runServe(db, { port: Number(opts.port) });
   });
 
 const main = (): void => {

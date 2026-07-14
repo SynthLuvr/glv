@@ -9,8 +9,10 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

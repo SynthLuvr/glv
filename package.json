@@ -25,7 +25,8 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "serve": "tsx src/cli.ts serve"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",
@@ -41,7 +42,9 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.8",
     "arktype": "^2.2.3",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "hono": "^4.12.30"
   }
 }
