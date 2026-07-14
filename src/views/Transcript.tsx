@@ -99,32 +99,27 @@ const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
   </details>
 );
 
-const renderThinking = (item: ContentItem): Child | null => {
-  const text = thinkingText(item);
-  return text === undefined ? null : <ThinkingBlock text={text} />;
-};
-
-const renderToolCall = (item: ContentItem): Child | null => {
-  const info = toolCallInfo(item);
-  return info === undefined ? null : <ToolCallBlock info={info} />;
-};
-
-const renderToolResult = (item: ContentItem): Child | null => {
-  const info = toolResultInfo(item);
-  return info === undefined ? null : <ToolResultBlock info={info} />;
-};
-
-// Walk a message's content items in order, rendering each by type so the full
-// conversation (text, reasoning, tool calls, tool results) is visible.
 const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
-  if (item.type === "text")
-    return item.text !== undefined && item.text !== "" ? (
-      <TextBlock text={item.text} asMarkdown={markdown} />
-    ) : null;
-  if (item.type === "thinking") return renderThinking(item);
-  if (item.type === "toolRequest") return renderToolCall(item);
-  if (item.type === "toolResponse") return renderToolResult(item);
-  return null;
+  switch (item.type) {
+    case "text":
+      return item.text ? (
+        <TextBlock text={item.text} asMarkdown={markdown} />
+      ) : null;
+    case "thinking": {
+      const text = thinkingText(item);
+      return text !== undefined ? <ThinkingBlock text={text} /> : null;
+    }
+    case "toolRequest": {
+      const info = toolCallInfo(item);
+      return info !== undefined ? <ToolCallBlock info={info} /> : null;
+    }
+    case "toolResponse": {
+      const info = toolResultInfo(item);
+      return info !== undefined ? <ToolResultBlock info={info} /> : null;
+    }
+    default:
+      return null;
+  }
 };
 
 const tagFor = (kind: MessageKind): string => {

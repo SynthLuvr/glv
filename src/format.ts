@@ -49,24 +49,25 @@ const extractTexts = (items: ContentItem[]): string[] =>
 const asRecord = (item: ContentItem): Record<string, unknown> =>
   item as Record<string, unknown>;
 
+const optString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
 const contentToText = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
-  for (const entry of content)
-    if (entry !== null && typeof entry === "object") {
-      const obj = entry as Record<string, unknown>;
-      if (obj.type === "text" && typeof obj.text === "string")
-        parts.push(obj.text);
-    }
-
+  for (const entry of content) {
+    if (entry === null || typeof entry !== "object") continue;
+    const obj = entry as Record<string, unknown>;
+    if (obj.type === "text" && typeof obj.text === "string")
+      parts.push(obj.text);
+  }
   return parts.join("\n");
 };
 
 const thinkingText = (item: ContentItem): string | undefined => {
   if (item.type !== "thinking") return;
-  const text = asRecord(item).thinking;
-  return typeof text === "string" ? text : undefined;
+  return optString(asRecord(item).thinking);
 };
 
 type ToolCallInfo = {
@@ -77,20 +78,17 @@ type ToolCallInfo = {
 
 const toolCallInfo = (item: ContentItem): ToolCallInfo | undefined => {
   if (item.type !== "toolRequest") return;
-  const call = asRecord(item).toolCall as
+  const record = asRecord(item);
+  const call = record.toolCall as
     | { value?: Record<string, unknown> }
     | undefined;
   const value = call?.value;
-  const name =
-    value !== undefined && typeof value.name === "string" ? value.name : "tool";
-  const meta = asRecord(item)._meta as
-    | { goose_extension?: unknown }
-    | undefined;
-  const extension =
-    meta !== undefined && typeof meta.goose_extension === "string"
-      ? meta.goose_extension
-      : null;
-  return { name, args: value?.arguments ?? {}, extension };
+  const meta = record._meta as { goose_extension?: unknown } | undefined;
+  return {
+    name: optString(value?.name) ?? "tool",
+    args: value?.arguments ?? {},
+    extension: optString(meta?.goose_extension) ?? null,
+  };
 };
 
 type ToolResultInfo = {
@@ -104,11 +102,10 @@ const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
     | { value?: Record<string, unknown> }
     | undefined;
   const value = result?.value;
-  const isError =
-    value !== undefined && typeof value.isError === "boolean"
-      ? value.isError
-      : false;
-  return { text: contentToText(value?.content), isError };
+  return {
+    text: contentToText(value?.content),
+    isError: value?.isError === true,
+  };
 };
 
 type MessageKind = "prompt" | "output" | "tool";
