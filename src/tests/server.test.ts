@@ -196,6 +196,16 @@ describe("web viewer GET /", () => {
       rmSync(emptyDir, { recursive: true, force: true });
     }
   });
+
+  it("wires the sidebar with htmx to swap only the detail pane", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('<script src="/htmx.min.js"');
+    expect(html).toContain('id="detail-pane"');
+    expect(html).toContain('hx-target="#detail-pane"');
+    expect(html).toContain('hx-push-url="true"');
+    // each link keeps a real href (progressive enhancement) plus hx-get
+    expect(html).toContain('href="/sessions/alpha" hx-get="/sessions/alpha"');
+  });
 });
 
 const renderSession = async (
@@ -235,5 +245,61 @@ describe("web viewer GET /sessions/:id", () => {
     expect(status).toBe(404);
     expect(html).toContain("Session not found");
     expect(html).toContain("missing");
+  });
+});
+
+// A request carrying the `HX-Request: true` header is an htmx-driven click.
+// The server answers with a *partial* (detail fragment + an out-of-band sidebar
+// update) rather than the full document, so only the right pane is re-rendered.
+const renderHtmx = async (
+  path: string,
+): Promise<{ status: number; html: string }> => {
+  const res = await createApp(db).request(path, {
+    headers: { "HX-Request": "true" },
+  });
+  return { status: res.status, html: await res.text() };
+};
+
+describe("web viewer htmx asset", () => {
+  it("serves the vendored htmx library as JavaScript", async () => {
+    const res = await createApp(db).request("/htmx.min.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("htmx");
+    expect(body.length).toBeGreaterThan(1000);
+  });
+});
+
+describe("web viewer htmx partials (HX-Request)", () => {
+  it("returns only the transcript fragment for a session", async () => {
+    const { status, html } = await renderHtmx("/sessions/alpha");
+    expect(status).toBe(200);
+    expect(html).not.toContain("<html");
+    expect(html).not.toContain("Goose Sessions");
+    expect(html).toContain("What is goose?");
+    expect(html).toContain("Goose is an agent");
+  });
+
+  it("sends an out-of-band sidebar update that moves the selection", async () => {
+    const { html } = await renderHtmx("/sessions/alpha");
+    expect(html).toContain('id="session-list" hx-swap-oob="true"');
+    expect(html).toContain('class="selected"');
+    expect(html).toContain("Alpha Session");
+    expect(html).toContain("Beta Session");
+  });
+
+  it("returns only the placeholder fragment for the root", async () => {
+    const { html } = await renderHtmx("/");
+    expect(html).not.toContain("<html");
+    expect(html).toContain("No session selected");
+    expect(html).toContain('hx-swap-oob="true"');
+  });
+
+  it("returns a 404 fragment for an unknown session", async () => {
+    const { status, html } = await renderHtmx("/sessions/missing");
+    expect(status).toBe(404);
+    expect(html).toContain("Session not found");
+    expect(html).not.toContain("<html");
   });
 });

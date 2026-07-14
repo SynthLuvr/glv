@@ -1,33 +1,51 @@
 import type { SessionRow } from "../db.js";
 import { displayName, fmtTokens } from "../format.js";
 
+type SidebarProps = {
+  sessions: SessionRow[];
+  selectedId: string | undefined;
+};
+
 const SessionItem = ({
   session,
   selected,
 }: {
   session: SessionRow;
   selected: boolean;
-}) => (
-  <tr class={selected ? "selected" : undefined}>
-    <td>
-      <a href={`/sessions/${session.id}`}>{displayName(session.name)}</a>
-    </td>
-    <td>
-      <code>{session.working_dir}</code>
-    </td>
-    <td>{session.updated_at}</td>
-    <td>{fmtTokens(session.total_tokens)}</td>
-    <td>{session.provider_name ?? "—"}</td>
-  </tr>
-);
+}) => {
+  const href = `/sessions/${session.id}`;
+  return (
+    <tr class={selected ? "selected" : undefined}>
+      <td>
+        <a href={href} hx-get={href}>
+          {displayName(session.name)}
+        </a>
+      </td>
+      <td>
+        <code>{session.working_dir}</code>
+      </td>
+      <td>{session.updated_at}</td>
+      <td>{fmtTokens(session.total_tokens)}</td>
+      <td>{session.provider_name ?? "—"}</td>
+    </tr>
+  );
+};
 
-const Sidebar = ({
+// Rendered as `<tbody id="session-list">` so it can be swapped out-of-band by
+// htmx (re-rendered with the new selection) without reloading the page.
+const SessionList = ({
   sessions,
   selectedId,
-}: {
-  sessions: SessionRow[];
-  selectedId: string | undefined;
-}) => (
+  oob = false,
+}: SidebarProps & { oob?: boolean }) => (
+  <tbody id="session-list" hx-swap-oob={oob ? "true" : undefined}>
+    {sessions.map((session) => (
+      <SessionItem session={session} selected={session.id === selectedId} />
+    ))}
+  </tbody>
+);
+
+const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Goose Sessions</h1>
@@ -35,7 +53,11 @@ const Sidebar = ({
     {sessions.length === 0 ? (
       <p class="empty">No sessions found.</p>
     ) : (
-      <table>
+      <table
+        hx-target="#detail-pane"
+        hx-swap="innerHTML scrollTop:top"
+        hx-push-url="true"
+      >
         <thead>
           <tr>
             <th>Name</th>
@@ -45,17 +67,10 @@ const Sidebar = ({
             <th>Provider</th>
           </tr>
         </thead>
-        <tbody>
-          {sessions.map((session) => (
-            <SessionItem
-              session={session}
-              selected={session.id === selectedId}
-            />
-          ))}
-        </tbody>
+        <SessionList sessions={sessions} selectedId={selectedId} />
       </table>
     )}
   </aside>
 );
 
-export { Sidebar };
+export { SessionList, Sidebar };
