@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { type } from "arktype";
 import { Command } from "commander";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
@@ -26,9 +27,19 @@ program
   .description("View goose sessions, prompts/outputs, and --no-session logs")
   .option("--db <path>", "goose sessions database path");
 
+const GlobalOpts = type({
+  "db?": "string",
+});
+
+const getDbPath = (): string => {
+  const opts = GlobalOpts(program.opts());
+  if (opts instanceof type.errors)
+    throw new Error(`Invalid global options: ${opts.summary}`);
+  return resolveDbPath(opts.db);
+};
+
 const useDb = (fn: (db: DatabaseSync) => void): void => {
-  const dbPath = (program.opts() as { db?: string }).db;
-  const db = openDb(resolveDbPath(dbPath));
+  const db = openDb(getDbPath());
   try {
     fn(db);
   } finally {
@@ -78,8 +89,7 @@ program
   .description("Start a local web viewer for goose sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
   .action((opts: ServeOpts) => {
-    const dbPath = (program.opts() as { db?: string }).db;
-    const db = openDb(resolveDbPath(dbPath));
+    const db = openDb(getDbPath());
     runServe(db, { port: Number(opts.port) });
   });
 
