@@ -9,7 +9,7 @@
     "node": "26"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run build:scripts && tsc",
     "build:scripts": "tsx scripts/build-scripts.mts",
     "prepare": "pnpm run build:scripts",
     "format:arrows": "pnpm convert-to-arrow .",

@@ -137,24 +137,7 @@ install_node_dependencies() {
   fi
 }
 
-# ─── Step 3: Build browser client scripts ─────────────────────
-
-build_client_scripts() {
-  heading "Building Client Scripts"
-
-  cd "$PROJECT_ROOT"
-
-  # `pnpm install` already runs the root `prepare` hook (which runs
-  # build:scripts), but some pnpm versions skip the root prepare, so run it
-  # explicitly as a guarantee. Regenerates src/scripts/sidebar.js in place.
-  if pnpm run build:scripts; then
-    success "Client scripts built"
-  else
-    die "Client script build failed. See output above."
-  fi
-}
-
-# ─── Step 4: Create `glv` symlink ─────────────────────────────
+# ─── Step 3: Create `glv` symlink ─────────────────────────────
 
 setup_glv_symlink() {
   heading "Setting Up \`glv\` Command"
@@ -224,7 +207,6 @@ main() {
   check_node
   check_pnpm
   install_node_dependencies
-  build_client_scripts
   setup_glv_symlink
   print_next_steps
 }
