@@ -1,18 +1,32 @@
-let activeSource = null;
+declare const htmx: {
+  ajax: (
+    verb: string,
+    path: string,
+    options: { target: string; swap: string },
+  ) => void;
+};
 
-const teardown = () => {
+let activeSource: EventSource | null = null;
+
+const teardown = (): void => {
   if (activeSource !== null) {
     activeSource.close();
     activeSource = null;
   }
 };
 
-const scrollToBottom = () => {
+const scrollToBottom = (): void => {
   const pane = document.getElementById("detail-pane");
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
 };
 
-const updateStatusHint = (data) => {
+type StreamStatus = {
+  status: string;
+  queuePosition?: number;
+  error?: string | null;
+};
+
+const updateStatusHint = (data: StreamStatus): void => {
   const hint = document.querySelector(".status-hint");
   if (hint === null) return;
   if (data.status === "queued" && data.queuePosition !== undefined) {
@@ -27,7 +41,7 @@ const updateStatusHint = (data) => {
   }
 };
 
-const connect = (root) => {
+const connect = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const output = root.querySelector("#live-output");
 
@@ -40,15 +54,16 @@ const connect = (root) => {
 
   activeSource.addEventListener("status", (e) => {
     try {
-      updateStatusHint(JSON.parse(e.data));
+      updateStatusHint(JSON.parse((e as MessageEvent).data));
     } catch {
       /* ignore malformed status payloads */
     }
   });
 
   activeSource.addEventListener("line", (e) => {
-    if (e.data !== "" && output !== null) {
-      output.insertAdjacentHTML("beforeend", e.data);
+    const line = (e as MessageEvent).data;
+    if (line !== "" && output !== null) {
+      output.insertAdjacentHTML("beforeend", line);
       scrollToBottom();
     }
   });
@@ -70,7 +85,7 @@ const connect = (root) => {
   });
 };
 
-const init = () => {
+const init = (): void => {
   teardown();
   const root = document.querySelector("[data-session-id]");
   if (root === null) return;
@@ -81,5 +96,5 @@ const init = () => {
 
 document.addEventListener("DOMContentLoaded", init);
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (e.detail.target?.id === "detail-pane") init();
+  if ((e as CustomEvent).detail.target?.id === "detail-pane") init();
 });

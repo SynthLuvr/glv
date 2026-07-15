@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
-import { buildStyles } from "../build.js";
+import { buildScripts, buildStyles } from "../build.js";
 import type { RunnerConfig } from "../runner.js";
 import { createRunner, stopAll } from "../runner.js";
 import { createApp } from "../server.js";
@@ -12,6 +12,7 @@ type ServeOpts = {
 
 const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   buildStyles();
+  buildScripts();
   // Created here (not inside createApp) so SIGINT/SIGTERM can reap the
   // detached goose processes that would otherwise outlive the viewer.
   const runner = createRunner(opts.runner);

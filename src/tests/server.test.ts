@@ -457,7 +457,7 @@ describe("web viewer static assets", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
-    expect(body).toContain("updateBulkBar");
+    expect(body).toContain(".session-check");
     expect(body.length).toBeGreaterThan(100);
   });
 });
@@ -1029,6 +1029,6 @@ describe("M4: stream client reconnect deduplication", () => {
     const body = await res.text();
     // An 'open' listener empties #live-output before catch-up lines arrive.
     expect(body).toContain('"open"');
-    expect(body).toContain('innerHTML = ""');
+    expect(body).toContain('innerHTML=""');
   });
 });

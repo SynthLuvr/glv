@@ -39,9 +39,6 @@ const htmxSource = readFileSync(
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 
-const sidebarScript = readAsset("./scripts/sidebar.js");
-const streamScript = readAsset("./scripts/stream.js");
-
 const Shell = ({
   sessions,
   selectedId,
@@ -137,8 +134,10 @@ const flushLines = async (
 type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
-  // Inside createApp so serve can call buildStyles before this read.
+  // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
+  const sidebarScript = readAsset("../dist/sidebar.js");
+  const streamScript = readAsset("../dist/stream.js");
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
