@@ -1,42 +1,205 @@
+import type { Child } from "hono/jsx";
+import { raw } from "hono/utils/html";
 import type { SessionRow } from "../db.js";
-import type { ParsedMessage } from "../format.js";
-import { displayName, extractTexts, fmtTokens } from "../format.js";
+import type {
+  ContentItem,
+  MessageKind,
+  ParsedMessage,
+  ToolCallInfo,
+  ToolResultInfo,
+} from "../format.js";
+import {
+  displayName,
+  fmtRelative,
+  fmtTokens,
+  messageKind,
+  renderMarkdown,
+  thinkingText,
+  toolCallInfo,
+  toolResultInfo,
+  truncate,
+  truncateMiddle,
+} from "../format.js";
 
-const MetaItem = ({ label, value }: { label: string; value: string }) => (
-  <div>
-    <dt>{label}</dt>
-    <dd>{value}</dd>
-  </div>
+const jsonString = (value: object, pretty: boolean): string => {
+  try {
+    return pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
+};
+
+const formatToolArgs = (args: unknown, pretty: boolean): string => {
+  if (typeof args === "string") return args;
+  if (args === null) return "null";
+  if (typeof args === "number" || typeof args === "boolean")
+    return String(args);
+  if (typeof args === "object") return jsonString(args, pretty);
+  return "";
+};
+
+const TextBlock = ({
+  text,
+  asMarkdown,
+}: {
+  text: string;
+  asMarkdown: boolean;
+}) =>
+  asMarkdown ? (
+    <div class="markdown">{raw(renderMarkdown(text))}</div>
+  ) : (
+    <p class="message-text">{text}</p>
+  );
+
+const ThinkingBlock = ({ text }: { text: string }) => (
+  <details class="block thinking">
+    <summary>
+      <span class="block-icon">💭</span>
+      <span class="block-label">Thinking</span>
+    </summary>
+    <div class="block-content">{text}</div>
+  </details>
 );
 
-const TranscriptHeader = ({ session }: { session: SessionRow }) => (
-  <header class="session-header">
-    <h2>{displayName(session.name)}</h2>
-    <dl class="session-meta">
-      <MetaItem label="ID" value={session.id} />
-      <MetaItem label="Working dir" value={session.working_dir} />
-      <MetaItem label="Updated" value={session.updated_at} />
-      <MetaItem label="Tokens" value={fmtTokens(session.total_tokens)} />
-      {session.provider_name !== null && (
-        <MetaItem label="Provider" value={session.provider_name} />
-      )}
-    </dl>
-  </header>
+const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
+  const body = formatToolArgs(info.args, true);
+  const preview = truncate(formatToolArgs(info.args, false), 90);
+  return (
+    <details class="block tool-call">
+      <summary>
+        <span class="block-icon">🔧</span>
+        <span class="tool-name">{info.name}</span>
+        {info.extension !== null && (
+          <span class="tool-ext">{info.extension}</span>
+        )}
+        <span class="block-preview">{preview}</span>
+      </summary>
+      <pre>
+        <code>{body}</code>
+      </pre>
+    </details>
+  );
+};
+
+const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
+  <details
+    class={`block tool-result${info.isError ? " is-error" : ""}`}
+    open={info.isError ? true : undefined}
+  >
+    <summary>
+      <span class="block-icon">{info.isError ? "⚠️" : "📋"}</span>
+      <span class="block-label">
+        {info.isError ? "Error result" : "Result"}
+      </span>
+      <span class="block-preview">
+        {truncate(info.text.replace(/\s+/g, " ").trim(), 100)}
+      </span>
+    </summary>
+    <pre>{info.text}</pre>
+  </details>
 );
+
+const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
+  switch (item.type) {
+    case "text":
+      return item.text ? (
+        <TextBlock text={item.text} asMarkdown={markdown} />
+      ) : null;
+    case "thinking": {
+      const text = thinkingText(item);
+      return text !== undefined ? <ThinkingBlock text={text} /> : null;
+    }
+    case "toolRequest": {
+      const info = toolCallInfo(item);
+      return info !== undefined ? <ToolCallBlock info={info} /> : null;
+    }
+    case "toolResponse": {
+      const info = toolResultInfo(item);
+      return info !== undefined ? <ToolResultBlock info={info} /> : null;
+    }
+    default:
+      return null;
+  }
+};
+
+const tagFor = (kind: MessageKind): string => {
+  if (kind === "prompt") return "▸ PROMPT";
+  if (kind === "output") return "◆ OUTPUT";
+  return "⟳ TOOL";
+};
 
 const MessageView = ({ message }: { message: ParsedMessage }) => {
-  const texts = extractTexts(message.items);
-  const isUser = message.role === "user";
+  const kind = messageKind(message.role, message.items);
+  const blocks = message.items
+    .map((item) => itemBlock(item, kind === "output"))
+    .filter((node): node is Child => node !== null);
+  if (blocks.length === 0) return null;
   return (
-    <article class={`message ${isUser ? "prompt" : "output"}`}>
+    <article class={`message ${kind}`}>
       <div class="message-head">
-        <span class="tag">{isUser ? "▸ PROMPT" : "◆ OUTPUT"}</span>
-        <time>{message.timestamp}</time>
+        <span class={`tag ${kind}`}>{tagFor(kind)}</span>
+        <time title={message.timestamp}>{fmtRelative(message.timestamp)}</time>
       </div>
-      <div class="message-body">{texts.join("\n")}</div>
+      <div class="message-body">{blocks}</div>
     </article>
   );
 };
+
+const hasContent = (message: ParsedMessage): boolean =>
+  message.items.some((item) => itemBlock(item, false) !== null);
+
+const MetaChip = ({
+  label,
+  value,
+  mono = false,
+  title,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  title?: string;
+}) => (
+  <div class="meta-chip" title={title ?? value}>
+    <span class="meta-label">{label}</span>
+    <span class={`meta-value${mono ? " mono" : ""}`}>{value}</span>
+  </div>
+);
+
+const TranscriptHeader = ({
+  session,
+  messageCount,
+}: {
+  session: SessionRow;
+  messageCount: number;
+}) => (
+  <header class="session-header">
+    <h2>{displayName(session.name)}</h2>
+    <div class="session-meta">
+      <MetaChip label="ID" value={session.id} mono />
+      <MetaChip
+        label="Working dir"
+        value={truncateMiddle(session.working_dir, 48)}
+        mono
+        title={session.working_dir}
+      />
+      <MetaChip
+        label="Created"
+        value={fmtRelative(session.created_at)}
+        title={session.created_at}
+      />
+      <MetaChip
+        label="Updated"
+        value={fmtRelative(session.updated_at)}
+        title={session.updated_at}
+      />
+      <MetaChip label="Messages" value={String(messageCount)} />
+      <MetaChip label="Tokens" value={fmtTokens(session.total_tokens)} />
+      {session.provider_name !== null && (
+        <MetaChip label="Provider" value={session.provider_name} />
+      )}
+    </div>
+  </header>
+);
 
 const Transcript = ({
   session,
@@ -45,10 +208,10 @@ const Transcript = ({
   session: SessionRow;
   messages: ParsedMessage[];
 }) => {
-  const visible = messages.filter((m) => extractTexts(m.items).length > 0);
+  const visible = messages.filter(hasContent);
   return (
     <div class="detail-inner">
-      <TranscriptHeader session={session} />
+      <TranscriptHeader session={session} messageCount={visible.length} />
       {visible.length === 0 ? (
         <p class="empty">This session has no messages.</p>
       ) : (

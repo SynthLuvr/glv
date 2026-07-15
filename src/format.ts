@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { marked } from "marked";
 import type { MessageRow, SessionRow } from "./db.js";
 
 const ContentItem = type({
@@ -41,11 +42,125 @@ const extractTexts = (items: ContentItem[]): string[] =>
     item.type === "text" && item.text !== undefined ? [item.text] : [],
   );
 
+// ContentItem only models the `text` block in its schema, but real goose
+// messages carry thinking blocks, tool calls and tool results too. These
+// accessors read those richer shapes defensively (casting through a record)
+// so the viewer stays robust across schema drift between goose versions.
+const asRecord = (item: ContentItem): Record<string, unknown> =>
+  item as Record<string, unknown>;
+
+const optString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const contentToText = (content: unknown): string => {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const entry of content) {
+    if (entry === null || typeof entry !== "object") continue;
+    const obj = entry as Record<string, unknown>;
+    if (obj.type === "text" && typeof obj.text === "string")
+      parts.push(obj.text);
+  }
+  return parts.join("\n");
+};
+
+const thinkingText = (item: ContentItem): string | undefined => {
+  if (item.type !== "thinking") return;
+  return optString(asRecord(item).thinking);
+};
+
+type ToolCallInfo = {
+  name: string;
+  args: unknown;
+  extension: string | null;
+};
+
+const toolCallInfo = (item: ContentItem): ToolCallInfo | undefined => {
+  if (item.type !== "toolRequest") return;
+  const record = asRecord(item);
+  const call = record.toolCall as
+    | { value?: Record<string, unknown> }
+    | undefined;
+  const value = call?.value;
+  const meta = record._meta as { goose_extension?: unknown } | undefined;
+  return {
+    name: optString(value?.name) ?? "tool",
+    args: value?.arguments ?? {},
+    extension: optString(meta?.goose_extension) ?? null,
+  };
+};
+
+type ToolResultInfo = {
+  text: string;
+  isError: boolean;
+};
+
+const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
+  if (item.type !== "toolResponse") return;
+  const result = asRecord(item).toolResult as
+    | { value?: Record<string, unknown> }
+    | undefined;
+  const value = result?.value;
+  return {
+    text: contentToText(value?.content),
+    isError: value?.isError === true,
+  };
+};
+
+type MessageKind = "prompt" | "output" | "tool";
+
+// A user-role message that only carries a tool response is really tool
+// activity, not a prompt — label it neutrally instead of mis-tagging it.
+const messageKind = (role: string, items: ContentItem[]): MessageKind => {
+  if (items.some((item) => item.type === "toolResponse")) return "tool";
+  return role === "user" ? "prompt" : "output";
+};
+
+// Assistant prose is Markdown; render it to HTML. The data comes from the
+// user's own local session logs, so marked's output is trusted as-is.
+const renderMarkdown = (md: string): string =>
+  marked.parse(md, { gfm: true, breaks: true }) as string;
+
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 
+const truncateMiddle = (value: string, max: number): string => {
+  if (value.length <= max) return value;
+  const head = Math.ceil((max - 1) * 0.6);
+  const tail = Math.floor((max - 1) * 0.4);
+  return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
+};
+
 const fmtTokens = (n: number | null): string =>
   n === null ? "-" : n.toLocaleString("en-US");
+
+const formatDate = (epoch: number, now: number): string => {
+  const date = new Date(epoch);
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+  };
+  if (date.getFullYear() !== new Date(now).getFullYear())
+    options.year = "numeric";
+  return date.toLocaleDateString("en-US", options);
+};
+
+const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
+  const then = Date.parse(timestamp);
+  if (Number.isNaN(then)) return timestamp;
+  const seconds = Math.round((now - then) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  return formatDate(then, now);
+};
 
 const displayName = (name: string): string =>
   name === "" ? "(unnamed)" : name;
@@ -89,15 +204,29 @@ const renderTable = (
   return [fmtRow(headers), ...rows.map(fmtRow)].join("\n");
 };
 
-export type { ContentItem, ParsedMessage };
+export type {
+  ContentItem,
+  MessageKind,
+  ParsedMessage,
+  ToolCallInfo,
+  ToolResultInfo,
+};
 export {
+  contentToText,
   displayName,
   extractTexts,
+  fmtRelative,
   fmtTokens,
   formatSessionHeader,
   formatTranscript,
+  messageKind,
   parseContent,
   parseMessage,
+  renderMarkdown,
   renderTable,
+  thinkingText,
+  toolCallInfo,
+  toolResultInfo,
   truncate,
+  truncateMiddle,
 };
