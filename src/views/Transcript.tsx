@@ -39,6 +39,43 @@ const formatToolArgs = (args: unknown, pretty: boolean): string => {
   return "";
 };
 
+const CopyIcon = () => (
+  <svg
+    class="icon-copy"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg
+    class="icon-check"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
+// Hover-reveal "copy as markdown" affordance. `.markdown` is wrapped so the
+// absolutely-positioned button gets a positioning context without disturbing
+// the markdown's first/last-child margin resets. The raw source rides along in
+// `data-md` so the copy yields markdown, not the rendered prose.
 const TextBlock = ({
   text,
   asMarkdown,
@@ -47,7 +84,19 @@ const TextBlock = ({
   asMarkdown: boolean;
 }) =>
   asMarkdown ? (
-    <div class="markdown">{raw(renderMarkdown(text))}</div>
+    <div class="markdown-wrap">
+      <div class="markdown">{raw(renderMarkdown(text))}</div>
+      <button
+        type="button"
+        class="copy-md-btn"
+        data-md={text}
+        title="Copy as markdown"
+        aria-label="Copy as markdown"
+      >
+        <CopyIcon />
+        <CheckIcon />
+      </button>
+    </div>
   ) : (
     <p class="message-text">{text}</p>
   );

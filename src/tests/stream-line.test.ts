@@ -10,6 +10,9 @@ describe("renderStreamLine", () => {
     const html = renderStreamLine(line);
     expect(html).toContain("stream-line");
     expect(html).toContain("<strong>world</strong>");
+    expect(html).toContain("markdown-wrap");
+    expect(html).toContain("copy-md-btn");
+    expect(html).toContain('data-md="Hello **world**"');
   });
 
   it("renders a user prompt as plain text", () => {
