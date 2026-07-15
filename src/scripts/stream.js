@@ -61,12 +61,7 @@ const connect = (root) => {
   activeSource.addEventListener("error", () => {
     // EventSource auto-reconnects on transient failures. Only teardown
     // when the server has truly closed the connection.
-    if (
-      activeSource !== null &&
-      activeSource.readyState === EventSource.CLOSED
-    ) {
-      teardown();
-    }
+    if (activeSource?.readyState === EventSource.CLOSED) teardown();
   });
 };
 

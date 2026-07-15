@@ -230,8 +230,7 @@ const PromptBar = ({
   sessionId: string;
   run?: RunHandle;
 }) => {
-  const isBusy =
-    run !== undefined && (run.status === "queued" || run.status === "running");
+  const busy = isRunActive(run);
   return (
     <form
       class="prompt-bar"
@@ -252,11 +251,11 @@ const PromptBar = ({
         <textarea
           name="prompt"
           placeholder="Ask goose…"
-          disabled={isBusy ? true : undefined}
+          disabled={busy ? true : undefined}
           class="prompt-input"
           rows={2}
         />
-        {isBusy ? (
+        {busy ? (
           <button
             type="button"
             class="stop-btn"
@@ -327,4 +326,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { DetailPlaceholder, NotFoundDetail, Transcript };
+export { DetailPlaceholder, itemBlock, NotFoundDetail, Transcript, tagFor };
