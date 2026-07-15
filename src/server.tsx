@@ -13,15 +13,8 @@ import {
   listSessions,
 } from "./db.js";
 import { parseMessage } from "./format.js";
-import type { Runner, RunnerConfig, SpawnFn } from "./runner.js";
-import {
-  createRunner,
-  DEFAULT_RUNNER_CONFIG,
-  enqueue,
-  getHandle,
-  isTerminalStatus,
-  stop,
-} from "./runner.js";
+import type { Runner } from "./runner.js";
+import { enqueue, getHandle, isTerminalStatus, stop } from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
@@ -117,15 +110,7 @@ const serveAsset = (c: Context, body: string, contentType: string) =>
 
 type AppEnv = { Variables: { runner: Runner } };
 
-const createApp = (
-  db: DatabaseSync,
-  runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
-  spawn?: SpawnFn,
-  existingRunner?: Runner,
-): Hono<AppEnv> => {
-  // When the caller supplies a runner (e.g. glv serve, which needs it for
-  // shutdown cleanup) reuse it; otherwise create one so tests stay simple.
-  const runner = existingRunner ?? createRunner(runnerConfig, spawn);
+const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);

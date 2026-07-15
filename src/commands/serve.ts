@@ -15,7 +15,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   // spawn detached so Stop can kill the whole tree, but that also means they
   // survive the viewer — without this cleanup they would leak as orphans.
   const runner = createRunner(opts.runner);
-  const app = createApp(db, opts.runner, undefined, runner);
+  const app = createApp(db, runner);
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) =>
     console.log(`glv web viewer → http://localhost:${info.port}`),
   );
