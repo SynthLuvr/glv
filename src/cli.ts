@@ -89,13 +89,21 @@ program
     useDb((db) => runView(db, sessionId));
   });
 
-// Validate --max-concurrent at the CLI boundary so a bad value fails
-// fast with a commander error instead of reaching the runner.
+// Validate --max-concurrent at the CLI boundary with arktype,
+// mirroring the runner's own schema. The pipe arg must be a Type
+// instance — a raw type string trips an InternalArktypeError in
+// arktype 2.2.x.
+const MaxConcurrent = type("string.numeric.parse").pipe(
+  type("number.integer > 0"),
+);
+
 const parseMaxConcurrent = (value: string): number => {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1)
-    throw new InvalidArgumentError("must be a positive integer (e.g. 6)");
-  return parsed;
+  const result = MaxConcurrent(value);
+  if (result instanceof type.errors)
+    throw new InvalidArgumentError(
+      `must be a positive integer (e.g. 6) — ${result.summary}`,
+    );
+  return result;
 };
 
 // A bare name (e.g. "goose") is resolved against PATH; anything
