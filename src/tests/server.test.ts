@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { ProcessResult, SpawnFn } from "../runner.js";
+import { DEFAULT_RUNNER_CONFIG, makeRunnerConfig } from "../runner.js";
 import { createApp } from "../server.js";
 
 const SCHEMA = `
@@ -549,5 +551,276 @@ describe("web viewer archive", () => {
     const { status, html } = await archive("/");
     expect(status).toBe(200);
     expect(html).toContain("No sessions found.");
+  });
+});
+
+// === M2: prompt runner HTTP API tests ===
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+type MockSpawnState = {
+  spawn: SpawnFn;
+  invocations: Array<{
+    binary: string;
+    args: string[];
+    opts: { stdin: string; cwd: string };
+  }>;
+  killCalls: Array<{ pid: number; signal?: string }>;
+};
+
+const createMockSpawn = (
+  lines: string[],
+  opts: { delayMs?: number; exitCode?: number } = {},
+): MockSpawnState => {
+  const invocations: MockSpawnState["invocations"] = [];
+  const killCalls: MockSpawnState["killCalls"] = [];
+  let pidCounter = 30000;
+
+  const spawn: SpawnFn = (binary, args, spawnOpts) => {
+    invocations.push({ binary, args, opts: spawnOpts });
+    const pid = ++pidCounter;
+    const local = { killed: false };
+    let resolveExit!: (r: ProcessResult) => void;
+    const exit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const stdout = (async function* () {
+      for (const line of lines) {
+        if (local.killed) return;
+        if (opts.delayMs !== undefined) await sleep(opts.delayMs);
+        yield line;
+      }
+      if (!local.killed) resolveExit({ exitCode: opts.exitCode ?? 0 });
+    })();
+
+    const kill = (signal?: string) => {
+      if (local.killed) return;
+      local.killed = true;
+      killCalls.push({ pid, signal });
+      resolveExit({ exitCode: null, signal: signal ?? "SIGTERM" });
+    };
+
+    return { pid, kill, stdout, exit };
+  };
+
+  return { spawn, invocations, killCalls };
+};
+
+const postForm = async (
+  app: ReturnType<typeof createApp>,
+  path: string,
+  fields: Record<string, string>,
+): Promise<{ status: number; html: string }> => {
+  const form = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  const res = await app.request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
+  return { status: res.status, html: await res.text() };
+};
+
+describe("prompt bar in transcript", () => {
+  it("renders a prompt input bar in every session view", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('class="prompt-bar"');
+    expect(html).toContain('name="prompt"');
+    expect(html).toContain('placeholder="Ask goose…"');
+  });
+
+  it("shows a Send button when idle", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('class="send-btn"');
+    expect(html).toContain(">Send<");
+    expect(html).not.toContain("stop-btn");
+  });
+
+  it("wires the prompt form to the POST endpoint via htmx", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('hx-post="/sessions/alpha/prompt"');
+    expect(html).toContain('hx-target="#detail-pane"');
+    expect(html).toContain('hx-swap="innerHTML"');
+  });
+
+  it("shows a prompt bar even for sessions with no messages", async () => {
+    const { html } = await renderSession("beta");
+    expect(html).toContain("This session has no messages.");
+    expect(html).toContain('class="prompt-bar"');
+  });
+});
+
+describe("POST /sessions/:id/prompt", () => {
+  it("submits a prompt and shows the running state with Stop button", async () => {
+    const { spawn } = createMockSpawn(["line1"], { delayMs: 500 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const { status, html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "hello goose",
+    });
+    expect(status).toBe(200);
+    expect(html).toContain("hello goose");
+    expect(html).toContain("disabled");
+    expect(html).toContain("Stop");
+    expect(html).not.toContain(">Send<");
+  });
+
+  it("pipes the prompt via stdin to goose in the session working dir", async () => {
+    const { spawn, invocations } = createMockSpawn(["x"], {
+      delayMs: 500,
+    });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "test prompt" });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].binary).toBe("goose");
+    expect(invocations[0].opts.stdin).toBe("test prompt");
+    expect(invocations[0].opts.cwd).toBe("/tmp/alpha");
+    expect(invocations[0].args).toContain("-i");
+    expect(invocations[0].args).toContain("-");
+    expect(invocations[0].args).not.toContain("-t");
+  });
+
+  it("returns 404 for a non-existent session", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const { status, html } = await postForm(app, "/sessions/missing/prompt", {
+      prompt: "hello",
+    });
+    expect(status).toBe(404);
+    expect(html).toContain("Session not found");
+  });
+
+  it("does not start a run for an empty prompt", async () => {
+    const { spawn, invocations } = createMockSpawn(["x"]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "  ",
+    });
+    expect(invocations).toHaveLength(0);
+    expect(html).toContain("send-btn");
+    expect(html).not.toContain("stop-btn");
+  });
+
+  it("shows queue position when the concurrency cap is reached", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, makeRunnerConfig(1, "goose"), spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    const { html } = await postForm(app, "/sessions/beta/prompt", {
+      prompt: "second",
+    });
+    expect(html).toContain("Queued");
+    expect(html).toContain("position");
+  });
+
+  it("keeps the existing run when a second prompt is submitted", async () => {
+    const { spawn, invocations } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].opts.stdin).toBe("first");
+  });
+});
+
+describe("GET /sessions/:id/stream (SSE)", () => {
+  it("returns 404 for a non-existent session", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const res = await app.request("/sessions/missing/stream");
+    expect(res.status).toBe(404);
+  });
+
+  it("sends a done event for an idle session with no run", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const res = await app.request("/sessions/alpha/stream");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const text = await res.text();
+    expect(text).toContain("event: done");
+    expect(text).toContain("idle");
+  });
+
+  it("streams output lines live as SSE events", async () => {
+    const { spawn } = createMockSpawn(["delta1", "delta2"], { delayMs: 80 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: line");
+    expect(text).toContain("delta1");
+    expect(text).toContain("delta2");
+    expect(text).toContain("event: done");
+    expect(text).toContain("complete");
+  });
+
+  it("catches up via accumulated lines when the run already finished", async () => {
+    const { spawn } = createMockSpawn(["done1", "done2"]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    // Let the fast mock finish before connecting.
+    await sleep(150);
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("done1");
+    expect(text).toContain("done2");
+    expect(text).toContain("event: done");
+    expect(text).toContain("completed");
+  });
+
+  it("reports an error status when goose exits non-zero", async () => {
+    const { spawn } = createMockSpawn(["partial"], { exitCode: 42 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(150);
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: done");
+    expect(text).toContain("data: error");
+  });
+});
+
+describe("POST /sessions/:id/stop", () => {
+  it("stops a running session and returns to idle state", async () => {
+    const { spawn, killCalls } = createMockSpawn(["l1", "l2"], {
+      delayMs: 500,
+    });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stop", { method: "POST" });
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(killCalls).toHaveLength(1);
+    expect(killCalls[0].signal).toBe("SIGINT");
+    expect(html).toContain("send-btn");
+    expect(html).not.toContain("stop-btn");
+  });
+
+  it("is a no-op when no run is active", async () => {
+    const { spawn, killCalls } = createMockSpawn([]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const res = await app.request("/sessions/alpha/stop", { method: "POST" });
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(killCalls).toHaveLength(0);
+    expect(html).toContain("send-btn");
+  });
+
+  it("returns 404 for a non-existent session", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const res = await app.request("/sessions/missing/stop", {
+      method: "POST",
+    });
+    expect(res.status).toBe(404);
   });
 });
