@@ -13,6 +13,7 @@ const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
 const SCRIPT_ENTRIES = [
   join(SRC_DIR, "scripts", "sidebar.ts"),
   join(SRC_DIR, "scripts", "stream.ts"),
+  join(SRC_DIR, "scripts", "theme.ts"),
 ];
 
 const ensureDistDir = (): void => {

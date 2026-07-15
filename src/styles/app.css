@@ -27,6 +27,56 @@
   --color-err: #dc2626;
   --color-err-soft: #fef2f2;
   --color-err-border: #fecaca;
+  --color-selected-border: #cfe0ff;
+  --color-thinking-bg: #faf8f1;
+  --color-thinking-border: #efe6cf;
+  --color-thinking-hover: #fdfaf0;
+  --color-err-hover: #fdebeb;
+  --color-scrollbar-thumb: #d1d5db;
+  --color-scrollbar-hover: #b8bcc4;
+  --color-accent-hover: #1d4ed8;
+  --color-err-hover-strong: #b91c1c;
+}
+
+/*
+  Dark theme overrides. The `.dark` class is applied to <html> by a tiny
+  inline script in Layout.tsx (before first paint, from localStorage) so the
+  whole palette flips instantly with no flash of the light theme.
+*/
+html {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-surface-2: #21262d;
+  --color-border: #30363d;
+  --color-border-strong: #484f58;
+  --color-text: #e6edf3;
+  --color-muted: #8b949e;
+  --color-faint: #6e7681;
+  --color-accent: #58a6ff;
+  --color-accent-soft: rgba(56, 139, 253, 0.15);
+  --color-prompt: #161d2e;
+  --color-prompt-border: #26324a;
+  --color-code-bg: #0d1117;
+  --color-code-text: #e6edf3;
+  --color-inline: #1c2128;
+  --color-ok: #3fb950;
+  --color-warn: #d29922;
+  --color-err: #f85149;
+  --color-err-soft: #2a1517;
+  --color-err-border: #5c2a2e;
+  --color-selected-border: #1f3060;
+  --color-thinking-bg: #1d1e1a;
+  --color-thinking-border: #3b3a2a;
+  --color-thinking-hover: #252620;
+  --color-err-hover: #331a1c;
+  --color-scrollbar-thumb: #30363d;
+  --color-scrollbar-hover: #484f58;
+  --color-accent-hover: #79b8ff;
+  --color-err-hover-strong: #da3633;
 }
 
 html,
@@ -80,6 +130,46 @@ body {
   border: 1px solid var(--color-border);
   padding: 0.02rem 0.45rem;
   border-radius: 999px;
+}
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.theme-toggle:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.theme-toggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+.theme-toggle .icon-sun {
+  display: none;
+}
+.dark .theme-toggle .icon-sun {
+  display: block;
+}
+.dark .theme-toggle .icon-moon {
+  display: none;
 }
 .empty {
   padding: 2.5rem 1rem;
@@ -170,7 +260,7 @@ body {
 }
 .session-item.selected {
   background: var(--color-accent-soft);
-  border-color: #cfe0ff;
+  border-color: var(--color-selected-border);
 }
 .session-item.selected .session-name {
   color: var(--color-accent);
@@ -224,7 +314,7 @@ body {
   padding: 0.4rem 0.55rem;
   margin: 0.25rem 0.35rem 0.4rem;
   background: var(--color-accent-soft);
-  border: 1px solid #cfe0ff;
+  border: 1px solid var(--color-selected-border);
   border-radius: 0.55rem;
   font-size: 0.74rem;
   color: var(--color-muted);
@@ -628,11 +718,11 @@ pre code {
 }
 
 .thinking {
-  background: #faf8f1;
-  border-color: #efe6cf;
+  background: var(--color-thinking-bg);
+  border-color: var(--color-thinking-border);
 }
 .thinking > summary:hover {
-  background: #fdfaf0;
+  background: var(--color-thinking-hover);
 }
 .thinking .block-label {
   color: var(--color-warn);
@@ -648,7 +738,7 @@ pre code {
   border-color: var(--color-err-border);
 }
 .tool-result.is-error > summary:hover {
-  background: #fdebeb;
+  background: var(--color-err-hover);
 }
 .tool-result.is-error .block-label {
   color: var(--color-err);
@@ -664,12 +754,12 @@ pre::-webkit-scrollbar {
 .sidebar::-webkit-scrollbar-thumb,
 .detail::-webkit-scrollbar-thumb,
 pre::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--color-scrollbar-thumb);
   border-radius: 999px;
 }
 .sidebar::-webkit-scrollbar-thumb:hover,
 .detail::-webkit-scrollbar-thumb:hover {
-  background: #b8bcc4;
+  background: var(--color-scrollbar-hover);
 }
 
 /* ---------- prompt bar ---------- */
@@ -744,14 +834,14 @@ pre::-webkit-scrollbar-thumb {
   color: #fff;
 }
 .send-btn:hover {
-  background: #1d4ed8;
+  background: var(--color-accent-hover);
 }
 .stop-btn {
   background: var(--color-err);
   color: #fff;
 }
 .stop-btn:hover {
-  background: #b91c1c;
+  background: var(--color-err-hover-strong);
 }
 .submitted-prompt {
   border-left: 3px solid var(--color-accent);

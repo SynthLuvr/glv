@@ -138,6 +138,7 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
   const streamScript = readAsset("../dist/stream.js");
+  const themeScript = readAsset("../dist/theme.js");
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -162,6 +163,9 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
   );
   app.get("/stream.js", (c) =>
     serveAsset(c, streamScript, "application/javascript; charset=utf-8"),
+  );
+  app.get("/theme.js", (c) =>
+    serveAsset(c, themeScript, "application/javascript; charset=utf-8"),
   );
 
   app.get("/", (c) => {
