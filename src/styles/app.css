@@ -677,8 +677,8 @@ pre::-webkit-scrollbar-thumb {
   position: sticky;
   bottom: 0;
   z-index: 5;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
   padding: 0.75rem 0;
   margin-top: 1rem;
 }
@@ -689,16 +689,16 @@ pre::-webkit-scrollbar-thumb {
   border-radius: 6px;
 }
 .status-hint.queued {
-  color: var(--warn);
-  background: var(--surface-2);
+  color: var(--color-warn);
+  background: var(--color-surface-2);
 }
 .status-hint.running {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
 }
 .status-hint.error {
-  color: var(--err);
-  background: var(--err-soft);
+  color: var(--color-err);
+  background: var(--color-err-soft);
 }
 .prompt-input-row {
   display: flex;
@@ -710,22 +710,22 @@ pre::-webkit-scrollbar-thumb {
   resize: vertical;
   min-height: 2.5rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--color-border-strong);
   border-radius: 8px;
   font: inherit;
   font-size: 0.9rem;
   line-height: 1.5;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 .prompt-input:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 .prompt-input:disabled {
-  background: var(--surface-2);
-  color: var(--text-faint);
+  background: var(--color-surface-2);
+  color: var(--color-faint);
   cursor: not-allowed;
 }
 .send-btn,
@@ -740,21 +740,21 @@ pre::-webkit-scrollbar-thumb {
   white-space: nowrap;
 }
 .send-btn {
-  background: var(--accent);
+  background: var(--color-accent);
   color: #fff;
 }
 .send-btn:hover {
   background: #1d4ed8;
 }
 .stop-btn {
-  background: var(--err);
+  background: var(--color-err);
   color: #fff;
 }
 .stop-btn:hover {
   background: #b91c1c;
 }
 .submitted-prompt {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--color-accent);
 }
 
 /* ---------- live streaming output ---------- */
@@ -769,7 +769,7 @@ pre::-webkit-scrollbar-thumb {
   padding: 0.5rem 0.75rem;
   font-family: ui-monospace, monospace;
   font-size: 0.85rem;
-  color: var(--text-faint);
+  color: var(--color-faint);
   white-space: pre-wrap;
   word-break: break-word;
 }
