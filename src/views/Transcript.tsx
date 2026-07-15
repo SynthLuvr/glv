@@ -241,9 +241,7 @@ const PromptBar = ({
     >
       {run?.status === "queued" && run.queuePosition !== undefined && (
         <p class="status-hint queued">
-          {"Queued, waiting… (position "}
-          {run.queuePosition}
-          {")"}
+          Queued, waiting… (position {run.queuePosition})
         </p>
       )}
       {run?.status === "running" && <p class="status-hint running">Running…</p>}

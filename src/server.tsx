@@ -127,6 +127,15 @@ const createApp = (
     await next();
   });
 
+  const renderNotFound = (c: Context, id: string) =>
+    render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      undefined,
+      <NotFoundDetail id={id} />,
+      { status: 404 },
+    );
+
   app.get("/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
@@ -176,19 +185,12 @@ const createApp = (
     return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
   });
 
-  // --- Prompt runner endpoints (M2) ---
+  // Prompt runner endpoints
 
   app.post("/sessions/:id/prompt", async (c) => {
     const id = c.req.param("id");
     const session = getSession(db, id);
-    if (session === undefined)
-      return render(
-        c,
-        listSessions(db, VIEWER_FILTER),
-        undefined,
-        <NotFoundDetail id={id} />,
-        { status: 404 },
-      );
+    if (session === undefined) return renderNotFound(c, id);
 
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
@@ -221,15 +223,18 @@ const createApp = (
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
+      const flush = async (lines: string[], from: number): Promise<number> => {
+        for (let i = from; i < lines.length; i++)
+          await stream.writeSSE({ event: "line", data: lines[i] });
+        return lines.length;
+      };
+
       const handle = getHandle(runner, id);
 
-      // No active run or already terminal — flush any accumulated lines
-      // (catch-up for a reconnecting client) then close.  The final
-      // structured transcript is fetched by the client via a fresh
-      // GET /sessions/:id re-query of listMessages after receiving "done".
+      // No active run, or run already finished: flush accumulated output
+      // (catch-up for a reconnecting client) then close.
       if (handle === undefined || isTerminalStatus(handle.status)) {
-        for (const line of handle?.lines ?? [])
-          await stream.writeSSE({ event: "line", data: line });
+        if (handle !== undefined) await flush(handle.lines, 0);
         await stream.writeSSE({
           event: "done",
           data: handle?.status ?? "idle",
@@ -237,7 +242,6 @@ const createApp = (
         return;
       }
 
-      // Active run — send status, stream live lines, then final status.
       await stream.writeSSE({
         event: "status",
         data: JSON.stringify({
@@ -246,28 +250,14 @@ const createApp = (
         }),
       });
 
-      let sentIndex = 0;
+      let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
-        while (sentIndex < handle.lines.length) {
-          await stream.writeSSE({
-            event: "line",
-            data: handle.lines[sentIndex],
-          });
-          sentIndex++;
-        }
+        sent = await flush(handle.lines, sent);
         await stream.sleep(50);
       }
 
-      // Flush any remaining lines after the run finishes.
-      while (sentIndex < handle.lines.length) {
-        await stream.writeSSE({
-          event: "line",
-          data: handle.lines[sentIndex],
-        });
-        sentIndex++;
-      }
-
+      sent = await flush(handle.lines, sent);
       await stream.writeSSE({
         event: "status",
         data: JSON.stringify({
@@ -283,14 +273,7 @@ const createApp = (
     const id = c.req.param("id");
     stop(runner, id);
     const session = getSession(db, id);
-    if (session === undefined)
-      return render(
-        c,
-        listSessions(db, VIEWER_FILTER),
-        undefined,
-        <NotFoundDetail id={id} />,
-        { status: 404 },
-      );
+    if (session === undefined) return renderNotFound(c, id);
     const messages = listMessages(db, id).map(parseMessage);
     return render(
       c,
