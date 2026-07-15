@@ -121,8 +121,11 @@ const createApp = (
   db: DatabaseSync,
   runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
   spawn?: SpawnFn,
+  existingRunner?: Runner,
 ): Hono<AppEnv> => {
-  const runner = createRunner(runnerConfig, spawn);
+  // When the caller supplies a runner (e.g. glv serve, which needs it for
+  // shutdown cleanup) reuse it; otherwise create one so tests stay simple.
+  const runner = existingRunner ?? createRunner(runnerConfig, spawn);
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -163,11 +166,16 @@ const createApp = (
         status: 404,
       });
     const messages = listMessages(db, id).map(parseMessage);
+    // Surface a terminal run handle — e.g. an error banner — so the detail
+    // pane reflects the run's outcome after the live stream re-renders on
+    // completion. Active/queued handles are passed through too; the Transcript
+    // only acts on them when they are genuinely live.
+    const run = getHandle(runner, id);
     return render(
       c,
       sessions,
       id,
-      <Transcript session={session} messages={messages} />,
+      <Transcript session={session} messages={messages} run={run} />,
     );
   });
 
@@ -228,12 +236,25 @@ const createApp = (
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      const flush = async (lines: string[], from: number): Promise<number> => {
+      // A write to an already-closed stream throws; guard every emission so a
+      // mid-stream client disconnect degrades gracefully instead of surfacing
+      // as an unhandled rejection that crashes the request.
+      const emit = async (event: string, data: string): Promise<boolean> => {
+        if (stream.aborted) return false;
+        try {
+          await stream.writeSSE({ event, data });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      const flush = async (lines: string[], from: number): Promise<boolean> => {
         for (let i = from; i < lines.length; i++) {
           const html = renderStreamLine(lines[i]);
-          if (html !== "") await stream.writeSSE({ event: "line", data: html });
+          if (html !== "" && !(await emit("line", html))) return false;
         }
-        return lines.length;
+        return true;
       };
 
       const handle = getHandle(runner, id);
@@ -242,37 +263,40 @@ const createApp = (
       // (catch-up for a reconnecting client) then close.
       if (handle === undefined || isTerminalStatus(handle.status)) {
         if (handle !== undefined) await flush(handle.lines, 0);
-        await stream.writeSSE({
-          event: "done",
-          data: handle?.status ?? "idle",
-        });
+        await emit("done", handle?.status ?? "idle");
         return;
       }
 
-      await stream.writeSSE({
-        event: "status",
-        data: JSON.stringify({
-          status: handle.status,
-          queuePosition: handle.queuePosition,
-        }),
-      });
+      if (
+        !(await emit(
+          "status",
+          JSON.stringify({
+            status: handle.status,
+            queuePosition: handle.queuePosition,
+          }),
+        ))
+      )
+        return;
 
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
-        sent = await flush(handle.lines, sent);
+        if (!(await flush(handle.lines, sent))) return;
+        sent = handle.lines.length;
         await stream.sleep(50);
       }
 
-      sent = await flush(handle.lines, sent);
-      await stream.writeSSE({
-        event: "status",
-        data: JSON.stringify({
+      await flush(handle.lines, sent);
+      await emit(
+        "status",
+        JSON.stringify({
           status: handle.status,
           error: handle.error ?? null,
         }),
-      });
-      await stream.writeSSE({ event: "done", data: "complete" });
+      );
+      // Send the real terminal status so a reconnecting client knows whether
+      // the run completed, was stopped, or errored.
+      await emit("done", handle.status);
     });
   });
 

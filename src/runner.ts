@@ -270,6 +270,17 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   return false;
 };
 
+// Stop every active or queued run. Used on server shutdown so that detached
+// goose process groups (which would otherwise outlive the viewer) are reaped
+// alongside it. Terminal handles are left untouched — they reference no live
+// process.
+const stopAll = (runner: Runner): number => {
+  let stopped = 0;
+  for (const sessionId of runner.registry.keys())
+    if (stop(runner, sessionId)) stopped++;
+  return stopped;
+};
+
 const isTerminalStatus = (status: RunStatus): boolean =>
   status === "completed" || status === "stopped" || status === "error";
 
@@ -303,4 +314,5 @@ export {
   newSessionInvocation,
   resumeInvocation,
   stop,
+  stopAll,
 };

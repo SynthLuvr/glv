@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProcessResult, SpawnFn } from "../runner.js";
-import { DEFAULT_RUNNER_CONFIG, makeRunnerConfig } from "../runner.js";
+import {
+  createRunner,
+  DEFAULT_RUNNER_CONFIG,
+  getHandle,
+  makeRunnerConfig,
+} from "../runner.js";
 import { createApp } from "../server.js";
 
 const SCHEMA = `
@@ -920,5 +925,102 @@ describe("M3: SSE stream renders HTML fragments", () => {
 
     expect(text).not.toContain("event: line");
     expect(text).toContain("event: done");
+  });
+});
+
+// === M4: polish & robustness ===
+
+describe("M4: error persistence on re-render", () => {
+  it("shows the error banner on GET after a run errors", async () => {
+    const { spawn } = createMockSpawn(["partial"], {
+      exitCode: 1,
+      delayMs: 50,
+    });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(300);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html).toContain("status-hint error");
+    expect(html).toContain("goose exited with code 1");
+    // the input is re-enabled (pane left in a usable state)
+    expect(html).toContain("send-btn");
+    expect(html).not.toContain("stop-btn");
+  });
+
+  it("does not show live-output for a completed run handle", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(200);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html).not.toContain('id="live-output"');
+    expect(html).toContain("send-btn");
+  });
+
+  it("does not duplicate the prompt bar for a terminal handle", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(200);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html.match(/class="prompt-bar"/g)).toHaveLength(1);
+  });
+});
+
+describe("M4: SSE done carries the real terminal status", () => {
+  it("sends 'completed' (not a generic marker) on success", async () => {
+    const { spawn } = createMockSpawn(["delta1"], { delayMs: 80 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: done");
+    expect(text).toContain("data: completed");
+  });
+
+  it("sends 'stopped' when a run was stopped", async () => {
+    const { spawn } = createMockSpawn(["l1", "l2"], { delayMs: 200 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await app.request("/sessions/alpha/stop", { method: "POST" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: done");
+    expect(text).toContain("data: stopped");
+  });
+});
+
+describe("M4: external runner injection", () => {
+  it("uses a caller-supplied runner so shutdown cleanup can reach it", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, undefined, runner);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    // The external runner — not a private one inside createApp — holds the
+    // handle, proving serve.ts can reach it for stopAll() on shutdown.
+    expect(getHandle(runner, "alpha")).toBeDefined();
+    expect(getHandle(runner, "alpha")?.prompt).toBe("hello");
+  });
+});
+
+describe("M4: stream client reconnect deduplication", () => {
+  it("clears live output on EventSource (re)open to avoid duplicates", async () => {
+    const res = await createApp(db).request("/stream.js");
+    const body = await res.text();
+    // An 'open' listener that empties #live-output prevents a reconnect from
+    // duplicating lines the server re-flushes for catch-up.
+    expect(body).toContain('"open"');
+    expect(body).toContain('innerHTML = ""');
   });
 });

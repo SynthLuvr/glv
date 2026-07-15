@@ -16,6 +16,7 @@ import {
   newSessionInvocation,
   resumeInvocation,
   stop,
+  stopAll,
 } from "../runner.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -302,6 +303,53 @@ describe("stop", () => {
     const handle = enqueue(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(stop(runner, "s1")).toBe(false);
+  });
+});
+
+describe("stopAll", () => {
+  it("stops every running and queued session and returns the count", async () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(makeRunnerConfig(4, "goose"), spawn);
+    const h1 = enqueue(runner, "s1", "hi", "/tmp");
+    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    await waitForStatus(h1, "running");
+    await waitForStatus(h2, "running");
+
+    const stopped = stopAll(runner);
+
+    expect(stopped).toBe(2);
+    await waitForStatus(h1, "stopped");
+    await waitForStatus(h2, "stopped");
+    expect(state.killCalls).toHaveLength(2);
+    expect(state.killCalls.every((c) => c.signal === "SIGINT")).toBe(true);
+  });
+
+  it("stops a queued session without spawning an extra process", () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 300 });
+    const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
+    enqueue(runner, "s1", "hi", "/tmp");
+    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+
+    const stopped = stopAll(runner);
+
+    expect(stopped).toBe(2);
+    expect(h2.status).toBe("stopped");
+    // Only s1 was running; s2 was cancelled in the queue (no kill call).
+    expect(state.killCalls).toHaveLength(1);
+  });
+
+  it("is a no-op on an empty registry", () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    expect(stopAll(runner)).toBe(0);
+  });
+
+  it("does not count already-terminal handles", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const h1 = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(h1, "completed");
+    expect(stopAll(runner)).toBe(0);
   });
 });
 
