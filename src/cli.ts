@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { delimiter } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
@@ -19,7 +21,7 @@ type LimitOpts = {
 
 type ServeOpts = {
   port: string;
-  maxConcurrent: string;
+  maxConcurrent: number;
   gooseBinary: string;
 };
 
@@ -87,17 +89,51 @@ program
     useDb((db) => runView(db, sessionId));
   });
 
+// Validate --max-concurrent at the CLI boundary so a bad value fails
+// fast with a commander error instead of reaching the runner.
+const parseMaxConcurrent = (value: string): number => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1)
+    throw new InvalidArgumentError("must be a positive integer (e.g. 6)");
+  return parsed;
+};
+
+// A bare name (e.g. "goose") is resolved against PATH; anything
+// containing a path separator must exist on disk.
+const resolveGooseBinary = (value: string): string => {
+  if (value.includes("/")) {
+    if (!existsSync(value))
+      throw new InvalidArgumentError(`binary not found at "${value}"`);
+    return value;
+  }
+  const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  const found = dirs.some((dir) => existsSync(`${dir}/${value}`));
+  if (!found)
+    throw new InvalidArgumentError(`binary "${value}" not found on PATH`);
+  return value;
+};
+
 program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
-  .option("-c, --max-concurrent <number>", "max concurrent goose runs", "6")
-  .option("--goose-binary <path>", "path to the goose binary", "goose")
+  .option(
+    "-c, --max-concurrent <number>",
+    "max concurrent goose runs",
+    parseMaxConcurrent,
+    6,
+  )
+  .option(
+    "--goose-binary <path>",
+    "path to the goose binary",
+    resolveGooseBinary,
+    "goose",
+  )
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(Number(opts.maxConcurrent), opts.gooseBinary),
+      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
     });
   });
 

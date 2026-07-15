@@ -168,3 +168,23 @@ describe("glv serve options", () => {
     expect(stdout).toContain("--goose-binary");
   });
 });
+
+describe("glv serve argument validation", () => {
+  it("rejects a non-positive --max-concurrent", () => {
+    const { stderr, status } = run("serve", "--max-concurrent", "0");
+    expect(status).toBe(1);
+    expect(stderr).toContain("max-concurrent");
+  });
+
+  it("rejects a non-numeric --max-concurrent", () => {
+    const { stderr, status } = run("serve", "--max-concurrent", "abc");
+    expect(status).toBe(1);
+    expect(stderr).toContain("max-concurrent");
+  });
+
+  it("rejects a --goose-binary path that does not exist", () => {
+    const { stderr, status } = run("serve", "--goose-binary", "/no/such/goose");
+    expect(status).toBe(1);
+    expect(stderr).toContain("goose-binary");
+  });
+});
