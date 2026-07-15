@@ -424,6 +424,33 @@ describe("web viewer htmx asset", () => {
   });
 });
 
+describe("web viewer static assets", () => {
+  it("references the stylesheet and client script in the document", async () => {
+    const res = await createApp(db).request("/");
+    const html = await res.text();
+    expect(html).toContain('rel="stylesheet" href="/app.css"');
+    expect(html).toContain('<script src="/sidebar.js"');
+  });
+
+  it("serves the stylesheet as CSS", async () => {
+    const res = await createApp(db).request("/app.css");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/css");
+    const body = await res.text();
+    expect(body).toContain("--accent");
+    expect(body).toContain(".session-item");
+  });
+
+  it("serves the sidebar client script as JavaScript", async () => {
+    const res = await createApp(db).request("/sidebar.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("updateBulkBar");
+    expect(body.length).toBeGreaterThan(100);
+  });
+});
+
 describe("web viewer htmx partials (HX-Request)", () => {
   it("returns only the transcript fragment for a session", async () => {
     const { status, html } = await renderHtmx("/sessions/alpha");

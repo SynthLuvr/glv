@@ -32,6 +32,18 @@ const htmxSource = readFileSync(
   "utf8",
 );
 
+// The stylesheet and the sidebar client script live as their own files under
+// src/ so they can be edited as real modules instead of raw strings embedded in
+// a view. They are resolved relative to this module and served as assets below.
+const appCss = readFileSync(
+  fileURLToPath(new URL("./styles/app.css", import.meta.url)),
+  "utf8",
+);
+const sidebarScript = readFileSync(
+  fileURLToPath(new URL("./scripts/sidebar.js", import.meta.url)),
+  "utf8",
+);
+
 const Shell = ({
   sessions,
   selectedId,
@@ -96,6 +108,20 @@ const createApp = (db: DatabaseSync): Hono => {
 
   app.get("/htmx.min.js", (c) =>
     c.body(htmxSource, 200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    }),
+  );
+
+  app.get("/app.css", (c) =>
+    c.body(appCss, 200, {
+      "Content-Type": "text/css; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    }),
+  );
+
+  app.get("/sidebar.js", (c) =>
+    c.body(sidebarScript, 200, {
       "Content-Type": "application/javascript; charset=utf-8",
       "Cache-Control": "public, max-age=86400",
     }),
