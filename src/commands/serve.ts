@@ -10,10 +10,8 @@ type ServeOpts = {
 };
 
 const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
-  // Create the runner here (rather than inside createApp) so we can reap
-  // every active goose process group when the viewer shuts down. goose runs
-  // spawn detached so Stop can kill the whole tree, but that also means they
-  // survive the viewer — without this cleanup they would leak as orphans.
+  // Created here (not inside createApp) so SIGINT/SIGTERM can reap the
+  // detached goose processes that would otherwise outlive the viewer.
   const runner = createRunner(opts.runner);
   const app = createApp(db, runner);
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) =>
