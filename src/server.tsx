@@ -113,7 +113,6 @@ const createApp = (
 ): Hono<AppEnv> => {
   const runner = createRunner(runnerConfig);
   const app = new Hono<AppEnv>();
-  // expose the bounded goose runner to every request handler
   app.use(async (c, next) => {
     c.set("runner", runner);
     await next();
