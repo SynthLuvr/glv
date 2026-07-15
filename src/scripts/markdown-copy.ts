@@ -1,8 +1,7 @@
 const COPIED_MS = 1500;
 
-// The button is server-rendered inside every `.markdown` block and also arrives
-// via htmx swaps and SSE stream lines, so a single document-level delegated
-// listener covers all three entry points without re-initialisation.
+// Buttons arrive server-rendered, via htmx swaps, and via SSE stream lines;
+// document-level delegation covers all three without per-button listeners.
 const copyMarkdown = async (btn: HTMLElement): Promise<void> => {
   const md = btn.dataset.md;
   if (md === undefined) return;

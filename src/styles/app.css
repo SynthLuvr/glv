@@ -515,9 +515,6 @@ body {
   line-height: 1.65;
   word-wrap: break-word;
 }
-/* "Copy as markdown" affordance. The raw source rides along in `data-md`, so
-   the button copies markdown rather than the rendered prose. It stays hidden
-   until the block is hovered or focused, then pins visible while "copied". */
 .markdown-wrap {
   position: relative;
 }
