@@ -10,9 +10,8 @@ const OUTPUT_DIR = join(PROJECT_ROOT, "dist");
 const OUTPUT = join(OUTPUT_DIR, "app.css");
 const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
 
-// Compile the Tailwind v4 stylesheet (src/styles/app.css -> dist/app.css).
-// Called by the serve command (and the build:css script) so the viewer always
-// ships current CSS. Silent on success; surfaces the compiler output on error.
+// Compiles src/styles/app.css → dist/app.css so the viewer always serves
+// current styles. Called by `glv serve` and the build:css script.
 const buildStyles = (): void => {
   mkdirSync(OUTPUT_DIR, { recursive: true });
   const result = spawnSync(
@@ -23,14 +22,12 @@ const buildStyles = (): void => {
   if (result.error !== undefined) throw result.error;
   if (result.status !== 0)
     throw new Error(
-      "Tailwind build failed (exit " +
-        String(result.status) +
-        ")\n" +
-        (result.stderr ?? ""),
+      `Tailwind build failed (exit ${result.status})\n${result.stderr ?? ""}`,
     );
 };
 
-// Run as the main module via "tsx src/build.ts" (the build:css script).
+// Allows running directly via "tsx src/build.ts" (the build:css script)
+// as well as being imported by the serve command.
 const isMain = (): boolean => {
   const entry = process.argv[1];
   if (entry === undefined) return false;
@@ -41,7 +38,7 @@ const isMain = (): boolean => {
 
 if (isMain()) {
   buildStyles();
-  console.log("glv styles built -> " + OUTPUT);
+  console.log(`glv styles built → ${OUTPUT}`);
 }
 
 export { buildStyles };

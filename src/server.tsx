@@ -111,8 +111,7 @@ const createApp = (
   runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
 ): Hono<AppEnv> => {
   const runner = createRunner(runnerConfig);
-  // Compiled by the Tailwind build step (see src/build.ts); read lazily so
-  // the serve command can rebuild before the app is assembled.
+  // Inside createApp so serve can call buildStyles before this read.
   const appCss = readAsset("../dist/app.css");
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {

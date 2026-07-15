@@ -10,7 +10,6 @@ type ServeOpts = {
 };
 
 const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
-  // Compile the Tailwind stylesheet so the viewer serves current CSS.
   buildStyles();
   const app = createApp(db, opts.runner);
   serve({ fetch: app.fetch, port: opts.port }, (info) =>
