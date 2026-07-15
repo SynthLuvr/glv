@@ -89,10 +89,6 @@ program
     useDb((db) => runView(db, sessionId));
   });
 
-// Validate --max-concurrent at the CLI boundary with arktype,
-// mirroring the runner's own schema. The pipe arg must be a Type
-// instance — a raw type string trips an InternalArktypeError in
-// arktype 2.2.x.
 const MaxConcurrent = type("string.numeric.parse").pipe(
   type("number.integer > 0"),
 );
@@ -106,8 +102,6 @@ const parseMaxConcurrent = (value: string): number => {
   return result;
 };
 
-// A bare name (e.g. "goose") is resolved against PATH; anything
-// containing a path separator must exist on disk.
 const resolveGooseBinary = (value: string): string => {
   if (value.includes("/")) {
     if (!existsSync(value))
