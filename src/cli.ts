@@ -5,6 +5,7 @@ import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
+import { makeRunnerConfig } from "./runner.js";
 
 type SessionsOpts = {
   type: string;
@@ -18,6 +19,8 @@ type LimitOpts = {
 
 type ServeOpts = {
   port: string;
+  maxConcurrent: string;
+  gooseBinary: string;
 };
 
 const program = new Command();
@@ -88,9 +91,14 @@ program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
+  .option("-c, --max-concurrent <number>", "max concurrent goose runs", "6")
+  .option("--goose-binary <path>", "path to the goose binary", "goose")
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
-    runServe(db, { port: Number(opts.port) });
+    runServe(db, {
+      port: Number(opts.port),
+      runner: makeRunnerConfig(Number(opts.maxConcurrent), opts.gooseBinary),
+    });
   });
 
 const main = (): void => {

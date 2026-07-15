@@ -41,6 +41,14 @@ Global options:
 - `--db <path>` — override the database location.
 - `--limit <n>` — number of rows to list (default 20).
 
+`glv serve` options:
+
+- `-p, --port <number>` — port to listen on (default `3000`).
+- `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
+  driven from the detail pane (default `6`).
+- `--goose-binary <path>` — path to the `goose` binary used to run
+  prompts (default `goose` on `PATH`).
+
 ## Development
 
 ``` bash

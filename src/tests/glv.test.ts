@@ -160,3 +160,11 @@ describe("glv view", () => {
     expect(stderr).toContain("Session not found");
   });
 });
+
+describe("glv serve options", () => {
+  it("accepts --max-concurrent and --goose-binary flags", () => {
+    const { stdout } = run("serve", "--help");
+    expect(stdout).toContain("--max-concurrent");
+    expect(stdout).toContain("--goose-binary");
+  });
+});

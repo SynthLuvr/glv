@@ -12,6 +12,8 @@ import {
   listSessions,
 } from "./db.js";
 import { parseMessage } from "./format.js";
+import type { Runner, RunnerConfig } from "./runner.js";
+import { createRunner, DEFAULT_RUNNER_CONFIG } from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import {
@@ -103,8 +105,19 @@ const serveAsset = (c: Context, body: string, contentType: string) =>
     "Cache-Control": "public, max-age=86400",
   });
 
-const createApp = (db: DatabaseSync): Hono => {
-  const app = new Hono();
+type AppEnv = { Variables: { runner: Runner } };
+
+const createApp = (
+  db: DatabaseSync,
+  runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
+): Hono<AppEnv> => {
+  const runner = createRunner(runnerConfig);
+  const app = new Hono<AppEnv>();
+  // expose the bounded goose runner to every request handler
+  app.use(async (c, next) => {
+    c.set("runner", runner);
+    await next();
+  });
 
   app.get("/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
