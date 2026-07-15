@@ -9,6 +9,42 @@ const ContentItem = type({
 
 type ContentItem = typeof ContentItem.infer;
 
+// ContentItem is intentionally permissive so any item type parses through.
+// The richer shapes below are asserted per-accessor (never cast) so the
+// viewer stays robust across schema drift between goose versions.
+const ThinkingItem = type({
+  type: "'thinking'",
+  "thinking?": "string",
+});
+
+const ToolRequestItem = type({
+  type: "'toolRequest'",
+  "toolCall?": {
+    "value?": {
+      "name?": "string",
+      "arguments?": "unknown",
+    },
+  },
+  "_meta?": {
+    "goose_extension?": "string",
+  },
+});
+
+const ToolResponseItem = type({
+  type: "'toolResponse'",
+  "toolResult?": {
+    "value?": {
+      "content?": "unknown",
+      "isError?": "boolean",
+    },
+  },
+});
+
+const TextEntry = type({
+  type: "'text'",
+  text: "string",
+});
+
 type ParsedMessage = {
   role: string;
   timestamp: string;
@@ -42,32 +78,23 @@ const extractTexts = (items: ContentItem[]): string[] =>
     item.type === "text" && item.text !== undefined ? [item.text] : [],
   );
 
-// ContentItem only models the `text` block in its schema, but real goose
-// messages carry thinking blocks, tool calls and tool results too. These
-// accessors read those richer shapes defensively (casting through a record)
-// so the viewer stays robust across schema drift between goose versions.
-const asRecord = (item: ContentItem): Record<string, unknown> =>
-  item as Record<string, unknown>;
-
-const optString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
-
 const contentToText = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const entry of content) {
-    if (entry === null || typeof entry !== "object") continue;
-    const obj = entry as Record<string, unknown>;
-    if (obj.type === "text" && typeof obj.text === "string")
-      parts.push(obj.text);
+    const parsed = TextEntry(entry);
+    if (parsed instanceof type.errors) continue;
+    parts.push(parsed.text);
   }
   return parts.join("\n");
 };
 
 const thinkingText = (item: ContentItem): string | undefined => {
   if (item.type !== "thinking") return;
-  return optString(asRecord(item).thinking);
+  const parsed = ThinkingItem(item);
+  if (parsed instanceof type.errors) return undefined;
+  return parsed.thinking;
 };
 
 type ToolCallInfo = {
@@ -78,16 +105,13 @@ type ToolCallInfo = {
 
 const toolCallInfo = (item: ContentItem): ToolCallInfo | undefined => {
   if (item.type !== "toolRequest") return;
-  const record = asRecord(item);
-  const call = record.toolCall as
-    | { value?: Record<string, unknown> }
-    | undefined;
-  const value = call?.value;
-  const meta = record._meta as { goose_extension?: unknown } | undefined;
+  const parsed = ToolRequestItem(item);
+  if (parsed instanceof type.errors) return undefined;
+  const value = parsed.toolCall?.value;
   return {
-    name: optString(value?.name) ?? "tool",
+    name: value?.name ?? "tool",
     args: value?.arguments ?? {},
-    extension: optString(meta?.goose_extension) ?? null,
+    extension: parsed._meta?.goose_extension ?? null,
   };
 };
 
@@ -98,10 +122,9 @@ type ToolResultInfo = {
 
 const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
   if (item.type !== "toolResponse") return;
-  const result = asRecord(item).toolResult as
-    | { value?: Record<string, unknown> }
-    | undefined;
-  const value = result?.value;
+  const parsed = ToolResponseItem(item);
+  if (parsed instanceof type.errors) return undefined;
+  const value = parsed.toolResult?.value;
   return {
     text: contentToText(value?.content),
     isError: value?.isError === true,
@@ -117,10 +140,14 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
   return role === "user" ? "prompt" : "output";
 };
 
+const HtmlString = type("string");
+
 // Assistant prose is Markdown; render it to HTML. The data comes from the
-// user's own local session logs, so marked's output is trusted as-is.
+// user's own local session logs, so marked's output is trusted as-is. The
+// return is asserted (not cast) so a stray async/Promise result surfaces as
+// a clear error rather than silently leaking into the markup.
 const renderMarkdown = (md: string): string =>
-  marked.parse(md, { gfm: true, breaks: true }) as string;
+  HtmlString.assert(marked.parse(md, { gfm: true, breaks: true }));
 
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max - 1)}…`;
