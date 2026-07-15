@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
+import { streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionFilter, SessionRow } from "./db.js";
 import {
@@ -12,8 +13,15 @@ import {
   listSessions,
 } from "./db.js";
 import { parseMessage } from "./format.js";
-import type { Runner, RunnerConfig } from "./runner.js";
-import { createRunner, DEFAULT_RUNNER_CONFIG } from "./runner.js";
+import type { Runner, RunnerConfig, SpawnFn } from "./runner.js";
+import {
+  createRunner,
+  DEFAULT_RUNNER_CONFIG,
+  enqueue,
+  getHandle,
+  isTerminalStatus,
+  stop,
+} from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import {
@@ -110,8 +118,9 @@ type AppEnv = { Variables: { runner: Runner } };
 const createApp = (
   db: DatabaseSync,
   runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
+  spawn?: SpawnFn,
 ): Hono<AppEnv> => {
-  const runner = createRunner(runnerConfig);
+  const runner = createRunner(runnerConfig, spawn);
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -165,6 +174,130 @@ const createApp = (
     archiveSessions(db, extractIds(body.id));
     const sessions = listSessions(db, VIEWER_FILTER);
     return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
+  });
+
+  // --- Prompt runner endpoints (M2) ---
+
+  app.post("/sessions/:id/prompt", async (c) => {
+    const id = c.req.param("id");
+    const session = getSession(db, id);
+    if (session === undefined)
+      return render(
+        c,
+        listSessions(db, VIEWER_FILTER),
+        undefined,
+        <NotFoundDetail id={id} />,
+        { status: 404 },
+      );
+
+    const body = await c.req.parseBody();
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
+    if (prompt !== "")
+      try {
+        enqueue(runner, id, prompt, session.working_dir);
+      } catch {
+        // Already running or queued — fall through to render current state.
+      }
+
+    const run = getHandle(runner, id);
+    const messages = listMessages(db, id).map(parseMessage);
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      id,
+      <Transcript
+        session={session}
+        messages={messages}
+        run={run}
+        prompt={prompt || undefined}
+      />,
+    );
+  });
+
+  app.get("/sessions/:id/stream", (c) => {
+    const id = c.req.param("id");
+    if (getSession(db, id) === undefined)
+      return c.text("Session not found", 404);
+
+    return streamSSE(c, async (stream) => {
+      const handle = getHandle(runner, id);
+
+      // No active run or already terminal — flush any accumulated lines
+      // (catch-up for a reconnecting client) then close.  The final
+      // structured transcript is fetched by the client via a fresh
+      // GET /sessions/:id re-query of listMessages after receiving "done".
+      if (handle === undefined || isTerminalStatus(handle.status)) {
+        for (const line of handle?.lines ?? [])
+          await stream.writeSSE({ event: "line", data: line });
+        await stream.writeSSE({
+          event: "done",
+          data: handle?.status ?? "idle",
+        });
+        return;
+      }
+
+      // Active run — send status, stream live lines, then final status.
+      await stream.writeSSE({
+        event: "status",
+        data: JSON.stringify({
+          status: handle.status,
+          queuePosition: handle.queuePosition,
+        }),
+      });
+
+      let sentIndex = 0;
+      while (!isTerminalStatus(handle.status)) {
+        if (stream.aborted) return;
+        while (sentIndex < handle.lines.length) {
+          await stream.writeSSE({
+            event: "line",
+            data: handle.lines[sentIndex],
+          });
+          sentIndex++;
+        }
+        await stream.sleep(50);
+      }
+
+      // Flush any remaining lines after the run finishes.
+      while (sentIndex < handle.lines.length) {
+        await stream.writeSSE({
+          event: "line",
+          data: handle.lines[sentIndex],
+        });
+        sentIndex++;
+      }
+
+      await stream.writeSSE({
+        event: "status",
+        data: JSON.stringify({
+          status: handle.status,
+          error: handle.error ?? null,
+        }),
+      });
+      await stream.writeSSE({ event: "done", data: "complete" });
+    });
+  });
+
+  app.post("/sessions/:id/stop", (c) => {
+    const id = c.req.param("id");
+    stop(runner, id);
+    const session = getSession(db, id);
+    if (session === undefined)
+      return render(
+        c,
+        listSessions(db, VIEWER_FILTER),
+        undefined,
+        <NotFoundDetail id={id} />,
+        { status: 404 },
+      );
+    const messages = listMessages(db, id).map(parseMessage);
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      id,
+      <Transcript session={session} messages={messages} />,
+    );
   });
 
   return app;
