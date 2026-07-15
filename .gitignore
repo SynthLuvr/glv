@@ -1,5 +1,3 @@
 node_modules
 dist
 *.js
-# Browser client scripts are committed source, not compiled output.
-!src/scripts/**
