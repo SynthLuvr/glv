@@ -27,8 +27,6 @@
   --color-err: #dc2626;
   --color-err-soft: #fef2f2;
   --color-err-border: #fecaca;
-  /* Hardcoded hex values that previously appeared inline are promoted to
-     tokens so each can vary between light and dark themes. */
   --color-selected-border: #cfe0ff;
   --color-thinking-bg: #faf8f1;
   --color-thinking-border: #efe6cf;
@@ -164,7 +162,6 @@ body {
   width: 1rem;
   height: 1rem;
 }
-/* Moon shown in light mode, sun in dark mode. */
 .theme-toggle .icon-sun {
   display: none;
 }
