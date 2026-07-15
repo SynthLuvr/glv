@@ -515,6 +515,63 @@ body {
   line-height: 1.65;
   word-wrap: break-word;
 }
+.markdown-wrap {
+  position: relative;
+}
+.copy-md-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.markdown-wrap:hover .copy-md-btn,
+.copy-md-btn:focus-visible,
+.copy-md-btn.copied {
+  opacity: 1;
+}
+.copy-md-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+.copy-md-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.copy-md-btn.copied {
+  color: var(--color-ok);
+  border-color: var(--color-ok);
+}
+.copy-md-btn svg {
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none;
+}
+.copy-md-btn .icon-check {
+  display: none;
+}
+.copy-md-btn.copied .icon-copy {
+  display: none;
+}
+.copy-md-btn.copied .icon-check {
+  display: inline;
+}
 .markdown > :first-child {
   margin-top: 0;
 }
