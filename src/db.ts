@@ -101,10 +101,8 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
-// Every session id sharing a (name, working_dir) pair. The new-session flow
-// snapshots this set before spawning, then polls until a *new* id appears —
-// so a pre-existing session with the same name and dir never causes a false
-// match while goose is still creating the row.
+// Lets the new-session poll distinguish a freshly created session from a
+// pre-existing one sharing the same name and working dir.
 const matchingSessionIds = (
   db: DatabaseSync,
   name: string,
@@ -118,8 +116,6 @@ const matchingSessionIds = (
     .filter((id): id is string => typeof id === "string");
 };
 
-// Distinct working directories across all sessions, for the new-session form's
-// <datalist> of recently used dirs (one keystroke to re-select).
 const listWorkingDirs = (db: DatabaseSync): string[] => {
   const rows = db
     .prepare("SELECT DISTINCT working_dir FROM sessions ORDER BY working_dir")

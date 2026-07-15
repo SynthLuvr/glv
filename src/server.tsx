@@ -144,19 +144,15 @@ const flushLines = async (
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// The session name is invisible to the user — auto-derived from the prompt so
-// the sidebar card is readable. Falls back to a timestamped id when the prompt
-// has no usable first line.
+// Derived from the prompt so the sidebar card is readable without user input.
 const deriveSessionName = (prompt: string): string => {
   const firstLine = prompt.split("\n")[0]?.trim() ?? "";
   if (firstLine === "") return `session-${Date.now()}`;
   return firstLine.length > 40 ? `${firstLine.slice(0, 39)}…` : firstLine;
 };
 
-// `goose run -n` generates the session id; we can't pre-assign it. After
-// spawning we poll the sessions DB for a *new* id matching the derived name
-// and chosen working dir (snapshotting pre-existing ids so a colliding older
-// session never causes a false match), then re-key the run handle to it.
+// goose run -n assigns the session id, so after spawning we poll the DB for a
+// *new* id (excluding ids that pre-existed) and re-key the run handle to it.
 const pollForSessionId = async (
   db: DatabaseSync,
   name: string,
@@ -204,8 +200,6 @@ const createApp = (
       { status: 404 },
     );
 
-  // The default landing and post-archive state: a new-session input form
-  // pre-filled with the process cwd and a datalist of recently used dirs.
   const newSessionDetail = (error?: string): Child => (
     <NewSessionForm
       workingDir={process.cwd()}
@@ -242,33 +236,22 @@ const createApp = (
 
   app.post("/sessions", async (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
+    const reject = (error: string, status: ContentfulStatusCode) =>
+      render(c, sessions, undefined, newSessionDetail(error), { status });
+
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     const workingDir =
       typeof body.working_dir === "string" ? body.working_dir.trim() : "";
 
     if (prompt === "")
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail("A prompt is required to start a session."),
-        { status: 422 },
-      );
-
+      return reject("A prompt is required to start a session.", 422);
     if (workingDir === "" || !existsSync(workingDir))
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail("That working directory does not exist."),
-        { status: 422 },
-      );
+      return reject("That working directory does not exist.", 422);
 
     const name = deriveSessionName(prompt);
     const tempKey = generateTempKey();
-    // Snapshot ids that already match this name + dir so the poll only accepts
-    // the brand-new row goose is about to create.
+    // Exclude ids that already match so the poll only accepts goose's new row.
     const known = new Set(matchingSessionIds(db, name, workingDir));
     enqueueNew(runner, tempKey, name, prompt, workingDir);
 
@@ -280,16 +263,10 @@ const createApp = (
       pollTimeoutMs,
     );
     if (realId === undefined) {
-      // goose never wrote the row — stop the orphaned run and report.
       stop(runner, tempKey);
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail(
-          "goose did not create a session in time. Is the goose binary available?",
-        ),
-        { status: 502 },
+      return reject(
+        "goose did not create a session in time. Is the goose binary available?",
+        502,
       );
     }
 
@@ -297,26 +274,20 @@ const createApp = (
     const session = getSession(db, realId);
     if (session === undefined) {
       stop(runner, realId);
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail(
-          "goose did not create a session in time. Is the goose binary available?",
-        ),
-        { status: 502 },
+      return reject(
+        "goose did not create a session in time. Is the goose binary available?",
+        502,
       );
     }
-    const messages = listMessages(db, realId).map(parseMessage);
-    const run = getHandle(runner, realId);
+
     return render(
       c,
       listSessions(db, VIEWER_FILTER),
       realId,
       <Transcript
         session={session}
-        messages={messages}
-        run={run}
+        messages={listMessages(db, realId).map(parseMessage)}
+        run={getHandle(runner, realId)}
         prompt={prompt}
       />,
       { refreshSidebar: true },

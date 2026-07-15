@@ -90,8 +90,7 @@ type EnqueueOptions = {
 };
 
 type InternalHandle = Omit<RunHandle, "sessionId"> & {
-  // Writable so a new-session run can be re-keyed from its temporary id to
-  // the real session id that goose generates and writes to the DB.
+  // Writable: rekeyed from the temp id to goose's real session id.
   sessionId: string;
   readonly workingDir: string;
   cancelled: boolean;
@@ -251,7 +250,6 @@ const enqueueInvocation = (
   return handle;
 };
 
-// Resumes an existing session: goose re-attaches to the known session id.
 const enqueue = (
   runner: Runner,
   sessionId: string,
@@ -268,10 +266,8 @@ const enqueue = (
     opts,
   );
 
-// Starts a brand-new session: `goose run -n` generates the session id itself,
-// so the run is registered under a server-issued temporary key. Once goose
-// writes the new row to the sessions DB, the server re-keys the handle to the
-// real id (see `rekey`); until then streaming/stop resolve via the temp key.
+// `goose run -n` assigns its own session id, so the run starts under a
+// temporary key and is re-keyed once goose writes the real id (see rekey).
 const enqueueNew = (
   runner: Runner,
   tempKey: string,
@@ -289,9 +285,8 @@ const enqueueNew = (
     opts,
   );
 
-// Moves a run handle from its temporary key to the real session id that goose
-// assigned. From this point on streaming, stop, and follow-up prompts all
-// resolve the handle by the real id — no new code paths required.
+// Re-points a run from its temporary key to the real session id goose
+// assigned, so downstream lookups (stream, stop, follow-up) use the real id.
 const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   const handle = runner.registry.get(oldKey);
   if (handle === undefined) return false;
@@ -301,8 +296,7 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   return true;
 };
 
-// A throwaway identifier unique enough to never collide with a real goose
-// session id, and distinct between concurrent new-session submissions.
+// Prefixed so it can never collide with a real goose session id.
 const generateTempKey = (): string =>
   `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
