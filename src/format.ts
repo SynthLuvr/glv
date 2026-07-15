@@ -239,15 +239,12 @@ export type {
   ToolResultInfo,
 };
 export {
-  contentToText,
   displayName,
-  extractTexts,
   fmtRelative,
   fmtTokens,
   formatSessionHeader,
   formatTranscript,
   messageKind,
-  parseContent,
   parseMessage,
   renderMarkdown,
   renderTable,
