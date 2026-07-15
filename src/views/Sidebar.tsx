@@ -22,13 +22,15 @@ const SessionItem = ({
   const href = `/sessions/${session.id}`;
   return (
     <div class={`session-item${selected ? " selected" : ""}`}>
-      <input
-        type="checkbox"
-        class="session-check"
-        name="id"
-        value={session.id}
-        aria-label={`Select ${displayName(session.name)}`}
-      />
+      <label class="session-check-wrap" title="Select for bulk actions">
+        <input
+          type="checkbox"
+          class="session-check"
+          name="id"
+          value={session.id}
+          aria-label={`Select ${displayName(session.name)}`}
+        />
+      </label>
       <a class="session-link" href={href} hx-get={href}>
         <span class="session-name">{displayName(session.name)}</span>
         <span class="session-sub">
@@ -52,9 +54,26 @@ const SessionItem = ({
 
 const BulkActionBar = () => (
   <div id="bulk-bar" class="bulk-bar" hidden={true}>
+    <button
+      type="button"
+      class="bulk-toggle-btn"
+      id="bulk-toggle"
+      data-bulk-action="select-all"
+      title="Select or deselect every session"
+    >
+      Select all
+    </button>
     <span class="bulk-count-wrap">
       <strong id="bulk-count">0</strong> selected
     </span>
+    <button
+      type="button"
+      class="bulk-clear-btn"
+      data-bulk-action="clear"
+      title="Clear the current selection"
+    >
+      Clear
+    </button>
     <button
       type="button"
       class="bulk-archive-btn"
@@ -91,12 +110,27 @@ const SessionList = ({
   </div>
 );
 
-// htmx serializes the checked boxes via `hx-include`, but the live "N selected"
-// count and showing/hiding the action bar are inherently client-side. Delegating
-// on `document` keeps the handler alive across the out-of-band sidebar swaps htmx
-// performs; the bar is re-rendered hidden by the server on every list refresh,
-// so navigating to another session always resets the selection.
-const SELECTION_SCRIPT = raw(`
+// The custom-styled checks are pure presentation over a real checkbox, so htmx
+// still serializes the selection via `hx-include`. The live "N selected" count,
+// the Select-all / Clear toggles and the active-row highlight are inherently
+// client-side. Delegating on `document` keeps the handlers alive across the
+// out-of-band swaps htmx performs on archive. Plain navigation only swaps the
+// detail pane, so an in-progress selection is preserved; the bar is re-rendered
+// hidden by the server whenever the list does refresh (after archiving).
+const SIDEBAR_SCRIPT = raw(`
+  const updateBulkBar = () => {
+    const checks = Array.from(document.querySelectorAll(".session-check"));
+    const checkedCount = checks.filter((c) => c.checked).length;
+    const bar = document.getElementById("bulk-bar");
+    const count = document.getElementById("bulk-count");
+    const toggle = document.getElementById("bulk-toggle");
+    const allChecked = checks.length > 0 && checkedCount === checks.length;
+    if (count !== null) count.textContent = String(checkedCount);
+    if (bar !== null) bar.hidden = checkedCount === 0;
+    if (toggle !== null)
+      toggle.textContent = allChecked ? "Deselect all" : "Select all";
+  };
+
   document.addEventListener("change", (e) => {
     const target = e.target;
     if (
@@ -104,12 +138,42 @@ const SELECTION_SCRIPT = raw(`
       !target.classList.contains("session-check")
     )
       return;
-    const checked = document.querySelectorAll(".session-check:checked");
-    const bar = document.getElementById("bulk-bar");
-    const count = document.getElementById("bulk-count");
-    if (count !== null) count.textContent = String(checked.length);
-    if (bar !== null) bar.hidden = checked.length === 0;
+    updateBulkBar();
   });
+
+  document.addEventListener("click", (e) => {
+    const el = e.target instanceof Element ? e.target : null;
+
+    // Select-all / Clear toolbar buttons.
+    const btn = el === null ? null : el.closest("[data-bulk-action]");
+    if (btn !== null) {
+      e.preventDefault();
+      const checks = Array.from(document.querySelectorAll(".session-check"));
+      const allChecked = checks.length > 0 && checks.every((c) => c.checked);
+      if (btn.dataset.bulkAction === "select-all")
+        checks.forEach((c) => { c.checked = !allChecked; });
+      else if (btn.dataset.bulkAction === "clear")
+        checks.forEach((c) => { c.checked = false; });
+      updateBulkBar();
+      return;
+    }
+
+    // Navigation: move the active-row highlight to the clicked session. The
+    // sidebar is not re-rendered on navigation (preserving any selection), so
+    // the highlight is maintained here instead of server-side.
+    const link = el === null ? null : el.closest(".session-link");
+    if (link !== null) {
+      const item = link.closest(".session-item");
+      if (item !== null) {
+        document
+          .querySelectorAll(".session-item.selected")
+          .forEach((node) => node.classList.remove("selected"));
+        item.classList.add("selected");
+      }
+    }
+  });
+
+  updateBulkBar();
 `);
 
 const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
@@ -123,7 +187,7 @@ const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
     ) : (
       <SessionList sessions={sessions} selectedId={selectedId} />
     )}
-    <script>{SELECTION_SCRIPT}</script>
+    <script>{SIDEBAR_SCRIPT}</script>
   </aside>
 );
 

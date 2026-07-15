@@ -434,20 +434,20 @@ describe("web viewer htmx partials (HX-Request)", () => {
     expect(html).toContain("Goose is an agent");
   });
 
-  it("sends an out-of-band sidebar update that moves the selection", async () => {
+  it("returns only the transcript without re-rendering the sidebar", async () => {
     const { html } = await renderHtmx("/sessions/alpha");
-    expect(html).toContain('id="session-list"');
-    expect(html).toContain('hx-swap-oob="true"');
-    expect(html).toContain('class="session-item selected"');
-    expect(html).toContain("Alpha Session");
-    expect(html).toContain("Beta Session");
+    expect(html).toContain("What is goose?");
+    // navigation must not swap the sidebar, otherwise the bulk selection is lost
+    expect(html).not.toContain('id="session-list"');
+    expect(html).not.toContain('hx-swap-oob="true"');
+    expect(html).not.toContain("Beta Session");
   });
 
   it("returns only the placeholder fragment for the root", async () => {
     const { html } = await renderHtmx("/");
     expect(html).not.toContain("<html");
     expect(html).toContain("No session selected");
-    expect(html).toContain('hx-swap-oob="true"');
+    expect(html).not.toContain('hx-swap-oob="true"');
   });
 
   it("returns a 404 fragment for an unknown session", async () => {

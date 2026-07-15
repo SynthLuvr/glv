@@ -61,9 +61,11 @@ const extractIds = (value: unknown): string[] => {
   return typeof value === "string" ? [value] : [];
 };
 
-// htmx clicks get just the detail pane plus an out-of-band sidebar update;
-// everything else gets the full document.
-const respond = (
+// htmx navigation returns just the detail pane. The sidebar is intentionally
+// left untouched so an in-progress bulk selection survives; the active-row
+// highlight is moved client-side instead of via an out-of-band re-render. Full
+// (non-htmx) loads still render the whole document with the sidebar.
+const renderView = (
   c: Context,
   sessions: SessionRow[],
   selectedId: string | undefined,
@@ -71,15 +73,32 @@ const respond = (
   status: ContentfulStatusCode = 200,
 ) =>
   isHtmxRequest(c)
+    ? c.html(<Fragment>{detail}</Fragment>, status)
+    : c.html(
+        <Shell sessions={sessions} selectedId={selectedId}>
+          {detail}
+        </Shell>,
+        status,
+      );
+
+// Mutating actions (archive) also refresh the sidebar out-of-band so removed
+// sessions disappear; the bulk selection is expected to reset afterwards.
+const renderMutation = (
+  c: Context,
+  sessions: SessionRow[],
+  detail: Child,
+  status: ContentfulStatusCode = 200,
+) =>
+  isHtmxRequest(c)
     ? c.html(
         <Fragment>
           {detail}
-          <SessionList sessions={sessions} selectedId={selectedId} oob />
+          <SessionList sessions={sessions} selectedId={undefined} oob />
         </Fragment>,
         status,
       )
     : c.html(
-        <Shell sessions={sessions} selectedId={selectedId}>
+        <Shell sessions={sessions} selectedId={undefined}>
           {detail}
         </Shell>,
         status,
@@ -97,7 +116,7 @@ const createApp = (db: DatabaseSync): Hono => {
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    return respond(c, sessions, undefined, <DetailPlaceholder />);
+    return renderView(c, sessions, undefined, <DetailPlaceholder />);
   });
 
   app.get("/sessions/:id", (c) => {
@@ -105,9 +124,15 @@ const createApp = (db: DatabaseSync): Hono => {
     const sessions = listSessions(db, VIEWER_FILTER);
     const session = getSession(db, id);
     if (session === undefined)
-      return respond(c, sessions, undefined, <NotFoundDetail id={id} />, 404);
+      return renderView(
+        c,
+        sessions,
+        undefined,
+        <NotFoundDetail id={id} />,
+        404,
+      );
     const messages = listMessages(db, id).map(parseMessage);
-    return respond(
+    return renderView(
       c,
       sessions,
       id,
@@ -122,7 +147,7 @@ const createApp = (db: DatabaseSync): Hono => {
     const id = c.req.param("id");
     archiveSessions(db, [id]);
     const sessions = listSessions(db, VIEWER_FILTER);
-    return respond(c, sessions, undefined, <DetailPlaceholder />);
+    return renderMutation(c, sessions, <DetailPlaceholder />);
   });
 
   // Bulk-archiving the sidebar selection. The checked box values arrive as form
