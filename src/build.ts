@@ -15,19 +15,19 @@ const SCRIPT_ENTRIES = [
   join(SRC_DIR, "scripts", "stream.ts"),
 ];
 
-// Compiles src/styles/app.css → dist/app.css so the viewer always serves
-// current styles. Called by `glv serve` and the build:assets script.
-const buildStyles = (): void => {
+const ensureDistDir = (): void => {
   mkdirSync(OUTPUT_DIR, { recursive: true });
+};
+
+const buildStyles = (): void => {
+  ensureDistDir();
   execaSync(TAILWIND_BIN, ["-i", CSS_INPUT, "-o", CSS_OUTPUT, "--minify"], {
     stdio: ["ignore", "pipe", "pipe"],
   });
 };
 
-// Compiles src/scripts/*.ts → minified dist/*.js so the viewer always serves
-// current client scripts. Called by `glv serve` and the build:assets script.
 const buildScripts = (): void => {
-  mkdirSync(OUTPUT_DIR, { recursive: true });
+  ensureDistDir();
   buildSync({
     entryPoints: SCRIPT_ENTRIES,
     outdir: OUTPUT_DIR,
