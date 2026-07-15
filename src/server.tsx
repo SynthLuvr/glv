@@ -24,6 +24,7 @@ import {
 } from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
+import { renderStreamLine } from "./views/stream-line.js";
 import {
   DetailPlaceholder,
   NotFoundDetail,
@@ -47,6 +48,7 @@ const readAsset = (relativePath: string): string =>
 
 const appCss = readAsset("./styles/app.css");
 const sidebarScript = readAsset("./scripts/sidebar.js");
+const streamScript = readAsset("./scripts/stream.js");
 
 const Shell = ({
   sessions,
@@ -143,6 +145,9 @@ const createApp = (
   app.get("/sidebar.js", (c) =>
     serveAsset(c, sidebarScript, "application/javascript; charset=utf-8"),
   );
+  app.get("/stream.js", (c) =>
+    serveAsset(c, streamScript, "application/javascript; charset=utf-8"),
+  );
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
@@ -224,8 +229,10 @@ const createApp = (
 
     return streamSSE(c, async (stream) => {
       const flush = async (lines: string[], from: number): Promise<number> => {
-        for (let i = from; i < lines.length; i++)
-          await stream.writeSSE({ event: "line", data: lines[i] });
+        for (let i = from; i < lines.length; i++) {
+          const html = renderStreamLine(lines[i]);
+          if (html !== "") await stream.writeSSE({ event: "line", data: html });
+        }
         return lines.length;
       };
 

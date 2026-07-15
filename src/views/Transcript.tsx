@@ -276,6 +276,9 @@ const PromptBar = ({
   );
 };
 
+const isRunActive = (run: RunHandle | undefined): boolean =>
+  run !== undefined && (run.status === "queued" || run.status === "running");
+
 const Transcript = ({
   session,
   messages,
@@ -290,7 +293,11 @@ const Transcript = ({
   const visible = messages.filter(hasContent);
   const isEmpty = visible.length === 0 && prompt === undefined;
   return (
-    <div class="detail-inner">
+    <div
+      class="detail-inner"
+      data-session-id={session.id}
+      data-run-status={run?.status}
+    >
       <TranscriptHeader session={session} messageCount={visible.length} />
       {isEmpty ? (
         <p class="empty">This session has no messages.</p>
@@ -298,6 +305,7 @@ const Transcript = ({
         visible.map((message) => <MessageView message={message} />)
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
+      {isRunActive(run) && <div id="live-output" class="live-output"></div>}
       <PromptBar sessionId={session.id} run={run} />
     </div>
   );
