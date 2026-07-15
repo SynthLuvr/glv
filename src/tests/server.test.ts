@@ -489,11 +489,8 @@ describe("web viewer archive", () => {
       headers: { "HX-Request": "true" },
     });
     expect(status).toBe(200);
-    // detail pane is reset to the placeholder
     expect(html).toContain("No session selected");
-    // the archived session is dropped from the out-of-band sidebar list
     expect(html).not.toContain("Alpha Session");
-    // other sessions remain
     expect(html).toContain("Beta Session");
   });
 

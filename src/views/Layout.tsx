@@ -110,8 +110,7 @@ body {
     background-color 0.1s ease,
     border-color 0.1s ease;
 }
-/* Hidden by default, revealed on row hover or once selected — keeps the list
-   uncluttered while preserving its gutter so nothing shifts on hover. */
+/* Revealed on hover or when checked; gutter preserved to prevent layout shift. */
 .session-item:hover .session-check,
 .session-check:checked,
 .session-check:focus-visible {

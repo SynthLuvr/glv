@@ -110,66 +110,54 @@ const SessionList = ({
   </div>
 );
 
-// The custom-styled checks are pure presentation over a real checkbox, so htmx
-// still serializes the selection via `hx-include`. The live "N selected" count,
-// the Select-all / Clear toggles and the active-row highlight are inherently
-// client-side. Delegating on `document` keeps the handlers alive across the
-// out-of-band swaps htmx performs on archive. Plain navigation only swaps the
-// detail pane, so an in-progress selection is preserved; the bar is re-rendered
-// hidden by the server whenever the list does refresh (after archiving).
+// Event delegation on `document` survives the out-of-band sidebar swaps that
+// archiving triggers. Navigation swaps only the detail pane, so an in-progress
+// selection is preserved between page transitions.
 const SIDEBAR_SCRIPT = raw(`
   const updateBulkBar = () => {
-    const checks = Array.from(document.querySelectorAll(".session-check"));
+    const checks = [...document.querySelectorAll(".session-check")];
     const checkedCount = checks.filter((c) => c.checked).length;
-    const bar = document.getElementById("bulk-bar");
-    const count = document.getElementById("bulk-count");
-    const toggle = document.getElementById("bulk-toggle");
     const allChecked = checks.length > 0 && checkedCount === checks.length;
-    if (count !== null) count.textContent = String(checkedCount);
-    if (bar !== null) bar.hidden = checkedCount === 0;
-    if (toggle !== null)
-      toggle.textContent = allChecked ? "Deselect all" : "Select all";
+    const count = document.getElementById("bulk-count");
+    if (count) count.textContent = String(checkedCount);
+    const bar = document.getElementById("bulk-bar");
+    if (bar) bar.hidden = checkedCount === 0;
+    const toggle = document.getElementById("bulk-toggle");
+    if (toggle) toggle.textContent = allChecked ? "Deselect all" : "Select all";
   };
 
   document.addEventListener("change", (e) => {
-    const target = e.target;
     if (
-      !(target instanceof HTMLInputElement) ||
-      !target.classList.contains("session-check")
+      e.target instanceof HTMLInputElement &&
+      e.target.classList.contains("session-check")
     )
-      return;
-    updateBulkBar();
+      updateBulkBar();
   });
 
   document.addEventListener("click", (e) => {
     const el = e.target instanceof Element ? e.target : null;
 
-    // Select-all / Clear toolbar buttons.
-    const btn = el === null ? null : el.closest("[data-bulk-action]");
-    if (btn !== null) {
+    const btn = el?.closest("[data-bulk-action]");
+    if (btn) {
       e.preventDefault();
-      const checks = Array.from(document.querySelectorAll(".session-check"));
+      const checks = [...document.querySelectorAll(".session-check")];
       const allChecked = checks.length > 0 && checks.every((c) => c.checked);
       if (btn.dataset.bulkAction === "select-all")
-        checks.forEach((c) => { c.checked = !allChecked; });
-      else if (btn.dataset.bulkAction === "clear")
-        checks.forEach((c) => { c.checked = false; });
+        checks.forEach((c) => (c.checked = !allChecked));
+      else
+        checks.forEach((c) => (c.checked = false));
       updateBulkBar();
       return;
     }
 
-    // Navigation: move the active-row highlight to the clicked session. The
-    // sidebar is not re-rendered on navigation (preserving any selection), so
-    // the highlight is maintained here instead of server-side.
-    const link = el === null ? null : el.closest(".session-link");
-    if (link !== null) {
-      const item = link.closest(".session-item");
-      if (item !== null) {
-        document
-          .querySelectorAll(".session-item.selected")
-          .forEach((node) => node.classList.remove("selected"));
-        item.classList.add("selected");
-      }
+    // Navigation doesn't re-render the sidebar, so the active-row highlight
+    // is maintained client-side.
+    const item = el?.closest(".session-link")?.closest(".session-item");
+    if (item) {
+      document
+        .querySelectorAll(".session-item.selected")
+        .forEach((node) => node.classList.remove("selected"));
+      item.classList.add("selected");
     }
   });
 

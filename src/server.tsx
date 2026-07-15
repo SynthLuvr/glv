@@ -53,52 +53,39 @@ const Shell = ({
 const isHtmxRequest = (c: Context): boolean =>
   c.req.header("HX-Request") === "true";
 
-// htmx serializes checked boxes as repeated `id=...` fields; accept either a
-// single value or an array and coerce everything to plain strings.
 const extractIds = (value: unknown): string[] => {
   if (Array.isArray(value))
     return value.filter((v): v is string => typeof v === "string");
   return typeof value === "string" ? [value] : [];
 };
 
-// htmx navigation returns just the detail pane. The sidebar is intentionally
-// left untouched so an in-progress bulk selection survives; the active-row
-// highlight is moved client-side instead of via an out-of-band re-render. Full
-// (non-htmx) loads still render the whole document with the sidebar.
-const renderView = (
+// htmx navigation swaps only the detail pane so an in-progress bulk selection
+// survives. Mutations additionally refresh the sidebar out-of-band.
+const render = (
   c: Context,
   sessions: SessionRow[],
   selectedId: string | undefined,
   detail: Child,
-  status: ContentfulStatusCode = 200,
-) =>
-  isHtmxRequest(c)
-    ? c.html(<Fragment>{detail}</Fragment>, status)
-    : c.html(
-        <Shell sessions={sessions} selectedId={selectedId}>
-          {detail}
-        </Shell>,
-        status,
-      );
-
-// Mutating actions (archive) also refresh the sidebar out-of-band so removed
-// sessions disappear; the bulk selection is expected to reset afterwards.
-const renderMutation = (
-  c: Context,
-  sessions: SessionRow[],
-  detail: Child,
-  status: ContentfulStatusCode = 200,
+  {
+    refreshSidebar = false,
+    status = 200,
+  }: {
+    refreshSidebar?: boolean;
+    status?: ContentfulStatusCode;
+  } = {},
 ) =>
   isHtmxRequest(c)
     ? c.html(
         <Fragment>
           {detail}
-          <SessionList sessions={sessions} selectedId={undefined} oob />
+          {refreshSidebar && (
+            <SessionList sessions={sessions} selectedId={undefined} oob />
+          )}
         </Fragment>,
         status,
       )
     : c.html(
-        <Shell sessions={sessions} selectedId={undefined}>
+        <Shell sessions={sessions} selectedId={selectedId}>
           {detail}
         </Shell>,
         status,
@@ -116,7 +103,7 @@ const createApp = (db: DatabaseSync): Hono => {
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    return renderView(c, sessions, undefined, <DetailPlaceholder />);
+    return render(c, sessions, undefined, <DetailPlaceholder />);
   });
 
   app.get("/sessions/:id", (c) => {
@@ -124,15 +111,11 @@ const createApp = (db: DatabaseSync): Hono => {
     const sessions = listSessions(db, VIEWER_FILTER);
     const session = getSession(db, id);
     if (session === undefined)
-      return renderView(
-        c,
-        sessions,
-        undefined,
-        <NotFoundDetail id={id} />,
-        404,
-      );
+      return render(c, sessions, undefined, <NotFoundDetail id={id} />, {
+        status: 404,
+      });
     const messages = listMessages(db, id).map(parseMessage);
-    return renderView(
+    return render(
       c,
       sessions,
       id,
@@ -140,18 +123,15 @@ const createApp = (db: DatabaseSync): Hono => {
     );
   });
 
-  // Archiving a single session (from the transcript header). Swaps the detail
-  // pane back to the placeholder and refreshes the sidebar list out-of-band so
-  // the session disappears from it.
   app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
     archiveSessions(db, [id]);
     const sessions = listSessions(db, VIEWER_FILTER);
-    return renderMutation(c, sessions, <DetailPlaceholder />);
+    return render(c, sessions, undefined, <DetailPlaceholder />, {
+      refreshSidebar: true,
+    });
   });
 
-  // Bulk-archiving the sidebar selection. The checked box values arrive as form
-  // fields; archive them and return a fresh session list for the targeted swap.
   app.post("/sessions/archive", async (c) => {
     const body = (await c.req.parseBody({ all: true })) as Record<
       string,
