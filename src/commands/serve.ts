@@ -1,13 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
+import type { RunnerConfig } from "../runner.js";
 import { createApp } from "../server.js";
 
 type ServeOpts = {
   port: number;
+  runner: RunnerConfig;
 };
 
 const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
-  const app = createApp(db);
+  const app = createApp(db, opts.runner);
   serve({ fetch: app.fetch, port: opts.port }, (info) =>
     console.log(`glv web viewer → http://localhost:${info.port}`),
   );

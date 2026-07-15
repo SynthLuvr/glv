@@ -1,10 +1,13 @@
+import { existsSync } from "node:fs";
+import { delimiter } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
+import { makeRunnerConfig } from "./runner.js";
 
 type SessionsOpts = {
   type: string;
@@ -18,6 +21,8 @@ type LimitOpts = {
 
 type ServeOpts = {
   port: string;
+  maxConcurrent: number;
+  gooseBinary: string;
 };
 
 const program = new Command();
@@ -84,13 +89,54 @@ program
     useDb((db) => runView(db, sessionId));
   });
 
+const MaxConcurrent = type("string.numeric.parse").pipe(
+  type("number.integer > 0"),
+);
+
+const parseMaxConcurrent = (value: string): number => {
+  const result = MaxConcurrent(value);
+  if (result instanceof type.errors)
+    throw new InvalidArgumentError(
+      `must be a positive integer (e.g. 6) — ${result.summary}`,
+    );
+  return result;
+};
+
+const resolveGooseBinary = (value: string): string => {
+  if (value.includes("/")) {
+    if (!existsSync(value))
+      throw new InvalidArgumentError(`binary not found at "${value}"`);
+    return value;
+  }
+  const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  const found = dirs.some((dir) => existsSync(`${dir}/${value}`));
+  if (!found)
+    throw new InvalidArgumentError(`binary "${value}" not found on PATH`);
+  return value;
+};
+
 program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
+  .option(
+    "-c, --max-concurrent <number>",
+    "max concurrent goose runs",
+    parseMaxConcurrent,
+    6,
+  )
+  .option(
+    "--goose-binary <path>",
+    "path to the goose binary",
+    resolveGooseBinary,
+    "goose",
+  )
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
-    runServe(db, { port: Number(opts.port) });
+    runServe(db, {
+      port: Number(opts.port),
+      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
+    });
   });
 
 const main = (): void => {
