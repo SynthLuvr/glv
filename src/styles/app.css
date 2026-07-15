@@ -1,28 +1,35 @@
-:root {
-  --bg: #f7f7f8;
-  --surface: #ffffff;
-  --surface-2: #f9fafb;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --text: #1f2328;
-  --text-muted: #6b7280;
-  --text-faint: #9ca3af;
-  --accent: #2563eb;
-  --accent-soft: #eff6ff;
-  --prompt-bg: #eef4ff;
-  --prompt-border: #dbe7ff;
-  --code-bg: #0d1117;
-  --code-text: #e6edf3;
-  --inline-bg: #eef0f3;
-  --ok: #059669;
-  --warn: #b45309;
-  --err: #dc2626;
-  --err-soft: #fef2f2;
-  --err-border: #fecaca;
+@import "tailwindcss";
+
+/*
+  Design tokens live in Tailwind v4's CSS-first `@theme` block. Each
+  `--color-*` entry generates both a `:root` CSS custom property and a set of
+  utility classes (bg-surface, text-muted, border-border, ...), so the whole
+  palette is defined in one place and consumed by the component CSS below.
+*/
+@theme {
+  --color-bg: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-surface-2: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-text: #1f2328;
+  --color-muted: #6b7280;
+  --color-faint: #9ca3af;
+  --color-accent: #2563eb;
+  --color-accent-soft: #eff6ff;
+  --color-prompt: #eef4ff;
+  --color-prompt-border: #dbe7ff;
+  --color-code-bg: #0d1117;
+  --color-code-text: #e6edf3;
+  --color-inline: #eef0f3;
+  --color-ok: #059669;
+  --color-warn: #b45309;
+  --color-err: #dc2626;
+  --color-err-soft: #fef2f2;
+  --color-err-border: #fecaca;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
-* {
-  box-sizing: border-box;
-}
+
 html,
 body {
   height: 100%;
@@ -30,8 +37,8 @@ body {
 }
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--color-text);
+  background: var(--color-bg);
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -39,16 +46,14 @@ body {
 
 /* ---------- layout ---------- */
 .app {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
+  @apply flex h-screen overflow-hidden;
 }
 .sidebar {
   width: 19rem;
   min-width: 16rem;
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -58,8 +63,8 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 1rem 1.1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -71,15 +76,15 @@ body {
 }
 .session-count {
   font-size: 0.72rem;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  color: var(--color-muted);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   padding: 0.02rem 0.45rem;
   border-radius: 999px;
 }
 .empty {
   padding: 2.5rem 1rem;
-  color: var(--text-faint);
+  color: var(--color-faint);
   text-align: center;
 }
 
@@ -101,7 +106,7 @@ body {
   cursor: pointer;
 }
 .session-item:hover {
-  background: var(--surface-2);
+  background: var(--color-surface-2);
 }
 .session-check-wrap {
   display: flex;
@@ -119,9 +124,9 @@ body {
   width: 1.05rem;
   height: 1.05rem;
   margin: 0;
-  border: 1.5px solid var(--border-strong);
+  border: 1.5px solid var(--color-border-strong);
   border-radius: 0.32rem;
-  background: var(--surface);
+  background: var(--color-surface);
   cursor: pointer;
   opacity: 0;
   position: relative;
@@ -137,8 +142,8 @@ body {
   opacity: 1;
 }
 .session-check:checked {
-  background-color: var(--accent);
-  border-color: var(--accent);
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 .session-check:checked::after {
   content: "";
@@ -152,7 +157,7 @@ body {
   transform: rotate(45deg);
 }
 .session-check:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
 .session-link {
@@ -162,14 +167,14 @@ body {
   flex: 1;
   min-width: 0;
   text-decoration: none;
-  color: var(--text);
+  color: var(--color-text);
 }
 .session-item.selected {
-  background: var(--accent-soft);
+  background: var(--color-accent-soft);
   border-color: #cfe0ff;
 }
 .session-item.selected .session-name {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 .session-item.htmx-request {
   opacity: 0.5;
@@ -186,26 +191,26 @@ body {
   align-items: center;
   gap: 0.4rem;
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .session-sub time {
   white-space: nowrap;
 }
 .provider-badge {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   padding: 0 0.35rem;
   border-radius: 999px;
   font-size: 0.66rem;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .token-count {
-  color: var(--text-faint);
+  color: var(--color-faint);
 }
 .session-dir {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 0.68rem;
-  color: var(--text-faint);
+  color: var(--color-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -219,11 +224,11 @@ body {
   gap: 0.25rem;
   padding: 0.4rem 0.55rem;
   margin: 0.25rem 0.35rem 0.4rem;
-  background: var(--accent-soft);
+  background: var(--color-accent-soft);
   border: 1px solid #cfe0ff;
   border-radius: 0.55rem;
   font-size: 0.74rem;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .bulk-bar[hidden] {
   display: none;
@@ -232,14 +237,14 @@ body {
   font-weight: 500;
 }
 .bulk-count-wrap strong {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 .bulk-bar button {
   font: inherit;
   font-weight: 600;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-muted);
   padding: 0.16rem 0.5rem;
   border-radius: 0.35rem;
   cursor: pointer;
@@ -250,24 +255,23 @@ body {
 }
 .bulk-bar button:hover {
   background-color: rgba(37, 99, 235, 0.12);
-  color: var(--accent);
+  color: var(--color-accent);
 }
 .bulk-bar .bulk-archive-btn {
   margin-left: auto;
-  border-color: var(--border-strong);
-  background-color: var(--surface);
-  color: var(--text);
+  border-color: var(--color-border-strong);
+  background-color: var(--color-surface);
+  color: var(--color-text);
 }
 .bulk-bar .bulk-archive-btn:hover {
-  background-color: var(--accent);
+  background-color: var(--color-accent);
   color: #fff;
-  border-color: var(--accent);
+  border-color: var(--color-accent);
 }
 
 /* ---------- detail pane ---------- */
 .detail {
-  flex: 1;
-  overflow-y: auto;
+  @apply flex-1 overflow-y-auto;
 }
 .detail-inner {
   max-width: 50rem;
@@ -282,20 +286,20 @@ body {
   justify-content: center;
   gap: 0.25rem;
   text-align: center;
-  color: var(--text-faint);
+  color: var(--color-faint);
 }
 .placeholder h2 {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .placeholder p {
   margin: 0;
 }
 .placeholder code {
   font-family: ui-monospace, monospace;
-  background: var(--inline-bg);
+  background: var(--color-inline);
   padding: 0.1em 0.35em;
   border-radius: 0.3em;
 }
@@ -305,15 +309,15 @@ body {
   position: relative;
   margin-bottom: 1.75rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
 }
 .archive-btn {
   position: absolute;
   top: -0.15rem;
   right: 0;
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text-muted);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-muted);
   padding: 0.28rem 0.75rem;
   border-radius: 0.45rem;
   font-size: 0.78rem;
@@ -325,9 +329,9 @@ body {
     background 0.12s ease;
 }
 .archive-btn:hover {
-  color: var(--err);
-  border-color: var(--err);
-  background: var(--err-soft);
+  color: var(--color-err);
+  border-color: var(--color-err);
+  background: var(--color-err-soft);
 }
 .session-header h2 {
   margin: 0 0 0.75rem;
@@ -344,8 +348,8 @@ body {
   display: inline-flex;
   flex-direction: column;
   gap: 0.04rem;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   padding: 0.28rem 0.6rem;
   min-width: 0;
@@ -355,7 +359,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
-  color: var(--text-faint);
+  color: var(--color-faint);
 }
 .meta-value {
   font-size: 0.8rem;
@@ -385,18 +389,18 @@ body {
   letter-spacing: 0.03em;
 }
 .tag.prompt {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 .tag.output {
-  color: var(--ok);
+  color: var(--color-ok);
 }
 .tag.tool {
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .message-head time {
   margin-left: auto;
   font-size: 0.72rem;
-  color: var(--text-faint);
+  color: var(--color-faint);
 }
 .message-body {
   display: flex;
@@ -411,8 +415,8 @@ body {
 }
 /* prompts read like a chat bubble; outputs render as flowing prose */
 .message.prompt .message-text {
-  background: var(--prompt-bg);
-  border: 1px solid var(--prompt-border);
+  background: var(--color-prompt);
+  border: 1px solid var(--color-prompt-border);
   border-radius: 0.75rem;
   padding: 0.8rem 1.05rem;
 }
@@ -442,7 +446,7 @@ body {
 .markdown h2 {
   font-size: 1.22em;
   padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
 }
 .markdown h3 {
   font-size: 1.08em;
@@ -458,6 +462,13 @@ body {
   margin: 0.6em 0;
   padding-left: 1.5em;
 }
+/* Tailwind's preflight clears list markers, so restore them explicitly. */
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
 .markdown li {
   margin: 0.2em 0;
 }
@@ -468,11 +479,11 @@ body {
 .markdown blockquote {
   margin: 0.8em 0;
   padding: 0.1em 1em;
-  border-left: 3px solid var(--border-strong);
-  color: var(--text-muted);
+  border-left: 3px solid var(--color-border-strong);
+  color: var(--color-muted);
 }
 .markdown a {
-  color: var(--accent);
+  color: var(--color-accent);
   text-decoration: none;
 }
 .markdown a:hover {
@@ -480,14 +491,14 @@ body {
 }
 .markdown hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
   margin: 1.4em 0;
 }
 .markdown strong {
   font-weight: 650;
 }
 .markdown del {
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 .markdown img {
   max-width: 100%;
@@ -501,17 +512,17 @@ body {
 }
 .markdown th,
 .markdown td {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   padding: 0.4em 0.7em;
   text-align: left;
 }
 .markdown th {
-  background: var(--surface-2);
+  background: var(--color-surface-2);
   font-weight: 600;
 }
 .markdown :not(pre) > code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  background: var(--inline-bg);
+  background: var(--color-inline);
   padding: 0.12em 0.38em;
   border-radius: 0.35em;
   font-size: 0.87em;
@@ -519,8 +530,8 @@ body {
 
 /* ---------- code blocks (dark) ---------- */
 pre {
-  background: var(--code-bg);
-  color: var(--code-text);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
   margin: 0.8em 0;
   padding: 0.9rem 1rem;
   border-radius: 0.6rem;
@@ -537,9 +548,9 @@ pre code {
 
 /* ---------- collapsible blocks (thinking / tool calls / results) ---------- */
 .block {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.6rem;
-  background: var(--surface-2);
+  background: var(--color-surface-2);
   overflow: hidden;
 }
 .block > summary {
@@ -558,7 +569,7 @@ pre code {
 .block > summary::before {
   content: "▸";
   flex-shrink: 0;
-  color: var(--text-faint);
+  color: var(--color-faint);
   font-size: 0.7rem;
   transition: transform 0.12s ease;
 }
@@ -566,7 +577,7 @@ pre code {
   transform: rotate(90deg);
 }
 .block > summary:hover {
-  background: var(--surface);
+  background: var(--color-surface);
 }
 .block-icon {
   font-size: 0.85rem;
@@ -574,22 +585,22 @@ pre code {
 }
 .block-label {
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--color-muted);
   flex-shrink: 0;
 }
 .tool-name {
   font-family: ui-monospace, monospace;
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-text);
   font-size: 0.8rem;
   flex-shrink: 0;
 }
 .tool-ext {
   flex-shrink: 0;
   font-size: 0.66rem;
-  color: var(--text-faint);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  color: var(--color-faint);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   padding: 0 0.3rem;
   border-radius: 999px;
 }
@@ -598,13 +609,13 @@ pre code {
   min-width: 0;
   font-family: ui-monospace, monospace;
   font-size: 0.74rem;
-  color: var(--text-faint);
+  color: var(--color-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .block-content {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
   padding: 0.75rem 1rem;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -625,23 +636,23 @@ pre code {
   background: #fdfaf0;
 }
 .thinking .block-label {
-  color: var(--warn);
+  color: var(--color-warn);
 }
 .thinking .block-content {
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-style: italic;
   font-size: 0.85rem;
 }
 
 .tool-result.is-error {
-  background: var(--err-soft);
-  border-color: var(--err-border);
+  background: var(--color-err-soft);
+  border-color: var(--color-err-border);
 }
 .tool-result.is-error > summary:hover {
   background: #fdebeb;
 }
 .tool-result.is-error .block-label {
-  color: var(--err);
+  color: var(--color-err);
 }
 
 /* ---------- scrollbars ---------- */
