@@ -101,6 +101,34 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
+// Every session id sharing a (name, working_dir) pair. The new-session flow
+// snapshots this set before spawning, then polls until a *new* id appears —
+// so a pre-existing session with the same name and dir never causes a false
+// match while goose is still creating the row.
+const matchingSessionIds = (
+  db: DatabaseSync,
+  name: string,
+  workingDir: string,
+): string[] => {
+  const rows = db
+    .prepare("SELECT id FROM sessions WHERE name = ? AND working_dir = ?")
+    .all(name, workingDir) as { id: unknown }[];
+  return rows
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string");
+};
+
+// Distinct working directories across all sessions, for the new-session form's
+// <datalist> of recently used dirs (one keystroke to re-select).
+const listWorkingDirs = (db: DatabaseSync): string[] => {
+  const rows = db
+    .prepare("SELECT DISTINCT working_dir FROM sessions ORDER BY working_dir")
+    .all() as { working_dir: unknown }[];
+  return rows
+    .map((row) => row.working_dir)
+    .filter((dir): dir is string => typeof dir === "string");
+};
+
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => "?").join(", ");
@@ -116,6 +144,8 @@ export {
   getSession,
   listMessages,
   listSessions,
+  listWorkingDirs,
+  matchingSessionIds,
   openDb,
   resolveDbPath,
 };

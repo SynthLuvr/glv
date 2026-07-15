@@ -310,10 +310,62 @@ const Transcript = ({
   );
 };
 
-const DetailPlaceholder = () => (
-  <div class="placeholder">
-    <h2>No session selected</h2>
-    <p>Choose a session from the sidebar to read its transcript.</p>
+const NewSessionForm = ({
+  workingDir,
+  dirs,
+  error,
+}: {
+  workingDir: string;
+  dirs: string[];
+  error?: string;
+}) => (
+  <div class="detail-inner new-session">
+    <h2>New Session</h2>
+    <p class="new-session-sub">
+      Start a fresh goose run. The session appears in the sidebar the moment
+      goose creates it.
+    </p>
+    <form
+      class="new-session-form"
+      hx-post="/sessions"
+      hx-target="#detail-pane"
+      hx-swap="innerHTML"
+      hx-disabled-elt="button[type=submit]"
+    >
+      {error !== undefined && <p class="status-hint error">{error}</p>}
+      <label class="form-field">
+        <span class="form-label">Working directory</span>
+        <input
+          type="text"
+          name="working_dir"
+          list="recent-dirs"
+          value={workingDir}
+          class="form-input"
+          autocomplete="off"
+          spellcheck={false}
+        />
+        <datalist id="recent-dirs">
+          {dirs.map((dir) => (
+            <option value={dir} />
+          ))}
+        </datalist>
+      </label>
+      <label class="form-field">
+        <span class="form-label">Prompt</span>
+        <textarea
+          name="prompt"
+          class="form-input prompt-input"
+          rows={5}
+          placeholder="What do you want goose to do?"
+          autofocus
+        />
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="send-btn">
+          Start session
+        </button>
+      </div>
+    </form>
   </div>
 );
 
@@ -326,4 +378,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { DetailPlaceholder, itemBlock, NotFoundDetail, Transcript, tagFor };
+export { itemBlock, NewSessionForm, NotFoundDetail, Transcript, tagFor };

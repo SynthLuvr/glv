@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
@@ -11,15 +11,25 @@ import {
   getSession,
   listMessages,
   listSessions,
+  listWorkingDirs,
+  matchingSessionIds,
 } from "./db.js";
 import { parseMessage } from "./format.js";
 import type { Runner } from "./runner.js";
-import { enqueue, getHandle, isTerminalStatus, stop } from "./runner.js";
+import {
+  enqueue,
+  enqueueNew,
+  generateTempKey,
+  getHandle,
+  isTerminalStatus,
+  rekey,
+  stop,
+} from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
-  DetailPlaceholder,
+  NewSessionForm,
   NotFoundDetail,
   Transcript,
 } from "./views/Transcript.js";
@@ -131,9 +141,49 @@ const flushLines = async (
   return true;
 };
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// The session name is invisible to the user — auto-derived from the prompt so
+// the sidebar card is readable. Falls back to a timestamped id when the prompt
+// has no usable first line.
+const deriveSessionName = (prompt: string): string => {
+  const firstLine = prompt.split("\n")[0]?.trim() ?? "";
+  if (firstLine === "") return `session-${Date.now()}`;
+  return firstLine.length > 40 ? `${firstLine.slice(0, 39)}…` : firstLine;
+};
+
+// `goose run -n` generates the session id; we can't pre-assign it. After
+// spawning we poll the sessions DB for a *new* id matching the derived name
+// and chosen working dir (snapshotting pre-existing ids so a colliding older
+// session never causes a false match), then re-key the run handle to it.
+const pollForSessionId = async (
+  db: DatabaseSync,
+  name: string,
+  workingDir: string,
+  known: Set<string>,
+  timeoutMs = 10000,
+  intervalMs = 50,
+): Promise<string | undefined> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = matchingSessionIds(db, name, workingDir).find(
+      (id) => !known.has(id),
+    );
+    if (found !== undefined) return found;
+    await sleep(intervalMs);
+  }
+  return undefined;
+};
+
 type AppEnv = { Variables: { runner: Runner } };
 
-const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
+const createApp = (
+  db: DatabaseSync,
+  runner: Runner,
+  opts: { pollTimeoutMs?: number } = {},
+): Hono<AppEnv> => {
+  const pollTimeoutMs = opts.pollTimeoutMs ?? 10000;
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
@@ -154,6 +204,16 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
       { status: 404 },
     );
 
+  // The default landing and post-archive state: a new-session input form
+  // pre-filled with the process cwd and a datalist of recently used dirs.
+  const newSessionDetail = (error?: string): Child => (
+    <NewSessionForm
+      workingDir={process.cwd()}
+      dirs={listWorkingDirs(db)}
+      error={error}
+    />
+  );
+
   app.get("/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
@@ -170,7 +230,97 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    return render(c, sessions, undefined, <DetailPlaceholder />);
+    return render(c, sessions, undefined, newSessionDetail());
+  });
+
+  // Registered before the /sessions/:id wildcard so "new" is treated as a
+  // literal segment rather than a session id.
+  app.get("/sessions/new", (c) => {
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return render(c, sessions, undefined, newSessionDetail());
+  });
+
+  app.post("/sessions", async (c) => {
+    const sessions = listSessions(db, VIEWER_FILTER);
+    const body = await c.req.parseBody();
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const workingDir =
+      typeof body.working_dir === "string" ? body.working_dir.trim() : "";
+
+    if (prompt === "")
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail("A prompt is required to start a session."),
+        { status: 422 },
+      );
+
+    if (workingDir === "" || !existsSync(workingDir))
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail("That working directory does not exist."),
+        { status: 422 },
+      );
+
+    const name = deriveSessionName(prompt);
+    const tempKey = generateTempKey();
+    // Snapshot ids that already match this name + dir so the poll only accepts
+    // the brand-new row goose is about to create.
+    const known = new Set(matchingSessionIds(db, name, workingDir));
+    enqueueNew(runner, tempKey, name, prompt, workingDir);
+
+    const realId = await pollForSessionId(
+      db,
+      name,
+      workingDir,
+      known,
+      pollTimeoutMs,
+    );
+    if (realId === undefined) {
+      // goose never wrote the row — stop the orphaned run and report.
+      stop(runner, tempKey);
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(
+          "goose did not create a session in time. Is the goose binary available?",
+        ),
+        { status: 502 },
+      );
+    }
+
+    rekey(runner, tempKey, realId);
+    const session = getSession(db, realId);
+    if (session === undefined) {
+      stop(runner, realId);
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(
+          "goose did not create a session in time. Is the goose binary available?",
+        ),
+        { status: 502 },
+      );
+    }
+    const messages = listMessages(db, realId).map(parseMessage);
+    const run = getHandle(runner, realId);
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      realId,
+      <Transcript
+        session={session}
+        messages={messages}
+        run={run}
+        prompt={prompt}
+      />,
+      { refreshSidebar: true },
+    );
   });
 
   app.get("/sessions/:id", (c) => {
@@ -196,7 +346,7 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
     const id = c.req.param("id");
     archiveSessions(db, [id]);
     const sessions = listSessions(db, VIEWER_FILTER);
-    return render(c, sessions, undefined, <DetailPlaceholder />, {
+    return render(c, sessions, undefined, newSessionDetail(), {
       refreshSidebar: true,
     });
   });

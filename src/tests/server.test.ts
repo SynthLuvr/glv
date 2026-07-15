@@ -280,9 +280,11 @@ describe("web viewer GET /", () => {
     expect(html).toContain('href="/sessions/beta"');
   });
 
-  it("shows a placeholder in the detail pane", async () => {
+  it("shows the new-session form as the detail landing", async () => {
     const html = await renderRoot();
-    expect(html).toContain("No session selected");
+    expect(html).toContain("New Session");
+    expect(html).toContain('name="prompt"');
+    expect(html).toContain('name="working_dir"');
   });
 
   it("shows an empty state when there are no sessions", async () => {
@@ -481,10 +483,11 @@ describe("web viewer htmx partials (HX-Request)", () => {
     expect(html).not.toContain("Beta Session");
   });
 
-  it("returns only the placeholder fragment for the root", async () => {
+  it("returns only the new-session form fragment for the root", async () => {
     const { html } = await renderHtmx("/");
     expect(html).not.toContain("<html");
-    expect(html).toContain("No session selected");
+    expect(html).toContain("New Session");
+    expect(html).toContain('name="prompt"');
     expect(html).not.toContain('hx-swap-oob="true"');
   });
 
@@ -530,7 +533,7 @@ describe("web viewer archive", () => {
       headers: { "HX-Request": "true" },
     });
     expect(status).toBe(200);
-    expect(html).toContain("No session selected");
+    expect(html).toContain("New Session");
     expect(html).not.toContain("Alpha Session");
     expect(html).toContain("Beta Session");
   });
@@ -624,12 +627,16 @@ const postForm = async (
   app: ReturnType<typeof createApp>,
   path: string,
   fields: Record<string, string>,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; html: string }> => {
   const form = new URLSearchParams();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   const res = await app.request(path, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...extraHeaders,
+    },
     body: form.toString(),
   });
   return { status: res.status, html: await res.text() };
@@ -1030,5 +1037,268 @@ describe("M4: stream client reconnect deduplication", () => {
     // An 'open' listener empties #live-output before catch-up lines arrive.
     expect(body).toContain('"open"');
     expect(body).toContain('innerHTML=""');
+  });
+});
+
+// === M5: new session ===
+
+describe("M5: new session entry points", () => {
+  it("renders the new-session form on GET /sessions/new", async () => {
+    const res = await makeApp().request("/sessions/new");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain("New Session");
+    expect(html).toContain('name="prompt"');
+    expect(html).toContain('name="working_dir"');
+    expect(html).toContain("Start session");
+  });
+
+  it("pre-fills the working dir and lists recent dirs in a datalist", async () => {
+    const res = await makeApp().request("/sessions/new");
+    const html = await res.text();
+    expect(html).toContain('list="recent-dirs"');
+    expect(html).toContain("<datalist");
+    expect(html).toContain("/tmp/alpha");
+  });
+
+  it("does not shadow the /sessions/:id route (new is a literal)", async () => {
+    // /sessions/new must hit the form, not a 404 "session not found".
+    const res = await makeApp().request("/sessions/new");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).not.toContain("Session not found");
+  });
+
+  it("adds a + new-session button to the sidebar header", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('class="new-session-btn"');
+    expect(html).toContain('href="/sessions/new"');
+    expect(html).toContain('hx-get="/sessions/new"');
+  });
+
+  it("shows a start-new-session CTA in the empty sidebar state", async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "glv-web-emptycta-"));
+    const emptyDb = new DatabaseSync(join(emptyDir, "sessions.db"));
+    emptyDb.exec(SCHEMA);
+    try {
+      const res = await createApp(
+        emptyDb,
+        createRunner(DEFAULT_RUNNER_CONFIG),
+      ).request("/");
+      const html = await res.text();
+      expect(html).toContain("No sessions found.");
+      expect(html).toContain("Start a new session");
+      expect(html).toContain('href="/sessions/new"');
+    } finally {
+      emptyDb.close();
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("wires the new-session form to POST /sessions via htmx", async () => {
+    const res = await makeApp().request("/sessions/new");
+    const html = await res.text();
+    expect(html).toContain('hx-post="/sessions"');
+    expect(html).toContain('hx-target="#detail-pane"');
+  });
+});
+
+// A spawn mock that simulates goose creating the session row early: when
+// invoked it extracts the `-n` name from the args and inserts a `user` session
+// with the spawn's cwd as the working dir, then yields the given lines. This
+// lets the server's DB poll discover the real id without running real goose.
+type NewSessionSpawnState = MockSpawnState & { insertedIds: string[] };
+
+const createNewSessionSpawn = (
+  db: DatabaseSync,
+  lines: string[],
+  opts: { delayMs?: number; exitCode?: number } = {},
+): NewSessionSpawnState => {
+  const invocations: NewSessionSpawnState["invocations"] = [];
+  const killCalls: NewSessionSpawnState["killCalls"] = [];
+  const insertedIds: string[] = [];
+  let pidCounter = 50000;
+  let counter = 0;
+
+  const spawn: SpawnFn = (binary, args, spawnOpts) => {
+    invocations.push({ binary, args, opts: spawnOpts });
+    const pid = ++pidCounter;
+    const local = { killed: false };
+    let resolveExit!: (r: ProcessResult) => void;
+    const exit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const nameIdx = args.indexOf("-n");
+    const name = nameIdx >= 0 ? args[nameIdx + 1] : "";
+    const id = `ns-${Date.now()}-${++counter}`;
+    insertedIds.push(id);
+    db.prepare(
+      "INSERT INTO sessions (id, name, session_type, working_dir) " +
+        "VALUES (?, ?, 'user', ?)",
+    ).run(id, name, spawnOpts.cwd);
+
+    const stdout = (async function* () {
+      for (const line of lines) {
+        if (local.killed) return;
+        if (opts.delayMs !== undefined) await sleep(opts.delayMs);
+        yield line;
+      }
+      if (!local.killed) resolveExit({ exitCode: opts.exitCode ?? 0 });
+    })();
+
+    const kill = (signal?: string) => {
+      if (local.killed) return;
+      local.killed = true;
+      killCalls.push({ pid, signal });
+      resolveExit({ exitCode: null, signal: signal ?? "SIGTERM" });
+    };
+
+    return { pid, kill, stdout, exit };
+  };
+
+  return { spawn, invocations, killCalls, insertedIds };
+};
+
+describe("M5: POST /sessions", () => {
+  let newDb: DatabaseSync;
+  let newDir: string;
+
+  beforeAll(() => {
+    newDir = mkdtempSync(join(tmpdir(), "glv-web-newsess-"));
+    newDb = new DatabaseSync(join(newDir, "sessions.db"));
+    seed(newDb);
+  });
+
+  afterAll(() => {
+    newDb.close();
+    rmSync(newDir, { recursive: true, force: true });
+  });
+
+  const makeNewApp = (
+    spawn: SpawnFn,
+    pollTimeoutMs = 5000,
+  ): ReturnType<typeof createApp> =>
+    createApp(newDb, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      pollTimeoutMs,
+    });
+
+  it("starts a new session, shows the live transcript, and refreshes the sidebar", async () => {
+    const { spawn, insertedIds } = createNewSessionSpawn(newDb, ["line1"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    const { status, html } = await postForm(
+      app,
+      "/sessions",
+      { prompt: "build the project", working_dir: newDir },
+      { "HX-Request": "true" },
+    );
+    expect(status).toBe(200);
+    expect(insertedIds).toHaveLength(1);
+    expect(html).toContain(`data-session-id="${insertedIds[0]}"`);
+    expect(html).toContain("data-run-status");
+    expect(html).toContain("build the project");
+    // sidebar refreshed out-of-band with the new session
+    expect(html).toContain('hx-swap-oob="true"');
+    expect(html).toContain("Stop");
+  });
+
+  it("invokes goose run -n with the derived name and prompt on stdin", async () => {
+    const { spawn, invocations } = createNewSessionSpawn(newDb, ["x"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    await postForm(app, "/sessions", {
+      prompt: "build the project",
+      working_dir: newDir,
+    });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].args).toContain("-n");
+    expect(invocations[0].args).toContain("build the project");
+    expect(invocations[0].args).not.toContain("--session-id");
+    expect(invocations[0].args).not.toContain("-r");
+    expect(invocations[0].opts.stdin).toBe("build the project");
+    expect(invocations[0].opts.cwd).toBe(newDir);
+  });
+
+  it("re-keys the run from the temp key to the real session id", async () => {
+    const { spawn, insertedIds } = createNewSessionSpawn(newDb, ["x"], {
+      delayMs: 300,
+    });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(newDb, runner, { pollTimeoutMs: 5000 });
+    await postForm(
+      app,
+      "/sessions",
+      { prompt: "rekey check", working_dir: newDir },
+      { "HX-Request": "true" },
+    );
+    const realId = insertedIds[0];
+    // The handle is now reachable under the real id, not a temp key.
+    const handle = getHandle(runner, realId);
+    expect(handle).toBeDefined();
+    expect(handle!.sessionId).toBe(realId);
+    // No temporary keys remain in the registry.
+    for (const key of runner.registry.keys()) expect(key).not.toMatch(/^tmp_/);
+  });
+
+  it("does not match a pre-existing session with the same name and dir", async () => {
+    newDb
+      .prepare(
+        "INSERT INTO sessions (id, name, session_type, working_dir) " +
+          "VALUES (?, ?, 'user', ?)",
+      )
+      .run("old-collision", "collide test", newDir);
+    const { spawn, insertedIds } = createNewSessionSpawn(newDb, ["x"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    const { html } = await postForm(app, "/sessions", {
+      prompt: "collide test",
+      working_dir: newDir,
+    });
+    expect(insertedIds).toHaveLength(1);
+    expect(insertedIds[0]).not.toBe("old-collision");
+    expect(html).toContain(`data-session-id="${insertedIds[0]}"`);
+    expect(html).not.toContain('data-session-id="old-collision"');
+  });
+
+  it("rejects an empty prompt without spawning goose", async () => {
+    const { spawn, invocations } = createNewSessionSpawn(newDb, []);
+    const app = makeNewApp(spawn);
+    const { status, html } = await postForm(app, "/sessions", {
+      prompt: "   ",
+      working_dir: newDir,
+    });
+    expect(status).toBe(422);
+    expect(invocations).toHaveLength(0);
+    expect(html).toContain("prompt is required");
+  });
+
+  it("rejects a non-existent working directory", async () => {
+    const { spawn, invocations } = createNewSessionSpawn(newDb, []);
+    const app = makeNewApp(spawn);
+    const { status, html } = await postForm(app, "/sessions", {
+      prompt: "hello",
+      working_dir: "/no/such/dir/anywhere",
+    });
+    expect(status).toBe(422);
+    expect(invocations).toHaveLength(0);
+    expect(html).toContain("does not exist");
+  });
+
+  it("reports an error when goose never creates a session", async () => {
+    // A plain mock that never inserts a DB row → the poll times out.
+    const { spawn, invocations } = createMockSpawn(["x"], { delayMs: 200 });
+    const app = makeNewApp(spawn, 300);
+    const { status, html } = await postForm(app, "/sessions", {
+      prompt: "hello",
+      working_dir: newDir,
+    });
+    expect(status).toBe(502);
+    expect(html).toContain("did not create a session");
+    // the orphaned run was stopped
+    expect(invocations).toHaveLength(1);
   });
 });
