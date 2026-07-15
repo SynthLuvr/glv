@@ -13,5 +13,4 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   );
 };
 
-export type { ServeOpts };
 export { runServe };
