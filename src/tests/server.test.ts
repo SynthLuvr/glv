@@ -448,7 +448,7 @@ describe("web viewer static assets", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/css");
     const body = await res.text();
-    expect(body).toContain("--accent");
+    expect(body).toContain("--color-accent");
     expect(body).toContain(".session-item");
   });
 

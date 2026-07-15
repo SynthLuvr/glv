@@ -53,7 +53,15 @@ Global options:
 
 ``` bash
 pnpm install
-pnpm build    # type-check
+pnpm build    # type-check + compile the Tailwind stylesheet
 pnpm test     # run tests
 pnpm lint     # lint all files
 ```
+
+The web viewer is styled with [Tailwind CSS
+v4](https://tailwindcss.com). The stylesheet source
+(`src/styles/app.css`) uses Tailwind’s CSS-first setup —
+`@import "tailwindcss"` plus a `@theme` block of design tokens — and is
+compiled to `dist/app.css` by `pnpm build:css` (see `src/build.ts`).
+`glv serve` rebuilds it automatically before listening, so the viewer
+always serves current styles.
