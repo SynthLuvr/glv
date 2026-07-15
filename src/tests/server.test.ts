@@ -824,3 +824,101 @@ describe("POST /sessions/:id/stop", () => {
     expect(res.status).toBe(404);
   });
 });
+
+// === M3: interactive streaming UI ===
+
+describe("M3: streaming assets & layout", () => {
+  it("references the stream client script in the document", async () => {
+    const res = await createApp(db).request("/");
+    const html = await res.text();
+    expect(html).toContain('<script src="/stream.js"');
+  });
+
+  it("serves the stream client script as JavaScript", async () => {
+    const res = await createApp(db).request("/stream.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("EventSource");
+    expect(body).toContain("htmx:afterSwap");
+  });
+});
+
+describe("M3: transcript streaming attributes", () => {
+  it("does not include a live-output container when idle", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).not.toContain('id="live-output"');
+    expect(html).not.toContain("data-run-status");
+  });
+
+  it("includes data attributes and live-output when a run is active", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "hello",
+    });
+    expect(html).toContain('data-session-id="alpha"');
+    expect(html).toContain('data-run-status="running"');
+    expect(html).toContain('id="live-output"');
+  });
+
+  it("omits live-output when the run has completed", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(150);
+
+    const res = await app.request("/sessions/alpha/stop", { method: "POST" });
+    const html = await res.text();
+    expect(html).not.toContain('id="live-output"');
+  });
+});
+
+describe("M3: SSE stream renders HTML fragments", () => {
+  it("renders stream-json lines as HTML in the SSE stream", async () => {
+    const jsonLine = JSON.stringify({
+      role: "assistant",
+      content: [{ type: "text", text: "Live output" }],
+    });
+    const { spawn } = createMockSpawn([jsonLine], { delayMs: 80 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: line");
+    expect(text).toContain("Live output");
+    expect(text).toContain("stream-line");
+    expect(text).toContain("OUTPUT");
+  });
+
+  it("renders non-JSON lines as raw text blocks", async () => {
+    const { spawn } = createMockSpawn(["plain text"], { delayMs: 80 });
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("stream-raw");
+    expect(text).toContain("plain text");
+  });
+
+  it("skips stream-json lines without renderable content", async () => {
+    const metaLine = JSON.stringify({
+      type: "session.header",
+      session_id: "abc",
+    });
+    const { spawn } = createMockSpawn([metaLine]);
+    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(150);
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).not.toContain("event: line");
+    expect(text).toContain("event: done");
+  });
+});

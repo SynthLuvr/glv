@@ -230,8 +230,7 @@ const PromptBar = ({
   sessionId: string;
   run?: RunHandle;
 }) => {
-  const isBusy =
-    run !== undefined && (run.status === "queued" || run.status === "running");
+  const busy = isRunActive(run);
   return (
     <form
       class="prompt-bar"
@@ -252,11 +251,11 @@ const PromptBar = ({
         <textarea
           name="prompt"
           placeholder="Ask goose…"
-          disabled={isBusy ? true : undefined}
+          disabled={busy ? true : undefined}
           class="prompt-input"
           rows={2}
         />
-        {isBusy ? (
+        {busy ? (
           <button
             type="button"
             class="stop-btn"
@@ -276,6 +275,9 @@ const PromptBar = ({
   );
 };
 
+const isRunActive = (run: RunHandle | undefined): boolean =>
+  run !== undefined && (run.status === "queued" || run.status === "running");
+
 const Transcript = ({
   session,
   messages,
@@ -290,7 +292,11 @@ const Transcript = ({
   const visible = messages.filter(hasContent);
   const isEmpty = visible.length === 0 && prompt === undefined;
   return (
-    <div class="detail-inner">
+    <div
+      class="detail-inner"
+      data-session-id={session.id}
+      data-run-status={run?.status}
+    >
       <TranscriptHeader session={session} messageCount={visible.length} />
       {isEmpty ? (
         <p class="empty">This session has no messages.</p>
@@ -298,6 +304,7 @@ const Transcript = ({
         visible.map((message) => <MessageView message={message} />)
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
+      {isRunActive(run) && <div id="live-output" class="live-output"></div>}
       <PromptBar sessionId={session.id} run={run} />
     </div>
   );
@@ -319,4 +326,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { DetailPlaceholder, NotFoundDetail, Transcript };
+export { DetailPlaceholder, itemBlock, NotFoundDetail, Transcript, tagFor };

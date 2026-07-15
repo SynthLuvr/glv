@@ -10,6 +10,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <title>{title}</title>
       <link rel="stylesheet" href="/app.css" />
       <script src="/htmx.min.js" defer></script>
+      <script src="/stream.js" defer></script>
     </head>
     <body>{children}</body>
   </html>

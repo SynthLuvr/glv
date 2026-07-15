@@ -747,6 +747,34 @@ pre::-webkit-scrollbar-thumb {
   border-left: 3px solid var(--accent);
 }
 
+/* ---------- live streaming output ---------- */
+.live-output {
+  margin-top: 0.5rem;
+}
+.live-output:empty {
+  display: none;
+}
+.stream-raw {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stream-line {
+  animation: stream-fade-in 0.15s ease-out;
+}
+@keyframes stream-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {
   .app {
