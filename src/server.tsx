@@ -32,6 +32,12 @@ const htmxSource = readFileSync(
   "utf8",
 );
 
+const readAsset = (relativePath: string): string =>
+  readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+
+const appCss = readAsset("./styles/app.css");
+const sidebarScript = readAsset("./scripts/sidebar.js");
+
 const Shell = ({
   sessions,
   selectedId,
@@ -91,14 +97,21 @@ const render = (
         status,
       );
 
+const serveAsset = (c: Context, body: string, contentType: string) =>
+  c.body(body, 200, {
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=86400",
+  });
+
 const createApp = (db: DatabaseSync): Hono => {
   const app = new Hono();
 
   app.get("/htmx.min.js", (c) =>
-    c.body(htmxSource, 200, {
-      "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    }),
+    serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
+  );
+  app.get("/app.css", (c) => serveAsset(c, appCss, "text/css; charset=utf-8"));
+  app.get("/sidebar.js", (c) =>
+    serveAsset(c, sidebarScript, "application/javascript; charset=utf-8"),
   );
 
   app.get("/", (c) => {
