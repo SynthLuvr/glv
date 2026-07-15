@@ -270,6 +270,14 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   return false;
 };
 
+// Reaps all live goose processes on server shutdown.
+const stopAll = (runner: Runner): number => {
+  let stopped = 0;
+  for (const sessionId of runner.registry.keys())
+    if (stop(runner, sessionId)) stopped++;
+  return stopped;
+};
+
 const isTerminalStatus = (status: RunStatus): boolean =>
   status === "completed" || status === "stopped" || status === "error";
 
@@ -303,4 +311,5 @@ export {
   newSessionInvocation,
   resumeInvocation,
   stop,
+  stopAll,
 };

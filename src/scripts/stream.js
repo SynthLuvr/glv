@@ -33,6 +33,11 @@ const connect = (root) => {
 
   activeSource = new EventSource(`/sessions/${sessionId}/stream`);
 
+  // Server replays all accumulated lines on reconnect; clear to avoid duplicates.
+  activeSource.addEventListener("open", () => {
+    if (output !== null) output.innerHTML = "";
+  });
+
   activeSource.addEventListener("status", (e) => {
     try {
       updateStatusHint(JSON.parse(e.data));

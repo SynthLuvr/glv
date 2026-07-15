@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
-import { streamSSE } from "hono/streaming";
+import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionFilter, SessionRow } from "./db.js";
 import {
@@ -13,15 +13,8 @@ import {
   listSessions,
 } from "./db.js";
 import { parseMessage } from "./format.js";
-import type { Runner, RunnerConfig, SpawnFn } from "./runner.js";
-import {
-  createRunner,
-  DEFAULT_RUNNER_CONFIG,
-  enqueue,
-  getHandle,
-  isTerminalStatus,
-  stop,
-} from "./runner.js";
+import type { Runner } from "./runner.js";
+import { enqueue, getHandle, isTerminalStatus, stop } from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
@@ -115,14 +108,36 @@ const serveAsset = (c: Context, body: string, contentType: string) =>
     "Cache-Control": "public, max-age=86400",
   });
 
+// Writing to a closed stream (client disconnect) throws; guard each emission.
+const emit = async (
+  stream: SSEStreamingApi,
+  event: string,
+  data: string,
+): Promise<boolean> => {
+  if (stream.aborted) return false;
+  try {
+    await stream.writeSSE({ event, data });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const flushLines = async (
+  stream: SSEStreamingApi,
+  lines: string[],
+  from: number,
+): Promise<boolean> => {
+  for (let i = from; i < lines.length; i++) {
+    const html = renderStreamLine(lines[i]);
+    if (html !== "" && !(await emit(stream, "line", html))) return false;
+  }
+  return true;
+};
+
 type AppEnv = { Variables: { runner: Runner } };
 
-const createApp = (
-  db: DatabaseSync,
-  runnerConfig: RunnerConfig = DEFAULT_RUNNER_CONFIG,
-  spawn?: SpawnFn,
-): Hono<AppEnv> => {
-  const runner = createRunner(runnerConfig, spawn);
+const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -163,11 +178,13 @@ const createApp = (
         status: 404,
       });
     const messages = listMessages(db, id).map(parseMessage);
+    // Surfaced so a re-render after the stream reflects the run's outcome.
+    const run = getHandle(runner, id);
     return render(
       c,
       sessions,
       id,
-      <Transcript session={session} messages={messages} />,
+      <Transcript session={session} messages={messages} run={run} />,
     );
   });
 
@@ -228,51 +245,45 @@ const createApp = (
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      const flush = async (lines: string[], from: number): Promise<number> => {
-        for (let i = from; i < lines.length; i++) {
-          const html = renderStreamLine(lines[i]);
-          if (html !== "") await stream.writeSSE({ event: "line", data: html });
-        }
-        return lines.length;
-      };
-
       const handle = getHandle(runner, id);
 
-      // No active run, or run already finished: flush accumulated output
-      // (catch-up for a reconnecting client) then close.
+      // Idle or terminal: flush catch-up output, then close.
       if (handle === undefined || isTerminalStatus(handle.status)) {
-        if (handle !== undefined) await flush(handle.lines, 0);
-        await stream.writeSSE({
-          event: "done",
-          data: handle?.status ?? "idle",
-        });
+        if (handle !== undefined) await flushLines(stream, handle.lines, 0);
+        await emit(stream, "done", handle?.status ?? "idle");
         return;
       }
 
-      await stream.writeSSE({
-        event: "status",
-        data: JSON.stringify({
-          status: handle.status,
-          queuePosition: handle.queuePosition,
-        }),
-      });
+      if (
+        !(await emit(
+          stream,
+          "status",
+          JSON.stringify({
+            status: handle.status,
+            queuePosition: handle.queuePosition,
+          }),
+        ))
+      )
+        return;
 
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
-        sent = await flush(handle.lines, sent);
+        if (!(await flushLines(stream, handle.lines, sent))) return;
+        sent = handle.lines.length;
         await stream.sleep(50);
       }
 
-      sent = await flush(handle.lines, sent);
-      await stream.writeSSE({
-        event: "status",
-        data: JSON.stringify({
+      await flushLines(stream, handle.lines, sent);
+      await emit(
+        stream,
+        "status",
+        JSON.stringify({
           status: handle.status,
           error: handle.error ?? null,
         }),
-      });
-      await stream.writeSSE({ event: "done", data: "complete" });
+      );
+      await emit(stream, "done", handle.status);
     });
   });
 

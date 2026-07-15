@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProcessResult, SpawnFn } from "../runner.js";
-import { DEFAULT_RUNNER_CONFIG, makeRunnerConfig } from "../runner.js";
+import {
+  createRunner,
+  DEFAULT_RUNNER_CONFIG,
+  getHandle,
+  makeRunnerConfig,
+} from "../runner.js";
 import { createApp } from "../server.js";
 
 const SCHEMA = `
@@ -246,10 +251,11 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const renderRoot = async (): Promise<string> => {
-  const res = await createApp(db).request("/");
-  return res.text();
-};
+const makeApp = (spawn?: SpawnFn): ReturnType<typeof createApp> =>
+  createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn));
+
+const renderRoot = async (): Promise<string> =>
+  (await makeApp().request("/")).text();
 
 describe("web viewer GET /", () => {
   it("lists user sessions, excluding hidden ones", async () => {
@@ -284,7 +290,10 @@ describe("web viewer GET /", () => {
     const emptyDb = new DatabaseSync(join(emptyDir, "sessions.db"));
     emptyDb.exec(SCHEMA);
     try {
-      const res = await createApp(emptyDb).request("/");
+      const res = await createApp(
+        emptyDb,
+        createRunner(DEFAULT_RUNNER_CONFIG),
+      ).request("/");
       expect(await res.text()).toContain("No sessions found.");
     } finally {
       emptyDb.close();
@@ -320,7 +329,7 @@ describe("web viewer GET /", () => {
 const renderSession = async (
   id: string,
 ): Promise<{ status: number; html: string }> => {
-  const res = await createApp(db).request(`/sessions/${id}`);
+  const res = await makeApp().request(`/sessions/${id}`);
   return { status: res.status, html: await res.text() };
 };
 
@@ -409,7 +418,7 @@ describe("transcript readability (markdown, thinking, tools)", () => {
 const renderHtmx = async (
   path: string,
 ): Promise<{ status: number; html: string }> => {
-  const res = await createApp(db).request(path, {
+  const res = await makeApp().request(path, {
     headers: { "HX-Request": "true" },
   });
   return { status: res.status, html: await res.text() };
@@ -417,7 +426,7 @@ const renderHtmx = async (
 
 describe("web viewer htmx asset", () => {
   it("serves the vendored htmx library as JavaScript", async () => {
-    const res = await createApp(db).request("/htmx.min.js");
+    const res = await makeApp().request("/htmx.min.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -428,14 +437,14 @@ describe("web viewer htmx asset", () => {
 
 describe("web viewer static assets", () => {
   it("references the stylesheet and client script in the document", async () => {
-    const res = await createApp(db).request("/");
+    const res = await makeApp().request("/");
     const html = await res.text();
     expect(html).toContain('rel="stylesheet" href="/app.css"');
     expect(html).toContain('<script src="/sidebar.js"');
   });
 
   it("serves the stylesheet as CSS", async () => {
-    const res = await createApp(db).request("/app.css");
+    const res = await makeApp().request("/app.css");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/css");
     const body = await res.text();
@@ -444,7 +453,7 @@ describe("web viewer static assets", () => {
   });
 
   it("serves the sidebar client script as JavaScript", async () => {
-    const res = await createApp(db).request("/sidebar.js");
+    const res = await makeApp().request("/sidebar.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -508,7 +517,10 @@ describe("web viewer archive", () => {
     path: string,
     init?: RequestInit,
   ): Promise<{ status: number; html: string }> => {
-    const res = await createApp(archiveDb).request(path, init);
+    const res = await createApp(
+      archiveDb,
+      createRunner(DEFAULT_RUNNER_CONFIG),
+    ).request(path, init);
     return { status: res.status, html: await res.text() };
   };
 
@@ -655,7 +667,7 @@ describe("prompt bar in transcript", () => {
 describe("POST /sessions/:id/prompt", () => {
   it("submits a prompt and shows the running state with Stop button", async () => {
     const { spawn } = createMockSpawn(["line1"], { delayMs: 500 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const { status, html } = await postForm(app, "/sessions/alpha/prompt", {
       prompt: "hello goose",
     });
@@ -670,7 +682,7 @@ describe("POST /sessions/:id/prompt", () => {
     const { spawn, invocations } = createMockSpawn(["x"], {
       delayMs: 500,
     });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "test prompt" });
     expect(invocations).toHaveLength(1);
     expect(invocations[0].binary).toBe("goose");
@@ -683,7 +695,7 @@ describe("POST /sessions/:id/prompt", () => {
 
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const { status, html } = await postForm(app, "/sessions/missing/prompt", {
       prompt: "hello",
     });
@@ -693,7 +705,7 @@ describe("POST /sessions/:id/prompt", () => {
 
   it("does not start a run for an empty prompt", async () => {
     const { spawn, invocations } = createMockSpawn(["x"]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const { html } = await postForm(app, "/sessions/alpha/prompt", {
       prompt: "  ",
     });
@@ -704,7 +716,10 @@ describe("POST /sessions/:id/prompt", () => {
 
   it("shows queue position when the concurrency cap is reached", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
-    const app = createApp(db, makeRunnerConfig(1, "goose"), spawn);
+    const app = createApp(
+      db,
+      createRunner(makeRunnerConfig(1, "goose"), spawn),
+    );
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     const { html } = await postForm(app, "/sessions/beta/prompt", {
       prompt: "second",
@@ -715,7 +730,7 @@ describe("POST /sessions/:id/prompt", () => {
 
   it("keeps the existing run when a second prompt is submitted", async () => {
     const { spawn, invocations } = createMockSpawn(["x"], { delayMs: 500 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
     expect(invocations).toHaveLength(1);
@@ -726,14 +741,14 @@ describe("POST /sessions/:id/prompt", () => {
 describe("GET /sessions/:id/stream (SSE)", () => {
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const res = await app.request("/sessions/missing/stream");
     expect(res.status).toBe(404);
   });
 
   it("sends a done event for an idle session with no run", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const res = await app.request("/sessions/alpha/stream");
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const text = await res.text();
@@ -743,7 +758,7 @@ describe("GET /sessions/:id/stream (SSE)", () => {
 
   it("streams output lines live as SSE events", async () => {
     const { spawn } = createMockSpawn(["delta1", "delta2"], { delayMs: 80 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
     const res = await app.request("/sessions/alpha/stream");
@@ -758,7 +773,7 @@ describe("GET /sessions/:id/stream (SSE)", () => {
 
   it("catches up via accumulated lines when the run already finished", async () => {
     const { spawn } = createMockSpawn(["done1", "done2"]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
     // Let the fast mock finish before connecting.
@@ -775,7 +790,7 @@ describe("GET /sessions/:id/stream (SSE)", () => {
 
   it("reports an error status when goose exits non-zero", async () => {
     const { spawn } = createMockSpawn(["partial"], { exitCode: 42 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await sleep(150);
 
@@ -792,7 +807,7 @@ describe("POST /sessions/:id/stop", () => {
     const { spawn, killCalls } = createMockSpawn(["l1", "l2"], {
       delayMs: 500,
     });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
     const res = await app.request("/sessions/alpha/stop", { method: "POST" });
@@ -807,7 +822,7 @@ describe("POST /sessions/:id/stop", () => {
 
   it("is a no-op when no run is active", async () => {
     const { spawn, killCalls } = createMockSpawn([]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const res = await app.request("/sessions/alpha/stop", { method: "POST" });
     const html = await res.text();
     expect(res.status).toBe(200);
@@ -817,7 +832,7 @@ describe("POST /sessions/:id/stop", () => {
 
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const res = await app.request("/sessions/missing/stop", {
       method: "POST",
     });
@@ -829,13 +844,13 @@ describe("POST /sessions/:id/stop", () => {
 
 describe("M3: streaming assets & layout", () => {
   it("references the stream client script in the document", async () => {
-    const res = await createApp(db).request("/");
+    const res = await makeApp().request("/");
     const html = await res.text();
     expect(html).toContain('<script src="/stream.js"');
   });
 
   it("serves the stream client script as JavaScript", async () => {
-    const res = await createApp(db).request("/stream.js");
+    const res = await makeApp().request("/stream.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -853,7 +868,7 @@ describe("M3: transcript streaming attributes", () => {
 
   it("includes data attributes and live-output when a run is active", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     const { html } = await postForm(app, "/sessions/alpha/prompt", {
       prompt: "hello",
     });
@@ -864,7 +879,7 @@ describe("M3: transcript streaming attributes", () => {
 
   it("omits live-output when the run has completed", async () => {
     const { spawn } = createMockSpawn(["x"]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await sleep(150);
 
@@ -881,7 +896,7 @@ describe("M3: SSE stream renders HTML fragments", () => {
       content: [{ type: "text", text: "Live output" }],
     });
     const { spawn } = createMockSpawn([jsonLine], { delayMs: 80 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
     const res = await app.request("/sessions/alpha/stream");
@@ -895,7 +910,7 @@ describe("M3: SSE stream renders HTML fragments", () => {
 
   it("renders non-JSON lines as raw text blocks", async () => {
     const { spawn } = createMockSpawn(["plain text"], { delayMs: 80 });
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
     const res = await app.request("/sessions/alpha/stream");
@@ -911,7 +926,7 @@ describe("M3: SSE stream renders HTML fragments", () => {
       session_id: "abc",
     });
     const { spawn } = createMockSpawn([metaLine]);
-    const app = createApp(db, DEFAULT_RUNNER_CONFIG, spawn);
+    const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await sleep(150);
 
@@ -920,5 +935,100 @@ describe("M3: SSE stream renders HTML fragments", () => {
 
     expect(text).not.toContain("event: line");
     expect(text).toContain("event: done");
+  });
+});
+
+// === M4: polish & robustness ===
+
+describe("M4: error persistence on re-render", () => {
+  it("shows the error banner on GET after a run errors", async () => {
+    const { spawn } = createMockSpawn(["partial"], {
+      exitCode: 1,
+      delayMs: 50,
+    });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(300);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html).toContain("status-hint error");
+    expect(html).toContain("goose exited with code 1");
+    // the input is re-enabled (pane left in a usable state)
+    expect(html).toContain("send-btn");
+    expect(html).not.toContain("stop-btn");
+  });
+
+  it("does not show live-output for a completed run handle", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(200);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html).not.toContain('id="live-output"');
+    expect(html).toContain("send-btn");
+  });
+
+  it("does not duplicate the prompt bar for a terminal handle", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(200);
+
+    const res = await app.request("/sessions/alpha");
+    const html = await res.text();
+    expect(html.match(/class="prompt-bar"/g)).toHaveLength(1);
+  });
+});
+
+describe("M4: SSE done carries the real terminal status", () => {
+  it("sends 'completed' (not a generic marker) on success", async () => {
+    const { spawn } = createMockSpawn(["delta1"], { delayMs: 80 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: done");
+    expect(text).toContain("data: completed");
+  });
+
+  it("sends 'stopped' when a run was stopped", async () => {
+    const { spawn } = createMockSpawn(["l1", "l2"], { delayMs: 200 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await app.request("/sessions/alpha/stop", { method: "POST" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: done");
+    expect(text).toContain("data: stopped");
+  });
+});
+
+describe("M4: external runner injection", () => {
+  it("uses a caller-supplied runner so shutdown cleanup can reach it", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, runner);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    // The runner — not a private one inside createApp — holds the handle.
+    expect(getHandle(runner, "alpha")).toBeDefined();
+    expect(getHandle(runner, "alpha")?.prompt).toBe("hello");
+  });
+});
+
+describe("M4: stream client reconnect deduplication", () => {
+  it("clears live output on EventSource (re)open to avoid duplicates", async () => {
+    const res = await makeApp().request("/stream.js");
+    const body = await res.text();
+    // An 'open' listener empties #live-output before catch-up lines arrive.
+    expect(body).toContain('"open"');
+    expect(body).toContain('innerHTML = ""');
   });
 });
