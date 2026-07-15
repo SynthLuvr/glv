@@ -18,10 +18,6 @@ import {
   stop,
 } from "../runner.js";
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -90,10 +86,6 @@ const createMockSpawn = (
 
   return { spawn, state };
 };
-
-// ---------------------------------------------------------------------------
-// M0 — invocation builders & configuration (unchanged)
-// ---------------------------------------------------------------------------
 
 describe("goose invocation builders", () => {
   it("pipes the prompt over stdin, never as a -t argument (resume)", () => {
@@ -178,10 +170,6 @@ describe("createRunner", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// M1 — enqueue and run
-// ---------------------------------------------------------------------------
-
 describe("enqueue and run", () => {
   it("streams output lines as they arrive", async () => {
     const { spawn } = createMockSpawn(["line1", "line2", "line3"]);
@@ -236,16 +224,11 @@ describe("enqueue and run", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 10 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const handle = enqueue(runner, "s1", "hi", "/tmp");
-    // With available capacity p-queue starts immediately, so the same object
-    // the caller holds reflects the transition to "completed" in place.
+    // p-queue starts immediately, so the handle reflects the transition in place.
     await waitForStatus(handle, "completed");
     expect(handle.status).toBe("completed");
   });
 });
-
-// ---------------------------------------------------------------------------
-// M1 — queue position
-// ---------------------------------------------------------------------------
 
 describe("queue position", () => {
   it("reports an approximate queue position when queued", () => {
@@ -277,10 +260,6 @@ describe("queue position", () => {
     await waitForStatus(h2, "completed");
   });
 });
-
-// ---------------------------------------------------------------------------
-// M1 — stop
-// ---------------------------------------------------------------------------
 
 describe("stop", () => {
   it("stops a running session by sending a kill signal", async () => {
@@ -326,10 +305,6 @@ describe("stop", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// M1 — killProcessGroup
-// ---------------------------------------------------------------------------
-
 describe("killProcessGroup", () => {
   it("sends the signal to the entire process group via negative PID", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -353,10 +328,6 @@ describe("killProcessGroup", () => {
     spy.mockRestore();
   });
 });
-
-// ---------------------------------------------------------------------------
-// M1 — concurrency
-// ---------------------------------------------------------------------------
 
 describe("concurrency", () => {
   it("runs at most maxConcurrent sessions simultaneously", async () => {
@@ -401,10 +372,6 @@ describe("concurrency", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// M1 — session exclusivity
-// ---------------------------------------------------------------------------
-
 describe("session exclusivity", () => {
   it("rejects a second enqueue for a session that is already running", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
@@ -447,10 +414,6 @@ describe("session exclusivity", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// M1 — error handling
-// ---------------------------------------------------------------------------
-
 describe("error handling", () => {
   it("reports an error when goose exits non-zero", async () => {
     const { spawn } = createMockSpawn(["x"], { exitCode: 1 });
@@ -481,10 +444,6 @@ describe("error handling", () => {
     expect(handle.error).toBe("goose exited with code 42");
   });
 });
-
-// ---------------------------------------------------------------------------
-// M1 — status & handle accessors
-// ---------------------------------------------------------------------------
 
 describe("getStatus and getHandle", () => {
   it("returns the current status for an active session", async () => {

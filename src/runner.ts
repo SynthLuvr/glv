@@ -53,22 +53,15 @@ const makeRunnerConfig = (
   return result;
 };
 
-// ---------------------------------------------------------------------------
-// Run lifecycle (M1)
-// ---------------------------------------------------------------------------
-
 type RunStatus = "queued" | "running" | "completed" | "stopped" | "error";
 
-/** Public snapshot of a run's state. */
 type RunHandle = {
   readonly sessionId: string;
   readonly prompt: string;
   status: RunStatus;
   /** Approximate position in the queue (undefined when running or done). */
   queuePosition: number | undefined;
-  /** Lines streamed from goose stdout so far. */
   lines: string[];
-  /** Error message when status is "error". */
   error: string | undefined;
 };
 
@@ -77,7 +70,6 @@ type ProcessResult = {
   signal?: string;
 };
 
-/** A running subprocess — a narrow view of execa's return value. */
 type SpawnedProcess = {
   pid: number;
   kill: (signal?: string) => void;
@@ -85,10 +77,7 @@ type SpawnedProcess = {
   exit: Promise<ProcessResult>;
 };
 
-/**
- * Factory that spawns a subprocess.  The default uses execa; tests inject a
- * fake to avoid spawning real goose processes.
- */
+/** Subprocess factory; tests inject a fake to avoid spawning real goose. */
 type SpawnFn = (
   binary: string,
   args: string[],
@@ -115,14 +104,14 @@ type Runner = {
   readonly spawn: SpawnFn;
 };
 
-// Kill the entire process group so grandchildren (stdio extensions, tool
-// shells) are reaped, not just the direct goose child.  Runs spawn detached so
-// the goose PID doubles as the group ID.
+// Kill the whole process group so grandchildren (tool shells, stdio
+// extensions) are reaped too. Runs spawn detached, so the goose PID doubles as
+// the group leader ID.
 const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
   try {
     process.kill(-pid, signal);
   } catch {
-    // Process may have already exited — ignore.
+    // Already exited.
   }
 };
 
@@ -133,12 +122,11 @@ const describeFailure = (result: ProcessResult): string => {
   return `goose exited with code ${result.exitCode}`;
 };
 
-// Reads status without control-flow narrowing so that checks against "stopped"
-// remain valid even after an earlier assignment like `handle.status = "running"`.
-// The runner mutates status from stop() between reads, which TypeScript's
-// narrowing cannot model.
-const isStopped = (handle: { status: RunStatus }): boolean =>
-  handle.status === "stopped";
+const failRun = (handle: InternalHandle, err: unknown): void => {
+  if (handle.status === "stopped") return;
+  handle.status = "error";
+  handle.error = err instanceof Error ? err.message : String(err);
+};
 
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
@@ -148,13 +136,13 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   });
   const pid = proc.pid ?? -1;
 
-  // execa yields stdout in arbitrary chunks; split into individual lines so
-  // downstream NDJSON parsing gets one record per iteration.
+  // execa emits stdout in arbitrary chunks; split into lines so each yielded
+  // value is one NDJSON record.
   const stdout = (async function* () {
     let buffer = "";
+    let nl: number;
     for await (const chunk of proc) {
       buffer += chunk;
-      let nl: number;
       while ((nl = buffer.indexOf("\n")) >= 0) {
         yield buffer.slice(0, nl);
         buffer = buffer.slice(nl + 1);
@@ -176,6 +164,29 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   };
 
   return { pid, kill, stdout, exit };
+};
+
+const runProcess = async (
+  runner: Runner,
+  handle: InternalHandle,
+  invocation: GooseInvocation,
+): Promise<void> => {
+  const proc = runner.spawn(runner.config.gooseBinary, invocation.args, {
+    stdin: invocation.stdin,
+    cwd: handle.workingDir,
+  });
+  handle.process = proc;
+
+  for await (const line of proc.stdout) {
+    if (handle.status === "stopped") break;
+    handle.lines.push(line);
+    handle.onLine?.(line);
+  }
+
+  const result = await proc.exit;
+  if (handle.status === "stopped") return;
+  handle.status = result.exitCode === 0 ? "completed" : "error";
+  if (result.exitCode !== 0) handle.error = describeFailure(result);
 };
 
 const createRunner = (
@@ -226,27 +237,9 @@ const enqueue = (
     handle.onStatus?.(handle);
 
     try {
-      const proc = runner.spawn(runner.config.gooseBinary, invocation.args, {
-        stdin: invocation.stdin,
-        cwd: workingDir,
-      });
-      handle.process = proc;
-
-      for await (const line of proc.stdout) {
-        if (isStopped(handle)) break;
-        handle.lines.push(line);
-        handle.onLine?.(line);
-      }
-      const result = await proc.exit;
-      if (!isStopped(handle)) {
-        handle.status = result.exitCode === 0 ? "completed" : "error";
-        if (result.exitCode !== 0) handle.error = describeFailure(result);
-      }
+      await runProcess(runner, handle, invocation);
     } catch (err) {
-      if (!isStopped(handle)) {
-        handle.status = "error";
-        handle.error = err instanceof Error ? err.message : String(err);
-      }
+      failRun(handle, err);
     }
 
     handle.process = undefined;
