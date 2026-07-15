@@ -672,6 +672,91 @@ pre::-webkit-scrollbar-thumb {
   background: #b8bcc4;
 }
 
+/* ---------- prompt bar ---------- */
+.prompt-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 0;
+  margin-top: 1rem;
+}
+.status-hint {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+}
+.status-hint.queued {
+  color: var(--warn);
+  background: var(--surface-2);
+}
+.status-hint.running {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.status-hint.error {
+  color: var(--err);
+  background: var(--err-soft);
+}
+.prompt-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+.prompt-input {
+  flex: 1;
+  resize: vertical;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--text);
+}
+.prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.prompt-input:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.send-btn,
+.stop-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.send-btn {
+  background: var(--accent);
+  color: #fff;
+}
+.send-btn:hover {
+  background: #1d4ed8;
+}
+.stop-btn {
+  background: var(--err);
+  color: #fff;
+}
+.stop-btn:hover {
+  background: #b91c1c;
+}
+.submitted-prompt {
+  border-left: 3px solid var(--accent);
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {
   .app {

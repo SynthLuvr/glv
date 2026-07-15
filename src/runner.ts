@@ -270,6 +270,9 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   return false;
 };
 
+const isTerminalStatus = (status: RunStatus): boolean =>
+  status === "completed" || status === "stopped" || status === "error";
+
 const getStatus = (runner: Runner, sessionId: string): RunStatus | undefined =>
   runner.registry.get(sessionId)?.status;
 
@@ -294,6 +297,7 @@ export {
   enqueue,
   getHandle,
   getStatus,
+  isTerminalStatus,
   killProcessGroup,
   makeRunnerConfig,
   newSessionInvocation,

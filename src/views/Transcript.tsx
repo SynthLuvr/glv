@@ -20,6 +20,7 @@ import {
   truncate,
   truncateMiddle,
 } from "../format.js";
+import type { RunHandle } from "../runner.js";
 
 const jsonString = (value: object, pretty: boolean): string => {
   try {
@@ -211,22 +212,93 @@ const TranscriptHeader = ({
   </header>
 );
 
+const SubmittedPrompt = ({ prompt }: { prompt: string }) => (
+  <article class="message prompt submitted-prompt">
+    <div class="message-head">
+      <span class="tag prompt">▸ PROMPT</span>
+    </div>
+    <div class="message-body">
+      <p class="message-text">{prompt}</p>
+    </div>
+  </article>
+);
+
+const PromptBar = ({
+  sessionId,
+  run,
+}: {
+  sessionId: string;
+  run?: RunHandle;
+}) => {
+  const isBusy =
+    run !== undefined && (run.status === "queued" || run.status === "running");
+  return (
+    <form
+      class="prompt-bar"
+      hx-post={`/sessions/${sessionId}/prompt`}
+      hx-target="#detail-pane"
+      hx-swap="innerHTML"
+    >
+      {run?.status === "queued" && run.queuePosition !== undefined && (
+        <p class="status-hint queued">
+          Queued, waiting… (position {run.queuePosition})
+        </p>
+      )}
+      {run?.status === "running" && <p class="status-hint running">Running…</p>}
+      {run?.status === "error" && run.error !== undefined && (
+        <p class="status-hint error">{run.error}</p>
+      )}
+      <div class="prompt-input-row">
+        <textarea
+          name="prompt"
+          placeholder="Ask goose…"
+          disabled={isBusy ? true : undefined}
+          class="prompt-input"
+          rows={2}
+        />
+        {isBusy ? (
+          <button
+            type="button"
+            class="stop-btn"
+            hx-post={`/sessions/${sessionId}/stop`}
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+          >
+            Stop
+          </button>
+        ) : (
+          <button type="submit" class="send-btn">
+            Send
+          </button>
+        )}
+      </div>
+    </form>
+  );
+};
+
 const Transcript = ({
   session,
   messages,
+  run,
+  prompt,
 }: {
   session: SessionRow;
   messages: ParsedMessage[];
+  run?: RunHandle;
+  prompt?: string;
 }) => {
   const visible = messages.filter(hasContent);
+  const isEmpty = visible.length === 0 && prompt === undefined;
   return (
     <div class="detail-inner">
       <TranscriptHeader session={session} messageCount={visible.length} />
-      {visible.length === 0 ? (
+      {isEmpty ? (
         <p class="empty">This session has no messages.</p>
       ) : (
         visible.map((message) => <MessageView message={message} />)
       )}
+      {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
+      <PromptBar sessionId={session.id} run={run} />
     </div>
   );
 };
