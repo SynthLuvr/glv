@@ -245,6 +245,7 @@ export {
   formatSessionHeader,
   formatTranscript,
   messageKind,
+  parseContent,
   parseMessage,
   renderMarkdown,
   renderTable,
