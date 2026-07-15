@@ -74,16 +74,76 @@ body {
 .session-list { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; }
 .session-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.35rem;
   padding: 0.55rem 0.7rem;
   border-radius: 0.6rem;
   border: 1px solid transparent;
-  text-decoration: none;
-  color: var(--text);
   cursor: pointer;
 }
 .session-item:hover { background: var(--surface-2); }
+.session-check-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin: 0.02rem 0 0;
+  cursor: pointer;
+}
+.session-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 0.32rem;
+  background: var(--surface);
+  cursor: pointer;
+  opacity: 0;
+  position: relative;
+  transition:
+    opacity 0.1s ease,
+    background-color 0.1s ease,
+    border-color 0.1s ease;
+}
+/* Revealed on hover or when checked; gutter preserved to prevent layout shift. */
+.session-item:hover .session-check,
+.session-check:checked,
+.session-check:focus-visible {
+  opacity: 1;
+}
+.session-check:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.session-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 0.31rem;
+  top: 0.12rem;
+  width: 0.28rem;
+  height: 0.55rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.session-check:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.session-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--text);
+}
 .session-item.selected {
   background: var(--accent-soft);
   border-color: #cfe0ff;
@@ -123,6 +183,53 @@ body {
   white-space: nowrap;
 }
 
+/* ---------- bulk selection ---------- */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.4rem 0.55rem;
+  margin: 0.25rem 0.35rem 0.4rem;
+  background: var(--accent-soft);
+  border: 1px solid #cfe0ff;
+  border-radius: 0.55rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.bulk-bar[hidden] { display: none; }
+.bulk-count-wrap { font-weight: 500; }
+.bulk-count-wrap strong { color: var(--accent); }
+.bulk-bar button {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.16rem 0.5rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+.bulk-bar button:hover {
+  background-color: rgba(37, 99, 235, 0.12);
+  color: var(--accent);
+}
+.bulk-bar .bulk-archive-btn {
+  margin-left: auto;
+  border-color: var(--border-strong);
+  background-color: var(--surface);
+  color: var(--text);
+}
+.bulk-bar .bulk-archive-btn:hover {
+  background-color: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* ---------- detail pane ---------- */
 .detail { flex: 1; overflow-y: auto; }
 .detail-inner { max-width: 50rem; margin: 0 auto; padding: 2.25rem 2.5rem 4rem; }
@@ -147,9 +254,29 @@ body {
 
 /* ---------- session header ---------- */
 .session-header {
+  position: relative;
   margin-bottom: 1.75rem;
   padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--border);
+}
+.archive-btn {
+  position: absolute;
+  top: -0.15rem;
+  right: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0.28rem 0.75rem;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.archive-btn:hover {
+  color: var(--err);
+  border-color: var(--err);
+  background: var(--err-soft);
 }
 .session-header h2 { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 650; }
 .session-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; }

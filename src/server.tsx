@@ -5,7 +5,12 @@ import { type Context, Hono } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionFilter, SessionRow } from "./db.js";
-import { getSession, listMessages, listSessions } from "./db.js";
+import {
+  archiveSessions,
+  getSession,
+  listMessages,
+  listSessions,
+} from "./db.js";
 import { parseMessage } from "./format.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
@@ -48,20 +53,34 @@ const Shell = ({
 const isHtmxRequest = (c: Context): boolean =>
   c.req.header("HX-Request") === "true";
 
-// htmx clicks get just the detail pane plus an out-of-band sidebar update;
-// everything else gets the full document.
-const respond = (
+const extractIds = (value: unknown): string[] => {
+  if (Array.isArray(value))
+    return value.filter((v): v is string => typeof v === "string");
+  return typeof value === "string" ? [value] : [];
+};
+
+// htmx navigation swaps only the detail pane so an in-progress bulk selection
+// survives. Mutations additionally refresh the sidebar out-of-band.
+const render = (
   c: Context,
   sessions: SessionRow[],
   selectedId: string | undefined,
   detail: Child,
-  status: ContentfulStatusCode = 200,
+  {
+    refreshSidebar = false,
+    status = 200,
+  }: {
+    refreshSidebar?: boolean;
+    status?: ContentfulStatusCode;
+  } = {},
 ) =>
   isHtmxRequest(c)
     ? c.html(
         <Fragment>
           {detail}
-          <SessionList sessions={sessions} selectedId={selectedId} oob />
+          {refreshSidebar && (
+            <SessionList sessions={sessions} selectedId={undefined} oob />
+          )}
         </Fragment>,
         status,
       )
@@ -84,7 +103,7 @@ const createApp = (db: DatabaseSync): Hono => {
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    return respond(c, sessions, undefined, <DetailPlaceholder />);
+    return render(c, sessions, undefined, <DetailPlaceholder />);
   });
 
   app.get("/sessions/:id", (c) => {
@@ -92,14 +111,35 @@ const createApp = (db: DatabaseSync): Hono => {
     const sessions = listSessions(db, VIEWER_FILTER);
     const session = getSession(db, id);
     if (session === undefined)
-      return respond(c, sessions, undefined, <NotFoundDetail id={id} />, 404);
+      return render(c, sessions, undefined, <NotFoundDetail id={id} />, {
+        status: 404,
+      });
     const messages = listMessages(db, id).map(parseMessage);
-    return respond(
+    return render(
       c,
       sessions,
       id,
       <Transcript session={session} messages={messages} />,
     );
+  });
+
+  app.post("/sessions/:id/archive", (c) => {
+    const id = c.req.param("id");
+    archiveSessions(db, [id]);
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return render(c, sessions, undefined, <DetailPlaceholder />, {
+      refreshSidebar: true,
+    });
+  });
+
+  app.post("/sessions/archive", async (c) => {
+    const body = (await c.req.parseBody({ all: true })) as Record<
+      string,
+      unknown
+    >;
+    archiveSessions(db, extractIds(body.id));
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
   });
 
   return app;

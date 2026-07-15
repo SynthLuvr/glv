@@ -41,9 +41,12 @@ const defaultDbPath = (): string =>
 const resolveDbPath = (override?: string): string =>
   override ?? process.env.GOOSE_SESSIONS_DB ?? defaultDbPath();
 
-const openDb = (dbPath: string): DatabaseSync => {
+const openDb = (
+  dbPath: string,
+  { readOnly = true }: { readOnly?: boolean } = {},
+): DatabaseSync => {
   try {
-    return new DatabaseSync(dbPath, { readOnly: true });
+    return new DatabaseSync(dbPath, { readOnly });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
@@ -98,5 +101,21 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
+const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(", ");
+  const sql =
+    "UPDATE sessions SET archived_at = CURRENT_TIMESTAMP " +
+    `WHERE id IN (${placeholders}) AND archived_at IS NULL`;
+  db.prepare(sql).run(...ids);
+};
+
 export type { MessageRow, SessionFilter, SessionRow };
-export { getSession, listMessages, listSessions, openDb, resolveDbPath };
+export {
+  archiveSessions,
+  getSession,
+  listMessages,
+  listSessions,
+  openDb,
+  resolveDbPath,
+};

@@ -89,7 +89,7 @@ program
   .description("Start a local web viewer for goose sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
   .action((opts: ServeOpts) => {
-    const db = openDb(getDbPath());
+    const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, { port: Number(opts.port) });
   });
 
