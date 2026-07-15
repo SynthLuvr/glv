@@ -74,16 +74,30 @@ body {
 .session-list { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; }
 .session-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.45rem;
   padding: 0.55rem 0.7rem;
   border-radius: 0.6rem;
   border: 1px solid transparent;
-  text-decoration: none;
-  color: var(--text);
   cursor: pointer;
 }
 .session-item:hover { background: var(--surface-2); }
+.session-check {
+  flex-shrink: 0;
+  margin: 0.2rem 0 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.session-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--text);
+}
 .session-item.selected {
   background: var(--accent-soft);
   border-color: #cfe0ff;
@@ -123,6 +137,34 @@ body {
   white-space: nowrap;
 }
 
+/* ---------- bulk selection ---------- */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  margin: 0.2rem 0.35rem 0.35rem;
+  background: var(--accent-soft);
+  border: 1px solid #cfe0ff;
+  border-radius: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+.bulk-bar[hidden] { display: none; }
+.bulk-count-wrap { margin-right: auto; }
+.bulk-count-wrap strong { color: var(--accent); }
+.bulk-archive-btn {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.22rem 0.6rem;
+  border-radius: 0.4rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bulk-archive-btn:hover { background: var(--surface-2); }
+
 /* ---------- detail pane ---------- */
 .detail { flex: 1; overflow-y: auto; }
 .detail-inner { max-width: 50rem; margin: 0 auto; padding: 2.25rem 2.5rem 4rem; }
@@ -147,9 +189,29 @@ body {
 
 /* ---------- session header ---------- */
 .session-header {
+  position: relative;
   margin-bottom: 1.75rem;
   padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--border);
+}
+.archive-btn {
+  position: absolute;
+  top: -0.15rem;
+  right: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0.28rem 0.75rem;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.archive-btn:hover {
+  color: var(--err);
+  border-color: var(--err);
+  background: var(--err-soft);
 }
 .session-header h2 { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 650; }
 .session-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; }

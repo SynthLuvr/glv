@@ -2,6 +2,7 @@ export type { ServeOpts } from "./commands/serve.js";
 export { runServe } from "./commands/serve.js";
 export type { MessageRow, SessionFilter, SessionRow } from "./db.js";
 export {
+  archiveSessions,
   getSession,
   listMessages,
   listSessions,

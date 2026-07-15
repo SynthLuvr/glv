@@ -5,7 +5,12 @@ import { type Context, Hono } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionFilter, SessionRow } from "./db.js";
-import { getSession, listMessages, listSessions } from "./db.js";
+import {
+  archiveSessions,
+  getSession,
+  listMessages,
+  listSessions,
+} from "./db.js";
 import { parseMessage } from "./format.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
@@ -47,6 +52,14 @@ const Shell = ({
 
 const isHtmxRequest = (c: Context): boolean =>
   c.req.header("HX-Request") === "true";
+
+// htmx serializes checked boxes as repeated `id=...` fields; accept either a
+// single value or an array and coerce everything to plain strings.
+const extractIds = (value: unknown): string[] => {
+  if (Array.isArray(value))
+    return value.filter((v): v is string => typeof v === "string");
+  return typeof value === "string" ? [value] : [];
+};
 
 // htmx clicks get just the detail pane plus an out-of-band sidebar update;
 // everything else gets the full document.
@@ -100,6 +113,28 @@ const createApp = (db: DatabaseSync): Hono => {
       id,
       <Transcript session={session} messages={messages} />,
     );
+  });
+
+  // Archiving a single session (from the transcript header). Swaps the detail
+  // pane back to the placeholder and refreshes the sidebar list out-of-band so
+  // the session disappears from it.
+  app.post("/sessions/:id/archive", (c) => {
+    const id = c.req.param("id");
+    archiveSessions(db, [id]);
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return respond(c, sessions, undefined, <DetailPlaceholder />);
+  });
+
+  // Bulk-archiving the sidebar selection. The checked box values arrive as form
+  // fields; archive them and return a fresh session list for the targeted swap.
+  app.post("/sessions/archive", async (c) => {
+    const body = (await c.req.parseBody({ all: true })) as Record<
+      string,
+      unknown
+    >;
+    archiveSessions(db, extractIds(body.id));
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
   });
 
   return app;

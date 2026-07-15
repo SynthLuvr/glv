@@ -299,6 +299,20 @@ describe("web viewer GET /", () => {
     // each card keeps a real href (progressive enhancement) plus hx-get
     expect(html).toContain('href="/sessions/alpha" hx-get="/sessions/alpha"');
   });
+
+  it("adds a selection checkbox to each session card", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('class="session-check"');
+    expect(html).toContain('name="id" value="alpha"');
+    expect(html).toContain('name="id" value="beta"');
+  });
+
+  it("renders a bulk action bar for archiving the selection", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('id="bulk-bar"');
+    expect(html).toContain('hx-post="/sessions/archive"');
+    expect(html).toContain('hx-include="closest #session-list"');
+  });
 });
 
 const renderSession = async (
@@ -338,6 +352,12 @@ describe("web viewer GET /sessions/:id", () => {
     expect(status).toBe(404);
     expect(html).toContain("Session not found");
     expect(html).toContain("missing");
+  });
+
+  it("renders an archive button in the transcript header", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('class="archive-btn"');
+    expect(html).toContain('hx-post="/sessions/alpha/archive"');
   });
 });
 
@@ -435,5 +455,75 @@ describe("web viewer htmx partials (HX-Request)", () => {
     expect(status).toBe(404);
     expect(html).toContain("Session not found");
     expect(html).not.toContain("<html");
+  });
+});
+
+// Archiving mutates the database, so these tests run against an isolated copy
+// to avoid leaking state into the read-only suites above.
+describe("web viewer archive", () => {
+  let archiveDb: DatabaseSync;
+  let archiveDir: string;
+
+  beforeAll(() => {
+    archiveDir = mkdtempSync(join(tmpdir(), "glv-web-archive-"));
+    archiveDb = new DatabaseSync(join(archiveDir, "sessions.db"));
+    seed(archiveDb);
+  });
+
+  afterAll(() => {
+    archiveDb.close();
+    rmSync(archiveDir, { recursive: true, force: true });
+  });
+
+  const archive = async (
+    path: string,
+    init?: RequestInit,
+  ): Promise<{ status: number; html: string }> => {
+    const res = await createApp(archiveDb).request(path, init);
+    return { status: res.status, html: await res.text() };
+  };
+
+  it("archives a single session from the transcript button (htmx)", async () => {
+    const { status, html } = await archive("/sessions/alpha/archive", {
+      method: "POST",
+      headers: { "HX-Request": "true" },
+    });
+    expect(status).toBe(200);
+    // detail pane is reset to the placeholder
+    expect(html).toContain("No session selected");
+    // the archived session is dropped from the out-of-band sidebar list
+    expect(html).not.toContain("Alpha Session");
+    // other sessions remain
+    expect(html).toContain("Beta Session");
+  });
+
+  it("marks the session as archived in the database", () => {
+    const rows = archiveDb
+      .prepare(
+        "SELECT id FROM sessions WHERE id = ? AND archived_at IS NOT NULL",
+      )
+      .all("alpha");
+    expect(rows).toHaveLength(1);
+  });
+
+  it("archives a bulk selection submitted as repeated id fields", async () => {
+    const form = new URLSearchParams();
+    form.append("id", "beta");
+    form.append("id", "gamma");
+    const { status, html } = await archive("/sessions/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    expect(status).toBe(200);
+    expect(html).toContain('id="session-list"');
+    expect(html).not.toContain("Beta Session");
+    expect(html).not.toContain("Gamma Build");
+  });
+
+  it("hides every user session once they are all archived", async () => {
+    const { status, html } = await archive("/");
+    expect(status).toBe(200);
+    expect(html).toContain("No sessions found.");
   });
 });
