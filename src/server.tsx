@@ -32,17 +32,11 @@ const htmxSource = readFileSync(
   "utf8",
 );
 
-// The stylesheet and the sidebar client script live as their own files under
-// src/ so they can be edited as real modules instead of raw strings embedded in
-// a view. They are resolved relative to this module and served as assets below.
-const appCss = readFileSync(
-  fileURLToPath(new URL("./styles/app.css", import.meta.url)),
-  "utf8",
-);
-const sidebarScript = readFileSync(
-  fileURLToPath(new URL("./scripts/sidebar.js", import.meta.url)),
-  "utf8",
-);
+const readAsset = (relativePath: string): string =>
+  readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+
+const appCss = readAsset("./styles/app.css");
+const sidebarScript = readAsset("./scripts/sidebar.js");
 
 const Shell = ({
   sessions,
@@ -103,28 +97,21 @@ const render = (
         status,
       );
 
+const serveAsset = (c: Context, body: string, contentType: string) =>
+  c.body(body, 200, {
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=86400",
+  });
+
 const createApp = (db: DatabaseSync): Hono => {
   const app = new Hono();
 
   app.get("/htmx.min.js", (c) =>
-    c.body(htmxSource, 200, {
-      "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    }),
+    serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
-
-  app.get("/app.css", (c) =>
-    c.body(appCss, 200, {
-      "Content-Type": "text/css; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    }),
-  );
-
+  app.get("/app.css", (c) => serveAsset(c, appCss, "text/css; charset=utf-8"));
   app.get("/sidebar.js", (c) =>
-    c.body(sidebarScript, 200, {
-      "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    }),
+    serveAsset(c, sidebarScript, "application/javascript; charset=utf-8"),
   );
 
   app.get("/", (c) => {

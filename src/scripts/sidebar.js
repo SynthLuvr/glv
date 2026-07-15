@@ -2,8 +2,10 @@
 // archiving triggers. Navigation swaps only the detail pane, so an in-progress
 // selection is preserved between page transitions.
 
+const getChecks = () => [...document.querySelectorAll(".session-check")];
+
 const updateBulkBar = () => {
-  const checks = [...document.querySelectorAll(".session-check")];
+  const checks = getChecks();
   const checkedCount = checks.filter((c) => c.checked).length;
   const allChecked = checks.length > 0 && checkedCount === checks.length;
   const count = document.getElementById("bulk-count");
@@ -29,9 +31,9 @@ document.addEventListener("click", (e) => {
   const btn = el?.closest("[data-bulk-action]");
   if (btn) {
     e.preventDefault();
-    const checks = [...document.querySelectorAll(".session-check")];
-    const allChecked = checks.length > 0 && checks.every((c) => c.checked);
+    const checks = getChecks();
     if (btn.dataset.bulkAction === "select-all") {
+      const allChecked = checks.length > 0 && checks.every((c) => c.checked);
       checks.forEach((c) => (c.checked = !allChecked));
     } else {
       checks.forEach((c) => (c.checked = false));
