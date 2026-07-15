@@ -1,10 +1,8 @@
-// Event delegation on `document` survives the out-of-band sidebar swaps that
-// archiving triggers. Navigation swaps only the detail pane, so an in-progress
-// selection is preserved between page transitions.
+const getChecks = (): HTMLInputElement[] => [
+  ...document.querySelectorAll<HTMLInputElement>(".session-check"),
+];
 
-const getChecks = () => [...document.querySelectorAll(".session-check")];
-
-const updateBulkBar = () => {
+const updateBulkBar = (): void => {
   const checks = getChecks();
   const checkedCount = checks.filter((c) => c.checked).length;
   const allChecked = checks.length > 0 && checkedCount === checks.length;
@@ -16,6 +14,9 @@ const updateBulkBar = () => {
   if (toggle) toggle.textContent = allChecked ? "Deselect all" : "Select all";
 };
 
+// Event delegation on `document` survives the out-of-band sidebar swaps that
+// archiving triggers. Navigation swaps only the detail pane, so an in-progress
+// selection is preserved between page transitions.
 document.addEventListener("change", (e) => {
   if (
     e.target instanceof HTMLInputElement &&
@@ -29,7 +30,7 @@ document.addEventListener("click", (e) => {
   const el = e.target instanceof Element ? e.target : null;
 
   const btn = el?.closest("[data-bulk-action]");
-  if (btn) {
+  if (btn instanceof HTMLElement) {
     e.preventDefault();
     const checks = getChecks();
     if (btn.dataset.bulkAction === "select-all") {
