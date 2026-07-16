@@ -1079,8 +1079,6 @@ describe("listHomeDirs", () => {
   });
 });
 
-// === M5: new session ===
-
 describe("M5: new session entry points", () => {
   it("renders the new-session form on GET /sessions/new", async () => {
     const res = await makeApp().request("/sessions/new");

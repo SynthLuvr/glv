@@ -41,6 +41,9 @@ const VIEWER_FILTER: SessionFilter = {
   includeArchived: false,
 };
 
+const SESSION_TIMEOUT_ERROR =
+  "goose did not create a session in time. Is the goose binary available?";
+
 // Resolved via import.meta so the asset is found regardless of launch directory.
 const htmxSource = readFileSync(
   fileURLToPath(import.meta.resolve("htmx.org/dist/htmx.min.js")),
@@ -164,8 +167,6 @@ const pollForSessionId = async (
   return undefined;
 };
 
-// Lists public (non-hidden) top-level directories under a home directory so the
-// new-session form offers sensible working dirs without needing prior sessions.
 const listHomeDirs = (home: string = homedir()): string[] =>
   readdirSync(home, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
@@ -255,28 +256,20 @@ const createApp = (
       return reject("That working directory does not exist.", 422);
 
     const tempKey = generateTempKey();
-    // Exclude ids that already exist in this dir so the poll only accepts
-    // goose's new row.
     const known = new Set(sessionIdsInDir(db, workingDir));
     enqueueNew(runner, tempKey, prompt, workingDir);
 
     const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
     if (realId === undefined) {
       stop(runner, tempKey);
-      return reject(
-        "goose did not create a session in time. Is the goose binary available?",
-        502,
-      );
+      return reject(SESSION_TIMEOUT_ERROR, 502);
     }
 
     rekey(runner, tempKey, realId);
     const session = getSession(db, realId);
     if (session === undefined) {
       stop(runner, realId);
-      return reject(
-        "goose did not create a session in time. Is the goose binary available?",
-        502,
-      );
+      return reject(SESSION_TIMEOUT_ERROR, 502);
     }
 
     return render(

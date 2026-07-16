@@ -203,7 +203,6 @@ const enqueueInvocation = (
   runner: Runner,
   key: string,
   invocation: GooseInvocation,
-  prompt: string,
   workingDir: string,
   opts: EnqueueOptions = {},
 ): RunHandle => {
@@ -216,7 +215,7 @@ const enqueueInvocation = (
 
   const handle: InternalHandle = {
     sessionId: key,
-    prompt,
+    prompt: invocation.stdin,
     workingDir,
     status: "queued",
     queuePosition: runner.queue.size,
@@ -260,7 +259,6 @@ const enqueue = (
     runner,
     sessionId,
     resumeInvocation(sessionId, prompt),
-    prompt,
     workingDir,
     opts,
   );
@@ -278,13 +276,10 @@ const enqueueNew = (
     runner,
     tempKey,
     newSessionInvocation(prompt),
-    prompt,
     workingDir,
     opts,
   );
 
-// Re-points a run from its temporary key to the real session id goose
-// assigned, so downstream lookups (stream, stop, follow-up) use the real id.
 const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   const handle = runner.registry.get(oldKey);
   if (handle === undefined) return false;
