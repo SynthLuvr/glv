@@ -127,6 +127,24 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
+// execa rejects with an Error whose exitCode/signal are present but may be
+// undefined (e.g. a signal kill sets exitCode to undefined), alongside
+// unrelated fields like stderr and command. The explicit `| undefined` keeps
+// present-but-undefined values valid, mirroring TS optional semantics; arktype's
+// default undeclared-key behavior is "ignore", so the extra fields pass too.
+const ExecaError = type({
+  "exitCode?": "number | undefined",
+  "signal?": "string | undefined",
+});
+
+// Validates a rejected spawn value with .allows() (a type guard) instead of an
+// unsafe cast, then narrows to read the exit info safely. Anything that is not
+// execa-shaped falls back to a null exit code (an unexpected exit).
+const toProcessResult = (e: unknown): ProcessResult => {
+  if (!ExecaError.allows(e)) return { exitCode: null };
+  return { exitCode: e.exitCode ?? null, signal: e.signal };
+};
+
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
     input: opts.stdin,
@@ -152,10 +170,7 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 
   const exit = proc.then(
     (r) => ({ exitCode: r.exitCode ?? 0 }),
-    (e: unknown) => {
-      const err = e as { exitCode?: number; signal?: string };
-      return { exitCode: err.exitCode ?? null, signal: err.signal };
-    },
+    toProcessResult,
   );
 
   const kill = (signal: string = "SIGINT"): void => {
@@ -355,4 +370,5 @@ export {
   resumeInvocation,
   stop,
   stopAll,
+  toProcessResult,
 };
