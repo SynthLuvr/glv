@@ -306,7 +306,7 @@ describe("web viewer GET /", () => {
 
   it("wires the sidebar with htmx to swap only the detail pane", async () => {
     const html = await renderRoot();
-    expect(html).toContain('<script src="/htmx.min.js"');
+    expect(html).toContain('<script src="/assets/htmx.min.js"');
     expect(html).toContain('id="detail-pane"');
     expect(html).toContain('hx-target="#detail-pane"');
     expect(html).toContain('hx-push-url="true"');
@@ -430,7 +430,7 @@ const renderHtmx = async (
 
 describe("web viewer htmx asset", () => {
   it("serves the vendored htmx library as JavaScript", async () => {
-    const res = await makeApp().request("/htmx.min.js");
+    const res = await makeApp().request("/assets/htmx.min.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -443,12 +443,12 @@ describe("web viewer static assets", () => {
   it("references the stylesheet and client script in the document", async () => {
     const res = await makeApp().request("/");
     const html = await res.text();
-    expect(html).toContain('rel="stylesheet" href="/app.css"');
-    expect(html).toContain('<script src="/sidebar.js"');
+    expect(html).toContain('rel="stylesheet" href="/assets/app.css"');
+    expect(html).toContain('<script src="/assets/sidebar.js"');
   });
 
   it("serves the stylesheet as CSS", async () => {
-    const res = await makeApp().request("/app.css");
+    const res = await makeApp().request("/assets/app.css");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/css");
     const body = await res.text();
@@ -457,7 +457,7 @@ describe("web viewer static assets", () => {
   });
 
   it("serves the sidebar client script as JavaScript", async () => {
-    const res = await makeApp().request("/sidebar.js");
+    const res = await makeApp().request("/assets/sidebar.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -466,7 +466,7 @@ describe("web viewer static assets", () => {
   });
 
   it("serves the markdown-copy client script as JavaScript", async () => {
-    const res = await makeApp().request("/markdown-copy.js");
+    const res = await makeApp().request("/assets/markdown-copy.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -635,8 +635,8 @@ describe("web viewer rename", () => {
 
   it("serves the rename client script and references it in the document", async () => {
     const doc = await (await app().request("/")).text();
-    expect(doc).toContain('<script src="/rename.js"');
-    const res = await app().request("/rename.js");
+    expect(doc).toContain('<script src="/assets/rename.js"');
+    const res = await app().request("/assets/rename.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     expect((await res.text()).length).toBeGreaterThan(0);
@@ -978,11 +978,11 @@ describe("M3: streaming assets & layout", () => {
   it("references the stream client script in the document", async () => {
     const res = await makeApp().request("/");
     const html = await res.text();
-    expect(html).toContain('<script src="/stream.js"');
+    expect(html).toContain('<script src="/assets/stream.js"');
   });
 
   it("serves the stream client script as JavaScript", async () => {
-    const res = await makeApp().request("/stream.js");
+    const res = await makeApp().request("/assets/stream.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
@@ -1157,7 +1157,7 @@ describe("M4: external runner injection", () => {
 
 describe("M4: stream client reconnect deduplication", () => {
   it("clears live output on EventSource (re)open to avoid duplicates", async () => {
-    const res = await makeApp().request("/stream.js");
+    const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
     // An 'open' listener empties #live-output before catch-up lines arrive.
     expect(body).toContain('"open"');
@@ -1177,7 +1177,7 @@ describe("M5: transcript message container", () => {
 
 describe("M5: stream client live-tail wiring", () => {
   it("connects the tail endpoint and appends new messages", async () => {
-    const res = await makeApp().request("/stream.js");
+    const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
     // The tail URL suffix and the SSE event name survive minification as
     // string literals, confirming the client wires the live-tail stream.
@@ -1212,7 +1212,7 @@ describe("M6: live-tail header metadata hooks", () => {
 
 describe("M6: stream client live-tail polish wiring", () => {
   it("handles replace, meta, and live-badge events", async () => {
-    const res = await makeApp().request("/stream.js");
+    const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
     expect(body).toContain('"replace"');
     expect(body).toContain('"meta"');

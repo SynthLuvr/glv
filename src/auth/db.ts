@@ -106,31 +106,29 @@ const userCount = (db: DatabaseSync): number => {
 
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
+const credentialCols = "id, user_id, public_key, counter, transports";
+
+const toCredential = (row: unknown): StoredCredential | undefined => {
+  const result = CredentialRow(row);
+  return result instanceof type.errors ? undefined : mapCredential(result);
+};
+
+const validateCredentials = (rows: unknown[]): StoredCredential[] =>
+  rows.map(toCredential).filter((c): c is StoredCredential => c !== undefined);
+
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
-  db
-    .prepare(
-      "SELECT id, user_id, public_key, counter, transports " +
-        "FROM credentials",
-    )
-    .all()
-    .map((row) => CredentialRow(row))
-    .filter((row): row is CredentialRow => !(row instanceof type.errors))
-    .map(mapCredential);
+  validateCredentials(
+    db.prepare(`SELECT ${credentialCols} FROM credentials`).all(),
+  );
 
 const getCredential = (
   db: DatabaseSync,
   id: string,
 ): StoredCredential | undefined => {
   const row = db
-    .prepare(
-      "SELECT id, user_id, public_key, counter, transports " +
-        "FROM credentials WHERE id = ?",
-    )
+    .prepare(`SELECT ${credentialCols} FROM credentials WHERE id = ?`)
     .get(id);
-  if (row === undefined) return undefined;
-  const result = CredentialRow(row);
-  if (result instanceof type.errors) return undefined;
-  return mapCredential(result);
+  return row === undefined ? undefined : toCredential(row);
 };
 
 const createOwner = (db: DatabaseSync, credential: NewCredential): string => {

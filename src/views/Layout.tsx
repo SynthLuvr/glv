@@ -14,12 +14,12 @@ const Layout = ({ title, children }: LayoutProps) => (
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
-      <link rel="stylesheet" href="/app.css" />
-      <script src="/htmx.min.js" defer></script>
-      <script src="/stream.js" defer></script>
-      <script src="/theme.js" defer></script>
-      <script src="/markdown-copy.js" defer></script>
-      <script src="/rename.js" defer></script>
+      <link rel="stylesheet" href="/assets/app.css" />
+      <script src="/assets/htmx.min.js" defer></script>
+      <script src="/assets/stream.js" defer></script>
+      <script src="/assets/theme.js" defer></script>
+      <script src="/assets/markdown-copy.js" defer></script>
+      <script src="/assets/rename.js" defer></script>
     </head>
     <body>{children}</body>
   </html>

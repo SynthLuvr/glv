@@ -16,8 +16,8 @@ const AuthLayout = ({ title, children }: AuthLayoutProps) => (
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
-      <link rel="stylesheet" href="/app.css" />
-      <script src="/passkey.js" defer></script>
+      <link rel="stylesheet" href="/assets/app.css" />
+      <script src="/assets/passkey.js" defer></script>
     </head>
     <body>
       <main class="auth-main">{children}</main>

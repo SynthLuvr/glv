@@ -10,7 +10,11 @@ import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
 import { SESSION_TTL_SECONDS } from "./auth/db.js";
 import { authMiddleware, COOKIE_NAME } from "./auth/middleware.js";
-import { type AuthService, type RpConfig } from "./auth/service.js";
+import {
+  type AuthService,
+  type RpConfig,
+  type VerifyResult,
+} from "./auth/service.js";
 import type { SessionFilter, SessionRow } from "./db.js";
 import {
   archiveSessions,
@@ -95,40 +99,6 @@ const extractIds = (value: unknown): string[] => {
     return value.filter((v): v is string => typeof v === "string");
   return typeof value === "string" ? [value] : [];
 };
-
-// htmx navigation swaps only the detail pane so an in-progress bulk selection
-// survives. Mutations additionally refresh the sidebar out-of-band.
-const renderView = (
-  c: Context,
-  sessions: SessionRow[],
-  selectedId: string | undefined,
-  detail: Child,
-  {
-    refreshSidebar = false,
-    status = 200,
-    logout = false,
-  }: {
-    refreshSidebar?: boolean;
-    status?: ContentfulStatusCode;
-    logout?: boolean;
-  } = {},
-) =>
-  isHtmxRequest(c)
-    ? c.html(
-        <Fragment>
-          {detail}
-          {refreshSidebar && (
-            <SessionList sessions={sessions} selectedId={undefined} oob />
-          )}
-        </Fragment>,
-        status,
-      )
-    : c.html(
-        <Shell sessions={sessions} selectedId={selectedId} logout={logout}>
-          {detail}
-        </Shell>,
-        status,
-      );
 
 const serveAsset = (c: Context, body: string, contentType: string) =>
   c.body(body, 200, {
@@ -254,22 +224,43 @@ const createApp = (
     await next();
   });
 
-  // Binds the logout flag so existing call sites don't each repeat it.
   const showLogout = auth !== undefined;
+  // htmx navigation swaps only the detail pane so an in-progress bulk
+  // selection survives. Mutations additionally refresh the sidebar
+  // out-of-band.
   const render = (
     c: Context,
     sessions: SessionRow[],
     selectedId: string | undefined,
     detail: Child,
-    o: {
+    {
+      refreshSidebar = false,
+      status = 200,
+    }: {
       refreshSidebar?: boolean;
       status?: ContentfulStatusCode;
     } = {},
   ) =>
-    renderView(c, sessions, selectedId, detail, {
-      logout: showLogout,
-      ...o,
-    });
+    isHtmxRequest(c)
+      ? c.html(
+          <Fragment>
+            {detail}
+            {refreshSidebar && (
+              <SessionList sessions={sessions} selectedId={undefined} oob />
+            )}
+          </Fragment>,
+          status,
+        )
+      : c.html(
+          <Shell
+            sessions={sessions}
+            selectedId={selectedId}
+            logout={showLogout}
+          >
+            {detail}
+          </Shell>,
+          status,
+        );
 
   const rpFromContext = (c: Context): RpConfig => {
     const url = new URL(c.req.url);
@@ -291,6 +282,21 @@ const createApp = (
     });
   };
 
+  const finishAuth = (
+    c: Context,
+    result: VerifyResult,
+    fallbackError: string,
+  ) => {
+    if (result.verified && result.token !== undefined) {
+      setSessionCookie(c, result.token);
+      return c.json({ verified: true });
+    }
+    return c.json(
+      { verified: false, error: result.error ?? fallbackError },
+      400,
+    );
+  };
+
   const renderNotFound = (c: Context, id: string) =>
     render(
       c,
@@ -308,26 +314,28 @@ const createApp = (
     />
   );
 
-  app.get("/htmx.min.js", (c) =>
+  app.get("/assets/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
-  app.get("/app.css", (c) => serveAsset(c, appCss, "text/css; charset=utf-8"));
-  app.get("/sidebar.js", (c) =>
+  app.get("/assets/app.css", (c) =>
+    serveAsset(c, appCss, "text/css; charset=utf-8"),
+  );
+  app.get("/assets/sidebar.js", (c) =>
     serveAsset(c, sidebarScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/stream.js", (c) =>
+  app.get("/assets/stream.js", (c) =>
     serveAsset(c, streamScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/theme.js", (c) =>
+  app.get("/assets/theme.js", (c) =>
     serveAsset(c, themeScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/markdown-copy.js", (c) =>
+  app.get("/assets/markdown-copy.js", (c) =>
     serveAsset(c, markdownCopyScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/rename.js", (c) =>
+  app.get("/assets/rename.js", (c) =>
     serveAsset(c, renameScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/passkey.js", (c) =>
+  app.get("/assets/passkey.js", (c) =>
     serveAsset(c, passkeyScript, "application/javascript; charset=utf-8"),
   );
 
@@ -354,16 +362,11 @@ const createApp = (
           { verified: false, error: "Registration is closed." },
           403,
         );
-      const body = await c.req.json();
-      const result = await auth.verifyRegistration(rpFromContext(c), body);
-      if (result.verified && result.token !== undefined) {
-        setSessionCookie(c, result.token);
-        return c.json({ verified: true });
-      }
-      return c.json(
-        { verified: false, error: result.error ?? "Verification failed." },
-        400,
+      const result = await auth.verifyRegistration(
+        rpFromContext(c),
+        await c.req.json(),
       );
+      return finishAuth(c, result, "Verification failed.");
     });
 
     app.get("/auth/login/options", async (c) =>
@@ -371,16 +374,11 @@ const createApp = (
     );
 
     app.post("/auth/login/verify", async (c) => {
-      const body = await c.req.json();
-      const result = await auth.verifyLogin(rpFromContext(c), body);
-      if (result.verified && result.token !== undefined) {
-        setSessionCookie(c, result.token);
-        return c.json({ verified: true });
-      }
-      return c.json(
-        { verified: false, error: result.error ?? "Login failed." },
-        400,
+      const result = await auth.verifyLogin(
+        rpFromContext(c),
+        await c.req.json(),
       );
+      return finishAuth(c, result, "Login failed.");
     });
 
     app.post("/auth/logout", (c) => {

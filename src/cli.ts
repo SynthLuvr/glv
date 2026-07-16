@@ -41,19 +41,16 @@ const GlobalOpts = type({
   "authDb?": "string",
 });
 
-const getDbPath = (): string => {
+const globalOpts = () => {
   const opts = GlobalOpts(program.opts());
   if (opts instanceof type.errors)
     throw new Error(`Invalid global options: ${opts.summary}`);
-  return resolveDbPath(opts.db);
+  return opts;
 };
 
-const getAuthDbPath = (): string => {
-  const opts = GlobalOpts(program.opts());
-  if (opts instanceof type.errors)
-    throw new Error(`Invalid global options: ${opts.summary}`);
-  return resolveAuthDbPath(opts.authDb);
-};
+const getDbPath = (): string => resolveDbPath(globalOpts().db);
+
+const getAuthDbPath = (): string => resolveAuthDbPath(globalOpts().authDb);
 
 const useDb = (fn: (db: DatabaseSync) => void): void => {
   const db = openDb(getDbPath());
