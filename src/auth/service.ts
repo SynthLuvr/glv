@@ -10,6 +10,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
+import { type } from "arktype";
 import {
   createOwner,
   createSession,
@@ -57,6 +58,19 @@ type AuthService = {
 
 const errDetail = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
+
+// Stored transports are plain strings; validate each against the WebAuthn
+// transport union rather than asserting the whole array sight-unseen. Values
+// outside the union are dropped so a malformed record can't reach the verifier.
+const Transport = type(
+  "'ble' | 'cable' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb'",
+);
+
+const toTransports = (raw: string[]): AuthenticatorTransportFuture[] =>
+  raw.flatMap((t) => {
+    const parsed = Transport(t);
+    return parsed instanceof type.errors ? [] : [parsed];
+  });
 
 const makeAuthService = (authDb: DatabaseSync): AuthService => {
   // Single-user app: only one in-flight challenge is needed at a time. The
@@ -137,7 +151,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
       allowCredentials: creds.map((c) => ({
         id: c.id,
         type: "public-key",
-        transports: c.transports as AuthenticatorTransportFuture[],
+        transports: toTransports(c.transports),
       })),
       userVerification: "preferred",
     });
@@ -169,7 +183,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
           id: cred.id,
           publicKey: cred.publicKey,
           counter: cred.counter,
-          transports: cred.transports as AuthenticatorTransportFuture[],
+          transports: toTransports(cred.transports),
         },
         requireUserVerification: false,
       });

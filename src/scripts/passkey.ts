@@ -2,6 +2,14 @@ import {
   startAuthentication,
   startRegistration,
 } from "@simplewebauthn/browser";
+import { type } from "arktype";
+
+const Action = type("'register' | 'login'");
+
+const VerifyResult = type({
+  verified: "boolean",
+  "error?": "string",
+});
 
 const showError = (msg: string): void => {
   const el = document.getElementById("auth-error");
@@ -33,10 +41,12 @@ const runCeremony = async (action: "register" | "login"): Promise<void> => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(responseJSON),
   });
-  const result = (await verifyRes.json()) as {
-    verified: boolean;
-    error?: string;
-  };
+  // Validate the server's verify response instead of trusting its shape.
+  const result = VerifyResult(await verifyRes.json());
+  if (result instanceof type.errors) {
+    showError("Could not verify authentication. Please try again.");
+    return;
+  }
   if (result.verified) {
     window.location.href = "/";
     return;
@@ -50,7 +60,11 @@ const init = (): void => {
   button.addEventListener("click", async () => {
     setBusy(true);
     try {
-      const action = (button.dataset.action ?? "login") as "register" | "login";
+      const action = Action(button.dataset.action ?? "login");
+      if (action instanceof type.errors) {
+        showError("Unknown authentication action.");
+        return;
+      }
       await runCeremony(action);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

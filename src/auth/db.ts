@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { type } from "arktype";
 
 const SESSION_TTL_SECONDS = 86400;
 
@@ -74,13 +75,17 @@ const parseTransports = (raw: string | null): string[] => {
   }
 };
 
-type CredentialRow = {
-  id: string;
-  user_id: string;
-  public_key: unknown;
-  counter: number;
-  transports: string | null;
-};
+// Validated at the SQLite boundary rather than cast, mirroring the sessions
+// database module. Rows that drift from the expected shape are dropped.
+const CredentialRow = type({
+  id: "string",
+  user_id: "string",
+  public_key: "unknown",
+  counter: "number",
+  transports: "string | null",
+});
+
+type CredentialRow = typeof CredentialRow.infer;
 
 const mapCredential = (row: CredentialRow): StoredCredential => ({
   id: row.id,
@@ -90,24 +95,27 @@ const mapCredential = (row: CredentialRow): StoredCredential => ({
   transports: parseTransports(row.transports),
 });
 
+const CountRow = type({
+  n: "number",
+});
+
 const userCount = (db: DatabaseSync): number => {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM users").get() as {
-    n: number;
-  };
-  return row.n;
+  const result = CountRow(db.prepare("SELECT COUNT(*) AS n FROM users").get());
+  return result instanceof type.errors ? 0 : result.n;
 };
 
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
-const listCredentials = (db: DatabaseSync): StoredCredential[] => {
-  const rows = db
+const listCredentials = (db: DatabaseSync): StoredCredential[] =>
+  db
     .prepare(
       "SELECT id, user_id, public_key, counter, transports " +
         "FROM credentials",
     )
-    .all() as CredentialRow[];
-  return rows.map(mapCredential);
-};
+    .all()
+    .map((row) => CredentialRow(row))
+    .filter((row): row is CredentialRow => !(row instanceof type.errors))
+    .map(mapCredential);
 
 const getCredential = (
   db: DatabaseSync,
@@ -118,8 +126,11 @@ const getCredential = (
       "SELECT id, user_id, public_key, counter, transports " +
         "FROM credentials WHERE id = ?",
     )
-    .get(id) as CredentialRow | undefined;
-  return row === undefined ? undefined : mapCredential(row);
+    .get(id);
+  if (row === undefined) return undefined;
+  const result = CredentialRow(row);
+  if (result instanceof type.errors) return undefined;
+  return mapCredential(result);
 };
 
 const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
@@ -166,15 +177,21 @@ const createSession = (db: DatabaseSync, userId: string): string => {
   return token;
 };
 
+const OkRow = type({
+  ok: "number",
+});
+
 const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
   if (token === undefined || token === "") return false;
-  const row = db
-    .prepare(
-      "SELECT 1 AS ok FROM sessions " +
-        "WHERE id = ? AND expires_at > datetime('now')",
-    )
-    .get(token) as { ok: number } | undefined;
-  return row !== undefined;
+  const result = OkRow(
+    db
+      .prepare(
+        "SELECT 1 AS ok FROM sessions " +
+          "WHERE id = ? AND expires_at > datetime('now')",
+      )
+      .get(token),
+  );
+  return !(result instanceof type.errors);
 };
 
 const refreshSession = (db: DatabaseSync, token: string): void => {
