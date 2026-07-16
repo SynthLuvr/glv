@@ -6,6 +6,7 @@ import { type } from "arktype";
 const SessionRow = type({
   id: "string",
   name: "string",
+  user_set_name: "number | null",
   description: "string",
   session_type: "string",
   working_dir: "string",
@@ -56,8 +57,8 @@ const openDb = (
 };
 
 const sessionColumns =
-  "id, name, description, session_type, working_dir, created_at, " +
-  "updated_at, total_tokens, provider_name, archived_at";
+  "id, name, user_set_name, description, session_type, working_dir, " +
+  "created_at, updated_at, total_tokens, provider_name, archived_at";
 
 const validateRows = <T>(
   schema: (data: unknown) => T | type.errors,
@@ -110,6 +111,15 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   db.prepare(sql).run(...ids);
 };
 
+// Trims the value and flips `user_set_name` to match: a non-empty name is a
+// user-chosen label, an empty one reverts to "(unnamed)" / auto handling.
+const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
+  const name = rawName.trim();
+  db.prepare(
+    "UPDATE sessions SET name = ?, user_set_name = ? WHERE id = ?",
+  ).run(name, name === "" ? 0 : 1, id);
+};
+
 export type { MessageRow, SessionFilter, SessionRow };
 export {
   archiveSessions,
@@ -117,5 +127,6 @@ export {
   listMessages,
   listSessions,
   openDb,
+  renameSession,
   resolveDbPath,
 };

@@ -16,6 +16,7 @@ CREATE TABLE sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   total_tokens INTEGER,
   provider_name TEXT,
+  user_set_name BOOLEAN DEFAULT FALSE,
   archived_at TIMESTAMP
 );
 CREATE TABLE messages (

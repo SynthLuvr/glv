@@ -5,6 +5,7 @@ import {
   fmtTokens,
   truncateMiddle,
 } from "../format.js";
+import { RenameWrap } from "./Rename.js";
 
 type SidebarProps = {
   sessions: SessionRow[];
@@ -47,6 +48,7 @@ const SessionItem = ({
           {truncateMiddle(session.working_dir, 42)}
         </span>
       </a>
+      <RenameWrap session={session} context="sidebar" target="#session-list" />
     </div>
   );
 };

@@ -9,7 +9,6 @@ import type {
   ToolResultInfo,
 } from "../format.js";
 import {
-  displayName,
   fmtRelative,
   fmtTokens,
   messageKind,
@@ -21,6 +20,7 @@ import {
   truncateMiddle,
 } from "../format.js";
 import type { RunHandle } from "../runner.js";
+import { SessionTitleWrap } from "./Rename.js";
 
 const jsonString = (value: object, pretty: boolean): string => {
   try {
@@ -215,7 +215,7 @@ const TranscriptHeader = ({
     >
       Archive
     </button>
-    <h2>{displayName(session.name)}</h2>
+    <SessionTitleWrap session={session} />
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />
       <MetaChip

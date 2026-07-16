@@ -185,6 +185,7 @@ body {
   padding: 0.4rem;
 }
 .session-item {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -945,4 +946,114 @@ pre::-webkit-scrollbar-thumb {
   .detail-inner {
     padding: 1.5rem 1.25rem 3rem;
   }
+}
+
+/* ---------- rename (inline edit) ---------- */
+.rename-wrap {
+  position: relative;
+}
+.rename-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rename-form {
+  display: none;
+}
+.rename-wrap.is-editing .rename-view {
+  display: none;
+}
+.rename-wrap.is-editing .rename-form {
+  display: inline-flex;
+}
+.rename-pencil,
+.rename-confirm,
+.rename-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+.rename-pencil svg,
+.rename-confirm svg,
+.rename-cancel svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.rename-pencil:hover,
+.rename-confirm:hover,
+.rename-cancel:hover {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.rename-confirm {
+  color: var(--color-accent);
+}
+.rename-input {
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  outline: none;
+}
+.rename-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.rename-wrap.is-header .rename-form {
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.75rem;
+}
+.rename-wrap.is-header .rename-input {
+  font-size: 1.25rem;
+  font-weight: 650;
+  flex: 1 1 auto;
+  max-width: 32rem;
+}
+.rename-wrap.is-sidebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.rename-wrap.is-sidebar .rename-pencil {
+  opacity: 0;
+}
+.session-item:hover .rename-pencil,
+.session-item.selected .rename-pencil {
+  opacity: 0.85;
+}
+.rename-wrap.is-sidebar .rename-form {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  bottom: 0.3rem;
+  left: 0.5rem;
+  z-index: 4;
+  gap: 0.3rem;
+  align-items: center;
+}
+.rename-wrap.is-sidebar.is-editing .rename-form {
+  display: flex;
+}
+.rename-wrap.is-sidebar .rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
