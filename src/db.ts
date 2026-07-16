@@ -29,6 +29,10 @@ const MessageRow = type({
 
 type MessageRow = typeof MessageRow.infer;
 
+const IdRow = type({
+  id: "string",
+});
+
 type SessionFilter = {
   type: string;
   limit: number;
@@ -106,10 +110,8 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
 const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
   const rows = db
     .prepare("SELECT id FROM sessions WHERE working_dir = ?")
-    .all(workingDir) as { id: unknown }[];
-  return rows
-    .map((row) => row.id)
-    .filter((id): id is string => typeof id === "string");
+    .all(workingDir);
+  return validateRows(IdRow, rows).map((row) => row.id);
 };
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
