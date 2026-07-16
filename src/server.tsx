@@ -185,6 +185,7 @@ const createApp = (
   const sidebarScript = readAsset("../dist/sidebar.js");
   const streamScript = readAsset("../dist/stream.js");
   const themeScript = readAsset("../dist/theme.js");
+  const markdownCopyScript = readAsset("../dist/markdown-copy.js");
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -220,6 +221,9 @@ const createApp = (
   );
   app.get("/theme.js", (c) =>
     serveAsset(c, themeScript, "application/javascript; charset=utf-8"),
+  );
+  app.get("/markdown-copy.js", (c) =>
+    serveAsset(c, markdownCopyScript, "application/javascript; charset=utf-8"),
   );
 
   app.get("/", (c) => {

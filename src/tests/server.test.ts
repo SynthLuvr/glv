@@ -380,6 +380,7 @@ describe("transcript readability (markdown, thinking, tools)", () => {
     expect(html).toContain("<h2>Done</h2>");
     expect(html).toContain("<strong>succeeded</strong>");
     expect(html).toContain("no errors");
+    expect(html).toContain("copy-md-btn");
   });
 
   it("surfaces reasoning in collapsible thinking blocks", async () => {
@@ -461,6 +462,14 @@ describe("web viewer static assets", () => {
     const body = await res.text();
     expect(body).toContain(".session-check");
     expect(body.length).toBeGreaterThan(100);
+  });
+
+  it("serves the markdown-copy client script as JavaScript", async () => {
+    const res = await makeApp().request("/markdown-copy.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("copy-md-btn");
   });
 });
 
