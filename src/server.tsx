@@ -570,9 +570,26 @@ const createApp = (
       )
         return;
 
+      // Emit a status event on any mid-run transition (e.g. queued → running)
+      // so observers aren't left on a stale hint until the terminal re-render.
+      let lastStatus = handle.status;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
+        if (handle.status !== lastStatus) {
+          if (
+            !(await emit(
+              stream,
+              "status",
+              JSON.stringify({
+                status: handle.status,
+                queuePosition: handle.queuePosition,
+              }),
+            ))
+          )
+            return;
+          lastStatus = handle.status;
+        }
         if (!(await flushLines(stream, handle.lines, sent))) return;
         sent = handle.lines.length;
         await stream.sleep(50);

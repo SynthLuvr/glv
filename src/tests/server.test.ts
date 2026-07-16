@@ -932,6 +932,26 @@ describe("GET /sessions/:id/stream (SSE)", () => {
     expect(text).toContain("event: done");
     expect(text).toContain("data: error");
   });
+
+  it("emits a running status when a queued run starts", async () => {
+    // Concurrency of one so the second prompt queues behind the first.
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 300 });
+    const app = createApp(
+      db,
+      createRunner(makeRunnerConfig(1, "goose"), spawn),
+    );
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/beta/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/beta/stream");
+    const text = await res.text();
+
+    const queuedAt = text.indexOf('"status":"queued"');
+    const runningAt = text.indexOf('"status":"running"');
+    expect(queuedAt).toBeGreaterThanOrEqual(0);
+    expect(runningAt).toBeGreaterThan(queuedAt);
+    expect(text).toContain("event: done");
+  });
 });
 
 describe("POST /sessions/:id/stop", () => {
