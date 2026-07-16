@@ -35,11 +35,8 @@ const resumeInvocation = (
   stdin: prompt,
 });
 
-const newSessionInvocation = (
-  name: string,
-  prompt: string,
-): GooseInvocation => ({
-  args: ["run", ...STREAM_FLAGS, "-n", name],
+const newSessionInvocation = (prompt: string): GooseInvocation => ({
+  args: ["run", ...STREAM_FLAGS],
   stdin: prompt,
 });
 
@@ -89,7 +86,9 @@ type EnqueueOptions = {
   onStatus?: (handle: RunHandle) => void;
 };
 
-type InternalHandle = RunHandle & {
+type InternalHandle = Omit<RunHandle, "sessionId"> & {
+  // Writable: rekeyed from the temp id to goose's real session id.
+  sessionId: string;
   readonly workingDir: string;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
@@ -198,23 +197,23 @@ const createRunner = (
   return { config, queue, registry, spawn };
 };
 
-const enqueue = (
+const enqueueInvocation = (
   runner: Runner,
-  sessionId: string,
-  prompt: string,
+  key: string,
+  invocation: GooseInvocation,
   workingDir: string,
   opts: EnqueueOptions = {},
 ): RunHandle => {
-  const existing = runner.registry.get(sessionId);
+  const existing = runner.registry.get(key);
   if (
     existing !== undefined &&
     (existing.status === "queued" || existing.status === "running")
   )
-    throw new Error(`Session ${sessionId} already has an active or queued run`);
+    throw new Error(`Session ${key} already has an active or queued run`);
 
   const handle: InternalHandle = {
-    sessionId,
-    prompt,
+    sessionId: key,
+    prompt: invocation.stdin,
     workingDir,
     status: "queued",
     queuePosition: runner.queue.size,
@@ -225,10 +224,8 @@ const enqueue = (
     onLine: opts.onLine,
     onStatus: opts.onStatus,
   };
-  runner.registry.set(sessionId, handle);
+  runner.registry.set(key, handle);
   handle.onStatus?.(handle);
-
-  const invocation = resumeInvocation(sessionId, prompt);
 
   void runner.queue.add(async () => {
     if (handle.cancelled) return;
@@ -248,6 +245,49 @@ const enqueue = (
 
   return handle;
 };
+
+const enqueue = (
+  runner: Runner,
+  sessionId: string,
+  prompt: string,
+  workingDir: string,
+  opts: EnqueueOptions = {},
+): RunHandle =>
+  enqueueInvocation(
+    runner,
+    sessionId,
+    resumeInvocation(sessionId, prompt),
+    workingDir,
+    opts,
+  );
+
+const enqueueNew = (
+  runner: Runner,
+  tempKey: string,
+  prompt: string,
+  workingDir: string,
+  opts: EnqueueOptions = {},
+): RunHandle =>
+  enqueueInvocation(
+    runner,
+    tempKey,
+    newSessionInvocation(prompt),
+    workingDir,
+    opts,
+  );
+
+const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
+  const handle = runner.registry.get(oldKey);
+  if (handle === undefined) return false;
+  runner.registry.delete(oldKey);
+  handle.sessionId = newKey;
+  runner.registry.set(newKey, handle);
+  return true;
+};
+
+// Prefixed so it can never collide with a real goose session id.
+const generateTempKey = (): string =>
+  `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
 const stop = (runner: Runner, sessionId: string): boolean => {
   const handle = runner.registry.get(sessionId);
@@ -303,12 +343,15 @@ export {
   DEFAULT_RUNNER_CONFIG,
   defaultSpawn,
   enqueue,
+  enqueueNew,
+  generateTempKey,
   getHandle,
   getStatus,
   isTerminalStatus,
   killProcessGroup,
   makeRunnerConfig,
   newSessionInvocation,
+  rekey,
   resumeInvocation,
   stop,
   stopAll,

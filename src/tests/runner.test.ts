@@ -9,11 +9,14 @@ import {
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   enqueue,
+  enqueueNew,
+  generateTempKey,
   getHandle,
   getStatus,
   killProcessGroup,
   makeRunnerConfig,
   newSessionInvocation,
+  rekey,
   resumeInvocation,
   stop,
   stopAll,
@@ -100,7 +103,7 @@ describe("goose invocation builders", () => {
   });
 
   it("pipes the prompt over stdin for a new session too", () => {
-    const inv = newSessionInvocation("my-session", "write a haiku");
+    const inv = newSessionInvocation("write a haiku");
     expect(inv.stdin).toBe("write a haiku");
     expect(inv.args).not.toContain("-t");
     expect(inv.args).not.toContain("write a haiku");
@@ -114,18 +117,17 @@ describe("goose invocation builders", () => {
     expect(args).toContain("abc123");
   });
 
-  it("starts a new session with -n and no --session-id", () => {
-    const { args } = newSessionInvocation("fresh", "hi");
+  it("starts a new session without a name, --session-id, or -r", () => {
+    const { args } = newSessionInvocation("hi");
     expect(args[0]).toBe("run");
-    expect(args).toContain("-n");
-    expect(args).toContain("fresh");
+    expect(args).not.toContain("-n");
     expect(args).not.toContain("--session-id");
     expect(args).not.toContain("-r");
   });
 
   it("streams JSON output so the live view can be rendered incrementally", () => {
     expect(resumeInvocation("x", "y").args).toContain("stream-json");
-    expect(newSessionInvocation("x", "y").args).toContain("stream-json");
+    expect(newSessionInvocation("y").args).toContain("stream-json");
   });
 });
 
@@ -519,5 +521,97 @@ describe("getStatus and getHandle", () => {
     expect(handle).toBeDefined();
     expect(handle!.sessionId).toBe("sess-42");
     expect(handle!.prompt).toBe("do the thing");
+  });
+});
+
+describe("enqueueNew (new-session runs)", () => {
+  it("builds a new-session invocation with no name or --session-id", async () => {
+    const { spawn, state } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueueNew(runner, "tmp-1", "hello", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(state.invocations).toHaveLength(1);
+    const [{ args }] = state.invocations;
+    expect(args).not.toContain("-n");
+    expect(args).not.toContain("--session-id");
+    expect(args).not.toContain("-r");
+  });
+
+  it("pipes the prompt via stdin, never as an argument", async () => {
+    const { spawn, state } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueueNew(runner, "tmp-1", "write a haiku", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(state.invocations[0].opts.stdin).toBe("write a haiku");
+    expect(state.invocations[0].args).not.toContain("write a haiku");
+    expect(state.invocations[0].args).not.toContain("-t");
+  });
+
+  it("spawns goose in the chosen working directory", async () => {
+    const { spawn, state } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueueNew(runner, "tmp-1", "hi", "/path/to/work");
+    await waitForStatus(handle, "completed");
+    expect(state.invocations[0].opts.cwd).toBe("/path/to/work");
+  });
+
+  it("registers the run under the temporary key", () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    enqueueNew(runner, "tmp-99", "hi", "/tmp");
+    expect(getHandle(runner, "tmp-99")).toBeDefined();
+  });
+
+  it("streams output lines as they arrive", async () => {
+    const { spawn } = createMockSpawn(["a", "b", "c"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const received: string[] = [];
+    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp", {
+      onLine: (line) => received.push(line),
+    });
+    await waitForStatus(handle, "completed");
+    expect(received).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("rekey", () => {
+  it("moves the handle from the temp key to the real session id", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+
+    expect(rekey(runner, "tmp-1", "real-42")).toBe(true);
+    expect(getHandle(runner, "real-42")).toBe(handle);
+    expect(getHandle(runner, "real-42")?.sessionId).toBe("real-42");
+    expect(getHandle(runner, "tmp-1")).toBeUndefined();
+  });
+
+  it("keeps the run's accumulated lines across the re-key", async () => {
+    const { spawn } = createMockSpawn(["one", "two"], { delayMs: 100 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+    await sleep(150);
+    rekey(runner, "tmp-1", "real-1");
+    expect(getHandle(runner, "real-1")?.lines).toContain("one");
+  });
+
+  it("returns false when the temp key is unknown", () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    expect(rekey(runner, "nope", "real-1")).toBe(false);
+  });
+});
+
+describe("generateTempKey", () => {
+  it("prefixes the key so it can never collide with a real goose id", () => {
+    expect(generateTempKey()).toMatch(/^tmp_/);
+  });
+
+  it("produces unique keys across calls", () => {
+    const keys = new Set<string>();
+    for (let i = 0; i < 200; i++) keys.add(generateTempKey());
+    expect(keys.size).toBe(200);
   });
 });

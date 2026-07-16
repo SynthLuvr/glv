@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
@@ -11,15 +13,24 @@ import {
   getSession,
   listMessages,
   listSessions,
+  sessionIdsInDir,
 } from "./db.js";
 import { parseMessage } from "./format.js";
 import type { Runner } from "./runner.js";
-import { enqueue, getHandle, isTerminalStatus, stop } from "./runner.js";
+import {
+  enqueue,
+  enqueueNew,
+  generateTempKey,
+  getHandle,
+  isTerminalStatus,
+  rekey,
+  stop,
+} from "./runner.js";
 import { Layout } from "./views/Layout.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
-  DetailPlaceholder,
+  NewSessionForm,
   NotFoundDetail,
   renderMessage,
   Transcript,
@@ -30,6 +41,9 @@ const VIEWER_FILTER: SessionFilter = {
   limit: 100,
   includeArchived: false,
 };
+
+const SESSION_TIMEOUT_ERROR =
+  "goose did not create a session in time. Is the goose binary available?";
 
 // Resolved via import.meta so the asset is found regardless of launch directory.
 const htmxSource = readFileSync(
@@ -132,19 +146,48 @@ const flushLines = async (
   return true;
 };
 
-type AppEnv = { Variables: { runner: Runner } };
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
-type TailOptions = {
-  tailPollMs?: number;
-  /** Bounds poll iterations so tests can drain the stream. */
-  maxTailPolls?: number;
+const pollForSessionId = async (
+  db: DatabaseSync,
+  workingDir: string,
+  known: Set<string>,
+  timeoutMs = 10000,
+  intervalMs = 50,
+): Promise<string | undefined> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = sessionIdsInDir(db, workingDir).find((id) => !known.has(id));
+    if (found !== undefined) return found;
+    await sleep(intervalMs);
+  }
+  return undefined;
 };
+
+const listHomeDirs = (home: string = homedir()): string[] =>
+  readdirSync(home, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => join(home, entry.name))
+    .sort();
+
+type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (
   db: DatabaseSync,
   runner: Runner,
-  { tailPollMs = 1000, maxTailPolls = Infinity }: TailOptions = {},
+  opts: {
+    tailPollMs?: number;
+    /** Bounds poll iterations so tests can drain the stream. */
+    maxTailPolls?: number;
+    pollTimeoutMs?: number;
+    listDirs?: () => string[];
+  } = {},
 ): Hono<AppEnv> => {
+  const tailPollMs = opts.tailPollMs ?? 1000;
+  const maxTailPolls = opts.maxTailPolls ?? Infinity;
+  const pollTimeoutMs = opts.pollTimeoutMs ?? 10000;
+  const listDirs = opts.listDirs ?? listHomeDirs;
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
@@ -166,6 +209,14 @@ const createApp = (
       { status: 404 },
     );
 
+  const newSessionDetail = (error?: string): Child => (
+    <NewSessionForm
+      workingDir={process.cwd()}
+      dirs={listDirs()}
+      error={error}
+    />
+  );
+
   app.get("/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
@@ -185,7 +236,60 @@ const createApp = (
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    return render(c, sessions, undefined, <DetailPlaceholder />);
+    return render(c, sessions, undefined, newSessionDetail());
+  });
+
+  // Registered before the /sessions/:id wildcard so "new" is treated as a
+  // literal segment rather than a session id.
+  app.get("/sessions/new", (c) => {
+    const sessions = listSessions(db, VIEWER_FILTER);
+    return render(c, sessions, undefined, newSessionDetail());
+  });
+
+  app.post("/sessions", async (c) => {
+    const sessions = listSessions(db, VIEWER_FILTER);
+    const reject = (error: string, status: ContentfulStatusCode) =>
+      render(c, sessions, undefined, newSessionDetail(error), { status });
+
+    const body = await c.req.parseBody();
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const workingDir =
+      typeof body.working_dir === "string" ? body.working_dir.trim() : "";
+
+    if (prompt === "")
+      return reject("A prompt is required to start a session.", 422);
+    if (workingDir === "" || !existsSync(workingDir))
+      return reject("That working directory does not exist.", 422);
+
+    const tempKey = generateTempKey();
+    const known = new Set(sessionIdsInDir(db, workingDir));
+    enqueueNew(runner, tempKey, prompt, workingDir);
+
+    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
+    if (realId === undefined) {
+      stop(runner, tempKey);
+      return reject(SESSION_TIMEOUT_ERROR, 502);
+    }
+
+    rekey(runner, tempKey, realId);
+    const session = getSession(db, realId);
+    if (session === undefined) {
+      stop(runner, realId);
+      return reject(SESSION_TIMEOUT_ERROR, 502);
+    }
+
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      realId,
+      <Transcript
+        session={session}
+        messages={listMessages(db, realId).map(parseMessage)}
+        run={getHandle(runner, realId)}
+        prompt={prompt}
+      />,
+      { refreshSidebar: true },
+    );
   });
 
   app.get("/sessions/:id", (c) => {
@@ -211,7 +315,7 @@ const createApp = (
     const id = c.req.param("id");
     archiveSessions(db, [id]);
     const sessions = listSessions(db, VIEWER_FILTER);
-    return render(c, sessions, undefined, <DetailPlaceholder />, {
+    return render(c, sessions, undefined, newSessionDetail(), {
       refreshSidebar: true,
     });
   });
@@ -350,4 +454,4 @@ const createApp = (
   return app;
 };
 
-export { createApp };
+export { createApp, listHomeDirs };
