@@ -21,9 +21,8 @@ document.addEventListener("change", (e) => {
   if (
     e.target instanceof HTMLInputElement &&
     e.target.classList.contains("session-check")
-  ) {
+  )
     updateBulkBar();
-  }
 });
 
 document.addEventListener("click", (e) => {

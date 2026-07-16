@@ -70,12 +70,11 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("done", () => {
     teardown();
-    if (typeof htmx !== "undefined") {
+    if (typeof htmx !== "undefined")
       htmx.ajax("GET", `/sessions/${sessionId}`, {
         target: "#detail-pane",
         swap: "innerHTML",
       });
-    }
   });
 
   activeSource.addEventListener("error", () => {
