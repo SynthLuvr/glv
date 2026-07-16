@@ -1187,6 +1187,40 @@ describe("M5: stream client live-tail wiring", () => {
   });
 });
 
+// === M6: live-tail polish (Phase 2) ===
+
+describe("M6: live-tail header metadata hooks", () => {
+  it("tags the updatable header chips with stable ids", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('id="meta-updated"');
+    expect(html).toContain('id="meta-messages"');
+    expect(html).toContain('id="meta-tokens"');
+  });
+
+  it("renders a hidden live-watching badge in the header", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('id="live-badge"');
+    expect(html).toContain("Watching");
+    expect(html).toContain("hidden");
+  });
+
+  it("tags each rendered message with a stable data-msg-index", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain("data-msg-index");
+  });
+});
+
+describe("M6: stream client live-tail polish wiring", () => {
+  it("handles replace, meta, and live-badge events", async () => {
+    const res = await makeApp().request("/stream.js");
+    const body = await res.text();
+    expect(body).toContain('"replace"');
+    expect(body).toContain('"meta"');
+    expect(body).toContain("live-badge");
+    expect(body).toContain("insertMessageInOrder");
+  });
+});
+
 describe("GET /sessions/:id/tail (SSE)", () => {
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
@@ -1255,6 +1289,86 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     expect(text).toContain("OUTPUT");
     // baseline rows are already in the DOM and must not be re-sent
     expect(text).not.toContain("What is goose?");
+  });
+
+  it("re-emits a message whose content was updated in place", async () => {
+    const replaceDir = mkdtempSync(join(tmpdir(), "glv-replace-"));
+    const replaceDb = new DatabaseSync(join(replaceDir, "sessions.db"));
+    seed(replaceDb);
+    const app = createApp(replaceDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 8,
+    });
+
+    const res = await app.request("/sessions/alpha/tail");
+
+    // Let the baseline settle before editing an existing row in place,
+    // mimicking a growing assistant turn.
+    await sleep(40);
+
+    replaceDb
+      .prepare(
+        "UPDATE messages SET content_json = ? " +
+          "WHERE session_id = ? AND created_timestamp = ?",
+      )
+      .run(
+        JSON.stringify([
+          { type: "text", text: "Goose is an agent that builds things" },
+        ]),
+        "alpha",
+        4,
+      );
+
+    const text = await res.text();
+    replaceDb.close();
+    rmSync(replaceDir, { recursive: true, force: true });
+
+    expect(text).toContain("event: replace");
+    expect(text).toContain("builds things");
+    // an in-place edit must not also fire as a redundant append
+    expect(text).not.toContain("event: append");
+  });
+
+  it("emits a meta event refreshing header counts after changes", async () => {
+    const metaDir = mkdtempSync(join(tmpdir(), "glv-meta-"));
+    const metaDb = new DatabaseSync(join(metaDir, "sessions.db"));
+    seed(metaDb);
+    const app = createApp(metaDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 8,
+    });
+
+    const res = await app.request("/sessions/alpha/tail");
+
+    await sleep(40);
+
+    metaDb.exec("BEGIN");
+    metaDb
+      .prepare(
+        "INSERT INTO messages (session_id, role, content_json, " +
+          "created_timestamp) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "alpha",
+        "assistant",
+        JSON.stringify([{ type: "text", text: "fresh-line" }]),
+        9999,
+      );
+    metaDb
+      .prepare(
+        "UPDATE sessions SET updated_at = ?, total_tokens = ? WHERE id = ?",
+      )
+      .run("2026-07-13 12:00:00", 5678, "alpha");
+    metaDb.exec("COMMIT");
+
+    const text = await res.text();
+    metaDb.close();
+    rmSync(metaDir, { recursive: true, force: true });
+
+    expect(text).toContain("event: meta");
+    // alpha shipped with 4 visible messages; the append brings it to 5
+    expect(text).toContain('"messages":"5"');
+    expect(text).toContain('"tokens":"5,678"');
   });
 });
 

@@ -161,14 +161,20 @@ const tagFor = (kind: MessageKind): string => {
   return "⟳ TOOL";
 };
 
-const MessageView = ({ message }: { message: ParsedMessage }) => {
+const MessageView = ({
+  message,
+  index,
+}: {
+  message: ParsedMessage;
+  index: number;
+}) => {
   const kind = messageKind(message.role, message.items);
   const blocks = message.items
     .map((item) => itemBlock(item, kind === "output"))
     .filter((node): node is Child => node !== null);
   if (blocks.length === 0) return null;
   return (
-    <article class={`message ${kind}`}>
+    <article class={`message ${kind}`} data-msg-index={String(index)}>
       <div class="message-head">
         <span class={`tag ${kind}`}>{tagFor(kind)}</span>
         <time title={message.timestamp}>{fmtRelative(message.timestamp)}</time>
@@ -182,21 +188,23 @@ const hasContent = (message: ParsedMessage): boolean =>
   message.items.some((item) => itemBlock(item, false) !== null);
 
 // Matches the initial server render so live-tailed rows blend in seamlessly.
-const renderMessage = (message: ParsedMessage): string =>
-  renderToString(<MessageView message={message} />);
+const renderMessage = (message: ParsedMessage, index: number): string =>
+  renderToString(<MessageView message={message} index={index} />);
 
 const MetaChip = ({
+  id,
   label,
   value,
   mono = false,
   title,
 }: {
+  id?: string;
   label: string;
   value: string;
   mono?: boolean;
   title?: string;
 }) => (
-  <div class="meta-chip" title={title ?? value}>
+  <div id={id} class="meta-chip" title={title ?? value}>
     <span class="meta-label">{label}</span>
     <span class={`meta-value${mono ? " mono" : ""}`}>{value}</span>
   </div>
@@ -235,15 +243,29 @@ const TranscriptHeader = ({
         title={session.created_at}
       />
       <MetaChip
+        id="meta-updated"
         label="Updated"
         value={fmtRelative(session.updated_at)}
         title={session.updated_at}
       />
-      <MetaChip label="Messages" value={String(messageCount)} />
-      <MetaChip label="Tokens" value={fmtTokens(session.total_tokens)} />
+      <MetaChip
+        id="meta-messages"
+        label="Messages"
+        value={String(messageCount)}
+      />
+      <MetaChip
+        id="meta-tokens"
+        label="Tokens"
+        value={fmtTokens(session.total_tokens)}
+      />
       {session.provider_name !== null && (
         <MetaChip label="Provider" value={session.provider_name} />
       )}
+      {/* Shown by the live-tail client once the SSE connection is open. */}
+      <span id="live-badge" class="live-badge" hidden>
+        <span class="live-dot"></span>
+        Watching
+      </span>
     </div>
   </header>
 );
@@ -325,7 +347,9 @@ const Transcript = ({
   run?: RunHandle;
   prompt?: string;
 }) => {
-  const visible = messages.filter(hasContent);
+  const visible = messages
+    .map((message, index) => ({ message, index }))
+    .filter((entry) => hasContent(entry.message));
   const isEmpty = visible.length === 0 && prompt === undefined;
   return (
     <div
@@ -338,8 +362,8 @@ const Transcript = ({
         <p class="empty">This session has no messages.</p>
       ) : (
         <div id="messages">
-          {visible.map((message) => (
-            <MessageView message={message} />
+          {visible.map((entry) => (
+            <MessageView message={entry.message} index={entry.index} />
           ))}
         </div>
       )}
@@ -419,6 +443,7 @@ const NotFoundDetail = ({ id }: { id: string }) => (
 );
 
 export {
+  hasContent,
   itemBlock,
   NewSessionForm,
   NotFoundDetail,
