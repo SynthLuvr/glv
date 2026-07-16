@@ -173,18 +173,16 @@ const formatDate = (epoch: number, now: number): string => {
   return date.toLocaleDateString("en-US", options);
 };
 
-// goose stores message and session timestamps in UTC. Date.parse() treats a
-// timezone-less datetime string as local time, which shifts every reading by
-// the local UTC offset (e.g. +2h) and makes fresh messages look hours stale.
-// Anchor timezone-less values to UTC explicitly before parsing.
-const toEpoch = (timestamp: string): number => {
+// goose stores timestamps in UTC without a zone suffix; Date.parse would
+// read those as local time, so anchor timezone-less values to UTC.
+const parseTimestamp = (timestamp: string): number => {
   const iso = timestamp.replace(" ", "T");
   const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
   return Date.parse(hasZone ? iso : `${iso}Z`);
 };
 
 const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
-  const then = toEpoch(timestamp);
+  const then = parseTimestamp(timestamp);
   if (Number.isNaN(then)) return timestamp;
   const seconds = Math.round((now - then) / 1000);
   if (seconds < 45) return "just now";

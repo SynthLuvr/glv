@@ -62,17 +62,13 @@ describe("fmtRelative", () => {
     expect(fmtRelative("not-a-date", now)).toBe("not-a-date");
   });
 
-  // Regression: goose stores timestamps in UTC without a zone suffix
-  // (e.g. "2026-07-14 12:00:00"). Date.parse must not read those as local
-  // time, or every message looks hours stale.
+  // Regression: goose stores UTC timestamps without a zone suffix.
   it("treats timezone-less timestamps as UTC", () => {
-    const utcSpaceSeparated = "2026-07-14 12:00:00";
-    expect(fmtRelative(utcSpaceSeparated, now)).toBe("just now");
+    expect(fmtRelative("2026-07-14 12:00:00", now)).toBe("just now");
   });
 
   it("respects an explicit UTC offset when present", () => {
-    const zoned = "2026-07-14T12:00:00+02:00";
-    expect(fmtRelative(zoned, now)).toBe("2h ago");
+    expect(fmtRelative("2026-07-14T12:00:00+02:00", now)).toBe("2h ago");
   });
 });
 
