@@ -61,6 +61,16 @@ describe("fmtRelative", () => {
   it("falls back to the raw value when unparseable", () => {
     expect(fmtRelative("not-a-date", now)).toBe("not-a-date");
   });
+
+  // Goose stores timestamps in UTC without a zone suffix; a zone-less
+  // value is anchored to UTC, matching a UTC "now" on any host timezone.
+  it("anchors timezone-less timestamps to UTC", () => {
+    expect(fmtRelative("2026-07-14 12:00:00", now)).toBe("just now");
+  });
+
+  it("respects an explicit UTC offset when present", () => {
+    expect(fmtRelative("2026-07-14T12:00:00+02:00", now)).toBe("2h ago");
+  });
 });
 
 describe("messageKind", () => {
