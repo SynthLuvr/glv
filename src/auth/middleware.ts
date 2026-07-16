@@ -18,8 +18,6 @@ const ASSET_PATHS = new Set<string>([
 const isPublicPath = (path: string): boolean =>
   path === "/auth" || path.startsWith("/auth/") || ASSET_PATHS.has(path);
 
-// Sits first in the chain: every non-public request must carry a valid
-// session or it is redirected to the login (or registration) screen.
 const authMiddleware =
   (auth: AuthService): MiddlewareHandler =>
   async (c, next) => {

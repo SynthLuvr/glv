@@ -309,66 +309,64 @@ const createApp = (
     serveAsset(c, passkeyScript, "application/javascript; charset=utf-8"),
   );
 
-  // ---------- passkey auth routes ----------
-  app.get("/auth/register", (c) => {
-    if (auth === undefined) return c.redirect("/", 302);
-    if (auth.isClaimed()) return c.redirect("/auth/login", 302);
-    return c.html(<RegisterPage />);
-  });
+  if (auth !== undefined) {
+    app.get("/auth/register", (c) => {
+      if (auth.isClaimed()) return c.redirect("/auth/login", 302);
+      return c.html(<RegisterPage />);
+    });
 
-  app.get("/auth/login", (c) => {
-    if (auth === undefined) return c.redirect("/", 302);
-    if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
-    return c.html(<LoginPage />);
-  });
+    app.get("/auth/login", (c) => {
+      if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
+      return c.html(<LoginPage />);
+    });
 
-  app.get("/auth/register/options", async (c) => {
-    if (auth === undefined || auth.isClaimed())
-      return c.json({ error: "Registration is closed." }, 403);
-    return c.json(await auth.registrationOptions(rpFromContext(c)));
-  });
+    app.get("/auth/register/options", async (c) => {
+      if (auth.isClaimed())
+        return c.json({ error: "Registration is closed." }, 403);
+      return c.json(await auth.registrationOptions(rpFromContext(c)));
+    });
 
-  app.post("/auth/register/verify", async (c) => {
-    if (auth === undefined || auth.isClaimed())
-      return c.json({ verified: false, error: "Registration is closed." }, 403);
-    const body = await c.req.json();
-    const result = await auth.verifyRegistration(rpFromContext(c), body);
-    if (result.verified && result.token !== undefined) {
-      setSessionCookie(c, result.token);
-      return c.json({ verified: true });
-    }
-    return c.json(
-      { verified: false, error: result.error ?? "Verification failed." },
-      400,
+    app.post("/auth/register/verify", async (c) => {
+      if (auth.isClaimed())
+        return c.json(
+          { verified: false, error: "Registration is closed." },
+          403,
+        );
+      const body = await c.req.json();
+      const result = await auth.verifyRegistration(rpFromContext(c), body);
+      if (result.verified && result.token !== undefined) {
+        setSessionCookie(c, result.token);
+        return c.json({ verified: true });
+      }
+      return c.json(
+        { verified: false, error: result.error ?? "Verification failed." },
+        400,
+      );
+    });
+
+    app.get("/auth/login/options", async (c) =>
+      c.json(await auth.loginOptions(rpFromContext(c))),
     );
-  });
 
-  app.get("/auth/login/options", async (c) => {
-    if (auth === undefined)
-      return c.json({ error: "Auth not configured." }, 500);
-    return c.json(await auth.loginOptions(rpFromContext(c)));
-  });
+    app.post("/auth/login/verify", async (c) => {
+      const body = await c.req.json();
+      const result = await auth.verifyLogin(rpFromContext(c), body);
+      if (result.verified && result.token !== undefined) {
+        setSessionCookie(c, result.token);
+        return c.json({ verified: true });
+      }
+      return c.json(
+        { verified: false, error: result.error ?? "Login failed." },
+        400,
+      );
+    });
 
-  app.post("/auth/login/verify", async (c) => {
-    if (auth === undefined)
-      return c.json({ error: "Auth not configured." }, 500);
-    const body = await c.req.json();
-    const result = await auth.verifyLogin(rpFromContext(c), body);
-    if (result.verified && result.token !== undefined) {
-      setSessionCookie(c, result.token);
-      return c.json({ verified: true });
-    }
-    return c.json(
-      { verified: false, error: result.error ?? "Login failed." },
-      400,
-    );
-  });
-
-  app.post("/auth/logout", (c) => {
-    auth?.logout(getCookie(c, COOKIE_NAME));
-    deleteCookie(c, COOKIE_NAME, { path: "/" });
-    return c.redirect("/auth/login", 302);
-  });
+    app.post("/auth/logout", (c) => {
+      auth.logout(getCookie(c, COOKIE_NAME));
+      deleteCookie(c, COOKIE_NAME, { path: "/" });
+      return c.redirect("/auth/login", 302);
+    });
+  }
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);

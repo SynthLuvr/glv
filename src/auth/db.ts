@@ -74,13 +74,15 @@ const parseTransports = (raw: string | null): string[] => {
   }
 };
 
-const mapCredential = (row: {
+type CredentialRow = {
   id: string;
   user_id: string;
   public_key: unknown;
   counter: number;
   transports: string | null;
-}): StoredCredential => ({
+};
+
+const mapCredential = (row: CredentialRow): StoredCredential => ({
   id: row.id,
   userId: row.user_id,
   publicKey: toUint8Array(row.public_key),
@@ -103,13 +105,7 @@ const listCredentials = (db: DatabaseSync): StoredCredential[] => {
       "SELECT id, user_id, public_key, counter, transports " +
         "FROM credentials",
     )
-    .all() as Array<{
-    id: string;
-    user_id: string;
-    public_key: unknown;
-    counter: number;
-    transports: string | null;
-  }>;
+    .all() as CredentialRow[];
   return rows.map(mapCredential);
 };
 
@@ -122,15 +118,7 @@ const getCredential = (
       "SELECT id, user_id, public_key, counter, transports " +
         "FROM credentials WHERE id = ?",
     )
-    .get(id) as
-    | {
-        id: string;
-        user_id: string;
-        public_key: unknown;
-        counter: number;
-        transports: string | null;
-      }
-    | undefined;
+    .get(id) as CredentialRow | undefined;
   return row === undefined ? undefined : mapCredential(row);
 };
 
@@ -199,13 +187,6 @@ const deleteSession = (db: DatabaseSync, token: string): void => {
   db.prepare("DELETE FROM sessions WHERE id = ?").run(token);
 };
 
-const purgeExpiredSessions = (db: DatabaseSync): number => {
-  const result = db
-    .prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')")
-    .run();
-  return Number(result.changes);
-};
-
 export type { NewCredential, StoredCredential };
 export {
   createOwner,
@@ -215,7 +196,6 @@ export {
   isClaimed,
   listCredentials,
   openAuthDb,
-  purgeExpiredSessions,
   refreshSession,
   resolveAuthDbPath,
   SESSION_TTL_SECONDS,
