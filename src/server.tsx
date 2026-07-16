@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
@@ -11,7 +13,6 @@ import {
   getSession,
   listMessages,
   listSessions,
-  listWorkingDirs,
   sessionIdsInDir,
 } from "./db.js";
 import { parseMessage } from "./format.js";
@@ -163,14 +164,23 @@ const pollForSessionId = async (
   return undefined;
 };
 
+// Lists public (non-hidden) top-level directories under a home directory so the
+// new-session form offers sensible working dirs without needing prior sessions.
+const listHomeDirs = (home: string = homedir()): string[] =>
+  readdirSync(home, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => join(home, entry.name))
+    .sort();
+
 type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (
   db: DatabaseSync,
   runner: Runner,
-  opts: { pollTimeoutMs?: number } = {},
+  opts: { pollTimeoutMs?: number; listDirs?: () => string[] } = {},
 ): Hono<AppEnv> => {
   const pollTimeoutMs = opts.pollTimeoutMs ?? 10000;
+  const listDirs = opts.listDirs ?? listHomeDirs;
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
@@ -195,7 +205,7 @@ const createApp = (
   const newSessionDetail = (error?: string): Child => (
     <NewSessionForm
       workingDir={process.cwd()}
-      dirs={listWorkingDirs(db)}
+      dirs={listDirs()}
       error={error}
     />
   );
@@ -418,4 +428,4 @@ const createApp = (
   return app;
 };
 
-export { createApp };
+export { createApp, listHomeDirs };

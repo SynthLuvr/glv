@@ -112,15 +112,6 @@ const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
     .filter((id): id is string => typeof id === "string");
 };
 
-const listWorkingDirs = (db: DatabaseSync): string[] => {
-  const rows = db
-    .prepare("SELECT DISTINCT working_dir FROM sessions ORDER BY working_dir")
-    .all() as { working_dir: unknown }[];
-  return rows
-    .map((row) => row.working_dir)
-    .filter((dir): dir is string => typeof dir === "string");
-};
-
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => "?").join(", ");
@@ -136,7 +127,6 @@ export {
   getSession,
   listMessages,
   listSessions,
-  listWorkingDirs,
   openDb,
   resolveDbPath,
   sessionIdsInDir,

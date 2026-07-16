@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,7 +10,7 @@ import {
   getHandle,
   makeRunnerConfig,
 } from "../runner.js";
-import { createApp } from "../server.js";
+import { createApp, listHomeDirs } from "../server.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (
@@ -1049,6 +1049,36 @@ describe("M4: stream client reconnect deduplication", () => {
   });
 });
 
+describe("listHomeDirs", () => {
+  it("lists only public top-level directories under home", () => {
+    const home = mkdtempSync(join(tmpdir(), "glv-home-"));
+    try {
+      mkdirSync(join(home, "projects"));
+      mkdirSync(join(home, "repos"));
+      mkdirSync(join(home, ".config"));
+      mkdirSync(join(home, ".cache"));
+      writeFileSync(join(home, "notes.txt"), "x");
+
+      expect(listHomeDirs(home)).toEqual([
+        join(home, "projects"),
+        join(home, "repos"),
+      ]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty list when home has no public directories", () => {
+    const home = mkdtempSync(join(tmpdir(), "glv-home-empty-"));
+    try {
+      mkdirSync(join(home, ".secret"));
+      expect(listHomeDirs(home)).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 // === M5: new session ===
 
 describe("M5: new session entry points", () => {
@@ -1062,12 +1092,16 @@ describe("M5: new session entry points", () => {
     expect(html).toContain("Start session");
   });
 
-  it("pre-fills the working dir and lists recent dirs in a datalist", async () => {
-    const res = await makeApp().request("/sessions/new");
+  it("pre-fills the working dir and lists selectable dirs in a datalist", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      listDirs: () => ["/home/me/projects", "/home/me/repos"],
+    });
+    const res = await app.request("/sessions/new");
     const html = await res.text();
     expect(html).toContain('list="recent-dirs"');
     expect(html).toContain("<datalist");
-    expect(html).toContain("/tmp/alpha");
+    expect(html).toContain("/home/me/projects");
+    expect(html).toContain("/home/me/repos");
   });
 
   it("does not shadow the /sessions/:id route (new is a literal)", async () => {
