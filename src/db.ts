@@ -101,16 +101,12 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
-// Lets the new-session poll distinguish a freshly created session from a
-// pre-existing one sharing the same name and working dir.
-const matchingSessionIds = (
-  db: DatabaseSync,
-  name: string,
-  workingDir: string,
-): string[] => {
+// Lets the new-session poll distinguish a freshly created session from
+// pre-existing ones in the same working dir.
+const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
   const rows = db
-    .prepare("SELECT id FROM sessions WHERE name = ? AND working_dir = ?")
-    .all(name, workingDir) as { id: unknown }[];
+    .prepare("SELECT id FROM sessions WHERE working_dir = ?")
+    .all(workingDir) as { id: unknown }[];
   return rows
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string");
@@ -141,7 +137,7 @@ export {
   listMessages,
   listSessions,
   listWorkingDirs,
-  matchingSessionIds,
   openDb,
   resolveDbPath,
+  sessionIdsInDir,
 };

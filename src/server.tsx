@@ -12,7 +12,7 @@ import {
   listMessages,
   listSessions,
   listWorkingDirs,
-  matchingSessionIds,
+  sessionIdsInDir,
 } from "./db.js";
 import { parseMessage } from "./format.js";
 import type { Runner } from "./runner.js";
@@ -144,18 +144,11 @@ const flushLines = async (
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// Derived from the prompt so the sidebar card is readable without user input.
-const deriveSessionName = (prompt: string): string => {
-  const firstLine = prompt.split("\n")[0]?.trim() ?? "";
-  if (firstLine === "") return `session-${Date.now()}`;
-  return firstLine.length > 40 ? `${firstLine.slice(0, 39)}…` : firstLine;
-};
-
-// goose run -n assigns the session id, so after spawning we poll the DB for a
-// *new* id (excluding ids that pre-existed) and re-key the run handle to it.
+// goose assigns its own session id when started fresh, so after spawning we
+// poll the DB for a *new* id (excluding ids that pre-existed) and re-key the
+// run handle to it.
 const pollForSessionId = async (
   db: DatabaseSync,
-  name: string,
   workingDir: string,
   known: Set<string>,
   timeoutMs = 10000,
@@ -163,9 +156,7 @@ const pollForSessionId = async (
 ): Promise<string | undefined> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const found = matchingSessionIds(db, name, workingDir).find(
-      (id) => !known.has(id),
-    );
+    const found = sessionIdsInDir(db, workingDir).find((id) => !known.has(id));
     if (found !== undefined) return found;
     await sleep(intervalMs);
   }
@@ -253,19 +244,13 @@ const createApp = (
     if (workingDir === "" || !existsSync(workingDir))
       return reject("That working directory does not exist.", 422);
 
-    const name = deriveSessionName(prompt);
     const tempKey = generateTempKey();
-    // Exclude ids that already match so the poll only accepts goose's new row.
-    const known = new Set(matchingSessionIds(db, name, workingDir));
-    enqueueNew(runner, tempKey, name, prompt, workingDir);
+    // Exclude ids that already exist in this dir so the poll only accepts
+    // goose's new row.
+    const known = new Set(sessionIdsInDir(db, workingDir));
+    enqueueNew(runner, tempKey, prompt, workingDir);
 
-    const realId = await pollForSessionId(
-      db,
-      name,
-      workingDir,
-      known,
-      pollTimeoutMs,
-    );
+    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
     if (realId === undefined) {
       stop(runner, tempKey);
       return reject(

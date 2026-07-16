@@ -1113,9 +1113,9 @@ describe("M5: new session entry points", () => {
 });
 
 // A spawn mock that simulates goose creating the session row early: when
-// invoked it extracts the `-n` name from the args and inserts a `user` session
-// with the spawn's cwd as the working dir, then yields the given lines. This
-// lets the server's DB poll discover the real id without running real goose.
+// invoked it inserts a `user` session with the spawn's cwd as the working dir,
+// then yields the given lines. This lets the server's DB poll discover the real
+// id without running real goose.
 type NewSessionSpawnState = MockSpawnState & { insertedIds: string[] };
 
 const createNewSessionSpawn = (
@@ -1138,9 +1138,8 @@ const createNewSessionSpawn = (
       resolveExit = resolve;
     });
 
-    const nameIdx = args.indexOf("-n");
-    const name = nameIdx >= 0 ? args[nameIdx + 1] : "";
     const id = `ns-${Date.now()}-${++counter}`;
+    const name = `session-${counter}`;
     insertedIds.push(id);
     db.prepare(
       "INSERT INTO sessions (id, name, session_type, working_dir) " +
@@ -1213,7 +1212,7 @@ describe("M5: POST /sessions", () => {
     expect(html).toContain("Stop");
   });
 
-  it("invokes goose run -n with the derived name and prompt on stdin", async () => {
+  it("invokes goose run with the prompt on stdin (no -n name)", async () => {
     const { spawn, invocations } = createNewSessionSpawn(newDb, ["x"], {
       delayMs: 200,
     });
@@ -1223,8 +1222,8 @@ describe("M5: POST /sessions", () => {
       working_dir: newDir,
     });
     expect(invocations).toHaveLength(1);
-    expect(invocations[0].args).toContain("-n");
-    expect(invocations[0].args).toContain("build the project");
+    expect(invocations[0].args).not.toContain("-n");
+    expect(invocations[0].args).not.toContain("build the project");
     expect(invocations[0].args).not.toContain("--session-id");
     expect(invocations[0].args).not.toContain("-r");
     expect(invocations[0].opts.stdin).toBe("build the project");
@@ -1252,7 +1251,7 @@ describe("M5: POST /sessions", () => {
     for (const key of runner.registry.keys()) expect(key).not.toMatch(/^tmp_/);
   });
 
-  it("does not match a pre-existing session with the same name and dir", async () => {
+  it("does not match a pre-existing session in the same working dir", async () => {
     newDb
       .prepare(
         "INSERT INTO sessions (id, name, session_type, working_dir) " +
@@ -1264,7 +1263,7 @@ describe("M5: POST /sessions", () => {
     });
     const app = makeNewApp(spawn);
     const { html } = await postForm(app, "/sessions", {
-      prompt: "collide test",
+      prompt: "start fresh",
       working_dir: newDir,
     });
     expect(insertedIds).toHaveLength(1);

@@ -35,11 +35,10 @@ const resumeInvocation = (
   stdin: prompt,
 });
 
-const newSessionInvocation = (
-  name: string,
-  prompt: string,
-): GooseInvocation => ({
-  args: ["run", ...STREAM_FLAGS, "-n", name],
+// goose assigns its own session name, so no `-n` flag is passed — `goose
+// run` decides the name itself.
+const newSessionInvocation = (prompt: string): GooseInvocation => ({
+  args: ["run", ...STREAM_FLAGS],
   stdin: prompt,
 });
 
@@ -266,12 +265,11 @@ const enqueue = (
     opts,
   );
 
-// `goose run -n` assigns its own session id, so the run starts under a
-// temporary key and is re-keyed once goose writes the real id (see rekey).
+// goose assigns its own session id, so the run starts under a temporary
+// key and is re-keyed once the DB poll finds the real id (see rekey).
 const enqueueNew = (
   runner: Runner,
   tempKey: string,
-  name: string,
   prompt: string,
   workingDir: string,
   opts: EnqueueOptions = {},
@@ -279,7 +277,7 @@ const enqueueNew = (
   enqueueInvocation(
     runner,
     tempKey,
-    newSessionInvocation(name, prompt),
+    newSessionInvocation(prompt),
     prompt,
     workingDir,
     opts,
