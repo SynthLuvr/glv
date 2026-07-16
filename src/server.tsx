@@ -213,15 +213,13 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
 
   app.post("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
-    const session = getSession(db, id);
-    if (session === undefined) return renderNotFound(c, id);
     const body = await c.req.parseBody();
     const name = typeof body.name === "string" ? body.name : "";
     const from = body.from === "sidebar" ? "sidebar" : "header";
     renameSession(db, id, name);
-    const sessions = listSessions(db, VIEWER_FILTER);
     const updated = getSession(db, id);
     if (updated === undefined) return renderNotFound(c, id);
+    const sessions = listSessions(db, VIEWER_FILTER);
     if (from === "sidebar")
       return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
     if (!isHtmxRequest(c)) {

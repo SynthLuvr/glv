@@ -19,10 +19,9 @@ const icon = (children: Child): Child => (
 
 type RenameContext = "header" | "sidebar";
 
-// Inline click-to-edit control shared by the transcript header and the sidebar
-// card. The static view and the edit form are both server-rendered; a small
-// client script toggles an `is-editing` class. Submitting POSTs to the rename
-// endpoint, which swaps this fragment back (and refreshes the sidebar OOB).
+// Click-to-edit control shared by the transcript header and sidebar cards.
+// The view and form are server-rendered; the client toggles `is-editing` and
+// htmx swaps this fragment back on submit.
 const RenameWrap = ({
   session,
   context,
@@ -34,7 +33,7 @@ const RenameWrap = ({
   target: string;
   children?: Child;
 }) => (
-  <div class={`rename-wrap is-${context}`} data-rename-context={context}>
+  <div class={`rename-wrap is-${context}`}>
     <span class="rename-view">
       {children}
       <button
@@ -86,10 +85,10 @@ const RenameWrap = ({
   </div>
 );
 
-// Wrapped in a stable id so the rename POST can swap just the title (plus an
-// out-of-band sidebar refresh) without re-rendering the whole transcript.
+// Stable id lets the rename POST swap just the title (plus an OOB sidebar
+// refresh) without re-rendering the whole transcript.
 const SessionTitleWrap = ({ session }: { session: SessionRow }) => (
-  <div id="session-title-wrap" class="session-title-wrap">
+  <div id="session-title-wrap">
     <RenameWrap session={session} context="header" target="#session-title-wrap">
       <h2 class="session-title">{displayName(session.name)}</h2>
     </RenameWrap>

@@ -111,8 +111,7 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   db.prepare(sql).run(...ids);
 };
 
-// Trims the value and flips `user_set_name` to match: a non-empty name is a
-// user-chosen label, an empty one reverts to "(unnamed)" / auto handling.
+// A blank name clears the user-set flag.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
   db.prepare(
