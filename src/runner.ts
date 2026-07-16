@@ -127,6 +127,11 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
+const ExecaError = type({
+  "exitCode?": "number | undefined",
+  "signal?": "string | undefined",
+});
+
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
     input: opts.stdin,
@@ -153,8 +158,8 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const exit = proc.then(
     (r) => ({ exitCode: r.exitCode ?? 0 }),
     (e: unknown) => {
-      const err = e as { exitCode?: number; signal?: string };
-      return { exitCode: err.exitCode ?? null, signal: err.signal };
+      if (!ExecaError.allows(e)) return { exitCode: null };
+      return { exitCode: e.exitCode ?? null, signal: e.signal };
     },
   );
 
