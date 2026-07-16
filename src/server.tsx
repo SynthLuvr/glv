@@ -148,9 +148,6 @@ const flushLines = async (
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// goose assigns its own session id when started fresh, so after spawning we
-// poll the DB for a *new* id (excluding ids that pre-existed) and re-key the
-// run handle to it.
 const pollForSessionId = async (
   db: DatabaseSync,
   workingDir: string,
