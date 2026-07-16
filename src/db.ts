@@ -30,6 +30,10 @@ const MessageRow = type({
 
 type MessageRow = typeof MessageRow.infer;
 
+const IdRow = type({
+  id: "string",
+});
+
 type SessionFilter = {
   type: string;
   limit: number;
@@ -102,6 +106,15 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
   return validateRows(MessageRow, db.prepare(sql).all(sessionId));
 };
 
+// Lets the new-session poll distinguish a freshly created session from
+// pre-existing ones in the same working dir.
+const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
+  const rows = db
+    .prepare("SELECT id FROM sessions WHERE working_dir = ?")
+    .all(workingDir);
+  return validateRows(IdRow, rows).map((row) => row.id);
+};
+
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => "?").join(", ");
@@ -128,4 +141,5 @@ export {
   openDb,
   renameSession,
   resolveDbPath,
+  sessionIdsInDir,
 };

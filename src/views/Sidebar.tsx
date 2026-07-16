@@ -153,15 +153,41 @@ const ThemeToggle = () => (
   </button>
 );
 
+const NewSessionButton = () => (
+  <a
+    class="new-session-btn"
+    href="/sessions/new"
+    hx-get="/sessions/new"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    title="Start a new session"
+    aria-label="Start a new session"
+  >
+    +
+  </a>
+);
+
 const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Goose Sessions</h1>
       <span class="session-count">{sessions.length}</span>
+      <NewSessionButton />
       <ThemeToggle />
     </div>
     {sessions.length === 0 ? (
-      <p class="empty">No sessions found.</p>
+      <p class="empty">
+        No sessions found.{" "}
+        <a
+          href="/sessions/new"
+          hx-get="/sessions/new"
+          hx-target="#detail-pane"
+          hx-swap="innerHTML"
+        >
+          Start a new session
+        </a>
+        .
+      </p>
     ) : (
       <SessionList sessions={sessions} selectedId={selectedId} />
     )}
