@@ -20,7 +20,6 @@ import {
   resumeInvocation,
   stop,
   stopAll,
-  toProcessResult,
 } from "../runner.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -493,52 +492,6 @@ describe("error handling", () => {
     await waitForStatus(handle, "error");
     expect(handle.lines).toEqual(["partial", "output"]);
     expect(handle.error).toBe("goose exited with code 42");
-  });
-});
-
-describe("toProcessResult", () => {
-  it("reads exitCode and signal from an execa-shaped rejection", () => {
-    const err = Object.assign(new Error("Command failed"), {
-      exitCode: 2,
-      signal: undefined,
-      stderr: "boom",
-      command: "goose",
-    });
-    expect(toProcessResult(err)).toEqual({ exitCode: 2, signal: undefined });
-  });
-
-  it("accepts present-but-undefined fields (TS optional semantics)", () => {
-    const err = Object.assign(new Error("spawn failed"), {
-      exitCode: undefined,
-      signal: undefined,
-    });
-    expect(toProcessResult(err)).toEqual({ exitCode: null, signal: undefined });
-  });
-
-  it("preserves the signal when the process was killed by one", () => {
-    const err = Object.assign(new Error("killed"), {
-      exitCode: undefined,
-      signal: "SIGTERM",
-    });
-    expect(toProcessResult(err)).toEqual({ exitCode: null, signal: "SIGTERM" });
-  });
-
-  it("ignores extra execa fields (stderr, command, ...)", () => {
-    const err = Object.assign(new Error("x"), {
-      exitCode: 1,
-      signal: undefined,
-      stderr: "log",
-      stdout: "",
-      command: "goose run",
-      timedOut: false,
-    });
-    expect(toProcessResult(err)).toEqual({ exitCode: 1, signal: undefined });
-  });
-
-  it("falls back to a null exit code for a non-conforming rejection", () => {
-    expect(toProcessResult("not an object")).toEqual({ exitCode: null });
-    expect(toProcessResult({ exitCode: "bad" })).toEqual({ exitCode: null });
-    expect(toProcessResult({ exitCode: null })).toEqual({ exitCode: null });
   });
 });
 
