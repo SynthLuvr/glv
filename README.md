@@ -12,7 +12,11 @@ session history stored on disk.
 - **`glv logs`** — list sessions from `goose run --no-session` runs
   (stored as `hidden` sessions).
 - **`glv serve`** — start a local web viewer that browses sessions in
-  your browser.
+  your browser, and can start new `goose run` sessions from the detail
+  pane. The sidebar shows a `+` button (and a call-to-action when empty)
+  that opens a new-session form — just pick a working directory and type
+  a prompt. The session appears in the sidebar the moment goose writes
+  it, and its output streams live in the right pane.
 
 Sessions are read from the goose SQLite database at
 `~/.local/share/goose/sessions/sessions.db` (opened read-only, so it is
