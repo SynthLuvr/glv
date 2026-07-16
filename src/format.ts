@@ -173,11 +173,9 @@ const formatDate = (epoch: number, now: number): string => {
   return date.toLocaleDateString("en-US", options);
 };
 
-// Goose writes session/message timestamps in UTC without a zone suffix
-// (both the SQLite CURRENT_TIMESTAMP defaults and the created_timestamp
-// UTC epoch corroborate this against the live DB). Date.parse would read a
-// zone-less value as local time, so anchor zone-less values to UTC and
-// honour an explicit zone designator when one is present.
+// Goose writes timestamps in UTC without a zone suffix; Date.parse would
+// treat a zone-less value as local time, so anchor those to UTC and honour
+// an explicit zone designator when present.
 const parseTimestamp = (timestamp: string): number => {
   const iso = timestamp.replace(" ", "T");
   const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);

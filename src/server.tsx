@@ -15,7 +15,7 @@ import {
   listSessions,
   sessionIdsInDir,
 } from "./db.js";
-import { parseMessage } from "./format.js";
+import { type ParsedMessage, parseMessage } from "./format.js";
 import type { Runner } from "./runner.js";
 import {
   enqueue,
@@ -146,6 +146,18 @@ const flushLines = async (
   return true;
 };
 
+const flushMessages = async (
+  stream: SSEStreamingApi,
+  messages: ParsedMessage[],
+  from: number,
+): Promise<boolean> => {
+  for (let i = from; i < messages.length; i++) {
+    const html = renderMessage(messages[i]);
+    if (html !== "" && !(await emit(stream, "append", html))) return false;
+  }
+  return true;
+};
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -265,18 +277,16 @@ const createApp = (
     const known = new Set(sessionIdsInDir(db, workingDir));
     enqueueNew(runner, tempKey, prompt, workingDir);
 
-    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
-    if (realId === undefined) {
-      stop(runner, tempKey);
+    const rejectTimeout = (key: string) => {
+      stop(runner, key);
       return reject(SESSION_TIMEOUT_ERROR, 502);
-    }
+    };
+    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
+    if (realId === undefined) return rejectTimeout(tempKey);
 
     rekey(runner, tempKey, realId);
     const session = getSession(db, realId);
-    if (session === undefined) {
-      stop(runner, realId);
-      return reject(SESSION_TIMEOUT_ERROR, 502);
-    }
+    if (session === undefined) return rejectTimeout(realId);
 
     return render(
       c,
@@ -428,10 +438,7 @@ const createApp = (
         const rows = listMessages(db, id);
         if (rows.length <= sent) continue;
         const messages = rows.map(parseMessage);
-        for (let i = sent; i < messages.length; i++) {
-          const html = renderMessage(messages[i]);
-          if (html !== "" && !(await emit(stream, "append", html))) return;
-        }
+        if (!(await flushMessages(stream, messages, sent))) return;
         sent = messages.length;
       }
     });
