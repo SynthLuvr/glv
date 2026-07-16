@@ -477,18 +477,16 @@ const createApp = (
     });
   });
 
-  // Polls the shared database for messages appended or updated in place by
-  // any writer (terminal, desktop, another CLI). Streams only deltas so rows
-  // already in the DOM at page load are never re-sent. Used only for sessions
-  // the web app isn't actively running.
+  // Polls the shared database for messages appended or updated by any writer
+  // (terminal, desktop, another CLI). Streams only deltas. Used only for
+  // sessions the web app isn't actively running.
   app.get("/sessions/:id/tail", (c) => {
     const id = c.req.param("id");
     if (getSession(db, id) === undefined)
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      // Snapshot each row's content_json so in-place edits are detected
-      // alongside appends, not just new rows.
+      // Snapshot content_json to detect in-place edits, not just appends.
       let snapshots = listMessages(db, id).map((row) => row.content_json);
       let polls = 0;
       while (!stream.aborted && polls < maxTailPolls) {
@@ -500,8 +498,7 @@ const createApp = (
         const common = Math.min(snapshots.length, rows.length);
         let changed = false;
 
-        // In-place updates: a row whose content changed since the last poll
-        // (e.g. a growing assistant turn) is re-rendered in place.
+        // Re-render rows whose content changed since the last poll.
         for (let i = 0; i < common; i++) {
           if (rows[i].content_json === snapshots[i]) continue;
           const html = renderMessage(messages[i], i);
@@ -513,29 +510,21 @@ const createApp = (
           changed = true;
         }
 
-        // Newly appended rows beyond the previous baseline.
         if (rows.length > snapshots.length) {
           if (!(await flushMessages(stream, messages, snapshots.length)))
             return;
           changed = true;
         }
 
-        // Re-sync to current state regardless of what changed.
         snapshots = rows.map((row) => row.content_json);
 
-        // Refresh header metadata in place when content changes.
-        if (changed) {
-          const session = getSession(db, id);
-          if (session !== undefined)
-            if (
-              !(await emitMeta(
-                stream,
-                session,
-                messages.filter(hasContent).length,
-              ))
-            )
-              return;
-        }
+        if (!changed) continue;
+        const session = getSession(db, id);
+        if (session === undefined) continue;
+        if (
+          !(await emitMeta(stream, session, messages.filter(hasContent).length))
+        )
+          return;
       }
     });
   });

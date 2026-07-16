@@ -188,7 +188,6 @@ const hasContent = (message: ParsedMessage): boolean =>
   message.items.some((item) => itemBlock(item, false) !== null);
 
 // Matches the initial server render so live-tailed rows blend in seamlessly.
-// The index lets the live-tail client locate a row for in-place replacement.
 const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 

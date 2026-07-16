@@ -13,7 +13,7 @@ const teardown = (): void => {
     activeSource.close();
     activeSource = null;
   }
-  hideLiveBadge();
+  setLiveBadge(false);
 };
 
 // EventSource auto-reconnects on transient failures; only teardown once the
@@ -35,14 +35,9 @@ const nearBottom = (): boolean => {
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
 };
 
-const showLiveBadge = (): void => {
+const setLiveBadge = (visible: boolean): void => {
   const badge = document.getElementById("live-badge");
-  if (badge !== null) badge.hidden = false;
-};
-
-const hideLiveBadge = (): void => {
-  const badge = document.getElementById("live-badge");
-  if (badge !== null) badge.hidden = true;
+  if (badge !== null) badge.hidden = !visible;
 };
 
 // A message that was previously empty (and thus absent from the DOM) may
@@ -61,6 +56,15 @@ const insertMessageInOrder = (
     }
   }
   container.insertAdjacentHTML("beforeend", html);
+};
+
+const applyReplace = (messages: Element | null, data: string): void => {
+  if (messages === null) return;
+  const { index, html } = JSON.parse(data) as { index: number; html: string };
+  if (html === "") return;
+  const existing = messages.querySelector(`[data-msg-index="${index}"]`);
+  if (existing !== null) (existing as HTMLElement).outerHTML = html;
+  else insertMessageInOrder(messages, index, html);
 };
 
 type MetaUpdate = {
@@ -150,7 +154,7 @@ const connectTail = (root: Element): void => {
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
   activeSource.addEventListener("open", () => {
-    showLiveBadge();
+    setLiveBadge(true);
   });
 
   activeSource.addEventListener("append", (e) => {
@@ -163,15 +167,7 @@ const connectTail = (root: Element): void => {
 
   activeSource.addEventListener("replace", (e) => {
     try {
-      const { index, html } = JSON.parse((e as MessageEvent).data) as {
-        index: number;
-        html: string;
-      };
-      if (html === "" || messages === null) return;
-      const existing = messages.querySelector(`[data-msg-index="${index}"]`);
-      if (existing !== null) (existing as HTMLElement).outerHTML = html;
-      else insertMessageInOrder(messages, index, html);
-
+      applyReplace(messages, (e as MessageEvent).data);
       if (nearBottom()) scrollToBottom();
     } catch {
       /* ignore malformed replace payloads */
@@ -187,7 +183,7 @@ const connectTail = (root: Element): void => {
   });
 
   activeSource.addEventListener("error", () => {
-    hideLiveBadge();
+    setLiveBadge(false);
     teardownIfClosed();
   });
 };
