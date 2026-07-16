@@ -13,6 +13,7 @@ const teardown = (): void => {
     activeSource.close();
     activeSource = null;
   }
+  hideLiveBadge();
 };
 
 // EventSource auto-reconnects on transient failures; only teardown once the
@@ -32,6 +33,54 @@ const nearBottom = (): boolean => {
   const pane = document.getElementById("detail-pane");
   if (pane === null) return false;
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
+};
+
+const showLiveBadge = (): void => {
+  const badge = document.getElementById("live-badge");
+  if (badge !== null) badge.hidden = false;
+};
+
+const hideLiveBadge = (): void => {
+  const badge = document.getElementById("live-badge");
+  if (badge !== null) badge.hidden = true;
+};
+
+// A message that was previously empty (and thus absent from the DOM) may
+// later gain content. Insert it in timestamp order rather than always at the
+// end, so the transcript stays correctly sequenced.
+const insertMessageInOrder = (
+  container: Element,
+  index: number,
+  html: string,
+): void => {
+  for (const sibling of Array.from(container.children)) {
+    const sibIndex = Number((sibling as HTMLElement).dataset.msgIndex);
+    if (!Number.isNaN(sibIndex) && sibIndex > index) {
+      (sibling as HTMLElement).insertAdjacentHTML("beforebegin", html);
+      return;
+    }
+  }
+  container.insertAdjacentHTML("beforeend", html);
+};
+
+type MetaUpdate = {
+  updated: string;
+  updatedTitle: string;
+  messages: string;
+  tokens: string;
+};
+
+const updateMeta = (data: MetaUpdate): void => {
+  const setValue = (id: string, value: string, title?: string): void => {
+    const chip = document.getElementById(id);
+    if (chip === null) return;
+    const node = chip.querySelector(".meta-value");
+    if (node !== null) node.textContent = value;
+    if (title !== undefined) chip.title = title;
+  };
+  setValue("meta-updated", data.updated, data.updatedTitle);
+  setValue("meta-messages", data.messages);
+  setValue("meta-tokens", data.tokens);
 };
 
 type StreamStatus = {
@@ -100,6 +149,10 @@ const connectTail = (root: Element): void => {
 
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
+  activeSource.addEventListener("open", () => {
+    showLiveBadge();
+  });
+
   activeSource.addEventListener("append", (e) => {
     const html = (e as MessageEvent).data;
     if (html !== "" && messages !== null) {
@@ -108,7 +161,35 @@ const connectTail = (root: Element): void => {
     }
   });
 
-  activeSource.addEventListener("error", teardownIfClosed);
+  activeSource.addEventListener("replace", (e) => {
+    try {
+      const { index, html } = JSON.parse((e as MessageEvent).data) as {
+        index: number;
+        html: string;
+      };
+      if (html === "" || messages === null) return;
+      const existing = messages.querySelector(`[data-msg-index="${index}"]`);
+      if (existing !== null) (existing as HTMLElement).outerHTML = html;
+      else insertMessageInOrder(messages, index, html);
+
+      if (nearBottom()) scrollToBottom();
+    } catch {
+      /* ignore malformed replace payloads */
+    }
+  });
+
+  activeSource.addEventListener("meta", (e) => {
+    try {
+      updateMeta(JSON.parse((e as MessageEvent).data));
+    } catch {
+      /* ignore malformed meta payloads */
+    }
+  });
+
+  activeSource.addEventListener("error", () => {
+    hideLiveBadge();
+    teardownIfClosed();
+  });
 };
 
 const init = (): void => {

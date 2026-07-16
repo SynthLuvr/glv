@@ -16,7 +16,12 @@ import {
   renameSession,
   sessionIdsInDir,
 } from "./db.js";
-import { type ParsedMessage, parseMessage } from "./format.js";
+import {
+  fmtRelative,
+  fmtTokens,
+  type ParsedMessage,
+  parseMessage,
+} from "./format.js";
 import type { Runner } from "./runner.js";
 import {
   enqueue,
@@ -32,6 +37,7 @@ import { SessionTitleWrap } from "./views/Rename.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
+  hasContent,
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
@@ -154,11 +160,27 @@ const flushMessages = async (
   from: number,
 ): Promise<boolean> => {
   for (let i = from; i < messages.length; i++) {
-    const html = renderMessage(messages[i]);
+    const html = renderMessage(messages[i], i);
     if (html !== "" && !(await emit(stream, "append", html))) return false;
   }
   return true;
 };
+
+const emitMeta = async (
+  stream: SSEStreamingApi,
+  session: SessionRow,
+  messageCount: number,
+): Promise<boolean> =>
+  emit(
+    stream,
+    "meta",
+    JSON.stringify({
+      updated: fmtRelative(session.updated_at),
+      updatedTitle: session.updated_at,
+      messages: String(messageCount),
+      tokens: fmtTokens(session.total_tokens),
+    }),
+  );
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -455,26 +477,65 @@ const createApp = (
     });
   });
 
-  // Polls the shared database for messages appended by any writer (terminal,
-  // desktop, another CLI) and streams only rows not already rendered at page
-  // load. Used only for sessions the web app isn't actively running.
+  // Polls the shared database for messages appended or updated in place by
+  // any writer (terminal, desktop, another CLI). Streams only deltas so rows
+  // already in the DOM at page load are never re-sent. Used only for sessions
+  // the web app isn't actively running.
   app.get("/sessions/:id/tail", (c) => {
     const id = c.req.param("id");
     if (getSession(db, id) === undefined)
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      let sent = listMessages(db, id).length;
+      // Snapshot each row's content_json so in-place edits are detected
+      // alongside appends, not just new rows.
+      let snapshots = listMessages(db, id).map((row) => row.content_json);
       let polls = 0;
       while (!stream.aborted && polls < maxTailPolls) {
         polls++;
         await stream.sleep(tailPollMs);
         if (stream.aborted) return;
         const rows = listMessages(db, id);
-        if (rows.length <= sent) continue;
         const messages = rows.map(parseMessage);
-        if (!(await flushMessages(stream, messages, sent))) return;
-        sent = messages.length;
+        const common = Math.min(snapshots.length, rows.length);
+        let changed = false;
+
+        // In-place updates: a row whose content changed since the last poll
+        // (e.g. a growing assistant turn) is re-rendered in place.
+        for (let i = 0; i < common; i++) {
+          if (rows[i].content_json === snapshots[i]) continue;
+          const html = renderMessage(messages[i], i);
+          if (
+            html !== "" &&
+            !(await emit(stream, "replace", JSON.stringify({ index: i, html })))
+          )
+            return;
+          changed = true;
+        }
+
+        // Newly appended rows beyond the previous baseline.
+        if (rows.length > snapshots.length) {
+          if (!(await flushMessages(stream, messages, snapshots.length)))
+            return;
+          changed = true;
+        }
+
+        // Re-sync to current state regardless of what changed.
+        snapshots = rows.map((row) => row.content_json);
+
+        // Refresh header metadata in place when content changes.
+        if (changed) {
+          const session = getSession(db, id);
+          if (session !== undefined)
+            if (
+              !(await emitMeta(
+                stream,
+                session,
+                messages.filter(hasContent).length,
+              ))
+            )
+              return;
+        }
       }
     });
   });
