@@ -30,7 +30,7 @@ import {
   type ParsedMessage,
   parseMessage,
 } from "./format.js";
-import type { Runner } from "./runner.js";
+import type { Runner, RunStatus } from "./runner.js";
 import {
   enqueue,
   enqueueNew,
@@ -71,19 +71,36 @@ const htmxSource = readFileSync(
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 
+// Derives the set of session ids with an active (queued or running) run from
+// the runner registry. Terminal handles linger in the registry and are
+// filtered out automatically, so no cleanup is needed.
+const activeSessionIds = (runner: Runner): Set<string> =>
+  new Set(
+    [...runner.registry.entries()]
+      .filter(([, h]) => !isTerminalStatus(h.status))
+      .map(([id]) => id),
+  );
+
 const Shell = ({
   sessions,
   selectedId,
+  runningIds,
   logout = false,
   children,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   selectedId: string | undefined;
+  runningIds: Set<string>;
   logout?: boolean;
 }>) => (
   <Layout title="Goose Sessions">
     <div class="app">
-      <Sidebar sessions={sessions} selectedId={selectedId} logout={logout} />
+      <Sidebar
+        sessions={sessions}
+        selectedId={selectedId}
+        runningIds={runningIds}
+        logout={logout}
+      />
       <main class="detail" id="detail-pane">
         {children}
       </main>
@@ -196,6 +213,10 @@ const createApp = (
     /** Bounds poll iterations so tests can drain the stream. */
     maxTailPolls?: number;
     pollTimeoutMs?: number;
+    /** Poll interval (ms) for the global status feed. */
+    statusPollMs?: number;
+    /** Bounds status-feed poll iterations so tests can drain the stream. */
+    maxStatusPolls?: number;
     listDirs?: () => string[];
     auth?: AuthService;
     rpName?: string;
@@ -205,6 +226,8 @@ const createApp = (
   const tailPollMs = opts.tailPollMs ?? 1000;
   const maxTailPolls = opts.maxTailPolls ?? Infinity;
   const pollTimeoutMs = opts.pollTimeoutMs ?? 10000;
+  const statusPollMs = opts.statusPollMs ?? 1000;
+  const maxStatusPolls = opts.maxStatusPolls ?? Infinity;
   const listDirs = opts.listDirs ?? listHomeDirs;
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
@@ -240,13 +263,19 @@ const createApp = (
       refreshSidebar?: boolean;
       status?: ContentfulStatusCode;
     } = {},
-  ) =>
-    isHtmxRequest(c)
+  ) => {
+    const runningIds = activeSessionIds(runner);
+    return isHtmxRequest(c)
       ? c.html(
           <Fragment>
             {detail}
             {refreshSidebar && (
-              <SessionList sessions={sessions} selectedId={undefined} oob />
+              <SessionList
+                sessions={sessions}
+                selectedId={undefined}
+                runningIds={runningIds}
+                oob
+              />
             )}
           </Fragment>,
           status,
@@ -255,12 +284,14 @@ const createApp = (
           <Shell
             sessions={sessions}
             selectedId={selectedId}
+            runningIds={runningIds}
             logout={showLogout}
           >
             {detail}
           </Shell>,
           status,
         );
+  };
 
   const rpFromContext = (c: Context): RpConfig => {
     const url = new URL(c.req.url);
@@ -482,7 +513,13 @@ const createApp = (
     if (updated === undefined) return renderNotFound(c, id);
     const sessions = listSessions(db, VIEWER_FILTER);
     if (from === "sidebar")
-      return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
+      return c.html(
+        <SessionList
+          sessions={sessions}
+          selectedId={undefined}
+          runningIds={activeSessionIds(runner)}
+        />,
+      );
     if (!isHtmxRequest(c)) {
       const messages = listMessages(db, id).map(parseMessage);
       const run = getHandle(runner, id);
@@ -496,7 +533,12 @@ const createApp = (
     return c.html(
       <Fragment>
         <SessionTitleWrap session={updated} />
-        <SessionList sessions={sessions} selectedId={undefined} oob />
+        <SessionList
+          sessions={sessions}
+          selectedId={undefined}
+          runningIds={activeSessionIds(runner)}
+          oob
+        />
       </Fragment>,
     );
   });
@@ -508,7 +550,13 @@ const createApp = (
     >;
     archiveSessions(db, extractIds(body.id));
     const sessions = listSessions(db, VIEWER_FILTER);
-    return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
+    return c.html(
+      <SessionList
+        sessions={sessions}
+        selectedId={undefined}
+        runningIds={activeSessionIds(runner)}
+      />,
+    );
   });
 
   // Prompt runner endpoints
@@ -656,6 +704,64 @@ const createApp = (
       <Transcript session={session} messages={messages} />,
     );
   });
+
+  // Global status feed: streams deltas for *all* active runs in the registry,
+  // not just the one the detail pane is watching. Drives the sidebar's
+  // session-running indicators. Mirrors the /tail pattern (poll a small shared
+  // data structure, emit only deltas) but scans the whole registry.
+  app.get("/events/status", (c) =>
+    streamSSE(c, async (stream) => {
+      const snapshot = (): Map<string, RunStatus> =>
+        new Map(
+          [...runner.registry.entries()]
+            .filter(([, h]) => !isTerminalStatus(h.status))
+            .map(([id, h]) => [id, h.status]),
+        );
+
+      let last = snapshot();
+      let polls = 0;
+
+      // Emit a full sync on (re)connect so the client can reconcile drift.
+      if (!(await emit(stream, "sync", JSON.stringify([...last.keys()]))))
+        return;
+
+      while (!stream.aborted && polls < maxStatusPolls) {
+        polls++;
+        await stream.sleep(statusPollMs);
+        if (stream.aborted) return;
+
+        const now = snapshot();
+
+        // New or changed-status sessions → toggle indicator on.
+        for (const [id, status] of now) {
+          if (last.get(id) === status) continue;
+          if (
+            !(await emit(
+              stream,
+              "status",
+              JSON.stringify({ sessionId: id, status }),
+            ))
+          )
+            return;
+        }
+
+        // Sessions that just ended → toggle indicator off.
+        for (const [id] of last) {
+          if (now.has(id)) continue;
+          if (
+            !(await emit(
+              stream,
+              "status",
+              JSON.stringify({ sessionId: id, status: "done" }),
+            ))
+          )
+            return;
+        }
+
+        last = now;
+      }
+    }),
+  );
 
   return app;
 };

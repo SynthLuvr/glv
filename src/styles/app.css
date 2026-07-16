@@ -269,6 +269,24 @@ body {
 .session-item.htmx-request {
   opacity: 0.5;
 }
+/* Running-session indicator: a pulsing dot in the sidebar card metadata row.
+   The element is always rendered but hidden unless the session-item carries
+   the data-running attribute (set server-side and toggled client-side by the
+   /events/status feed). */
+.run-indicator {
+  display: none;
+}
+.session-item[data-running] .run-indicator {
+  display: inline-flex;
+  align-items: center;
+}
+.run-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
 .session-name {
   font-weight: 600;
   font-size: 0.88rem;
