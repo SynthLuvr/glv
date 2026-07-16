@@ -167,13 +167,44 @@ const NewSessionButton = () => (
   </a>
 );
 
-const Sidebar = ({ sessions, selectedId }: SidebarProps) => (
+const LogoutButton = () => (
+  <form action="/auth/logout" method="post" class="logout-form">
+    <button
+      type="submit"
+      class="logout-btn"
+      aria-label="Log out"
+      title="Log out"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
+    </button>
+  </form>
+);
+
+const Sidebar = ({
+  sessions,
+  selectedId,
+  logout = false,
+}: SidebarProps & { logout?: boolean }) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Goose Sessions</h1>
       <span class="session-count">{sessions.length}</span>
       <NewSessionButton />
       <ThemeToggle />
+      {logout && <LogoutButton />}
     </div>
     {sessions.length === 0 ? (
       <p class="empty">

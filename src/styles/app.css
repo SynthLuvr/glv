@@ -1181,3 +1181,124 @@ pre::-webkit-scrollbar-thumb {
   font-size: 0.88rem;
   font-weight: 600;
 }
+
+/* ---------- auth screens ---------- */
+.auth-main {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.auth-card {
+  max-width: 24rem;
+  width: 100%;
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  padding: 2.5rem 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.auth-shield {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 0.85rem;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  margin-bottom: 1.25rem;
+}
+.auth-shield svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.auth-card h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.auth-sub {
+  margin: 0 0 1.75rem;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+.auth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: none;
+  border-radius: 0.6rem;
+  background: var(--color-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.auth-btn:hover {
+  background: var(--color-accent-hover);
+}
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.auth-error {
+  margin: 1rem 0 0;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.84rem;
+  color: var(--color-err);
+  background: var(--color-err-soft);
+  border: 1px solid var(--color-err-border);
+  border-radius: 0.5rem;
+  text-align: left;
+}
+.auth-error[hidden] {
+  display: none;
+}
+.auth-banner-error {
+  margin: 1rem 0 0;
+  font-size: 0.84rem;
+  color: var(--color-err);
+}
+
+/* ---------- logout ---------- */
+.logout-form {
+  display: inline-flex;
+}
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.logout-btn:hover {
+  color: var(--color-err);
+  border-color: var(--color-err);
+  background: var(--color-err-soft);
+}
+.logout-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.logout-btn svg {
+  width: 1rem;
+  height: 1rem;
+}

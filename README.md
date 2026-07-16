@@ -43,6 +43,8 @@ glv serve                 # start the local web viewer
 Global options:
 
 - `--db <path>` — override the database location.
+- `--auth-db <path>` — override the auth database location (default
+  `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
 - `--limit <n>` — number of rows to list (default 20).
 
 `glv serve` options:
@@ -52,6 +54,36 @@ Global options:
   driven from the detail pane (default `6`).
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
+- `--rp-name <name>` — WebAuthn relying party name shown in the OS
+  passkey prompt (default `Goose Log Viewer`).
+- `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
+  the browser uses (defaults to the request host, e.g. `localhost`).
+
+## Authentication
+
+The web viewer is protected by **passkey authentication** (WebAuthn) —
+no emails, no passwords. The first person to visit a freshly started
+viewer creates a passkey and permanently claims the app; every
+subsequent registration attempt is blocked. The authorized user can log
+back in at any time with a quick passkey tap.
+
+- **Auth database** — passkey credentials and login sessions live in a
+  separate SQLite database at `~/.local/share/glv/auth.db`, fully
+  independent of the read-only goose sessions database. Override with
+  `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
+- **Single-occupancy model** — a `users` table with at most one row
+  enforces “first user wins.” Registration endpoints return `403` once
+  an owner exists.
+- **Sessions** — a 1-day sliding session stored as an `httpOnly`,
+  `sameSite=Strict` cookie backed by a `sessions` table row. Revocation
+  is a single `DELETE`; re-login is one passkey prompt.
+- **Relying Party** — `--rp-name` sets the label shown in the OS passkey
+  prompt. `--rp-id` overrides the Relying Party ID.
+
+> **HTTPS requirement.** WebAuthn requires a secure context. `localhost`
+> is exempt, so local development needs no TLS. If the viewer is exposed
+> on a LAN hostname or over the network, place it behind a reverse proxy
+> with a valid TLS certificate.
 
 ## Development
 

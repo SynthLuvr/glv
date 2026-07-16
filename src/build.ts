@@ -37,6 +37,18 @@ const buildScripts = (): void => {
     minify: true,
     target: ["es2020"],
   });
+  // Bundled separately: passkey.ts imports @simplewebauthn/browser, which must
+  // be inlined into a self-contained IIFE (the package's exports map blocks
+  // direct subpath access to its prebuilt UMD bundle).
+  buildSync({
+    entryPoints: [join(SRC_DIR, "scripts", "passkey.ts")],
+    outfile: join(OUTPUT_DIR, "passkey.js"),
+    bundle: true,
+    minify: true,
+    format: "iife",
+    platform: "browser",
+    target: ["es2020"],
+  });
 };
 
 // Allows running directly via "tsx src/build.ts" (the build:assets script)
