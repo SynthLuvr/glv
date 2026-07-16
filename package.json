@@ -46,6 +46,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "execa": "^9.6.1",

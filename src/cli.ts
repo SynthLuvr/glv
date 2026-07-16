@@ -3,6 +3,7 @@ import { delimiter } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
+import { resolveAuthDbPath } from "./auth/db.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
@@ -23,6 +24,8 @@ type ServeOpts = {
   port: string;
   maxConcurrent: number;
   gooseBinary: string;
+  rpName: string;
+  rpId?: string;
 };
 
 const program = new Command();
@@ -30,10 +33,12 @@ const program = new Command();
 program
   .name("glv")
   .description("View goose sessions, prompts/outputs, and --no-session logs")
-  .option("--db <path>", "goose sessions database path");
+  .option("--db <path>", "goose sessions database path")
+  .option("--auth-db <path>", "auth database path");
 
 const GlobalOpts = type({
   "db?": "string",
+  "authDb?": "string",
 });
 
 const getDbPath = (): string => {
@@ -41,6 +46,13 @@ const getDbPath = (): string => {
   if (opts instanceof type.errors)
     throw new Error(`Invalid global options: ${opts.summary}`);
   return resolveDbPath(opts.db);
+};
+
+const getAuthDbPath = (): string => {
+  const opts = GlobalOpts(program.opts());
+  if (opts instanceof type.errors)
+    throw new Error(`Invalid global options: ${opts.summary}`);
+  return resolveAuthDbPath(opts.authDb);
 };
 
 const useDb = (fn: (db: DatabaseSync) => void): void => {
@@ -131,11 +143,19 @@ program
     resolveGooseBinary,
     "goose",
   )
+  .option("--rp-name <name>", "WebAuthn relying party name", "Goose Log Viewer")
+  .option(
+    "--rp-id <domain>",
+    "WebAuthn relying party ID (defaults to the request host)",
+  )
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, {
       port: Number(opts.port),
       runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
+      authDbPath: getAuthDbPath(),
+      rpName: opts.rpName,
+      rpIdOverride: opts.rpId,
     });
   });
 

@@ -4,9 +4,13 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
+import { SESSION_TTL_SECONDS } from "./auth/db.js";
+import { authMiddleware, COOKIE_NAME } from "./auth/middleware.js";
+import { type AuthService, type RpConfig } from "./auth/service.js";
 import type { SessionFilter, SessionRow } from "./db.js";
 import {
   archiveSessions,
@@ -27,6 +31,7 @@ import {
   rekey,
   stop,
 } from "./runner.js";
+import { LoginPage, RegisterPage } from "./views/Auth.js";
 import { Layout } from "./views/Layout.js";
 import { SessionTitleWrap } from "./views/Rename.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
@@ -59,14 +64,16 @@ const readAsset = (relativePath: string): string =>
 const Shell = ({
   sessions,
   selectedId,
+  logout = false,
   children,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   selectedId: string | undefined;
+  logout?: boolean;
 }>) => (
   <Layout title="Goose Sessions">
     <div class="app">
-      <Sidebar sessions={sessions} selectedId={selectedId} />
+      <Sidebar sessions={sessions} selectedId={selectedId} logout={logout} />
       <main class="detail" id="detail-pane">
         {children}
       </main>
@@ -85,7 +92,7 @@ const extractIds = (value: unknown): string[] => {
 
 // htmx navigation swaps only the detail pane so an in-progress bulk selection
 // survives. Mutations additionally refresh the sidebar out-of-band.
-const render = (
+const renderView = (
   c: Context,
   sessions: SessionRow[],
   selectedId: string | undefined,
@@ -93,9 +100,11 @@ const render = (
   {
     refreshSidebar = false,
     status = 200,
+    logout = false,
   }: {
     refreshSidebar?: boolean;
     status?: ContentfulStatusCode;
+    logout?: boolean;
   } = {},
 ) =>
   isHtmxRequest(c)
@@ -109,7 +118,7 @@ const render = (
         status,
       )
     : c.html(
-        <Shell sessions={sessions} selectedId={selectedId}>
+        <Shell sessions={sessions} selectedId={selectedId} logout={logout}>
           {detail}
         </Shell>,
         status,
@@ -196,6 +205,9 @@ const createApp = (
     maxTailPolls?: number;
     pollTimeoutMs?: number;
     listDirs?: () => string[];
+    auth?: AuthService;
+    rpName?: string;
+    rpIdOverride?: string;
   } = {},
 ): Hono<AppEnv> => {
   const tailPollMs = opts.tailPollMs ?? 1000;
@@ -209,11 +221,53 @@ const createApp = (
   const themeScript = readAsset("../dist/theme.js");
   const markdownCopyScript = readAsset("../dist/markdown-copy.js");
   const renameScript = readAsset("../dist/rename.js");
+  const passkeyScript = readAsset("../dist/passkey.js");
+  const auth = opts.auth;
   const app = new Hono<AppEnv>();
+  // Auth gate sits first: every non-public request must carry a valid
+  // session before any other middleware or route runs.
+  if (auth !== undefined) app.use("*", authMiddleware(auth));
   app.use(async (c, next) => {
     c.set("runner", runner);
     await next();
   });
+
+  // Binds the logout flag so existing call sites don't each repeat it.
+  const showLogout = auth !== undefined;
+  const render = (
+    c: Context,
+    sessions: SessionRow[],
+    selectedId: string | undefined,
+    detail: Child,
+    o: {
+      refreshSidebar?: boolean;
+      status?: ContentfulStatusCode;
+    } = {},
+  ) =>
+    renderView(c, sessions, selectedId, detail, {
+      logout: showLogout,
+      ...o,
+    });
+
+  const rpFromContext = (c: Context): RpConfig => {
+    const url = new URL(c.req.url);
+    return {
+      rpName: opts.rpName ?? "Goose Log Viewer",
+      rpID: opts.rpIdOverride ?? (url.hostname || "localhost"),
+      expectedOrigin: url.origin,
+    };
+  };
+
+  const setSessionCookie = (c: Context, token: string): void => {
+    const url = new URL(c.req.url);
+    setCookie(c, COOKIE_NAME, token, {
+      httpOnly: true,
+      sameSite: "Strict",
+      secure: url.protocol === "https:",
+      path: "/",
+      maxAge: SESSION_TTL_SECONDS,
+    });
+  };
 
   const renderNotFound = (c: Context, id: string) =>
     render(
@@ -251,6 +305,70 @@ const createApp = (
   app.get("/rename.js", (c) =>
     serveAsset(c, renameScript, "application/javascript; charset=utf-8"),
   );
+  app.get("/passkey.js", (c) =>
+    serveAsset(c, passkeyScript, "application/javascript; charset=utf-8"),
+  );
+
+  // ---------- passkey auth routes ----------
+  app.get("/auth/register", (c) => {
+    if (auth === undefined) return c.redirect("/", 302);
+    if (auth.isClaimed()) return c.redirect("/auth/login", 302);
+    return c.html(<RegisterPage />);
+  });
+
+  app.get("/auth/login", (c) => {
+    if (auth === undefined) return c.redirect("/", 302);
+    if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
+    return c.html(<LoginPage />);
+  });
+
+  app.get("/auth/register/options", async (c) => {
+    if (auth === undefined || auth.isClaimed())
+      return c.json({ error: "Registration is closed." }, 403);
+    return c.json(await auth.registrationOptions(rpFromContext(c)));
+  });
+
+  app.post("/auth/register/verify", async (c) => {
+    if (auth === undefined || auth.isClaimed())
+      return c.json({ verified: false, error: "Registration is closed." }, 403);
+    const body = await c.req.json();
+    const result = await auth.verifyRegistration(rpFromContext(c), body);
+    if (result.verified && result.token !== undefined) {
+      setSessionCookie(c, result.token);
+      return c.json({ verified: true });
+    }
+    return c.json(
+      { verified: false, error: result.error ?? "Verification failed." },
+      400,
+    );
+  });
+
+  app.get("/auth/login/options", async (c) => {
+    if (auth === undefined)
+      return c.json({ error: "Auth not configured." }, 500);
+    return c.json(await auth.loginOptions(rpFromContext(c)));
+  });
+
+  app.post("/auth/login/verify", async (c) => {
+    if (auth === undefined)
+      return c.json({ error: "Auth not configured." }, 500);
+    const body = await c.req.json();
+    const result = await auth.verifyLogin(rpFromContext(c), body);
+    if (result.verified && result.token !== undefined) {
+      setSessionCookie(c, result.token);
+      return c.json({ verified: true });
+    }
+    return c.json(
+      { verified: false, error: result.error ?? "Login failed." },
+      400,
+    );
+  });
+
+  app.post("/auth/logout", (c) => {
+    auth?.logout(getCookie(c, COOKIE_NAME));
+    deleteCookie(c, COOKIE_NAME, { path: "/" });
+    return c.redirect("/auth/login", 302);
+  });
 
   app.get("/", (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
