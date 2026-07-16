@@ -134,20 +134,16 @@ const flushLines = async (
 
 type AppEnv = { Variables: { runner: Runner } };
 
-// How often the live-tail endpoint re-queries the messages table for rows
-// appended by an external writer. Held as options so tests can shrink them.
-const TAIL_POLL_MS = 1000;
-
 type TailOptions = {
   tailPollMs?: number;
-  /** Caps poll iterations; defaults to unbounded. Lets tests drain the stream. */
+  /** Bounds poll iterations so tests can drain the stream. */
   maxTailPolls?: number;
 };
 
 const createApp = (
   db: DatabaseSync,
   runner: Runner,
-  { tailPollMs = TAIL_POLL_MS, maxTailPolls = Infinity }: TailOptions = {},
+  { tailPollMs = 1000, maxTailPolls = Infinity }: TailOptions = {},
 ): Hono<AppEnv> => {
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
@@ -310,27 +306,24 @@ const createApp = (
     });
   });
 
-  // Live-tail: appends messages committed to the session database by ANY writer
-  // (a terminal, goose desktop, or another CLI invocation) by polling the held
-  // connection that already sees cross-process commits. The client connects
-  // here only for sessions NOT actively run by the web app, so this never
-  // overlaps the runner stream above.
+  // Polls the shared database for messages appended by any writer (terminal,
+  // desktop, another CLI) and streams only rows not already rendered at page
+  // load. Used only for sessions the web app isn't actively running.
   app.get("/sessions/:id/tail", (c) => {
     const id = c.req.param("id");
     if (getSession(db, id) === undefined)
       return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      // The detail pane already rendered the messages present at load time;
-      // remember their count and stream only newly appended rows.
       let sent = listMessages(db, id).length;
       let polls = 0;
       while (!stream.aborted && polls < maxTailPolls) {
         polls++;
         await stream.sleep(tailPollMs);
         if (stream.aborted) return;
-        const messages = listMessages(db, id).map(parseMessage);
-        if (messages.length <= sent) continue;
+        const rows = listMessages(db, id);
+        if (rows.length <= sent) continue;
+        const messages = rows.map(parseMessage);
         for (let i = sent; i < messages.length; i++) {
           const html = renderMessage(messages[i]);
           if (html !== "" && !(await emit(stream, "append", html))) return;

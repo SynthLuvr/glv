@@ -181,11 +181,9 @@ const MessageView = ({ message }: { message: ParsedMessage }) => {
 const hasContent = (message: ParsedMessage): boolean =>
   message.items.some((item) => itemBlock(item, false) !== null);
 
-// Renders a single message to an HTML string identical to what the initial
-// server render produces, so live-tailed rows blend in seamlessly. Returns an
-// empty string for messages with no renderable content.
+// Matches the initial server render so live-tailed rows blend in seamlessly.
 const renderMessage = (message: ParsedMessage): string =>
-  hasContent(message) ? renderToString(<MessageView message={message} />) : "";
+  renderToString(<MessageView message={message} />);
 
 const MetaChip = ({
   label,

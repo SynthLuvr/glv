@@ -15,13 +15,19 @@ const teardown = (): void => {
   }
 };
 
+// EventSource auto-reconnects on transient failures; only teardown once the
+// server has truly closed the connection.
+const teardownIfClosed = (): void => {
+  if (activeSource?.readyState === EventSource.CLOSED) teardown();
+};
+
 const scrollToBottom = (): void => {
   const pane = document.getElementById("detail-pane");
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
 };
 
-// Only auto-follow new content when the reader is already near the bottom, so
-// scrolling up to read history is not yanked away by an incoming message.
+// Only auto-scroll when the reader is near the bottom, so reading history
+// isn't interrupted by incoming messages.
 const nearBottom = (): boolean => {
   const pane = document.getElementById("detail-pane");
   if (pane === null) return false;
@@ -85,16 +91,9 @@ const connectRunner = (root: Element): void => {
       });
   });
 
-  activeSource.addEventListener("error", () => {
-    // EventSource auto-reconnects on transient failures. Only teardown
-    // when the server has truly closed the connection.
-    if (activeSource?.readyState === EventSource.CLOSED) teardown();
-  });
+  activeSource.addEventListener("error", teardownIfClosed);
 };
 
-// Live-tail for externally-driven sessions: appends new messages committed by
-// any writer as they arrive. Activated only for sessions NOT actively run by
-// the web app, so it never overlaps connectRunner.
 const connectTail = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const messages = document.getElementById("messages");
@@ -109,9 +108,7 @@ const connectTail = (root: Element): void => {
     }
   });
 
-  activeSource.addEventListener("error", () => {
-    if (activeSource?.readyState === EventSource.CLOSED) teardown();
-  });
+  activeSource.addEventListener("error", teardownIfClosed);
 };
 
 const init = (): void => {
