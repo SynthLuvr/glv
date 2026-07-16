@@ -262,6 +262,48 @@ describe("queue position", () => {
 
     await waitForStatus(h2, "completed");
   });
+
+  it("decrements queue position as earlier runs finish", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 30 });
+    const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
+
+    enqueue(runner, "s1", "hi", "/tmp");
+    enqueue(runner, "s2", "hi", "/tmp");
+    const positions: number[] = [];
+    const h3 = enqueue(runner, "s3", "hi", "/tmp", {
+      onStatus: (h) => {
+        if (h.queuePosition !== undefined) positions.push(h.queuePosition);
+      },
+    });
+
+    // h3 starts behind s2, at position 1.
+    expect(h3.queuePosition).toBe(1);
+
+    await waitForStatus(h3, "running");
+    // As s1 and s2 finished, h3's reported position dropped 1 -> 0.
+    expect(positions).toEqual([1, 0]);
+
+    await waitForStatus(h3, "completed");
+  });
+
+  it("decrements positions when a queued run is stopped", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 50 });
+    const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
+
+    enqueue(runner, "s1", "hi", "/tmp");
+    enqueue(runner, "s2", "hi", "/tmp");
+    const h3 = enqueue(runner, "s3", "hi", "/tmp");
+
+    // s2 and s3 are queued behind the running s1.
+    expect(runner.registry.get("s2")?.queuePosition).toBe(0);
+    expect(h3.queuePosition).toBe(1);
+
+    // Stopping s2 (still queued) bumps s3 up to the front of the queue.
+    expect(stop(runner, "s2")).toBe(true);
+    expect(h3.queuePosition).toBe(0);
+
+    await waitForStatus(h3, "completed");
+  });
 });
 
 describe("stop", () => {

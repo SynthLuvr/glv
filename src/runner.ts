@@ -127,6 +127,22 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
+// Recompute the position of every still-waiting handle from the live registry
+// (insertion order == enqueue order) and notify any listener whose position
+// changed. Called whenever a run enters or leaves the queue, so the reported
+// position stays accurate as earlier runs finish instead of going stale.
+const refreshQueuePositions = (runner: Runner): void => {
+  let position = 0;
+  for (const handle of runner.registry.values()) {
+    if (handle.status !== "queued") continue;
+    if (handle.queuePosition !== position) {
+      handle.queuePosition = position;
+      handle.onStatus?.(handle);
+    }
+    position++;
+  }
+};
+
 const ExecaError = type({
   "exitCode?": "number | undefined",
   "signal?": "string | undefined",
@@ -221,7 +237,7 @@ const enqueueInvocation = (
     prompt: invocation.stdin,
     workingDir,
     status: "queued",
-    queuePosition: runner.queue.size,
+    queuePosition: undefined,
     lines: [],
     error: undefined,
     cancelled: false,
@@ -230,13 +246,14 @@ const enqueueInvocation = (
     onStatus: opts.onStatus,
   };
   runner.registry.set(key, handle);
-  handle.onStatus?.(handle);
+  refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
     if (handle.cancelled) return;
     handle.status = "running";
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
+    refreshQueuePositions(runner);
 
     try {
       await runProcess(runner, handle, invocation);
@@ -303,6 +320,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     handle.status = "stopped";
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
+    refreshQueuePositions(runner);
     return true;
   }
 
