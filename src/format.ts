@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import DOMPurify from "isomorphic-dompurify";
 import { marked } from "marked";
 import type { MessageRow, SessionRow } from "./db.js";
 
@@ -142,12 +143,18 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
 
 const HtmlString = type("string");
 
-// Assistant prose is Markdown; render it to HTML. The data comes from the
-// user's own local session logs, so marked's output is trusted as-is. The
-// return is asserted (not cast) so a stray async/Promise result surfaces as
-// a clear error rather than silently leaking into the markup.
+// Assistant prose is Markdown; render it to HTML. Content is read from a
+// shared SQLite DB that goose and arbitrary tool output write to, so it is
+// NOT trusted. marked passes raw HTML through by default, so a stored
+// <script> or <img onerror=...> payload would execute when injected via
+// raw(). DOMPurify strips scripts, event handlers and unsafe URLs
+// (javascript:, entity-encoded schemes, ...) while keeping the tags marked
+// emits for real Markdown.
 const renderMarkdown = (md: string): string =>
-  HtmlString.assert(marked.parse(md, { gfm: true, breaks: true }));
+  DOMPurify.sanitize(
+    HtmlString.assert(marked.parse(md, { gfm: true, breaks: true })),
+    { USE_PROFILES: { html: true } },
+  );
 
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max - 1)}…`;

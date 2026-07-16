@@ -32,6 +32,46 @@ describe("renderMarkdown", () => {
   it("passes plain text through as a paragraph", () => {
     expect(renderMarkdown("just text")).toContain("just text");
   });
+
+  // Content is read from a shared DB written by goose and arbitrary tool
+  // output, so it must be treated as untrusted (stored XSS surface).
+  it("strips raw script tags and inline event handlers", () => {
+    expect(renderMarkdown("<script>alert(1)</script>")).not.toContain(
+      "<script>",
+    );
+    const html = renderMarkdown('<img src=x onerror="alert(1)">');
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("alert");
+  });
+
+  it("strips unsafe link and image URLs", () => {
+    expect(renderMarkdown("[x](javascript:alert(1))")).not.toContain(
+      "javascript",
+    );
+    // Browsers decode this entity to "j" before resolving the scheme, so the
+    // sanitizer must neutralise it rather than match the raw string.
+    expect(renderMarkdown("[x](&#106;avascript:alert(1))")).not.toContain(
+      "javascript",
+    );
+    expect(
+      renderMarkdown("[x](data:text/html,<script>alert(1)</script>)"),
+    ).not.toContain("script");
+    expect(renderMarkdown("![x](javascript:alert(1))")).not.toContain(
+      "javascript",
+    );
+  });
+
+  it("keeps safe links, images and code classes", () => {
+    expect(renderMarkdown("[ok](https://example.com)")).toContain(
+      'href="https://example.com"',
+    );
+    expect(renderMarkdown("![ok](https://example.com/a.png)")).toContain(
+      'src="https://example.com/a.png"',
+    );
+    expect(renderMarkdown("```js\nconst y = 2;\n```")).toContain(
+      'class="language-js"',
+    );
+  });
 });
 
 describe("fmtRelative", () => {
