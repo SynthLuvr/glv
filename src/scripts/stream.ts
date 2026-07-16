@@ -20,6 +20,14 @@ const scrollToBottom = (): void => {
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
 };
 
+// Only auto-follow new content when the reader is already near the bottom, so
+// scrolling up to read history is not yanked away by an incoming message.
+const nearBottom = (): boolean => {
+  const pane = document.getElementById("detail-pane");
+  if (pane === null) return false;
+  return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
+};
+
 type StreamStatus = {
   status: string;
   queuePosition?: number;
@@ -41,7 +49,7 @@ const updateStatusHint = (data: StreamStatus): void => {
   }
 };
 
-const connect = (root: Element): void => {
+const connectRunner = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const output = root.querySelector("#live-output");
 
@@ -84,13 +92,35 @@ const connect = (root: Element): void => {
   });
 };
 
+// Live-tail for externally-driven sessions: appends new messages committed by
+// any writer as they arrive. Activated only for sessions NOT actively run by
+// the web app, so it never overlaps connectRunner.
+const connectTail = (root: Element): void => {
+  const sessionId = root.getAttribute("data-session-id");
+  const messages = document.getElementById("messages");
+
+  activeSource = new EventSource(`/sessions/${sessionId}/tail`);
+
+  activeSource.addEventListener("append", (e) => {
+    const html = (e as MessageEvent).data;
+    if (html !== "" && messages !== null) {
+      messages.insertAdjacentHTML("beforeend", html);
+      if (nearBottom()) scrollToBottom();
+    }
+  });
+
+  activeSource.addEventListener("error", () => {
+    if (activeSource?.readyState === EventSource.CLOSED) teardown();
+  });
+};
+
 const init = (): void => {
   teardown();
   const root = document.querySelector("[data-session-id]");
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
-  if (status !== "queued" && status !== "running") return;
-  connect(root);
+  if (status === "queued" || status === "running") connectRunner(root);
+  else connectTail(root);
 };
 
 document.addEventListener("DOMContentLoaded", init);

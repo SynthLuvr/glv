@@ -1041,3 +1041,96 @@ describe("M4: stream client reconnect deduplication", () => {
     expect(body).toContain('innerHTML=""');
   });
 });
+
+// === M5: live-tail for externally-driven sessions ===
+
+describe("M5: transcript message container", () => {
+  it("wraps rendered messages in a #messages container for live appending", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('id="messages"');
+    expect(html).toContain("What is goose?");
+  });
+});
+
+describe("M5: stream client live-tail wiring", () => {
+  it("connects the tail endpoint and appends new messages", async () => {
+    const res = await makeApp().request("/stream.js");
+    const body = await res.text();
+    // The tail URL suffix and the SSE event name survive minification as
+    // string literals, confirming the client wires the live-tail stream.
+    expect(body).toContain("/tail");
+    expect(body).toContain('"append"');
+    expect(body).toContain("nearBottom");
+  });
+});
+
+describe("GET /sessions/:id/tail (SSE)", () => {
+  it("returns 404 for a non-existent session", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = makeApp(spawn);
+    const res = await app.request("/sessions/missing/tail");
+    expect(res.status).toBe(404);
+  });
+
+  it("responds with an event-stream content type", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      tailPollMs: 15,
+      maxTailPolls: 2,
+    });
+    const res = await app.request("/sessions/alpha/tail");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    await res.text();
+  });
+
+  it("emits no append events when nothing new is written", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      tailPollMs: 15,
+      maxTailPolls: 3,
+    });
+    const res = await app.request("/sessions/alpha/tail");
+    const text = await res.text();
+    expect(text).not.toContain("event: append");
+  });
+
+  it("streams newly appended messages, skipping the baseline", async () => {
+    const tailDir = mkdtempSync(join(tmpdir(), "glv-tail-"));
+    const tailDb = new DatabaseSync(join(tailDir, "sessions.db"));
+    seed(tailDb);
+    const app = createApp(tailDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 8,
+    });
+
+    const res = await app.request("/sessions/alpha/tail");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    // Give the handler a beat to capture its baseline (alpha ships with 4
+    // messages) before we append, mimicking an external writer.
+    await sleep(40);
+
+    tailDb
+      .prepare(
+        "INSERT INTO messages (session_id, role, content_json, " +
+          "created_timestamp) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "alpha",
+        "assistant",
+        JSON.stringify([{ type: "text", text: "tail-update" }]),
+        9999,
+      );
+
+    // Drain the bounded stream to completion.
+    const text = await res.text();
+    tailDb.close();
+    rmSync(tailDir, { recursive: true, force: true });
+
+    expect(text).toContain("event: append");
+    expect(text).toContain("tail-update");
+    expect(text).toContain("OUTPUT");
+    // baseline rows are already in the DOM and must not be re-sent
+    expect(text).not.toContain("What is goose?");
+  });
+});

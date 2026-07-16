@@ -21,6 +21,7 @@ import { renderStreamLine } from "./views/stream-line.js";
 import {
   DetailPlaceholder,
   NotFoundDetail,
+  renderMessage,
   Transcript,
 } from "./views/Transcript.js";
 
@@ -133,7 +134,21 @@ const flushLines = async (
 
 type AppEnv = { Variables: { runner: Runner } };
 
-const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
+// How often the live-tail endpoint re-queries the messages table for rows
+// appended by an external writer. Held as options so tests can shrink them.
+const TAIL_POLL_MS = 1000;
+
+type TailOptions = {
+  tailPollMs?: number;
+  /** Caps poll iterations; defaults to unbounded. Lets tests drain the stream. */
+  maxTailPolls?: number;
+};
+
+const createApp = (
+  db: DatabaseSync,
+  runner: Runner,
+  { tailPollMs = TAIL_POLL_MS, maxTailPolls = Infinity }: TailOptions = {},
+): Hono<AppEnv> => {
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
@@ -292,6 +307,36 @@ const createApp = (db: DatabaseSync, runner: Runner): Hono<AppEnv> => {
         }),
       );
       await emit(stream, "done", handle.status);
+    });
+  });
+
+  // Live-tail: appends messages committed to the session database by ANY writer
+  // (a terminal, goose desktop, or another CLI invocation) by polling the held
+  // connection that already sees cross-process commits. The client connects
+  // here only for sessions NOT actively run by the web app, so this never
+  // overlaps the runner stream above.
+  app.get("/sessions/:id/tail", (c) => {
+    const id = c.req.param("id");
+    if (getSession(db, id) === undefined)
+      return c.text("Session not found", 404);
+
+    return streamSSE(c, async (stream) => {
+      // The detail pane already rendered the messages present at load time;
+      // remember their count and stream only newly appended rows.
+      let sent = listMessages(db, id).length;
+      let polls = 0;
+      while (!stream.aborted && polls < maxTailPolls) {
+        polls++;
+        await stream.sleep(tailPollMs);
+        if (stream.aborted) return;
+        const messages = listMessages(db, id).map(parseMessage);
+        if (messages.length <= sent) continue;
+        for (let i = sent; i < messages.length; i++) {
+          const html = renderMessage(messages[i]);
+          if (html !== "" && !(await emit(stream, "append", html))) return;
+        }
+        sent = messages.length;
+      }
     });
   });
 
