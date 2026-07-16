@@ -222,7 +222,7 @@ const Sidebar = ({
     ) : (
       <SessionList sessions={sessions} selectedId={selectedId} />
     )}
-    <script src="/sidebar.js" defer></script>
+    <script src="/assets/sidebar.js" defer></script>
   </aside>
 );
 

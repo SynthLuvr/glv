@@ -85,7 +85,9 @@ describe("unclaimed app — registration flow", () => {
   });
 
   it("serves the passkey client script", async () => {
-    const res = await makeApp(join(authDir, "d.db")).request("/passkey.js");
+    const res = await makeApp(join(authDir, "d.db")).request(
+      "/assets/passkey.js",
+    );
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
   });
@@ -186,7 +188,7 @@ describe("claimed app — login flow", () => {
   });
 
   it("allows static assets without authentication", async () => {
-    const res = await app.request("/app.css");
+    const res = await app.request("/assets/app.css");
     expect(res.status).toBe(200);
   });
 });

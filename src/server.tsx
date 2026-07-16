@@ -308,26 +308,28 @@ const createApp = (
     />
   );
 
-  app.get("/htmx.min.js", (c) =>
+  app.get("/assets/htmx.min.js", (c) =>
     serveAsset(c, htmxSource, "application/javascript; charset=utf-8"),
   );
-  app.get("/app.css", (c) => serveAsset(c, appCss, "text/css; charset=utf-8"));
-  app.get("/sidebar.js", (c) =>
+  app.get("/assets/app.css", (c) =>
+    serveAsset(c, appCss, "text/css; charset=utf-8"),
+  );
+  app.get("/assets/sidebar.js", (c) =>
     serveAsset(c, sidebarScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/stream.js", (c) =>
+  app.get("/assets/stream.js", (c) =>
     serveAsset(c, streamScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/theme.js", (c) =>
+  app.get("/assets/theme.js", (c) =>
     serveAsset(c, themeScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/markdown-copy.js", (c) =>
+  app.get("/assets/markdown-copy.js", (c) =>
     serveAsset(c, markdownCopyScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/rename.js", (c) =>
+  app.get("/assets/rename.js", (c) =>
     serveAsset(c, renameScript, "application/javascript; charset=utf-8"),
   );
-  app.get("/passkey.js", (c) =>
+  app.get("/assets/passkey.js", (c) =>
     serveAsset(c, passkeyScript, "application/javascript; charset=utf-8"),
   );
 

@@ -4,19 +4,14 @@ import type { AuthService } from "./service.js";
 
 const COOKIE_NAME = "glv_session";
 
-const ASSET_PATHS = new Set<string>([
-  "/htmx.min.js",
-  "/app.css",
-  "/sidebar.js",
-  "/stream.js",
-  "/theme.js",
-  "/markdown-copy.js",
-  "/rename.js",
-  "/passkey.js",
-]);
+// Every static asset is served under a single prefix so the auth gate can
+// whitelist them as a group without naming each file individually.
+const ASSET_PREFIX = "/assets/";
 
 const isPublicPath = (path: string): boolean =>
-  path === "/auth" || path.startsWith("/auth/") || ASSET_PATHS.has(path);
+  path === "/auth" ||
+  path.startsWith("/auth/") ||
+  path.startsWith(ASSET_PREFIX);
 
 const authMiddleware =
   (auth: AuthService): MiddlewareHandler =>
