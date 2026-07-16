@@ -62,8 +62,9 @@ describe("fmtRelative", () => {
     expect(fmtRelative("not-a-date", now)).toBe("not-a-date");
   });
 
-  // Regression: goose stores UTC timestamps without a zone suffix.
-  it("treats timezone-less timestamps as UTC", () => {
+  // Goose stores timestamps in UTC without a zone suffix; a zone-less
+  // value is anchored to UTC, matching a UTC "now" on any host timezone.
+  it("anchors timezone-less timestamps to UTC", () => {
     expect(fmtRelative("2026-07-14 12:00:00", now)).toBe("just now");
   });
 
