@@ -1,4 +1,5 @@
 import type { Child } from "hono/jsx";
+import { renderToString } from "hono/jsx/dom/server";
 import { raw } from "hono/utils/html";
 import type { SessionRow } from "../db.js";
 import type {
@@ -180,6 +181,10 @@ const MessageView = ({ message }: { message: ParsedMessage }) => {
 const hasContent = (message: ParsedMessage): boolean =>
   message.items.some((item) => itemBlock(item, false) !== null);
 
+// Matches the initial server render so live-tailed rows blend in seamlessly.
+const renderMessage = (message: ParsedMessage): string =>
+  renderToString(<MessageView message={message} />);
+
 const MetaChip = ({
   label,
   value,
@@ -332,7 +337,11 @@ const Transcript = ({
       {isEmpty ? (
         <p class="empty">This session has no messages.</p>
       ) : (
-        visible.map((message) => <MessageView message={message} />)
+        <div id="messages">
+          {visible.map((message) => (
+            <MessageView message={message} />
+          ))}
+        </div>
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
       {isRunActive(run) && <div id="live-output" class="live-output"></div>}
@@ -409,4 +418,11 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { itemBlock, NewSessionForm, NotFoundDetail, Transcript, tagFor };
+export {
+  itemBlock,
+  NewSessionForm,
+  NotFoundDetail,
+  renderMessage,
+  Transcript,
+  tagFor,
+};

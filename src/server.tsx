@@ -16,7 +16,7 @@ import {
   renameSession,
   sessionIdsInDir,
 } from "./db.js";
-import { parseMessage } from "./format.js";
+import { type ParsedMessage, parseMessage } from "./format.js";
 import type { Runner } from "./runner.js";
 import {
   enqueue,
@@ -34,6 +34,7 @@ import { renderStreamLine } from "./views/stream-line.js";
 import {
   NewSessionForm,
   NotFoundDetail,
+  renderMessage,
   Transcript,
 } from "./views/Transcript.js";
 
@@ -147,6 +148,18 @@ const flushLines = async (
   return true;
 };
 
+const flushMessages = async (
+  stream: SSEStreamingApi,
+  messages: ParsedMessage[],
+  from: number,
+): Promise<boolean> => {
+  for (let i = from; i < messages.length; i++) {
+    const html = renderMessage(messages[i]);
+    if (html !== "" && !(await emit(stream, "append", html))) return false;
+  }
+  return true;
+};
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -177,8 +190,16 @@ type AppEnv = { Variables: { runner: Runner } };
 const createApp = (
   db: DatabaseSync,
   runner: Runner,
-  opts: { pollTimeoutMs?: number; listDirs?: () => string[] } = {},
+  opts: {
+    tailPollMs?: number;
+    /** Bounds poll iterations so tests can drain the stream. */
+    maxTailPolls?: number;
+    pollTimeoutMs?: number;
+    listDirs?: () => string[];
+  } = {},
 ): Hono<AppEnv> => {
+  const tailPollMs = opts.tailPollMs ?? 1000;
+  const maxTailPolls = opts.maxTailPolls ?? Infinity;
   const pollTimeoutMs = opts.pollTimeoutMs ?? 10000;
   const listDirs = opts.listDirs ?? listHomeDirs;
   // Inside createApp so serve can build assets before these reads.
@@ -262,18 +283,16 @@ const createApp = (
     const known = new Set(sessionIdsInDir(db, workingDir));
     enqueueNew(runner, tempKey, prompt, workingDir);
 
-    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
-    if (realId === undefined) {
-      stop(runner, tempKey);
+    const rejectTimeout = (key: string) => {
+      stop(runner, key);
       return reject(SESSION_TIMEOUT_ERROR, 502);
-    }
+    };
+    const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
+    if (realId === undefined) return rejectTimeout(tempKey);
 
     rekey(runner, tempKey, realId);
     const session = getSession(db, realId);
-    if (session === undefined) {
-      stop(runner, realId);
-      return reject(SESSION_TIMEOUT_ERROR, 502);
-    }
+    if (session === undefined) return rejectTimeout(realId);
 
     return render(
       c,
@@ -433,6 +452,30 @@ const createApp = (
         }),
       );
       await emit(stream, "done", handle.status);
+    });
+  });
+
+  // Polls the shared database for messages appended by any writer (terminal,
+  // desktop, another CLI) and streams only rows not already rendered at page
+  // load. Used only for sessions the web app isn't actively running.
+  app.get("/sessions/:id/tail", (c) => {
+    const id = c.req.param("id");
+    if (getSession(db, id) === undefined)
+      return c.text("Session not found", 404);
+
+    return streamSSE(c, async (stream) => {
+      let sent = listMessages(db, id).length;
+      let polls = 0;
+      while (!stream.aborted && polls < maxTailPolls) {
+        polls++;
+        await stream.sleep(tailPollMs);
+        if (stream.aborted) return;
+        const rows = listMessages(db, id);
+        if (rows.length <= sent) continue;
+        const messages = rows.map(parseMessage);
+        if (!(await flushMessages(stream, messages, sent))) return;
+        sent = messages.length;
+      }
     });
   });
 
