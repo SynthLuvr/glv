@@ -127,12 +127,6 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
-// execa rejects with an Error whose exitCode/signal are present but may be
-// undefined (e.g. a signal kill sets exitCode to undefined), alongside
-// unrelated fields like stderr and command. The explicit `| undefined` keeps
-// present-but-undefined values valid, mirroring TS optional semantics; arktype's
-// default undeclared-key behavior is "ignore", so the extra fields pass too.
-// .allows() validates the rejection and narrows it, replacing an unsafe cast.
 const ExecaError = type({
   "exitCode?": "number | undefined",
   "signal?": "string | undefined",
