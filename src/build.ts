@@ -15,6 +15,7 @@ const SCRIPT_ENTRIES = [
   join(SRC_DIR, "scripts", "stream.ts"),
   join(SRC_DIR, "scripts", "theme.ts"),
   join(SRC_DIR, "scripts", "markdown-copy.ts"),
+  join(SRC_DIR, "scripts", "rename.ts"),
 ];
 
 const ensureDistDir = (): void => {

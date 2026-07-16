@@ -19,6 +19,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <script src="/stream.js" defer></script>
       <script src="/theme.js" defer></script>
       <script src="/markdown-copy.js" defer></script>
+      <script src="/rename.js" defer></script>
     </head>
     <body>{children}</body>
   </html>

@@ -13,6 +13,7 @@ import {
   getSession,
   listMessages,
   listSessions,
+  renameSession,
   sessionIdsInDir,
 } from "./db.js";
 import { parseMessage } from "./format.js";
@@ -27,6 +28,7 @@ import {
   stop,
 } from "./runner.js";
 import { Layout } from "./views/Layout.js";
+import { SessionTitleWrap } from "./views/Rename.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
@@ -185,6 +187,7 @@ const createApp = (
   const streamScript = readAsset("../dist/stream.js");
   const themeScript = readAsset("../dist/theme.js");
   const markdownCopyScript = readAsset("../dist/markdown-copy.js");
+  const renameScript = readAsset("../dist/rename.js");
   const app = new Hono<AppEnv>();
   app.use(async (c, next) => {
     c.set("runner", runner);
@@ -223,6 +226,9 @@ const createApp = (
   );
   app.get("/markdown-copy.js", (c) =>
     serveAsset(c, markdownCopyScript, "application/javascript; charset=utf-8"),
+  );
+  app.get("/rename.js", (c) =>
+    serveAsset(c, renameScript, "application/javascript; charset=utf-8"),
   );
 
   app.get("/", (c) => {
@@ -309,6 +315,35 @@ const createApp = (
     return render(c, sessions, undefined, newSessionDetail(), {
       refreshSidebar: true,
     });
+  });
+
+  app.post("/sessions/:id/rename", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.parseBody();
+    const name = typeof body.name === "string" ? body.name : "";
+    const from = body.from === "sidebar" ? "sidebar" : "header";
+    renameSession(db, id, name);
+    const updated = getSession(db, id);
+    if (updated === undefined) return renderNotFound(c, id);
+    const sessions = listSessions(db, VIEWER_FILTER);
+    if (from === "sidebar")
+      return c.html(<SessionList sessions={sessions} selectedId={undefined} />);
+    if (!isHtmxRequest(c)) {
+      const messages = listMessages(db, id).map(parseMessage);
+      const run = getHandle(runner, id);
+      return render(
+        c,
+        sessions,
+        id,
+        <Transcript session={updated} messages={messages} run={run} />,
+      );
+    }
+    return c.html(
+      <Fragment>
+        <SessionTitleWrap session={updated} />
+        <SessionList sessions={sessions} selectedId={undefined} oob />
+      </Fragment>,
+    );
   });
 
   app.post("/sessions/archive", async (c) => {

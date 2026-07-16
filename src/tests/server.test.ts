@@ -23,6 +23,7 @@ CREATE TABLE sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   total_tokens INTEGER,
   provider_name TEXT,
+  user_set_name BOOLEAN DEFAULT FALSE,
   archived_at TIMESTAMP
 );
 CREATE TABLE messages (
@@ -575,6 +576,121 @@ describe("web viewer archive", () => {
     const { status, html } = await archive("/");
     expect(status).toBe(200);
     expect(html).toContain("No sessions found.");
+  });
+});
+
+describe("web viewer rename", () => {
+  let renameDb: DatabaseSync;
+  let renameDir: string;
+
+  beforeAll(() => {
+    renameDir = mkdtempSync(join(tmpdir(), "glv-web-rename-"));
+    renameDb = new DatabaseSync(join(renameDir, "sessions.db"));
+    seed(renameDb);
+  });
+
+  afterAll(() => {
+    renameDb.close();
+    rmSync(renameDir, { recursive: true, force: true });
+  });
+
+  const app = (): ReturnType<typeof createApp> =>
+    createApp(renameDb, createRunner(DEFAULT_RUNNER_CONFIG));
+
+  const rename = async (
+    path: string,
+    fields: Record<string, string>,
+    htmx = false,
+  ): Promise<{ status: number; html: string }> => {
+    const form = new URLSearchParams();
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    const res = await app().request(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        ...(htmx ? { "HX-Request": "true" } : {}),
+      },
+      body: form.toString(),
+    });
+    return { status: res.status, html: await res.text() };
+  };
+
+  const row = (id: string): { name: string; user_set_name: number } =>
+    renameDb
+      .prepare("SELECT name, user_set_name FROM sessions WHERE id = ?")
+      .get(id) as { name: string; user_set_name: number };
+
+  it("renders inline rename controls in the transcript header", async () => {
+    const html = await (await app().request("/sessions/alpha")).text();
+    expect(html).toContain('class="rename-pencil"');
+    expect(html).toContain('data-action="rename"');
+    expect(html).toContain('hx-post="/sessions/alpha/rename"');
+    expect(html).toContain('id="session-title-wrap"');
+  });
+
+  it("renders a rename pencil on each sidebar card", async () => {
+    const html = await (await app().request("/")).text();
+    expect(html).toContain("rename-pencil");
+  });
+
+  it("serves the rename client script and references it in the document", async () => {
+    const doc = await (await app().request("/")).text();
+    expect(doc).toContain('<script src="/rename.js"');
+    const res = await app().request("/rename.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    expect((await res.text()).length).toBeGreaterThan(0);
+  });
+
+  it("renames from the header, persists it, and refreshes the sidebar OOB", async () => {
+    const { status, html } = await rename(
+      "/sessions/alpha/rename",
+      { name: "My Alpha", from: "header" },
+      true,
+    );
+    expect(status).toBe(200);
+    expect(html).toContain("My Alpha");
+    expect(html).toContain('id="session-title-wrap"');
+    expect(html).toContain('hx-swap-oob="true"');
+    expect(row("alpha")).toEqual({ name: "My Alpha", user_set_name: 1 });
+  });
+
+  it("trims whitespace around the submitted name", async () => {
+    await rename(
+      "/sessions/beta/rename",
+      { name: "  Beta Renamed  ", from: "header" },
+      true,
+    );
+    expect(row("beta").name).toBe("Beta Renamed");
+  });
+
+  it("clears the custom name when the value is blank", async () => {
+    await rename(
+      "/sessions/alpha/rename",
+      { name: "   ", from: "header" },
+      true,
+    );
+    expect(row("alpha")).toEqual({ name: "", user_set_name: 0 });
+  });
+
+  it("re-renders the sidebar list when renamed from the sidebar", async () => {
+    const { status, html } = await rename(
+      "/sessions/gamma/rename",
+      { name: "Gamma Renamed", from: "sidebar" },
+      true,
+    );
+    expect(status).toBe(200);
+    expect(html).toContain('id="session-list"');
+    expect(html).toContain("Gamma Renamed");
+  });
+
+  it("returns 404 for an unknown session", async () => {
+    const { status, html } = await rename("/sessions/missing/rename", {
+      name: "x",
+      from: "header",
+    });
+    expect(status).toBe(404);
+    expect(html).toContain("Session not found");
   });
 });
 
