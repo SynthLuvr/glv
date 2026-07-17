@@ -13,7 +13,6 @@ const teardown = (): void => {
     activeSource.close();
     activeSource = null;
   }
-  setLiveBadge(false);
 };
 
 // EventSource auto-reconnects on transient failures; only teardown once the
@@ -33,11 +32,6 @@ const nearBottom = (): boolean => {
   const pane = document.getElementById("detail-pane");
   if (pane === null) return false;
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
-};
-
-const setLiveBadge = (visible: boolean): void => {
-  const badge = document.getElementById("live-badge");
-  if (badge !== null) badge.hidden = !visible;
 };
 
 // A message that was previously empty (and thus absent from the DOM) may
@@ -153,10 +147,6 @@ const connectTail = (root: Element): void => {
 
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
-  activeSource.addEventListener("open", () => {
-    setLiveBadge(true);
-  });
-
   activeSource.addEventListener("append", (e) => {
     const html = (e as MessageEvent).data;
     if (html !== "" && messages !== null) {
@@ -183,14 +173,16 @@ const connectTail = (root: Element): void => {
   });
 
   activeSource.addEventListener("error", () => {
-    setLiveBadge(false);
     teardownIfClosed();
   });
 };
 
 const init = (): void => {
   teardown();
-  const root = document.querySelector("[data-session-id]");
+  // Sidebar cards carry data-session-id too (for the running indicator) and
+  // precede #detail-pane, so a bare selector matches a sidebar card rather
+  // than the transcript root.
+  const root = document.querySelector("#detail-pane [data-session-id]");
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
   if (status === "queued" || status === "running") connectRunner(root);

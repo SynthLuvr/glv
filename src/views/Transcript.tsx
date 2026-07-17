@@ -14,6 +14,7 @@ import {
   fmtTokens,
   messageKind,
   renderMarkdown,
+  shortenHome,
   thinkingText,
   toolCallInfo,
   toolResultInfo,
@@ -235,7 +236,7 @@ const TranscriptHeader = ({
       <MetaChip label="ID" value={session.id} mono />
       <MetaChip
         label="Working dir"
-        value={truncateMiddle(session.working_dir, 48)}
+        value={truncateMiddle(shortenHome(session.working_dir), 48)}
         mono
         title={session.working_dir}
       />
@@ -263,11 +264,6 @@ const TranscriptHeader = ({
       {session.provider_name !== null && (
         <MetaChip label="Provider" value={session.provider_name} />
       )}
-      {/* Shown by the live-tail client once the SSE connection is open. */}
-      <span id="live-badge" class="live-badge" hidden>
-        <span class="live-dot"></span>
-        Watching
-      </span>
     </div>
   </header>
 );
@@ -405,14 +401,14 @@ const NewSessionForm = ({
           type="text"
           name="working_dir"
           list="recent-dirs"
-          value={workingDir}
+          value={shortenHome(workingDir)}
           class="form-input"
           autocomplete="off"
           spellcheck={false}
         />
         <datalist id="recent-dirs">
           {dirs.map((dir) => (
-            <option value={dir} />
+            <option value={shortenHome(dir)} />
           ))}
         </datalist>
       </label>

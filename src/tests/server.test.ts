@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import vm from "node:vm";
+import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProcessResult, SpawnFn } from "../runner.js";
 import {
@@ -10,7 +12,7 @@ import {
   getHandle,
   makeRunnerConfig,
 } from "../runner.js";
-import { createApp, listHomeDirs } from "../server.js";
+import { createApp, expandHome, listHomeDirs } from "../server.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (
@@ -1240,13 +1242,6 @@ describe("M6: live-tail header metadata hooks", () => {
     expect(html).toContain('id="meta-tokens"');
   });
 
-  it("renders a hidden live-watching badge in the header", async () => {
-    const { html } = await renderSession("alpha");
-    expect(html).toContain('id="live-badge"');
-    expect(html).toContain("Watching");
-    expect(html).toContain("hidden");
-  });
-
   it("tags each rendered message with a stable data-msg-index", async () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("data-msg-index");
@@ -1254,12 +1249,11 @@ describe("M6: live-tail header metadata hooks", () => {
 });
 
 describe("M6: stream client live-tail polish wiring", () => {
-  it("handles replace, meta, and live-badge events", async () => {
+  it("handles replace and meta events", async () => {
     const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
     expect(body).toContain('"replace"');
     expect(body).toContain('"meta"');
-    expect(body).toContain("live-badge");
     expect(body).toContain("insertMessageInOrder");
   });
 });
@@ -1442,6 +1436,26 @@ describe("listHomeDirs", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("expandHome", () => {
+  it("expands ~ to the home dir", () => {
+    expect(expandHome("~", "/home/me")).toBe("/home/me");
+  });
+
+  it("expands ~/child to a joined path", () => {
+    expect(expandHome("~/projects/app", "/home/me")).toBe(
+      join("/home/me", "projects/app"),
+    );
+  });
+
+  it("leaves an absolute path unchanged", () => {
+    expect(expandHome("/etc/config", "/home/me")).toBe("/etc/config");
+  });
+
+  it("leaves a bare relative path unchanged", () => {
+    expect(expandHome("repos/x", "/home/me")).toBe("repos/x");
   });
 });
 
@@ -1642,6 +1656,22 @@ describe("M5: POST /sessions", () => {
     const item = html.slice(html.lastIndexOf(`data-session-id="${id}"`));
     expect(item).toContain(">Build the project<");
     expect(item).not.toContain("session-1");
+  });
+
+  it("expands ~ in the working dir before validating and spawning", async () => {
+    const { spawn, invocations } = createNewSessionSpawn(newDb, ["x"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    const { status } = await postForm(
+      app,
+      "/sessions",
+      { prompt: "hello", working_dir: "~" },
+      { "HX-Request": "true" },
+    );
+    expect(status).toBe(200);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].opts.cwd).toBe(homedir());
   });
 
   it("invokes goose run with the prompt on stdin (no -n name)", async () => {
@@ -1900,5 +1930,46 @@ describe("session-running indicator (client wiring)", () => {
     expect(body).toContain("/events/status");
     expect(body).toContain("EventSource");
     expect(body).toContain("data-running");
+  });
+});
+
+const renderSessionDom = async (id: string): Promise<JSDOM> =>
+  new JSDOM((await renderSession(id)).html);
+
+describe("stream client session selector", () => {
+  // Sidebar cards carry data-session-id too and precede #detail-pane. Viewing
+  // gamma (not the first-listed alpha) exposes the bare-selector collision.
+  it("resolves the transcript root inside #detail-pane, not a sidebar card", async () => {
+    const document = (await renderSessionDom("gamma")).window.document;
+
+    const bare = document.querySelector("[data-session-id]");
+    expect(bare?.classList.contains("session-item")).toBe(true);
+    expect(bare?.hasAttribute("data-run-status")).toBe(false);
+
+    const scoped = document.querySelector("#detail-pane [data-session-id]");
+    expect(scoped?.getAttribute("data-session-id")).toBe("gamma");
+  });
+
+  it("connects the live stream to the viewed session, not the first sidebar card", async () => {
+    const dom = await renderSessionDom("gamma");
+    const document = dom.window.document;
+    const connected: string[] = [];
+    class FakeEventSource {
+      constructor(url: string) {
+        connected.push(url);
+      }
+      addEventListener(): void {
+        // only the requested URL is asserted
+      }
+    }
+    const streamJs = await (
+      await makeApp().request("/assets/stream.js")
+    ).text();
+    vm.runInNewContext(streamJs, {
+      document,
+      EventSource: FakeEventSource,
+    });
+    document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    expect(connected).toEqual(["/sessions/gamma/tail"]);
   });
 });

@@ -3,6 +3,7 @@ import {
   displayName,
   fmtRelative,
   fmtTokens,
+  shortenHome,
   truncateMiddle,
 } from "../format.js";
 import { RenameWrap } from "./Rename.js";
@@ -44,7 +45,10 @@ const SessionItem = ({
           <time title={session.updated_at}>
             {fmtRelative(session.updated_at)}
           </time>
-          <span class="run-indicator" title="Session is running">
+          <span
+            class="run-indicator"
+            title={running ? "Session is running" : "Session idle"}
+          >
             <span class="run-dot" />
           </span>
           {session.provider_name !== null && (
@@ -55,7 +59,7 @@ const SessionItem = ({
           )}
         </span>
         <span class="session-dir" title={session.working_dir}>
-          {truncateMiddle(session.working_dir, 42)}
+          {truncateMiddle(shortenHome(session.working_dir), 42)}
         </span>
       </a>
       <RenameWrap session={session} context="sidebar" target="#session-list" />
