@@ -6,8 +6,9 @@
 - **Status:** Open
 
 ## Summary
-The repo and branch listing routes return failure as a 200 with an ok:false
-body, violating HTTP semantics.
+
+The repo and branch listing routes return failure as a 200 with an
+ok:false body, violating HTTP semantics.
 
 ## Buggy code
 
@@ -20,13 +21,16 @@ body, violating HTTP semantics.
     });
 
 ## Why it fails
+
 The catch branch omits a status code, so Hono defaults to 200. gh not
-installed, not authenticated, or a network error all look like success to
-any HTTP-level monitor, proxy, or cache.
+installed, not authenticated, or a network error all look like success
+to any HTTP-level monitor, proxy, or cache.
 
 ## Impact
-Misleading status codes; the client JS already inspects ok so functionality
-is unaffected, but observability and retry logic are.
+
+Misleading status codes; the client JS already inspects ok so
+functionality is unaffected, but observability and retry logic are.
 
 ## Suggested fix
-Return an appropriate 4xx/5xx, e.g. c.json({ ok: false, error }, 502).
+
+Return an appropriate 4xx/5xx, e.g. c.json({ ok: false, error }, 502).
