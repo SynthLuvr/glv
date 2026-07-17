@@ -20,13 +20,17 @@ const emit = async (
   }
 };
 
+// Emit every retained line at or after the absolute `from` cursor. The buffer
+// is a sliding window (lineOffset = absolute index of lines[0]); clamping
+// `from` keeps a stream aligned even after the oldest lines are trimmed.
 const flushLines = async (
   stream: SSEStreamingApi,
-  lines: string[],
-  from: number,
+  handle: RunHandle,
+  from: number = 0,
 ): Promise<boolean> => {
-  for (let i = from; i < lines.length; i++) {
-    const html = renderStreamLine(lines[i]);
+  const start = Math.max(0, from - handle.lineOffset);
+  for (let i = start; i < handle.lines.length; i++) {
+    const html = renderStreamLine(handle.lines[i]);
     if (html !== "" && !(await emit(stream, "line", html))) return false;
   }
   return true;

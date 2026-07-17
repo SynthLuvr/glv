@@ -5,7 +5,9 @@ import {
   enqueueNew,
   enqueueOrQueue,
   generateTempKey,
+  registerStream,
   rekey,
+  releaseStream,
   stop,
   stopAll,
 } from "./queue.js";
@@ -24,6 +26,7 @@ import type {
 } from "./types.js";
 import {
   DEFAULT_RUNNER_CONFIG,
+  MAX_LINE_BUFFER,
   makeRunnerConfig,
   newSessionInvocation,
   resumeInvocation,
@@ -71,9 +74,12 @@ export {
   getStatus,
   isTerminalStatus,
   killProcessGroup,
+  MAX_LINE_BUFFER,
   makeRunnerConfig,
   newSessionInvocation,
+  registerStream,
   rekey,
+  releaseStream,
   resumeInvocation,
   stop,
   stopAll,

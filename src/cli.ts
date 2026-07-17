@@ -24,6 +24,7 @@ type ServeOpts = {
   port: string;
   maxConcurrent: number;
   gooseBinary: string;
+  retentionMs: number;
   rpName: string;
   rpId?: string;
 };
@@ -111,6 +112,19 @@ const parseMaxConcurrent = (value: string): number => {
   return result;
 };
 
+const RetentionMs = type("string.numeric.parse").pipe(
+  type("number.integer >= 0"),
+);
+
+const parseRetentionMs = (value: string): number => {
+  const result = RetentionMs(value);
+  if (result instanceof type.errors)
+    throw new InvalidArgumentError(
+      `must be a non-negative integer (ms) — ${result.summary}`,
+    );
+  return result;
+};
+
 const resolveGooseBinary = (value: string): string => {
   if (value.includes("/")) {
     if (!existsSync(value))
@@ -140,6 +154,12 @@ program
     resolveGooseBinary,
     "goose",
   )
+  .option(
+    "--retention-ms <ms>",
+    "ms to retain finished runs before eviction (0 = immediate)",
+    parseRetentionMs,
+    60_000,
+  )
   .option("--rp-name <name>", "WebAuthn relying party name", "Goose Log Viewer")
   .option(
     "--rp-id <domain>",
@@ -149,7 +169,11 @@ program
     const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
+      runner: makeRunnerConfig(
+        opts.maxConcurrent,
+        opts.gooseBinary,
+        opts.retentionMs,
+      ),
       authDbPath: getAuthDbPath(),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,

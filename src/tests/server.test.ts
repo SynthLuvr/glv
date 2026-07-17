@@ -1159,6 +1159,23 @@ describe("GET /sessions/:id/stream (SSE)", () => {
     expect(firstB).toBeGreaterThan(firstA);
     expect(secondA).toBeGreaterThan(firstB);
   });
+
+  it("evicts a finished run once its catch-up stream drains", async () => {
+    const { spawn } = createMockSpawn(["done1", "done2"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, runner);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(150);
+
+    // Finished but still retained within the grace window.
+    expect(getHandle(runner, "alpha")).toBeDefined();
+
+    // Draining the catch-up stream is the last reference; detaching evicts.
+    const res = await app.request("/sessions/alpha/stream");
+    await res.text();
+
+    expect(getHandle(runner, "alpha")).toBeUndefined();
+  });
 });
 
 describe("POST /sessions/:id/stop", () => {

@@ -7,6 +7,7 @@ import type {
   Runner,
   SpawnFn,
 } from "./types.js";
+import { MAX_LINE_BUFFER } from "./types.js";
 
 // Kill the whole process group so grandchildren (tool shells, stdio
 // extensions) are reaped too. Runs spawn detached, so the goose PID doubles as
@@ -69,6 +70,18 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
+// Append a captured output line, trimming the oldest once the buffer reaches
+// its cap so a verbose run can't grow without bound. lineOffset records how
+// many were dropped so live streams (which track an absolute send cursor)
+// stay aligned.
+const pushLine = (handle: InternalHandle, line: string): void => {
+  handle.lines.push(line);
+  if (handle.lines.length <= MAX_LINE_BUFFER) return;
+  const drop = handle.lines.length - MAX_LINE_BUFFER;
+  handle.lines.splice(0, drop);
+  handle.lineOffset += drop;
+};
+
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
@@ -82,7 +95,7 @@ const runProcess = async (
 
   for await (const line of proc.stdout) {
     if (handle.status === "stopped") break;
-    handle.lines.push(line);
+    pushLine(handle, line);
     handle.onLine?.(line);
   }
 

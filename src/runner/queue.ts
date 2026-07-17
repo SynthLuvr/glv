@@ -15,6 +15,10 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
+// A run is finished — eligible for eviction once no stream is watching it.
+const isTerminalStatus = (status: RunStatus): boolean =>
+  status === "completed" || status === "stopped" || status === "error";
+
 // Map preserves insertion order, so registry order mirrors queue order.
 const refreshQueuePositions = (runner: Runner): void => {
   let position = 0;
@@ -49,6 +53,64 @@ const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
   return resumeInvocation(handle.sessionId, nextPrompt);
 };
 
+// Drop a finished handle from the registry and release everything it holds
+// (captured output, callbacks, the process handle) so it can be garbage
+// collected. The registry is the only long-lived reference on a server, so
+// removing it is what bounds memory across an unbounded number of sessions.
+const evictHandle = (runner: Runner, handle: InternalHandle): void => {
+  if (handle.evictionTimer !== undefined) {
+    clearTimeout(handle.evictionTimer);
+    handle.evictionTimer = undefined;
+  }
+  // Only remove if this handle is still the one registered under its key — a
+  // re-prompt may have replaced a finished handle with a fresh one, and the
+  // old handle's lingering timer must not evict the new one.
+  if (runner.registry.get(handle.sessionId) === handle)
+    runner.registry.delete(handle.sessionId);
+  handle.lines = [];
+  handle.lineOffset = 0;
+  handle.process = undefined;
+  handle.onLine = undefined;
+  handle.onStatus = undefined;
+};
+
+// Evict once a run is finished AND every live SSE stream has drained it.
+const maybeEvict = (runner: Runner, handle: InternalHandle): void => {
+  if (handle.streamCount > 0) return;
+  if (!isTerminalStatus(handle.status)) return;
+  evictHandle(runner, handle);
+};
+
+// Finished handles linger briefly so late reconnects and post-completion
+// status reads still resolve; the timer is unreferenced so it never keeps a
+// shutting-down server alive. retentionMs <= 0 evicts immediately.
+const scheduleEviction = (runner: Runner, handle: InternalHandle): void => {
+  if (handle.evictionTimer !== undefined) return;
+  if (runner.config.retentionMs <= 0) {
+    maybeEvict(runner, handle);
+    return;
+  }
+  handle.evictionTimer = setTimeout(() => {
+    handle.evictionTimer = undefined;
+    maybeEvict(runner, handle);
+  }, runner.config.retentionMs);
+  handle.evictionTimer.unref();
+};
+
+// A live SSE stream attaches so a finished run isn't evicted mid-drain; the
+// matching release re-checks eviction (deferring-to-detach for watched runs).
+const registerStream = (runner: Runner, sessionId: string): void => {
+  const handle = runner.registry.get(sessionId);
+  if (handle !== undefined) handle.streamCount++;
+};
+
+const releaseStream = (runner: Runner, sessionId: string): void => {
+  const handle = runner.registry.get(sessionId);
+  if (handle === undefined) return;
+  if (handle.streamCount > 0) handle.streamCount--;
+  maybeEvict(runner, handle);
+};
+
 const enqueueInvocation = (
   runner: Runner,
   key: string,
@@ -69,9 +131,12 @@ const enqueueInvocation = (
     status: "queued",
     queuePosition: undefined,
     lines: [],
+    lineOffset: 0,
     error: undefined,
     cancelled: false,
     process: undefined,
+    streamCount: 0,
+    evictionTimer: undefined,
     onLine: opts.onLine,
     onStatus: opts.onStatus,
   };
@@ -79,25 +144,31 @@ const enqueueInvocation = (
   refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
-    let currentInvocation: GooseInvocation | undefined = invocation;
-    while (currentInvocation !== undefined) {
-      if (handle.cancelled) return;
-      handle.status = "running";
-      handle.queuePosition = undefined;
-      handle.onStatus?.(handle);
-      refreshQueuePositions(runner);
+    try {
+      let currentInvocation: GooseInvocation | undefined = invocation;
+      while (currentInvocation !== undefined) {
+        if (handle.cancelled) return;
+        handle.status = "running";
+        handle.queuePosition = undefined;
+        handle.onStatus?.(handle);
+        refreshQueuePositions(runner);
 
-      try {
-        await runProcess(runner, handle, currentInvocation);
-      } catch (err) {
-        failRun(handle, err);
+        try {
+          await runProcess(runner, handle, currentInvocation);
+        } catch (err) {
+          failRun(handle, err);
+        }
+        handle.process = undefined;
+
+        currentInvocation = advanceChain(handle);
+        if (currentInvocation !== undefined) handle.onStatus?.(handle);
       }
-      handle.process = undefined;
-
-      currentInvocation = advanceChain(handle);
-      if (currentInvocation !== undefined) handle.onStatus?.(handle);
+      handle.onStatus?.(handle);
+    } finally {
+      // The run has reached its terminal status; arrange for the handle (and
+      // its captured output) to leave the registry once no stream needs it.
+      scheduleEviction(runner, handle);
     }
-    handle.onStatus?.(handle);
   });
 
   return handle;
@@ -213,7 +284,9 @@ export {
   enqueueNew,
   enqueueOrQueue,
   generateTempKey,
+  registerStream,
   rekey,
+  releaseStream,
   stop,
   stopAll,
 };

@@ -16,9 +16,12 @@ import {
   getHandle,
   getStatus,
   killProcessGroup,
+  MAX_LINE_BUFFER,
   makeRunnerConfig,
   newSessionInvocation,
+  registerStream,
   rekey,
+  releaseStream,
   resumeInvocation,
   stop,
   stopAll,
@@ -797,5 +800,110 @@ describe("generateTempKey", () => {
     const keys = new Set<string>();
     for (let i = 0; i < 200; i++) keys.add(generateTempKey());
     expect(keys.size).toBe(200);
+  });
+});
+
+describe("memory bounds: line buffer and handle eviction", () => {
+  it("caps the retained line buffer and tracks the dropped offset", async () => {
+    const total = MAX_LINE_BUFFER + 50;
+    const lines = Array.from({ length: total }, (_, i) => `line${i}`);
+    const { spawn } = createMockSpawn(lines);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+
+    expect(handle.lines.length).toBe(MAX_LINE_BUFFER);
+    expect(handle.lineOffset).toBe(50);
+    // Oldest entries dropped; the tail retained in order.
+    expect(handle.lines[0]).toBe("line50");
+    expect(handle.lines[MAX_LINE_BUFFER - 1]).toBe(`line${total - 1}`);
+  });
+
+  it("evicts a terminal handle once the retention window elapses", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(makeRunnerConfig(3, "goose", 50), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+
+    // Within the grace window the handle and its status are still queryable.
+    expect(getStatus(runner, "s1")).toBe("completed");
+    expect(getHandle(runner, "s1")).toBeDefined();
+
+    await sleep(150);
+    // After retention the handle leaves the registry entirely.
+    expect(getHandle(runner, "s1")).toBeUndefined();
+    expect(getStatus(runner, "s1")).toBeUndefined();
+  });
+
+  it("evicts immediately when retentionMs is 0", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(makeRunnerConfig(3, "goose", 0), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+
+    expect(getHandle(runner, "s1")).toBeUndefined();
+  });
+
+  it("defers eviction while a stream is attached, then evicts on release", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 40 });
+    const runner = createRunner(makeRunnerConfig(3, "goose", 0), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+
+    // Attach before completion so eviction is deferred past the terminal state.
+    registerStream(runner, "s1");
+    await waitForStatus(handle, "completed");
+
+    // Terminal + retentionMs 0, but a stream is still attached → retained.
+    expect(getHandle(runner, "s1")).toBeDefined();
+
+    releaseStream(runner, "s1");
+    // Last stream detached → evicted.
+    expect(getHandle(runner, "s1")).toBeUndefined();
+  });
+
+  it("does not evict an active handle when a stream detaches", async () => {
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 60 });
+    const runner = createRunner(makeRunnerConfig(3, "goose", 0), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+
+    registerStream(runner, "s1");
+    releaseStream(runner, "s1");
+
+    // Still running, so detaching the stream must not have evicted it.
+    expect(getHandle(runner, "s1")).toBeDefined();
+    await waitForStatus(handle, "completed");
+  });
+
+  it("releases captured output when a handle is evicted", async () => {
+    const { spawn } = createMockSpawn(["one", "two"]);
+    const runner = createRunner(makeRunnerConfig(3, "goose", 0), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+
+    // The direct reference survives eviction, but its buffers are cleared so
+    // the captured output is eligible for garbage collection.
+    expect(handle.lines).toEqual([]);
+    expect(handle.lineOffset).toBe(0);
+  });
+
+  it("a finished handle's timer never evicts a re-prompted handle", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(makeRunnerConfig(3, "goose", 50), spawn);
+    const first = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(first, "completed");
+
+    // Re-prompting overwrites the registry entry with a fresh handle while
+    // the first handle's retention timer is still pending.
+    const second = enqueue(runner, "s1", "again", "/tmp");
+    expect(second).not.toBe(first);
+
+    // Wait past the FIRST handle's timer; it must leave the second (now
+    // registered) handle intact rather than deleting it by key.
+    await sleep(120);
+    expect(getHandle(runner, "s1")).toBe(second);
+
+    await waitForStatus(second, "completed");
   });
 });
