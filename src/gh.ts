@@ -30,6 +30,7 @@ type CloneJob = {
   tempKey: string | undefined;
   known: Set<string> | undefined;
   runStartedAt: number | undefined;
+  createdAt: number;
 };
 
 type GhClient = {

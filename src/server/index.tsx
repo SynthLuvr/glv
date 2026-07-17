@@ -2,7 +2,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { authMiddleware } from "../auth/middleware.js";
 import { createGhClient } from "../gh.js";
-import type { Runner } from "../runner/index.js";
+import { type Runner, stop } from "../runner/index.js";
+import {
+  CLONE_JOB_SWEEP_MS,
+  CLONE_JOB_TTL_MS,
+  sweepCloneJobs,
+} from "./cloneJobs.js";
 import {
   type AppEnv,
   type ServerContext,
@@ -37,9 +42,21 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     cloneJobs: new Map(),
+    cloneJobTtlMs: opts.cloneJobTtlMs ?? CLONE_JOB_TTL_MS,
+    cloneJobSweepMs: opts.cloneJobSweepMs ?? CLONE_JOB_SWEEP_MS,
     createLocks: new Map(),
     assets: buildAssetBundle(),
   };
+
+  // Background sweep; unref'd so it can't keep the process alive.
+  if (ctx.cloneJobSweepMs > 0) {
+    const sweep = (): void =>
+      sweepCloneJobs(ctx.cloneJobs, ctx.cloneJobTtlMs, (key) =>
+        stop(ctx.runner, key),
+      );
+    const timer = setInterval(sweep, ctx.cloneJobSweepMs);
+    timer.unref();
+  }
 
   const app = new Hono<AppEnv>();
   // Auth gate sits first: every non-public request must carry a valid

@@ -196,11 +196,17 @@ afterAll(() => {
 const makeApp = (
   gh: GhClient,
   spawn?: SpawnFn,
-  opts: { pollTimeoutMs?: number } = {},
+  opts: {
+    pollTimeoutMs?: number;
+    cloneJobTtlMs?: number;
+    cloneJobSweepMs?: number;
+  } = {},
 ): ReturnType<typeof createApp> =>
   createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
     gh,
     pollTimeoutMs: opts.pollTimeoutMs,
+    cloneJobTtlMs: opts.cloneJobTtlMs,
+    cloneJobSweepMs: opts.cloneJobSweepMs,
   });
 
 describe("GET /github/repos", () => {
@@ -535,5 +541,37 @@ describe("working directory mode (unchanged)", () => {
     });
     expect(status).toBe(422);
     expect(html).toContain("does not exist");
+  });
+});
+
+describe("clone job retention sweep", () => {
+  it("reaps an abandoned job that is never polled", async () => {
+    const { spawn } = createGithubSpawn(db, ["line1"], 5000);
+    const gh = createStubGh();
+    const app = makeApp(gh, spawn, {
+      pollTimeoutMs: 5000,
+      cloneJobTtlMs: 5,
+      cloneJobSweepMs: 10,
+    });
+
+    const { html } = await postForm(app, "/sessions", {
+      source: "github",
+      repo: "SynthLuvr/abandoned",
+      branch: "main",
+      prompt: "build it",
+    });
+    const jobId = extractJobId(html);
+    expect(jobId).toBeDefined();
+
+    // Never poll clone-status: wait for the background clone + goose enqueue
+    // to settle and for a sweep tick to pass the TTL, then assert the job (and
+    // its orphaned run) was reaped without ever being polled.
+    await sleep(300);
+
+    const res = await app.request(`/github/clone-status/${jobId}`, {
+      headers: { "HX-Request": "true" },
+    });
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain("Clone job not found");
   });
 });
