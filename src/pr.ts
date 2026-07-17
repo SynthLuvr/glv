@@ -12,11 +12,10 @@ const PR_URL_GLOBAL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 // successful `gh pr create`, which prints nothing but the new PR's URL.
 const BARE_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 
-// Genuine `git push` prints the create-PR link on its own `remote:` line:
-//   remote:      https://github.com/owner/repo/pull/new/feat/x
-// Anchored to the line's `remote:` prefix (spaces/tabs only, never a diff
-// marker) so a pull/new URL merely *quoted* in a code comment or string
-// literal — e.g. this very comment — is never mistaken for real git output.
+// Match the create-PR link `git push` prints on a `remote:` line, e.g.
+// `remote:  https://github.com/owner/repo/pull/new/feat/x`. Anchoring to the
+// `remote:` prefix (spaces/tabs only) avoids matching a URL merely quoted in
+// a comment or string — like this comment itself.
 const PULL_NEW_URL_GLOBAL =
   /^[ \t]*remote:[ \t]*(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/new\/[\w./-]+)/gm;
 

@@ -91,9 +91,7 @@ describe("detectPrUrl", () => {
   });
 
   it("ignores a pull/new URL quoted in a code comment (not real git output)", () => {
-    // A session that reads the detection source itself: the example URL sits
-    // in a `//` comment, not a genuine `remote:` line, so it must never be
-    // treated as a created-PR push link.
+    // The URL sits in a `//` comment, not a genuine `remote:` line.
     const source =
       "// `git push` of a new branch prints a create-PR link:\n" +
       "//   remote:      https://github.com/owner/repo/pull/new/feat/x\n" +
