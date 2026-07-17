@@ -22,6 +22,22 @@ const stubBrowser = (dom: JSDOM, fetchImpl: unknown): void => {
 
 const jsonOk = (body: unknown): unknown => ({ json: async () => body });
 
+// The payload must land as a literal attribute value, not parsed markup: no
+// <img> is created and the breakout quote is HTML-escaped (&quot;).
+const assertNoInjection = async (
+  datalist: Element,
+  dom: JSDOM,
+): Promise<void> => {
+  await vi.waitFor(() => {
+    expect(datalist.querySelectorAll("option")).toHaveLength(1);
+  });
+  expect(datalist.querySelector("img")).toBeNull();
+  expect(datalist.innerHTML).toContain("&quot;");
+  const opt = datalist.querySelector("option");
+  expect(opt).toBeInstanceOf(dom.window.HTMLOptionElement);
+  expect(opt?.value).toBe(XSS_PAYLOAD);
+};
+
 describe("source-picker datalist rendering", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -55,17 +71,7 @@ describe("source-picker datalist rendering", () => {
 
     const datalist = dom.window.document.getElementById("gh-branches");
     if (datalist === null) throw new Error("gh-branches datalist missing");
-    await vi.waitFor(() => {
-      expect(datalist.querySelectorAll("option")).toHaveLength(1);
-    });
-
-    // The payload must land as a literal attribute value, not parsed markup:
-    // no <img> element is created and the breakout quote is escaped (&quot;).
-    expect(datalist.querySelector("img")).toBeNull();
-    expect(datalist.innerHTML).toContain("&quot;");
-    const opt = datalist.querySelector("option");
-    expect(opt).toBeInstanceOf(dom.window.HTMLOptionElement);
-    expect(opt?.value).toBe(XSS_PAYLOAD);
+    await assertNoInjection(datalist, dom);
   });
 
   it("does not inject markup from a malicious repo name (defense in depth)", async () => {
@@ -102,14 +108,6 @@ describe("source-picker datalist rendering", () => {
 
     const datalist = dom.window.document.getElementById("gh-repos");
     if (datalist === null) throw new Error("gh-repos datalist missing");
-    await vi.waitFor(() => {
-      expect(datalist.querySelectorAll("option")).toHaveLength(1);
-    });
-
-    expect(datalist.querySelector("img")).toBeNull();
-    expect(datalist.innerHTML).toContain("&quot;");
-    const opt = datalist.querySelector("option");
-    expect(opt).toBeInstanceOf(dom.window.HTMLOptionElement);
-    expect(opt?.value).toBe(XSS_PAYLOAD);
+    await assertNoInjection(datalist, dom);
   });
 });

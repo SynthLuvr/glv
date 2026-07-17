@@ -35,6 +35,13 @@ const updatePreview = (value: string): void => {
   preview.textContent = `→ Will clone to /tmp/glv/${trimmed.slice(0, slash)}/${trimmed.slice(slash + 1)}`;
 };
 
+const option = (value: string, label?: string): HTMLOptionElement => {
+  const opt = document.createElement("option");
+  opt.value = value;
+  if (label !== undefined) opt.setAttribute("label", label);
+  return opt;
+};
+
 const loadRepos = async (): Promise<void> => {
   const datalist = document.getElementById("gh-repos");
   if (datalist === null || datalist.children.length > 0) return;
@@ -57,10 +64,7 @@ const loadRepos = async (): Promise<void> => {
       const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
       if (r.isFork) parts.push("fork");
       parts.push(r.updatedAt.slice(0, 10));
-      const opt = document.createElement("option");
-      opt.value = r.nameWithOwner;
-      opt.setAttribute("label", parts.join(" · "));
-      return opt;
+      return option(r.nameWithOwner, parts.join(" · "));
     });
     datalist.replaceChildren(...opts);
   } catch {
@@ -83,14 +87,10 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
       return;
     }
     if (errorEl !== null) errorEl.textContent = "";
-    if (datalist !== null) {
-      const opts = (data.branches as string[]).map((b) => {
-        const opt = document.createElement("option");
-        opt.value = b;
-        return opt;
-      });
-      datalist.replaceChildren(...opts);
-    }
+    if (datalist !== null)
+      datalist.replaceChildren(
+        ...(data.branches as string[]).map((b) => option(b)),
+      );
     if (branchInput instanceof HTMLInputElement && branchInput.value === "")
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");
