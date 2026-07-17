@@ -127,6 +127,19 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
+// Map preserves insertion order, so registry order mirrors queue order.
+const refreshQueuePositions = (runner: Runner): void => {
+  let position = 0;
+  for (const handle of runner.registry.values()) {
+    if (handle.status !== "queued") continue;
+    if (handle.queuePosition !== position) {
+      handle.queuePosition = position;
+      handle.onStatus?.(handle);
+    }
+    position++;
+  }
+};
+
 const ExecaError = type({
   "exitCode?": "number | undefined",
   "signal?": "string | undefined",
@@ -221,7 +234,7 @@ const enqueueInvocation = (
     prompt: invocation.stdin,
     workingDir,
     status: "queued",
-    queuePosition: runner.queue.size,
+    queuePosition: undefined,
     lines: [],
     error: undefined,
     cancelled: false,
@@ -230,13 +243,14 @@ const enqueueInvocation = (
     onStatus: opts.onStatus,
   };
   runner.registry.set(key, handle);
-  handle.onStatus?.(handle);
+  refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
     if (handle.cancelled) return;
     handle.status = "running";
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
+    refreshQueuePositions(runner);
 
     try {
       await runProcess(runner, handle, invocation);
@@ -303,6 +317,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     handle.status = "stopped";
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
+    refreshQueuePositions(runner);
     return true;
   }
 
