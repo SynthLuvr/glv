@@ -15,9 +15,7 @@ type ServeOpts = {
   rpIdOverride?: string;
 };
 
-// http.Server.close only stops *accepting* connections; in-flight requests
-// drain asynchronously. Narrowing to the close capability keeps shutdown
-// testable without spinning up a real server.
+// close() stops accepting connections; in-flight requests drain asynchronously.
 type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
 };
@@ -32,10 +30,7 @@ type ShutdownDeps = {
   exit: (code?: number) => void;
 };
 
-// Drain in-flight requests, stop every goose process, then close the SQLite
-// handles. A guard makes overlapping signals idempotent: a second interrupt
-// while draining force-quits so a wedged request can't hang the viewer, and
-// cleanup never runs twice.
+// A second interrupt while draining force-quits so a stuck request can't hang.
 const createShutdown = (
   deps: ShutdownDeps,
 ): ((exitCode?: number) => Promise<void>) => {
@@ -54,7 +49,6 @@ const createShutdown = (
   return shutdown;
 };
 
-// Minimal surface so tests can inject a fake emitter instead of `process`.
 type LifecycleEmitter = {
   on: (event: string, listener: (signal: unknown) => void) => unknown;
 };
@@ -72,9 +66,7 @@ const registerShutdown = (
   };
   emitter.on("SIGINT", onSignal);
   emitter.on("SIGTERM", onSignal);
-  // Without these, a thrown error or a rejected promise reaps neither the
-  // detached goose processes nor the SQLite handles. SIGKILL (-9) runs no
-  // user code, so a truly forced kill may still orphan children.
+  // Thrown errors/rejections would otherwise leak goose processes and DB handles.
   emitter.on("uncaughtException", onCrash);
   emitter.on("unhandledRejection", onCrash);
 };
@@ -82,8 +74,7 @@ const registerShutdown = (
 const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   buildStyles();
   buildScripts();
-  // Created here (not inside createApp) so shutdown can reap the
-  // detached goose processes that would otherwise outlive the viewer.
+  // Created here so shutdown can reap detached goose processes.
   const runner = createRunner(opts.runner);
   const authDb = openAuthDb(opts.authDbPath);
   const auth = makeAuthService(authDb);
@@ -101,11 +92,9 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
     authDb.close();
   };
 
-  // Last-resort synchronous reap. Fires on every JS-executing exit
-  // (process.exit, an uncaught exception, a natural drain) but not on
-  // SIGKILL. process.kill on a process group is a synchronous syscall, so
-  // this reaps detached goose children even when the async shutdown above
-  // never started or never finished.
+  // Last-resort synchronous reap: fires on any JS-executing exit but not
+  // SIGKILL, so detached goose children are reaped even if the async
+  // shutdown above never started or finished.
   process.on("exit", () => stopAll(runner));
 
   const shutdown = createShutdown({
