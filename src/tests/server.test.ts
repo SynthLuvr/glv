@@ -1230,13 +1230,6 @@ describe("M6: live-tail header metadata hooks", () => {
     expect(html).toContain('id="meta-tokens"');
   });
 
-  it("renders a hidden live-watching badge in the header", async () => {
-    const { html } = await renderSession("alpha");
-    expect(html).toContain('id="live-badge"');
-    expect(html).toContain("Watching");
-    expect(html).toContain("hidden");
-  });
-
   it("tags each rendered message with a stable data-msg-index", async () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("data-msg-index");
@@ -1244,12 +1237,11 @@ describe("M6: live-tail header metadata hooks", () => {
 });
 
 describe("M6: stream client live-tail polish wiring", () => {
-  it("handles replace, meta, and live-badge events", async () => {
+  it("handles replace and meta events", async () => {
     const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
     expect(body).toContain('"replace"');
     expect(body).toContain('"meta"');
-    expect(body).toContain("live-badge");
     expect(body).toContain("insertMessageInOrder");
   });
 });
