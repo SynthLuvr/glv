@@ -53,22 +53,16 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Toggles the running indicator on a sidebar session card. The dot element is
-// always present in the DOM (server-rendered); CSS shows/hides it based on the
-// data-running attribute so the client only flips a boolean, never rebuilds
-// markup.
 const setStatusIndicator = (sessionId: string, running: boolean): void => {
   const item = document.querySelector(
     `.session-item[data-session-id="${sessionId}"]`,
   );
   if (item === null) return;
-  if (running) item.setAttribute("data-running", "");
-  else item.removeAttribute("data-running");
+  item.toggleAttribute("data-running", running);
 };
 
 // On (re)connect the server emits a full snapshot of active session ids.
-// Reconcile every card so indicators that drifted during a disconnect are
-// corrected — including sessions that ended while we were away.
+// Reconcile every card to correct indicators that drifted during a disconnect.
 const applySync = (data: string): void => {
   let ids: string[];
   try {
@@ -93,13 +87,12 @@ const onStatusEvent = (data: string): void => {
     };
     setStatusIndicator(sessionId, status !== "done");
   } catch {
-    /* ignore malformed status payloads */
+    return;
   }
 };
 
-// One persistent EventSource for the whole sidebar — survives detail-pane
-// swaps and out-of-band sidebar refreshes because it lives outside
-// #session-list.
+// Lives outside #session-list so it survives detail-pane swaps and OOB sidebar
+// refreshes.
 let statusSource: EventSource | null = null;
 
 const connectStatusFeed = (): void => {
@@ -111,8 +104,8 @@ const connectStatusFeed = (): void => {
   statusSource.addEventListener("status", (e) => {
     onStatusEvent((e as MessageEvent).data);
   });
-  // EventSource auto-reconnects on transient failures; only null our
-  // reference once the connection is truly closed so we don't leak duplicates.
+  // Only null once the connection is truly closed — EventSource auto-reconnects
+  // on transient failures, and dropping the reference would leak a duplicate.
   statusSource.addEventListener("error", () => {
     if (statusSource?.readyState === EventSource.CLOSED) statusSource = null;
   });

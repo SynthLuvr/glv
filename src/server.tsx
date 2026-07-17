@@ -74,15 +74,28 @@ const htmxSource = readFileSync(
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 
-// Derives the set of session ids with an active (queued or running) run from
-// the runner registry. Terminal handles linger in the registry and are
-// filtered out automatically, so no cleanup is needed.
-const activeSessionIds = (runner: Runner): Set<string> =>
-  new Set(
+// Terminal handles linger in the registry; this filters them out so the
+// sidebar only shows sessions that are queued or running.
+const activeStatuses = (runner: Runner): Map<string, RunStatus> =>
+  new Map(
     [...runner.registry.entries()]
       .filter(([, h]) => !isTerminalStatus(h.status))
-      .map(([id]) => id),
+      .map(([id, h]) => [id, h.status]),
   );
+
+const activeSessionIds = (runner: Runner): Set<string> =>
+  new Set(activeStatuses(runner).keys());
+
+const statusDeltas = (
+  last: Map<string, RunStatus>,
+  now: Map<string, RunStatus>,
+): Array<[string, string]> => {
+  const result: Array<[string, string]> = [];
+  for (const [id, status] of now)
+    if (last.get(id) !== status) result.push([id, status]);
+  for (const [id] of last) if (!now.has(id)) result.push([id, "done"]);
+  return result;
+};
 
 const Shell = ({
   sessions,
@@ -707,23 +720,13 @@ const createApp = (
     );
   });
 
-  // Global status feed: streams deltas for *all* active runs in the registry,
-  // not just the one the detail pane is watching. Drives the sidebar's
-  // session-running indicators. Mirrors the /tail pattern (poll a small shared
-  // data structure, emit only deltas) but scans the whole registry.
+  // Streams status deltas for all active runs — not just the one the detail
+  // pane watches — to drive the sidebar's running indicators.
   app.get("/events/status", (c) =>
     streamSSE(c, async (stream) => {
-      const snapshot = (): Map<string, RunStatus> =>
-        new Map(
-          [...runner.registry.entries()]
-            .filter(([, h]) => !isTerminalStatus(h.status))
-            .map(([id, h]) => [id, h.status]),
-        );
-
-      let last = snapshot();
+      let last = activeStatuses(runner);
       let polls = 0;
 
-      // Emit a full sync on (re)connect so the client can reconcile drift.
       if (!(await emit(stream, "sync", JSON.stringify([...last.keys()]))))
         return;
 
@@ -732,11 +735,8 @@ const createApp = (
         await stream.sleep(statusPollMs);
         if (stream.aborted) return;
 
-        const now = snapshot();
-
-        // New or changed-status sessions → toggle indicator on.
-        for (const [id, status] of now) {
-          if (last.get(id) === status) continue;
+        const now = activeStatuses(runner);
+        for (const [id, status] of statusDeltas(last, now))
           if (
             !(await emit(
               stream,
@@ -745,21 +745,6 @@ const createApp = (
             ))
           )
             return;
-        }
-
-        // Sessions that just ended → toggle indicator off.
-        for (const [id] of last) {
-          if (now.has(id)) continue;
-          if (
-            !(await emit(
-              stream,
-              "status",
-              JSON.stringify({ sessionId: id, status: "done" }),
-            ))
-          )
-            return;
-        }
-
         last = now;
       }
     }),
