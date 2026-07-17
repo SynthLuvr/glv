@@ -219,6 +219,7 @@ describe("GET /github/repos", () => {
     const app = makeApp(createStubGh({ listError: "Could not authenticate" }));
     const res = await app.request("/github/repos");
     const data = await res.json();
+    expect(res.status).toBe(502);
     expect(data.ok).toBe(false);
     expect(data.error).toContain("Could not authenticate");
   });
@@ -235,6 +236,17 @@ describe("GET /github/repos/:owner/:repo/branches", () => {
     expect(data.branches).toContain("main");
     expect(data.branches).toContain("develop");
     expect(data.defaultBranch).toBe("main");
+  });
+
+  it("returns ok:false with 502 when gh fails", async () => {
+    const app = makeApp(createStubGh({ listError: "Could not authenticate" }));
+    const res = await app.request(
+      "/github/repos/SynthLuvr/goose-log-viewer/branches",
+    );
+    const data = await res.json();
+    expect(res.status).toBe(502);
+    expect(data.ok).toBe(false);
+    expect(data.error).toContain("Could not authenticate");
   });
 });
 
