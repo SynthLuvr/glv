@@ -506,6 +506,16 @@ describe("web viewer htmx partials (HX-Request)", () => {
     expect(html).not.toContain("Beta Session");
   });
 
+  it("refreshes the sidebar out-of-band when ?sidebar=1 is set", async () => {
+    const { html } = await renderHtmx("/sessions/alpha?sidebar=1");
+    expect(html).toContain("What is goose?");
+    // The stream's done handler re-renders with this flag so the sidebar
+    // picks up a name goose set mid-run rather than the stale placeholder.
+    expect(html).toContain('hx-swap-oob="true"');
+    expect(html).toContain('id="session-list"');
+    expect(html).toContain("Alpha Session");
+  });
+
   it("returns only the new-session form fragment for the root", async () => {
     const { html } = await renderHtmx("/");
     expect(html).not.toContain("<html");
@@ -1598,6 +1608,40 @@ describe("M5: POST /sessions", () => {
     // sidebar refreshed out-of-band with the new session
     expect(html).toContain('hx-swap-oob="true"');
     expect(html).toContain("Stop");
+  });
+
+  it("re-renders the sidebar with goose's updated name after the run", async () => {
+    const { spawn, insertedIds } = createNewSessionSpawn(newDb, ["line1"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    // goose initially registers the session with a placeholder name.
+    const { html: created } = await postForm(
+      app,
+      "/sessions",
+      { prompt: "build it", working_dir: newDir },
+      { "HX-Request": "true" },
+    );
+    const id = insertedIds[0];
+    expect(created).toContain("session-1");
+
+    // goose renames the session mid-run once it has conversational context.
+    newDb
+      .prepare("UPDATE sessions SET name = ? WHERE id = ?")
+      .run("Build the project", id);
+
+    // The stream's done handler re-renders GET /sessions/:id?sidebar=1, so
+    // the sidebar must reflect the new name instead of the placeholder.
+    const res = await app.request(`/sessions/${id}?sidebar=1`, {
+      headers: { "HX-Request": "true" },
+    });
+    const html = await res.text();
+    expect(html).toContain('hx-swap-oob="true"');
+    // Scope to this session's sidebar entry; the shared test DB holds other
+    // leftover "session-N" rows from sibling tests.
+    const item = html.slice(html.lastIndexOf(`data-session-id="${id}"`));
+    expect(item).toContain(">Build the project<");
+    expect(item).not.toContain("session-1");
   });
 
   it("invokes goose run with the prompt on stdin (no -n name)", async () => {

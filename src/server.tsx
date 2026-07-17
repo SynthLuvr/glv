@@ -504,11 +504,15 @@ const createApp = (
     const messages = listMessages(db, id).map(parseMessage);
     // Surfaced so a re-render after the stream reflects the run's outcome.
     const run = getHandle(runner, id);
+    // ?sidebar=1 (set by the stream's done handler) requests an out-of-band
+    // sidebar refresh so a freshly renamed session no longer shows the stale
+    // "CLI session" placeholder.
     return render(
       c,
       sessions,
       id,
       <Transcript session={session} messages={messages} run={run} />,
+      { refreshSidebar: c.req.query("sidebar") === "1" },
     );
   });
 
