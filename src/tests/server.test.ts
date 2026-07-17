@@ -1936,6 +1936,152 @@ describe("session-running indicator (client wiring)", () => {
 const renderSessionDom = async (id: string): Promise<JSDOM> =>
   new JSDOM((await renderSession(id)).html);
 
+const PR_URL = "https://github.com/SynthLuvr/lisko/pull/56";
+
+describe("PR chip rendering", () => {
+  const seedPrSession = (): string => {
+    const prDir = mkdtempSync(join(tmpdir(), "glv-prchip-"));
+    const prDb = new DatabaseSync(join(prDir, "sessions.db"));
+    prDb.exec(SCHEMA);
+    prDb
+      .prepare(
+        "INSERT INTO sessions (id, name, session_type, working_dir, " +
+          "updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "prsess",
+        "PR Session",
+        "user",
+        "/tmp/pr",
+        "2026-07-13 10:00:00",
+        5,
+        null,
+      );
+    prDb
+      .prepare(
+        "INSERT INTO messages (session_id, role, content_json, " +
+          "created_timestamp) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "prsess",
+        "user",
+        JSON.stringify([
+          {
+            type: "toolResponse",
+            id: "call_1",
+            toolResult: {
+              status: "success",
+              value: {
+                content: [{ type: "text", text: PR_URL }],
+                isError: false,
+              },
+            },
+          },
+        ]),
+        1,
+      );
+    return prDir;
+  };
+
+  // Renders a session whose transcript contains a bare-URL tool result —
+  // the `gh pr create` signature — so detection resolves to one chip.
+  const renderPrSession = async (): Promise<string> => {
+    const prDir = seedPrSession();
+    try {
+      const prDb = new DatabaseSync(join(prDir, "sessions.db"));
+      try {
+        return await (
+          await createApp(prDb, createRunner(DEFAULT_RUNNER_CONFIG)).request(
+            "/sessions/prsess",
+          )
+        ).text();
+      } finally {
+        prDb.close();
+      }
+    } finally {
+      rmSync(prDir, { recursive: true, force: true });
+    }
+  };
+
+  it("renders no chip when a session has no PR", async () => {
+    const html = (await renderSession("alpha")).html;
+    expect(html).not.toContain("pr-chip");
+  });
+
+  it("renders a chip linking the detected PR (loading state, new tab)", async () => {
+    const html = await renderPrSession();
+    expect(html).toContain("pr-chip");
+    expect(html).toContain(PR_URL);
+    expect(html).toContain("#56");
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain("/sessions/prsess/pr-state");
+    expect(html).toContain("pr-dot-loading");
+  });
+});
+
+describe("PR status endpoint GET /sessions/:id/pr-state", () => {
+  const appWithRunner = (stdout: string) =>
+    createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      runPrState: async () => ({ stdout }),
+    });
+
+  const fetchState = (stdout: string, url: string = PR_URL) =>
+    appWithRunner(stdout).request(
+      `/sessions/alpha/pr-state?url=${encodeURIComponent(url)}`,
+    );
+
+  it("returns the open dot + label for OPEN", async () => {
+    const body = await (await fetchState('{"state":"OPEN"}')).text();
+    expect(body).toContain("pr-dot-open");
+    expect(body).toContain("Open");
+  });
+
+  it("returns the purple merged dot for MERGED", async () => {
+    const body = await (await fetchState('{"state":"MERGED"}')).text();
+    expect(body).toContain("pr-dot-merged");
+    expect(body).toContain("Merged");
+  });
+
+  it("returns the closed dot for CLOSED", async () => {
+    const body = await (await fetchState('{"state":"CLOSED"}')).text();
+    expect(body).toContain("pr-dot-closed");
+    expect(body).toContain("Closed");
+  });
+
+  it("returns an empty body when gh is unauthed (help text, exit 0)", async () => {
+    const body = await (await fetchState("Usage: gh pr view ...")).text();
+    expect(body).toBe("");
+  });
+
+  it("returns an empty body for non-JSON output (missing gh, timeout)", async () => {
+    const body = await (
+      await fetchState("Could not resolve to a PullRequest")
+    ).text();
+    expect(body).toBe("");
+  });
+
+  it("returns an empty body for a non-PR url", async () => {
+    const body = await (
+      await fetchState('{"state":"OPEN"}', "https://evil.example/x")
+    ).text();
+    expect(body).toBe("");
+  });
+
+  it("never propagates a runner failure to the page", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      runPrState: async () => {
+        throw new Error("network down");
+      },
+    });
+    const body = await (
+      await app.request(
+        `/sessions/alpha/pr-state?url=${encodeURIComponent(PR_URL)}`,
+      )
+    ).text();
+    expect(body).toBe("");
+  });
+});
+
 describe("stream client session selector", () => {
   // Sidebar cards carry data-session-id too and precede #detail-pane. Viewing
   // gamma (not the first-listed alpha) exposes the bare-selector collision.

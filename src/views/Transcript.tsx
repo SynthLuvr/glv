@@ -21,6 +21,7 @@ import {
   truncate,
   truncateMiddle,
 } from "../format.js";
+import { detectPrUrl, prLabel } from "../pr.js";
 import type { RunHandle } from "../runner.js";
 import { SessionTitleWrap } from "./Rename.js";
 
@@ -211,12 +212,56 @@ const MetaChip = ({
   </div>
 );
 
+// A compact, always-clickable link to the session's primary PR. The URL is
+// detected offline (detectPrUrl) and renders instantly; the colored
+// state label/dot is swapped in lazily via htmx so the page never blocks.
+// Any failure (unknown state, network error) leaves a plain link.
+const PrChip = ({ sessionId, url }: { sessionId: string; url: string }) => {
+  const errorHandler = {
+    // htmx namespaced event needs the `::`; hono/jsx only emits it via spread.
+    "hx-on::response-error": "this.querySelector('#pr-state').textContent=''",
+  };
+  return (
+    <a
+      class="pr-chip"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={url}
+      hx-get={`/sessions/${sessionId}/pr-state?url=${encodeURIComponent(url)}`}
+      hx-trigger="load"
+      hx-target="#pr-state"
+      hx-swap="innerHTML"
+      {...errorHandler}
+    >
+      <svg
+        class="pr-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+      </svg>
+      <span class="pr-num">{prLabel(url)}</span>
+      <span id="pr-state" class="pr-state">
+        <span
+          class="pr-dot pr-dot-loading"
+          aria-label="Loading PR status"
+        ></span>
+      </span>
+    </a>
+  );
+};
+
 const TranscriptHeader = ({
   session,
   messageCount,
+  prUrl,
 }: {
   session: SessionRow;
   messageCount: number;
+  prUrl?: string;
 }) => (
   <header class="session-header">
     <div class="session-header-top">
@@ -264,6 +309,7 @@ const TranscriptHeader = ({
       {session.provider_name !== null && (
         <MetaChip label="Provider" value={session.provider_name} />
       )}
+      {prUrl !== undefined && <PrChip sessionId={session.id} url={prUrl} />}
     </div>
   </header>
 );
@@ -349,13 +395,18 @@ const Transcript = ({
     .map((message, index) => ({ message, index }))
     .filter((entry) => hasContent(entry.message));
   const isEmpty = visible.length === 0 && prompt === undefined;
+  const prUrl = detectPrUrl(messages);
   return (
     <div
       class="detail-inner"
       data-session-id={session.id}
       data-run-status={run?.status}
     >
-      <TranscriptHeader session={session} messageCount={visible.length} />
+      <TranscriptHeader
+        session={session}
+        messageCount={visible.length}
+        prUrl={prUrl}
+      />
       {isEmpty ? (
         <p class="empty">This session has no messages.</p>
       ) : (

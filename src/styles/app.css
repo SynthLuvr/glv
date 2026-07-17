@@ -23,6 +23,7 @@
   --color-code-text: #e6edf3;
   --color-inline: #eef0f3;
   --color-ok: #059669;
+  --color-merged: #8957e5;
   --color-warn: #b45309;
   --color-err: #dc2626;
   --color-err-soft: #fef2f2;
@@ -64,6 +65,7 @@ html {
   --color-code-text: #e6edf3;
   --color-inline: #1c2128;
   --color-ok: #3fb950;
+  --color-merged: #a371f7;
   --color-warn: #d29922;
   --color-err: #f85149;
   --color-err-soft: #2a1517;
@@ -491,6 +493,72 @@ body {
 .meta-value.mono {
   font-family: ui-monospace, monospace;
   font-size: 0.78rem;
+}
+
+/* ---------- PR chip ---------- */
+.pr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  align-self: flex-start;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-2);
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  min-width: 0;
+}
+.pr-chip:hover {
+  border-color: var(--color-accent);
+  text-decoration: none;
+}
+.pr-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+.pr-num {
+  font-weight: 600;
+}
+.pr-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+.pr-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-faint);
+  flex-shrink: 0;
+}
+.pr-dot-loading {
+  animation: pr-pulse 1.1s ease-in-out infinite;
+}
+.pr-dot-open {
+  background: var(--color-ok);
+}
+.pr-dot-merged {
+  background: var(--color-merged);
+}
+.pr-dot-closed {
+  background: var(--color-muted);
+}
+@keyframes pr-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* ---------- messages ---------- */
