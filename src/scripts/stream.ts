@@ -103,6 +103,15 @@ const updateStatusHint = (data: StreamStatus): void => {
   }
 };
 
+// A chained prompt just started, so its queued card is now live: drop one
+// queued card, then remove the empty queue container (and its Clear button).
+const dismissQueuedCard = (): void => {
+  document.querySelector(".queued-prompt")?.remove();
+  const container = document.getElementById("queued-prompts");
+  if (container !== null && container.querySelector(".queued-prompt") === null)
+    container.remove();
+};
+
 const connectRunner = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const output = root.querySelector("#live-output");
@@ -124,20 +133,10 @@ const connectRunner = (root: Element): void => {
 
   activeSource.addEventListener("prompt", (e) => {
     const html = (e as MessageEvent).data;
-    if (html !== "" && output !== null) {
-      output.insertAdjacentHTML("beforeend", html);
-      // A chained run just started — remove its stale queued-prompt card.
-      const firstQueued = document.querySelector(".queued-prompt");
-      if (firstQueued !== null) firstQueued.remove();
-      // If no more queued prompts remain, remove the container + button.
-      const container = document.getElementById("queued-prompts");
-      if (
-        container !== null &&
-        container.querySelector(".queued-prompt") === null
-      )
-        container.remove();
-      scrollToBottom();
-    }
+    if (html === "" || output === null) return;
+    output.insertAdjacentHTML("beforeend", html);
+    dismissQueuedCard();
+    scrollToBottom();
   });
 
   activeSource.addEventListener("line", (e) => {

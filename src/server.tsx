@@ -248,6 +248,9 @@ const expandHome = (path: string, home: string = homedir()): string =>
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
+const activeRunPrompt = (run: RunHandle | undefined): string | undefined =>
+  run !== undefined && !isTerminalStatus(run.status) ? run.prompt : undefined;
+
 type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (
@@ -828,10 +831,10 @@ const createApp = (
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
 
-    // Only pass the prompt prop when it started immediately (not queued);
-    // queued prompts render as QueuedPrompt cards via the handle's
-    // pendingPrompts, avoiding double-display.
-    let startedPrompt: string | undefined;
+    // Render the submitted prompt only when it started right away; queued
+    // prompts surface as QueuedPrompt cards via the handle, so passing the
+    // text here too would double-display it.
+    let activePrompt: string | undefined;
     if (prompt !== "") {
       const { queued } = enqueueOrQueue(
         runner,
@@ -839,18 +842,11 @@ const createApp = (
         prompt,
         session.working_dir,
       );
-      if (!queued) startedPrompt = prompt;
+      if (!queued) activePrompt = prompt;
     }
 
     const run = getHandle(runner, id);
-    // When the prompt was queued (not started), show the currently running
-    // prompt so its SubmittedPrompt card doesn't vanish on re-render.
-    if (
-      startedPrompt === undefined &&
-      run !== undefined &&
-      !isTerminalStatus(run.status)
-    )
-      startedPrompt = run.prompt;
+    activePrompt ??= activeRunPrompt(run);
 
     const messages = listMessages(db, id).map(parseMessage);
     return render(
@@ -861,7 +857,7 @@ const createApp = (
         session={session}
         messages={messages}
         run={run}
-        prompt={startedPrompt}
+        prompt={activePrompt}
       />,
     );
   });
@@ -882,11 +878,7 @@ const createApp = (
         session={session}
         messages={messages}
         run={run}
-        prompt={
-          run !== undefined && !isTerminalStatus(run.status)
-            ? run.prompt
-            : undefined
-        }
+        prompt={activeRunPrompt(run)}
       />,
     );
   });
@@ -908,15 +900,12 @@ const createApp = (
 
       if (!(await emitStatus(stream, handle))) return;
 
-      // Replay prompt cards for chained runs that already started
-      // (e.g. on reconnect mid-chain) before flushing any lines.
-      for (const p of handle.startedPrompts)
-        if (!(await emit(stream, "prompt", renderPromptCard(p)))) return;
-
       // Surface mid-run transitions (e.g. queued → running) so the client
       // isn't left on a stale status until the terminal re-render.
       let lastStatus = handle.status;
-      let lastStartedCount = handle.startedPrompts.length;
+      // Emit a prompt card for each chained run as it starts — including any
+      // that already started before this connection (replayed on first pass).
+      let lastStartedCount = 0;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
@@ -924,12 +913,15 @@ const createApp = (
           if (!(await emitStatus(stream, handle))) return;
           lastStatus = handle.status;
         }
-        // Emit prompt cards for newly started chained runs.
         while (lastStartedCount < handle.startedPrompts.length) {
-          const card = renderPromptCard(
-            handle.startedPrompts[lastStartedCount],
-          );
-          if (!(await emit(stream, "prompt", card))) return;
+          if (
+            !(await emit(
+              stream,
+              "prompt",
+              renderPromptCard(handle.startedPrompts[lastStartedCount]),
+            ))
+          )
+            return;
           lastStartedCount++;
         }
         if (!(await flushLines(stream, handle.lines, sent))) return;

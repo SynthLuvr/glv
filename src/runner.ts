@@ -226,6 +226,27 @@ const createRunner = (
   return { config, queue, registry, spawn };
 };
 
+const isActiveStatus = (status: RunStatus): boolean =>
+  status === "queued" || status === "running";
+
+// Advance to the next queued prompt after a run finishes, or end the chain.
+// A run that errored still chains onward; only "stopped" or an empty pending
+// queue ends it. Every state change here is synchronous, so observers never
+// glimpse the terminal status of the run that just finished.
+const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
+  if (handle.status === "stopped") {
+    handle.pendingPrompts = [];
+    return undefined;
+  }
+  const nextPrompt = handle.pendingPrompts.shift();
+  if (nextPrompt === undefined) return undefined;
+  handle.startedPrompts.push(nextPrompt);
+  handle.prompt = nextPrompt;
+  handle.error = undefined;
+  handle.status = "running";
+  return resumeInvocation(handle.sessionId, nextPrompt);
+};
+
 const enqueueInvocation = (
   runner: Runner,
   key: string,
@@ -234,10 +255,7 @@ const enqueueInvocation = (
   opts: EnqueueOptions = {},
 ): RunHandle => {
   const existing = runner.registry.get(key);
-  if (
-    existing !== undefined &&
-    (existing.status === "queued" || existing.status === "running")
-  )
+  if (existing !== undefined && isActiveStatus(existing.status))
     throw new Error(`Session ${key} already has an active or queued run`);
 
   const handle: InternalHandle = {
@@ -259,14 +277,8 @@ const enqueueInvocation = (
   refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
-    let currentInvocation = invocation;
-
-    // Chaining loop: after each run completes, if the session wasn't stopped
-    // and prompts remain in the queue, advance to the next automatically.
-    // The handle stays non-terminal for the entire chain — only goes
-    // terminal when no prompts remain — so the stream's loop stays alive
-    // and lines accumulate continuously.
-    while (true) {
+    let currentInvocation: GooseInvocation | undefined = invocation;
+    while (currentInvocation !== undefined) {
       if (handle.cancelled) return;
       handle.status = "running";
       handle.queuePosition = undefined;
@@ -278,33 +290,11 @@ const enqueueInvocation = (
       } catch (err) {
         failRun(handle, err);
       }
-
       handle.process = undefined;
 
-      // Stop = kill everything, including pending prompts.
-      // The `as` widens the narrowing that TS applied at the
-      // `handle.status = "running"` assignment above; runProcess can and
-      // does change the status (completed / error / stopped).
-      if ((handle.status as RunStatus) === "stopped") {
-        handle.pendingPrompts = [];
-        break;
-      }
-
-      // Error does NOT block the chain — proceed to next pending prompt.
-      const nextPrompt = handle.pendingPrompts.shift();
-      if (nextPrompt === undefined) break;
-
-      // Advance to the next run.  All of this is synchronous (no await)
-      // so the stream never observes a transient terminal status.
-      handle.startedPrompts.push(nextPrompt);
-      handle.prompt = nextPrompt;
-      handle.error = undefined;
-      handle.status = "running";
-      currentInvocation = resumeInvocation(handle.sessionId, nextPrompt);
-      handle.onStatus?.(handle);
+      currentInvocation = advanceChain(handle);
+      if (currentInvocation !== undefined) handle.onStatus?.(handle);
     }
-
-    handle.process = undefined;
     handle.onStatus?.(handle);
   });
 
@@ -334,10 +324,7 @@ const enqueueOrQueue = (
   opts: EnqueueOptions = {},
 ): { handle: RunHandle; queued: boolean } => {
   const existing = runner.registry.get(sessionId);
-  if (
-    existing !== undefined &&
-    (existing.status === "queued" || existing.status === "running")
-  ) {
+  if (existing !== undefined && isActiveStatus(existing.status)) {
     existing.pendingPrompts.push(prompt);
     existing.onStatus?.(existing);
     return { handle: existing, queued: true };

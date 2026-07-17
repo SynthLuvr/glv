@@ -422,9 +422,9 @@ const Transcript = ({
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
       {isRunActive(run) && <div id="live-output" class="live-output"></div>}
-      {(run?.pendingPrompts.length ?? 0) > 0 && (
+      {run !== undefined && run.pendingPrompts.length > 0 && (
         <div id="queued-prompts" class="queued-prompts">
-          {run!.pendingPrompts.map((p) => (
+          {run.pendingPrompts.map((p) => (
             <QueuedPrompt prompt={p} />
           ))}
           <button
