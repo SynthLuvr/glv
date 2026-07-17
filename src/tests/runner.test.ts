@@ -4,7 +4,7 @@ import type {
   RunHandle,
   RunStatus,
   SpawnFn,
-} from "../runner.js";
+} from "../runner/index.js";
 import {
   clearPending,
   createRunner,
@@ -22,7 +22,7 @@ import {
   resumeInvocation,
   stop,
   stopAll,
-} from "../runner.js";
+} from "../runner/index.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));

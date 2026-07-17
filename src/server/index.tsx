@@ -1,0 +1,63 @@
+import type { DatabaseSync } from "node:sqlite";
+import { Hono } from "hono";
+import { authMiddleware } from "../auth/middleware.js";
+import { createGhClient } from "../gh.js";
+import type { Runner } from "../runner/index.js";
+import {
+  type AppEnv,
+  type ServerContext,
+  type ServerOptions,
+} from "./context.js";
+import { registerAssetRoutes } from "./routes/assets.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerEventsRoutes } from "./routes/events.js";
+import { registerGithubRoutes } from "./routes/github.js";
+import { registerPrRoutes } from "./routes/pr.js";
+import { registerSessionRoutes } from "./routes/sessions.js";
+import { registerStreamRoutes } from "./routes/stream.js";
+import { buildAssetBundle, expandHome, listHomeDirs } from "./util.js";
+
+const createApp = (
+  db: DatabaseSync,
+  runner: Runner,
+  opts: ServerOptions = {},
+): Hono<AppEnv> => {
+  const ctx: ServerContext = {
+    db,
+    runner,
+    gh: opts.gh ?? createGhClient(),
+    auth: opts.auth,
+    rpName: opts.rpName,
+    rpIdOverride: opts.rpIdOverride,
+    listDirs: opts.listDirs ?? listHomeDirs,
+    tailPollMs: opts.tailPollMs ?? 1000,
+    maxTailPolls: opts.maxTailPolls ?? Infinity,
+    pollTimeoutMs: opts.pollTimeoutMs ?? 10000,
+    statusPollMs: opts.statusPollMs ?? 1000,
+    maxStatusPolls: opts.maxStatusPolls ?? Infinity,
+    runPrState: opts.runPrState,
+    cloneJobs: new Map(),
+    assets: buildAssetBundle(),
+  };
+
+  const app = new Hono<AppEnv>();
+  // Auth gate sits first: every non-public request must carry a valid
+  // session before any other middleware or route runs.
+  if (ctx.auth !== undefined) app.use("*", authMiddleware(ctx.auth));
+  app.use("*", async (c, next) => {
+    c.set("runner", ctx.runner);
+    await next();
+  });
+
+  registerAssetRoutes(app, ctx);
+  registerAuthRoutes(app, ctx);
+  registerGithubRoutes(app, ctx);
+  registerSessionRoutes(app, ctx);
+  registerPrRoutes(app, ctx);
+  registerStreamRoutes(app, ctx);
+  registerEventsRoutes(app, ctx);
+
+  return app;
+};
+
+export { createApp, expandHome, listHomeDirs };

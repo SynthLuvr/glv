@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ContentItem } from "../format.js";
+import type { ContentItem } from "../format/index.js";
 import {
   fmtRelative,
   messageKind,
@@ -9,7 +9,7 @@ import {
   toolCallInfo,
   toolResultInfo,
   truncateMiddle,
-} from "../format.js";
+} from "../format/index.js";
 
 // The accessors narrow the permissive ContentItem shape; tests build raw items
 // and cast through unknown so they read like real parsed content blocks.

@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GhClient, RepoInfo } from "../gh.js";
-import type { ProcessResult, SpawnFn } from "../runner.js";
-import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner.js";
-import { createApp } from "../server.js";
+import type { ProcessResult, SpawnFn } from "../runner/index.js";
+import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
+import { createApp } from "../server/index.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (

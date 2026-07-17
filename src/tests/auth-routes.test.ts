@@ -10,8 +10,8 @@ import {
   validSession,
 } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
-import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner.js";
-import { createApp } from "../server.js";
+import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
+import { createApp } from "../server/index.js";
 
 const SESSIONS_SCHEMA = `
 CREATE TABLE sessions (
