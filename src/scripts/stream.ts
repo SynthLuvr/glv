@@ -190,10 +190,9 @@ const connectTail = (root: Element): void => {
 
 const init = (): void => {
   teardown();
-  // Scope to the detail pane: every sidebar .session-item also carries
-  // data-session-id (for the running indicator) and precedes #detail-pane in
-  // the DOM, so a bare [data-session-id] selector would match a sidebar card
-  // instead of the transcript root.
+  // Sidebar cards carry data-session-id too (for the running indicator) and
+  // precede #detail-pane, so a bare selector matches a sidebar card rather
+  // than the transcript root.
   const root = document.querySelector("#detail-pane [data-session-id]");
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
