@@ -46,9 +46,8 @@ type GhClient = {
 // Hardcoded under /tmp — deliberately not configurable.
 const CLONE_ROOT = join("/tmp", "glv");
 
-// A single owner/repo name segment. GitHub permits alphanumerics plus
-// `.`, `_` and `-`. A bare "." or ".." is rejected separately because
-// path.join resolves those as parent/current directory traversal.
+// "." and ".." match the pattern but are excluded explicitly:
+// path.join resolves them as current/parent directory traversal.
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 const isSafeSegment = (seg: string): boolean =>
@@ -56,8 +55,8 @@ const isSafeSegment = (seg: string): boolean =>
 
 const clonePathFor = (owner: string, repo: string): string => {
   const target = join(CLONE_ROOT, owner, repo);
-  // Defence in depth: even if a caller bypasses parseOwnerRepo, never
-  // hand back a path that resolves outside the clone root.
+  // Defence in depth: never return a path outside the clone root, even
+  // if a caller skips parseOwnerRepo.
   const rel = relative(CLONE_ROOT, target);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel))
     throw new Error(`clone path "${target}" escapes the clone root`);
