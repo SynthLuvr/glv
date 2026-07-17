@@ -28,6 +28,7 @@ import {
   sessionIdsInDir,
 } from "./db.js";
 import { fmtRelative, type ParsedMessage, parseMessage } from "./format.js";
+import { type CommandRunner, resolvePrState, STATE_LABEL } from "./pr.js";
 import type { RunHandle, Runner, RunStatus } from "./runner.js";
 import {
   enqueue,
@@ -249,6 +250,8 @@ const createApp = (
     auth?: AuthService;
     rpName?: string;
     rpIdOverride?: string;
+    /** Subprocess runner for `gh pr view`; tests inject a fake. */
+    runPrState?: CommandRunner;
   } = {},
 ): Hono<AppEnv> => {
   const tailPollMs = opts.tailPollMs ?? 1000;
@@ -513,6 +516,20 @@ const createApp = (
       id,
       <Transcript session={session} messages={messages} run={run} />,
       { refreshSidebar: c.req.query("sidebar") === "1" },
+    );
+  });
+
+  // Resolve live PR state via `gh` and return a colored badge for htmx to
+  // swap in. Unknown state → empty body, so the chip degrades to a plain link.
+  app.get("/sessions/:id/pr-state", async (c) => {
+    const url = c.req.query("url") ?? "";
+    const state = await resolvePrState(url, opts.runPrState);
+    if (state === "unknown") return c.html("");
+    return c.html(
+      <span class={`pr-state pr-state-${state}`}>
+        <span class="pr-dot" aria-hidden="true"></span>
+        {STATE_LABEL[state]}
+      </span>,
     );
   });
 
