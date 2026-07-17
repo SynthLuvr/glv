@@ -5,6 +5,7 @@ import type {
   InternalHandle,
   ProcessResult,
   Runner,
+  SpawnedProcess,
   SpawnFn,
 } from "./types.js";
 
@@ -18,6 +19,21 @@ const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
     // Already exited.
   }
 };
+
+// Resolve with the awaited value, or undefined when `promise` doesn't settle
+// within `timeoutMs`. The timer is cleared the moment the promise resolves so
+// a long-lived `proc.exit` can't accumulate dangling timers.
+const withTimeout = <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T | undefined> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), timeoutMs);
+    void promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
 
 const describeFailure = (result: ProcessResult): string => {
   if (result.signal !== undefined)
@@ -69,6 +85,33 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
+// Await the child's exit. While the run is active this is just a long await;
+// each elapsed grace window is re-armed. Once stop() has flipped the status
+// (and sent SIGINT) the windows instead escalate the signal — SIGTERM, then
+// SIGKILL — so a process that traps or ignores SIGINT can't leave runProcess
+// parked on `await proc.exit` forever, which would hold a runner slot and
+// leak a detached process group. Polling while active lets a stop requested
+// mid-await be noticed within the grace window; SIGKILL is uncatchable, so
+// the loop ends there.
+const awaitExit = async (
+  proc: SpawnedProcess,
+  handle: InternalHandle,
+  graceMs: number,
+): Promise<ProcessResult> => {
+  let escalated = false;
+  for (;;) {
+    const result = await withTimeout(proc.exit, graceMs);
+    if (result !== undefined) return result;
+    if (handle.status !== "stopped") continue;
+    if (escalated) {
+      proc.kill("SIGKILL");
+      return proc.exit;
+    }
+    escalated = true;
+    proc.kill("SIGTERM");
+  }
+};
+
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
@@ -86,7 +129,7 @@ const runProcess = async (
     handle.onLine?.(line);
   }
 
-  const result = await proc.exit;
+  const result = await awaitExit(proc, handle, runner.config.stopGraceMs);
   if (handle.status === "stopped") return;
   handle.status = result.exitCode === 0 ? "completed" : "error";
   if (result.exitCode !== 0) handle.error = describeFailure(result);

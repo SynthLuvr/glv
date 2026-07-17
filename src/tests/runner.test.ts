@@ -42,6 +42,18 @@ const waitForStatus = async (
   }
 };
 
+const waitFor = async (
+  predicate: () => boolean,
+  timeoutMs = 5000,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline)
+      throw new Error("Timed out waiting for condition");
+    await sleep(2);
+  }
+};
+
 type MockState = {
   invocations: Array<{
     binary: string;
@@ -85,6 +97,52 @@ const createMockSpawn = (
       local.killed = true;
       state.killCalls.push({ pid, signal });
       resolveExit({ exitCode: null, signal: signal ?? "SIGTERM" });
+    };
+
+    return { pid, kill, stdout, exit };
+  };
+
+  return { spawn, state };
+};
+
+/**
+ * A SpawnFn whose children ignore the given signals (never resolving exit for
+ * them) and never exit on their own — they die only when killed with a signal
+ * they don't ignore. Lets stop-signal escalation be observed deterministically.
+ */
+const createStubbornSpawn = (
+  ignoreSignals: ReadonlySet<string>,
+  opts: { lines?: readonly string[]; delayMs?: number } = {},
+): { spawn: SpawnFn; state: MockState } => {
+  const state: MockState = {
+    invocations: [],
+    killCalls: [],
+  };
+  let pidCounter = 40000;
+
+  const spawn: SpawnFn = (binary, args, spawnOpts) => {
+    state.invocations.push({ binary, args, opts: spawnOpts });
+    const pid = ++pidCounter;
+    const local = { killed: false };
+    let resolveExit!: (r: ProcessResult) => void;
+    const exit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const stdout = (async function* () {
+      for (const line of opts.lines ?? []) {
+        if (local.killed) return;
+        if (opts.delayMs !== undefined) await sleep(opts.delayMs);
+        yield line;
+      }
+      // Deliberately never auto-resolves: the child stays alive until killed.
+    })();
+
+    const kill = (signal = "SIGINT"): void => {
+      state.killCalls.push({ pid, signal });
+      if (ignoreSignals.has(signal) || local.killed) return;
+      local.killed = true;
+      resolveExit({ exitCode: null, signal });
     };
 
     return { pid, kill, stdout, exit };
@@ -349,6 +407,61 @@ describe("stop", () => {
     const handle = enqueue(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(stop(runner, "s1")).toBe(false);
+  });
+});
+
+describe("stop signal escalation", () => {
+  it("escalates to SIGTERM when SIGINT is ignored past the grace period", async () => {
+    const { spawn, state } = createStubbornSpawn(new Set(["SIGINT"]));
+    const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+    stop(runner, "s1");
+    await waitForStatus(handle, "stopped");
+    await waitFor(() => state.killCalls.length >= 2);
+    expect(state.killCalls.map((c) => c.signal)).toEqual(["SIGINT", "SIGTERM"]);
+  });
+
+  it("escalates to SIGKILL when SIGTERM is also ignored", async () => {
+    const { spawn, state } = createStubbornSpawn(
+      new Set(["SIGINT", "SIGTERM"]),
+    );
+    const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+    stop(runner, "s1");
+    await waitForStatus(handle, "stopped");
+    await waitFor(() => state.killCalls.length >= 3);
+    expect(state.killCalls.map((c) => c.signal)).toEqual([
+      "SIGINT",
+      "SIGTERM",
+      "SIGKILL",
+    ]);
+  });
+
+  it("does not escalate when the process exits promptly on SIGINT", async () => {
+    const { spawn, state } = createMockSpawn(["a", "b", "c"], { delayMs: 100 });
+    const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+    stop(runner, "s1");
+    await waitForStatus(handle, "stopped");
+    expect(state.killCalls).toHaveLength(1);
+    expect(state.killCalls[0].signal).toBe("SIGINT");
+  });
+
+  it("releases the runner slot so a queued run can start after escalation", async () => {
+    const { spawn } = createStubbornSpawn(new Set(["SIGINT"]));
+    const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
+    const h1 = enqueue(runner, "s1", "hi", "/tmp");
+    const h2 = enqueue(runner, "s2", "yo", "/tmp");
+    await waitForStatus(h1, "running");
+    expect(h2.status).toBe("queued");
+    stop(runner, "s1");
+    await waitForStatus(h1, "stopped");
+    await waitForStatus(h2, "running");
+    stop(runner, "s2");
+    await waitForStatus(h2, "stopped");
   });
 });
 
