@@ -263,11 +263,6 @@ const TranscriptHeader = ({
       {session.provider_name !== null && (
         <MetaChip label="Provider" value={session.provider_name} />
       )}
-      {/* Shown by the live-tail client once the SSE connection is open. */}
-      <span id="live-badge" class="live-badge" hidden>
-        <span class="live-dot"></span>
-        Watching
-      </span>
     </div>
   </header>
 );

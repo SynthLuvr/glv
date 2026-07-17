@@ -284,6 +284,15 @@ body {
   background: var(--color-accent);
   animation: live-pulse 1.6s ease-in-out infinite;
 }
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
 .session-name {
   font-weight: 600;
   font-size: 0.88rem;
@@ -481,41 +490,6 @@ body {
 .meta-value.mono {
   font-family: ui-monospace, monospace;
   font-size: 0.78rem;
-}
-
-/* live-tail "watching" indicator — shown when the SSE tail is connected */
-.live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.28rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--color-ok);
-  background: rgba(5, 150, 105, 0.1);
-  border: 1px solid rgba(5, 150, 105, 0.25);
-  align-self: center;
-  white-space: nowrap;
-}
-.live-badge[hidden] {
-  display: none;
-}
-.live-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--color-ok);
-  animation: live-pulse 1.6s ease-in-out infinite;
-}
-@keyframes live-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
 }
 
 /* ---------- messages ---------- */
