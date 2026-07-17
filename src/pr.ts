@@ -2,20 +2,16 @@ import { execa } from "execa";
 import type { ParsedMessage } from "./format.js";
 import { thinkingText, toolResultInfo } from "./format.js";
 
-// Only full `github.com/owner/repo/pull/N` URLs count. Shorthand `#N` is
-// deliberately excluded — it collides with issues, line refs and changelog
-// noise, and is unsafe to treat as "the PR this session created".
+// Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
+// collides with issues and changelog noise.
 const PR_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 const PR_URL_GLOBAL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 
-// A tool result whose entire stdout is one bare PR URL — the signature of a
-// successful `gh pr create`, which prints nothing but the new PR's URL.
+// `gh pr create` prints nothing but the new PR's URL on success.
 const BARE_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 
-// Match the create-PR link `git push` prints on a `remote:` line, e.g.
-// `remote:  https://github.com/owner/repo/pull/new/feat/x`. Anchoring to the
-// `remote:` prefix (spaces/tabs only) avoids matching a URL merely quoted in
-// a comment or string — like this comment itself.
+// `git push` prints a create-PR link on a `remote:` line. Anchoring to
+// `remote:` avoids matching the URL when merely quoted in prose.
 const PULL_NEW_URL_GLOBAL =
   /^[ \t]*remote:[ \t]*(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/new\/[\w./-]+)/gm;
 
@@ -28,9 +24,7 @@ const findPullNewUrls = (text: string): string[] =>
 const last = <T>(values: readonly T[]): T | undefined =>
   values.length === 0 ? undefined : values[values.length - 1];
 
-// A GitHub-MCP tool result is JSON whose `html_url` (preferred over the API
-// `url`) is a PR link. Only whole-object output qualifies; JSON embedded in
-// prose falls through to the generic mention rank below.
+// GitHub-MCP returns JSON with an `html_url` (preferred over the API `url`).
 const prUrlFromJson = (text: string): string | undefined => {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{")) return undefined;
@@ -47,9 +41,9 @@ const prUrlFromJson = (text: string): string | undefined => {
   return undefined;
 };
 
-// Candidate URLs ranked by confidence they are "the PR this session created".
-// A higher rank always wins; within a rank the latest mention wins (recency
-// tracks the session's final PR; frequency is gamed by changelogs).
+// Ranked by confidence of being "the PR this session created". Higher rank
+// always wins; within a rank the latest mention wins (recency beats
+// frequency, which is gamed by changelogs).
 type PrCandidates = {
   created?: string;
   mcpResult?: string;
@@ -68,7 +62,7 @@ const scanToolResult = (
   out: PrCandidates,
 ): void => {
   const trimmed = text.trim();
-  // `created` needs a non-error result: the exit-0 success of `gh pr create`.
+  // Only a non-error bare URL counts as a creation (gh pr create exit 0).
   if (!isError && BARE_PR_URL.test(trimmed)) {
     out.created = trimmed;
     return;
@@ -111,16 +105,12 @@ const scanMessage = (message: ParsedMessage, out: PrCandidates): void => {
     }
 };
 
-// Pure and offline: reads only content already loaded for the page, so the
-// chip renders with no extra latency.
+// Reads only content already loaded for the page — no extra latency.
 const detectPrUrl = (
   messages: readonly ParsedMessage[],
 ): string | undefined => {
   const out: PrCandidates = {};
   for (const message of messages) scanMessage(message, out);
-  // A `pull/new` link is only a "create a PR here" suggestion printed by
-  // `git push`, never a real PR, so it ranks last. Any genuine pull/N URL
-  // (created, MCP read-back, summary or even a passing mention) wins over it.
   return (
     out.created ?? out.mcpResult ?? out.summary ?? out.mention ?? out.pushLink
   );
@@ -139,7 +129,9 @@ type CommandRunner = (args: readonly string[]) => Promise<CommandResult>;
 
 const GH_TIMEOUT_MS = 8000;
 
-const execGh = async (args: readonly string[]): Promise<CommandResult> => {
+// Reuses the user's `gh` auth. `reject: false` turns a non-zero exit into a
+// result; a missing binary or timeout still throws (caught by resolvePrState).
+const runGh = async (args: readonly string[]): Promise<CommandResult> => {
   const { stdout } = await execa("gh", [...args], {
     timeout: GH_TIMEOUT_MS,
     reject: false,
@@ -147,20 +139,8 @@ const execGh = async (args: readonly string[]): Promise<CommandResult> => {
   return { stdout };
 };
 
-// Reuses the user's existing `gh` auth — no token or API key. `reject: false`
-// turns a non-zero exit into a result; a missing binary still throws and is
-// caught here, yielding empty stdout.
-const runGh = async (args: readonly string[]): Promise<CommandResult> => {
-  try {
-    return await execGh(args);
-  } catch {
-    return { stdout: "" };
-  }
-};
-
-// Success is judged by parsing stdout into a known state, not by exit code: an
-// unauthed `gh` exits 0 but prints help text, and a missing binary or timeout
-// yields empty output — all degrade to "unknown".
+// Judge by parsed state, not exit code: unauthed `gh` exits 0 but prints
+// help text instead of JSON.
 const parseGhState = (stdout: string): PrState => {
   let parsed: unknown;
   try {
@@ -176,8 +156,7 @@ const parseGhState = (stdout: string): PrState => {
   return "unknown";
 };
 
-// The URL round-trips through a query string, so guard before handing it to
-// `gh` — accept only a real PR URL or a pull/new fallback.
+// The URL round-trips through a query string — guard before passing to `gh`.
 const isPrUrl = (url: string): boolean =>
   PR_URL.test(url) || /\/pull\/new\/[\w./-]+$/.test(url);
 

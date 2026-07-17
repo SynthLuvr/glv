@@ -1978,8 +1978,7 @@ describe("PR chip rendering", () => {
     return prDir;
   };
 
-  // Renders a session whose transcript contains a bare-URL tool result —
-  // the `gh pr create` signature — so detection resolves to one chip.
+  // Bare-URL tool result (the `gh pr create` signature) so detection resolves to one chip.
   const renderPrSession = async (): Promise<string> => {
     const prDir = seedPrSession();
     try {

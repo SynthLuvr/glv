@@ -534,11 +534,7 @@ body {
 .pr-num {
   font-weight: 600;
 }
-/*
-  Tinted state pill: background and text are tinted per resolved state
-  (open/merged/closed); the dot shares the color via `currentColor`. While
-  status resolves, a pulsing dot blooms into the colored badge.
-*/
+/* Tinted per resolved state; the dot uses currentColor for its tint. */
 .pr-state {
   display: inline-flex;
   align-items: center;

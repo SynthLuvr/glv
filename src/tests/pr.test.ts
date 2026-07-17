@@ -4,8 +4,7 @@ import type { CommandRunner } from "../pr.js";
 import { detectPrUrl, prLabel, resolvePrState } from "../pr.js";
 
 // --- synthetic message builders -------------------------------------------
-// Mirrors the goose transcript shapes that `toolResultInfo` / `thinkingText`
-// parse. Tests feed these mocked arrays — never the live, fluctuating DB.
+// Mirror the goose transcript shapes parsed by `toolResultInfo` / `thinkingText`.
 
 const textItem = (text: string): ContentItem => ({ type: "text", text });
 
@@ -49,10 +48,8 @@ describe("detectPrUrl", () => {
   });
 
   it("ignores a bare URL in an *error* tool result for tier 1", () => {
-    // gh pr create that failed still printed a URL-ish string; an error result
-    // must not count as a successful creation, so tier 1 stays empty.
+    // An error result must not count as a successful creation.
     const messages = [msg("user", [toolResult(URL(35), true)])];
-    // Falls through to a tier-4 mention rather than a tier-1 creation.
     expect(detectPrUrl(messages)).toBe(URL(35));
   });
 
@@ -91,9 +88,7 @@ describe("detectPrUrl", () => {
   });
 
   it("a real PR mention beats a git-push pull/new link (20260717_49)", () => {
-    // A push prints a pull/new suggestion link, but the actual PR only
-    // surfaces in the assistant summary. The genuine pull/N URL must win over
-    // the bare pull/new suggestion, which is never a real PR.
+    // The pull/new suggestion is never a real PR — the genuine pull/N URL wins.
     const pushOut =
       "remote: Create a pull request for 'fix/remove-messages-tokens-provider' on GitHub by visiting:\n" +
       `remote:      https://github.com/SynthLuvr/goose-log-viewer/pull/new/fix/remove-messages-tokens-provider`;
@@ -150,8 +145,7 @@ describe("detectPrUrl", () => {
   });
 
   it("encodes the 20260716_56 fixture: one chip linking PR #35", () => {
-    // Condensed real transcript of that session: a git push (tier 3), then the
-    // gh pr create bare URL (tier 1), then an MCP read-back, then a summary.
+    // Condensed real transcript: push link, gh pr create bare URL, then summary.
     const messages = [
       msg("user", [
         toolResult(

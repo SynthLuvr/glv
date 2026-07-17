@@ -211,13 +211,11 @@ const MetaChip = ({
   </div>
 );
 
-// Link to the session's primary PR. The URL renders instantly from offline
-// detection; the colored state is swapped in lazily via htmx, so any failure
-// (unknown state, network error) leaves a plain link.
+// URL renders instantly from offline detection; the colored state is
+// swapped in lazily via htmx. Any failure leaves a plain link.
 const PrChip = ({ sessionId, url }: { sessionId: string; url: string }) => {
+  // hono/jsx can't emit `::` attributes directly, so spread it.
   const errorHandler = {
-    // hono/jsx can't emit the `::` attribute directly, so spread it. On
-    // error, drop the status pill so the chip degrades to a plain link.
     "hx-on::response-error": "this.querySelector('#pr-state')?.remove()",
   };
   return (

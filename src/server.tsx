@@ -519,16 +519,12 @@ const createApp = (
     );
   });
 
-  // Lazy PR status fragment: resolve live state via `gh` and return just the
-  // colored dot + label for htmx to swap in. Any failure (unknown state,
-  // missing/unauthed gh, network error) yields an empty body so the chip
-  // degrades to a plain link.
+  // Resolve live PR state via `gh` and return a colored badge for htmx to
+  // swap in. Unknown state → empty body, so the chip degrades to a plain link.
   app.get("/sessions/:id/pr-state", async (c) => {
     const url = c.req.query("url") ?? "";
     const state = await resolvePrState(url, opts.runPrState);
     if (state === "unknown") return c.html("");
-    // Swapped via outerHTML, so the pill carries its state class for the tinted
-    // background and matching dot color (currentColor).
     return c.html(
       <span class={`pr-state pr-state-${state}`}>
         <span class="pr-dot" aria-hidden="true"></span>
