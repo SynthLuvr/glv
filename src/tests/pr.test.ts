@@ -52,7 +52,7 @@ describe("detectPrUrl", () => {
     // gh pr create that failed still printed a URL-ish string; an error result
     // must not count as a successful creation, so tier 1 stays empty.
     const messages = [msg("user", [toolResult(URL(35), true)])];
-    // Falls through to a tier-5 mention rather than a tier-1 creation.
+    // Falls through to a tier-4 mention rather than a tier-1 creation.
     expect(detectPrUrl(messages)).toBe(URL(35));
   });
 
@@ -81,12 +81,32 @@ describe("detectPrUrl", () => {
     expect(detectPrUrl([msg("user", [toolResult(json)])])).toBe(URL(42));
   });
 
-  it("falls back to a `git push` pull/new link (tier 3)", () => {
+  it("falls back to a `git push` pull/new link (tier 5, last resort)", () => {
     const pushOut =
       "remote: Create a pull request for 'feat/x' on GitHub by visiting:\n" +
       `remote:      https://github.com/SynthLuvr/lisko/pull/new/feat/x`;
     expect(detectPrUrl([msg("user", [toolResult(pushOut)])])).toBe(
       "https://github.com/SynthLuvr/lisko/pull/new/feat/x",
+    );
+  });
+
+  it("a real PR mention beats a git-push pull/new link (20260717_49)", () => {
+    // A push prints a pull/new suggestion link, but the actual PR only
+    // surfaces in the assistant summary. The genuine pull/N URL must win over
+    // the bare pull/new suggestion, which is never a real PR.
+    const pushOut =
+      "remote: Create a pull request for 'fix/remove-messages-tokens-provider' on GitHub by visiting:\n" +
+      `remote:      https://github.com/SynthLuvr/goose-log-viewer/pull/new/fix/remove-messages-tokens-provider`;
+    const messages = [
+      msg("user", [toolResult(pushOut)]),
+      msg("assistant", [
+        textItem(
+          "The PR URL is https://github.com/SynthLuvr/goose-log-viewer/pull/45",
+        ),
+      ]),
+    ];
+    expect(detectPrUrl(messages)).toBe(
+      "https://github.com/SynthLuvr/goose-log-viewer/pull/45",
     );
   });
 
@@ -99,7 +119,7 @@ describe("detectPrUrl", () => {
     expect(detectPrUrl([msg("user", [toolResult(source)])])).toBeUndefined();
   });
 
-  it("chooses the assistant summary mention over reference noise (tier 4 > 5)", () => {
+  it("chooses the assistant summary mention over reference noise (tier 3 > 4)", () => {
     // A dependency/changelog dump cites 125 foreign PRs in a tool result.
     const changelog = Array.from(
       { length: 125 },
@@ -121,7 +141,7 @@ describe("detectPrUrl", () => {
     expect(detectPrUrl(messages)).toBe(URL(35));
   });
 
-  it("uses the last assistant mention when only text references exist (tier 4)", () => {
+  it("uses the last assistant mention when only text references exist (tier 3)", () => {
     const messages = [
       msg("assistant", [textItem(`Draft at ${URL(10)}`)]),
       msg("assistant", [textItem(`Final PR: ${URL(12)}`)]),

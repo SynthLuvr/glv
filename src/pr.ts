@@ -53,9 +53,9 @@ const prUrlFromJson = (text: string): string | undefined => {
 type PrCandidates = {
   created?: string;
   mcpResult?: string;
-  pushLink?: string;
   summary?: string;
   mention?: string;
+  pushLink?: string;
 };
 
 const recordMention = (text: string, out: PrCandidates): void => {
@@ -118,8 +118,11 @@ const detectPrUrl = (
 ): string | undefined => {
   const out: PrCandidates = {};
   for (const message of messages) scanMessage(message, out);
+  // A `pull/new` link is only a "create a PR here" suggestion printed by
+  // `git push`, never a real PR, so it ranks last. Any genuine pull/N URL
+  // (created, MCP read-back, summary or even a passing mention) wins over it.
   return (
-    out.created ?? out.mcpResult ?? out.pushLink ?? out.summary ?? out.mention
+    out.created ?? out.mcpResult ?? out.summary ?? out.mention ?? out.pushLink
   );
 };
 
