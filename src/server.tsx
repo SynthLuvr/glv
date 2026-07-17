@@ -241,6 +241,9 @@ const expandHome = (path: string, home: string = homedir()): string =>
       ? join(home, path.slice(2))
       : path;
 
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (
@@ -475,13 +478,9 @@ const createApp = (
 
   app.get("/github/repos", async (c) => {
     try {
-      const repos = await gh.listRepos();
-      return c.json({ ok: true, repos });
+      return c.json({ ok: true, repos: await gh.listRepos() });
     } catch (err) {
-      return c.json({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      return c.json({ ok: false, error: errorMessage(err) });
     }
   });
 
@@ -492,10 +491,7 @@ const createApp = (
       const info = await gh.listBranches(owner, repo);
       return c.json({ ok: true, ...info });
     } catch (err) {
-      return c.json({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      return c.json({ ok: false, error: errorMessage(err) });
     }
   });
 
@@ -513,8 +509,8 @@ const createApp = (
         { status: 404 },
       );
 
-    if (job.status === "cloning")
-      return render(
+    const waitView = (cloning: boolean) =>
+      render(
         c,
         sessions,
         undefined,
@@ -522,84 +518,52 @@ const createApp = (
           repo={job.repo}
           branch={job.branch}
           jobId={job.jobId}
-          cloning={true}
+          cloning={cloning}
         />,
       );
-
-    if (job.status === "error") {
-      cloneJobs.delete(jobId);
-      return render(
+    const failForm = (error: string, status: ContentfulStatusCode) =>
+      render(
         c,
         sessions,
         undefined,
-        newSessionDetail(
-          job.error ?? "Clone failed.",
-          "github",
-          job.repo,
-          job.branch,
-        ),
-        { status: 422 },
+        newSessionDetail(error, "github", job.repo, job.branch),
+        { status },
       );
+
+    // `cloning` only toggles the spinner's status-line copy.
+    if (job.status === "cloning") return waitView(true);
+
+    if (job.status === "error") {
+      cloneJobs.delete(jobId);
+      return failForm(job.error ?? "Clone failed.", 422);
     }
 
-    // status === "done" — goose run has been enqueued; poll for the session.
+    // Goose run enqueued; poll for the new session id.
     if (
       job.tempKey === undefined ||
       job.known === undefined ||
       job.runStartedAt === undefined
     )
-      return render(
-        c,
-        sessions,
-        undefined,
-        <CloningView
-          repo={job.repo}
-          branch={job.branch}
-          jobId={job.jobId}
-          cloning={false}
-        />,
-      );
+      return waitView(false);
 
     if (Date.now() - job.runStartedAt > pollTimeoutMs) {
       stop(runner, job.tempKey);
       cloneJobs.delete(jobId);
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail(SESSION_TIMEOUT_ERROR, "github", job.repo, job.branch),
-        { status: 502 },
-      );
+      return failForm(SESSION_TIMEOUT_ERROR, 502);
     }
 
+    const known = job.known;
     const realId = sessionIdsInDir(db, job.clonePath).find(
-      (id) => !job.known!.has(id),
+      (id) => !known.has(id),
     );
-    if (realId === undefined)
-      return render(
-        c,
-        sessions,
-        undefined,
-        <CloningView
-          repo={job.repo}
-          branch={job.branch}
-          jobId={job.jobId}
-          cloning={false}
-        />,
-      );
+    if (realId === undefined) return waitView(false);
 
     rekey(runner, job.tempKey, realId);
     cloneJobs.delete(jobId);
     const session = getSession(db, realId);
     if (session === undefined) {
       stop(runner, realId);
-      return render(
-        c,
-        sessions,
-        undefined,
-        newSessionDetail(SESSION_TIMEOUT_ERROR, "github", job.repo, job.branch),
-        { status: 502 },
-      );
+      return failForm(SESSION_TIMEOUT_ERROR, 502);
     }
 
     return render(
@@ -672,8 +636,6 @@ const createApp = (
       const job: CloneJob = {
         jobId,
         repo: repoVal,
-        owner: parsed.owner,
-        repoName: parsed.repo,
         branch: branchVal,
         clonePath,
         prompt,
@@ -685,19 +647,19 @@ const createApp = (
       };
       cloneJobs.set(jobId, job);
 
-      void (async () => {
-        try {
-          await gh.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
-          job.tempKey = generateTempKey();
-          job.known = new Set(sessionIdsInDir(db, clonePath));
-          job.runStartedAt = Date.now();
-          enqueueNew(runner, job.tempKey, prompt, clonePath);
-          job.status = "done";
-        } catch (err) {
-          job.status = "error";
-          job.error = err instanceof Error ? err.message : String(err);
-        }
-      })();
+      const runCloneJob = async (): Promise<void> => {
+        await gh.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
+        job.tempKey = generateTempKey();
+        job.known = new Set(sessionIdsInDir(db, clonePath));
+        job.runStartedAt = Date.now();
+        enqueueNew(runner, job.tempKey, prompt, clonePath);
+        job.status = "done";
+      };
+
+      void runCloneJob().catch((err: unknown) => {
+        job.status = "error";
+        job.error = errorMessage(err);
+      });
 
       return render(
         c,

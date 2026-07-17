@@ -17,12 +17,9 @@ type BranchInfo = {
 
 type CloneStatus = "cloning" | "done" | "error";
 
-// A trackable background clone job, analogous to the runner's RunHandle.
 type CloneJob = {
   jobId: string;
   repo: string;
-  owner: string;
-  repoName: string;
   branch: string;
   clonePath: string;
   prompt: string;
@@ -35,7 +32,6 @@ type CloneJob = {
   runStartedAt: number | undefined;
 };
 
-// Injectable wrapper so tests can stub every gh/git call.
 type GhClient = {
   listRepos: () => Promise<RepoInfo[]>;
   listBranches: (owner: string, repo: string) => Promise<BranchInfo>;
@@ -66,22 +62,22 @@ const parseOwnerRepo = (repo: string): OwnerRepo => {
 const generateCloneJobId = (): string =>
   `clone_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-// Extracts the last ~300 chars of stderr for a concise error gist.
 const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
 
 const parseRepoList = (stdout: string): RepoInfo[] => {
   const raw = JSON.parse(stdout) as Array<Record<string, unknown>>;
   return raw
-    .map((r) => ({
-      nameWithOwner: typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
-      visibility: (r.visibility === "PRIVATE"
-        ? "PRIVATE"
-        : "PUBLIC") as RepoInfo["visibility"],
-      isFork: r.isFork === true,
-      updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
-      description: typeof r.description === "string" ? r.description : null,
-    }))
+    .map(
+      (r): RepoInfo => ({
+        nameWithOwner:
+          typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
+        visibility: r.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC",
+        isFork: r.isFork === true,
+        updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
+        description: typeof r.description === "string" ? r.description : null,
+      }),
+    )
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 };
@@ -180,7 +176,6 @@ const runUpdate = async (path: string, branch: string): Promise<void> => {
   }
 };
 
-// Decides clone-vs-update based on whether the deterministic path exists.
 const materialise = async (
   owner: string,
   repo: string,
