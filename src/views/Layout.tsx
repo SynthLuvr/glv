@@ -20,6 +20,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <script src="/assets/theme.js" defer></script>
       <script src="/assets/markdown-copy.js" defer></script>
       <script src="/assets/rename.js" defer></script>
+      <script src="/assets/source-picker.js" defer></script>
     </head>
     <body>{children}</body>
   </html>
