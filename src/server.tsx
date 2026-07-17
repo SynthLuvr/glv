@@ -539,11 +539,13 @@ const createApp = (
     const url = c.req.query("url") ?? "";
     const state = await resolvePrState(url, runPrState);
     if (state === "unknown") return c.html("");
+    // Swapped in via outerHTML, so the whole pill carries its state class for
+    // the tinted background + matching text/dot color.
     return c.html(
-      <Fragment>
-        <span class={`pr-dot pr-dot-${state}`} aria-hidden="true"></span>
+      <span class={`pr-state pr-state-${state}`}>
+        <span class="pr-dot" aria-hidden="true"></span>
         {STATE_LABEL[state]}
-      </Fragment>,
+      </span>,
     );
   });
 

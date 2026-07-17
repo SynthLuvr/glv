@@ -2015,6 +2015,7 @@ describe("PR chip rendering", () => {
     expect(html).toContain("#56");
     expect(html).toContain('target="_blank"');
     expect(html).toContain("/sessions/prsess/pr-state");
+    expect(html).toContain("pr-state-loading");
     expect(html).toContain("pr-dot-loading");
   });
 });
@@ -2030,21 +2031,21 @@ describe("PR status endpoint GET /sessions/:id/pr-state", () => {
       `/sessions/alpha/pr-state?url=${encodeURIComponent(url)}`,
     );
 
-  it("returns the open dot + label for OPEN", async () => {
+  it("returns a green open-tinted badge for OPEN", async () => {
     const body = await (await fetchState('{"state":"OPEN"}')).text();
-    expect(body).toContain("pr-dot-open");
+    expect(body).toContain("pr-state-open");
     expect(body).toContain("Open");
   });
 
-  it("returns the purple merged dot for MERGED", async () => {
+  it("returns a purple merged-tinted badge for MERGED", async () => {
     const body = await (await fetchState('{"state":"MERGED"}')).text();
-    expect(body).toContain("pr-dot-merged");
+    expect(body).toContain("pr-state-merged");
     expect(body).toContain("Merged");
   });
 
-  it("returns the closed dot for CLOSED", async () => {
+  it("returns a gray closed-tinted badge for CLOSED", async () => {
     const body = await (await fetchState('{"state":"CLOSED"}')).text();
-    expect(body).toContain("pr-dot-closed");
+    expect(body).toContain("pr-state-closed");
     expect(body).toContain("Closed");
   });
 

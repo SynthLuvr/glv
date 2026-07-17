@@ -75,9 +75,8 @@ const scanMessage = (message: ParsedMessage, out: PrCandidates): void => {
       if (!info.isError && isBarePrUrl(text)) out.tier1 = text.trim();
       else {
         const jsonUrl = prUrlFromJson(text);
-        if (jsonUrl !== undefined) {
-          out.tier2 = jsonUrl;
-        } else {
+        if (jsonUrl !== undefined) out.tier2 = jsonUrl;
+        else {
           const newUrl = last(findPullNewUrls(text));
           if (newUrl !== undefined) out.tier3 = newUrl;
           else out.tier5 = last(findPrUrls(text)) ?? out.tier5;
