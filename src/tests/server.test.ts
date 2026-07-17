@@ -1657,7 +1657,15 @@ describe("M5: POST /sessions", () => {
     expect(insertedIds).toHaveLength(1);
     expect(insertedIds[0]).not.toBe("old-collision");
     expect(html).toContain(`data-session-id="${insertedIds[0]}"`);
-    expect(html).not.toContain('data-session-id="old-collision"');
+    // old-collision now also appears in the sidebar list (every item carries
+    // data-session-id), so scope the negative check to the detail pane,
+    // identified by data-run-status which is detail-only.
+    expect(html).toContain(
+      `data-session-id="${insertedIds[0]}" data-run-status`,
+    );
+    expect(html).not.toMatch(
+      /data-session-id="old-collision"[^>]*data-run-status/,
+    );
   });
 
   it("rejects an empty prompt without spawning goose", async () => {
@@ -1696,5 +1704,157 @@ describe("M5: POST /sessions", () => {
     expect(html).toContain("did not create a session");
     // the orphaned run was stopped
     expect(invocations).toHaveLength(1);
+  });
+});
+
+// === Session-running indicator ===
+
+describe("session-running indicator (sidebar render)", () => {
+  it("marks a running session with data-running in the sidebar", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/");
+    const html = await res.text();
+    // The alpha card carries the data-running hook + indicator markup.
+    expect(html).toContain('data-session-id="alpha"');
+    const alphaCard = html.match(/data-session-id="alpha"[^>]*data-running/);
+    expect(alphaCard).not.toBeNull();
+    expect(html).toContain("run-indicator");
+    expect(html).toContain("run-dot");
+  });
+
+  it("omits data-running for idle sessions", async () => {
+    const app = makeApp();
+    const res = await app.request("/");
+    const html = await res.text();
+    expect(html).not.toContain("data-running");
+    // The indicator markup is always present (hidden via CSS).
+    expect(html).toContain("run-indicator");
+  });
+
+  it("only marks the running session, not its siblings", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/");
+    const html = await res.text();
+    // Beta is idle — its card must not carry data-running.
+    const betaCard = html.match(/data-session-id="beta"[^>]*data-running/);
+    expect(betaCard).toBeNull();
+  });
+
+  it("reflects the running state in the out-of-band sidebar swap", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const { html } = await postForm(app, "/sessions/alpha/rename", {
+      name: "Renamed",
+      from: "sidebar",
+    });
+    const alphaCard = html.match(/data-session-id="alpha"[^>]*data-running/);
+    expect(alphaCard).not.toBeNull();
+  });
+
+  it("removes data-running once a run reaches a terminal status", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(150);
+
+    const res = await app.request("/");
+    const html = await res.text();
+    expect(html).not.toContain("data-running");
+  });
+});
+
+describe("GET /events/status (SSE)", () => {
+  it("responds with an event-stream content type", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      statusPollMs: 15,
+      maxStatusPolls: 1,
+    });
+    const res = await app.request("/events/status");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    await res.text();
+  });
+
+  it("emits a sync event listing currently active sessions", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 15,
+      maxStatusPolls: 2,
+    });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/events/status");
+    const text = await res.text();
+    expect(text).toContain("event: sync");
+    expect(text).toContain("alpha");
+  });
+
+  it("emits an empty sync when no runs are active", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      statusPollMs: 15,
+      maxStatusPolls: 1,
+    });
+    const res = await app.request("/events/status");
+    const text = await res.text();
+    expect(text).toContain("event: sync");
+    expect(text).toContain("data: []");
+  });
+
+  it("emits status and done deltas as a run starts and ends", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 150 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 20,
+      maxStatusPolls: 25,
+    });
+
+    // Connect before any run exists — the initial sync is empty.
+    const statusPromise = (async () => {
+      const res = await app.request("/events/status");
+      return res.text();
+    })();
+    await sleep(30);
+
+    // Start a run that stays alive ~150ms, then completes.
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+    await sleep(250);
+
+    const text = await statusPromise;
+    // The feed saw alpha appear (queued/running) and then disappear (done).
+    expect(text).toContain("event: status");
+    expect(text).toContain('"sessionId":"alpha"');
+    expect(text).toContain('"status":"done"');
+  });
+
+  it("lists multiple concurrent runs in the sync snapshot", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 15,
+      maxStatusPolls: 2,
+    });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/beta/prompt", { prompt: "second" });
+
+    const res = await app.request("/events/status");
+    const text = await res.text();
+    expect(text).toContain("event: sync");
+    expect(text).toContain("alpha");
+    expect(text).toContain("beta");
+  });
+});
+
+describe("session-running indicator (client wiring)", () => {
+  it("wires the sidebar client to the global status feed", async () => {
+    const res = await makeApp().request("/assets/sidebar.js");
+    const body = await res.text();
+    expect(body).toContain("/events/status");
+    expect(body).toContain("EventSource");
+    expect(body).toContain("data-running");
   });
 });

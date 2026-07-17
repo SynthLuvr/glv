@@ -10,18 +10,25 @@ import { RenameWrap } from "./Rename.js";
 type SidebarProps = {
   sessions: SessionRow[];
   selectedId: string | undefined;
+  runningIds: Set<string>;
 };
 
 const SessionItem = ({
   session,
   selected,
+  running,
 }: {
   session: SessionRow;
   selected: boolean;
+  running: boolean;
 }) => {
   const href = `/sessions/${session.id}`;
   return (
-    <div class={`session-item${selected ? " selected" : ""}`}>
+    <div
+      class={`session-item${selected ? " selected" : ""}`}
+      data-session-id={session.id}
+      data-running={running ? "" : undefined}
+    >
       <label class="session-check-wrap" title="Select for bulk actions">
         <input
           type="checkbox"
@@ -37,6 +44,9 @@ const SessionItem = ({
           <time title={session.updated_at}>
             {fmtRelative(session.updated_at)}
           </time>
+          <span class="run-indicator" title="Session is running">
+            <span class="run-dot" />
+          </span>
           {session.provider_name !== null && (
             <span class="provider-badge">{session.provider_name}</span>
           )}
@@ -94,6 +104,7 @@ const BulkActionBar = () => (
 const SessionList = ({
   sessions,
   selectedId,
+  runningIds,
   oob = false,
 }: SidebarProps & { oob?: boolean }) => (
   <div
@@ -106,7 +117,11 @@ const SessionList = ({
   >
     <BulkActionBar />
     {sessions.map((session) => (
-      <SessionItem session={session} selected={session.id === selectedId} />
+      <SessionItem
+        session={session}
+        selected={session.id === selectedId}
+        running={runningIds.has(session.id)}
+      />
     ))}
   </div>
 );
@@ -196,6 +211,7 @@ const LogoutButton = () => (
 const Sidebar = ({
   sessions,
   selectedId,
+  runningIds,
   logout = false,
 }: SidebarProps & { logout?: boolean }) => (
   <aside class="sidebar">
@@ -220,7 +236,11 @@ const Sidebar = ({
         .
       </p>
     ) : (
-      <SessionList sessions={sessions} selectedId={selectedId} />
+      <SessionList
+        sessions={sessions}
+        selectedId={selectedId}
+        runningIds={runningIds}
+      />
     )}
     <script src="/assets/sidebar.js" defer></script>
   </aside>

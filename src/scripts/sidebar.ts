@@ -53,4 +53,63 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const setStatusIndicator = (sessionId: string, running: boolean): void => {
+  const item = document.querySelector(
+    `.session-item[data-session-id="${sessionId}"]`,
+  );
+  if (item === null) return;
+  item.toggleAttribute("data-running", running);
+};
+
+// On (re)connect the server emits a full snapshot of active session ids.
+// Reconcile every card to correct indicators that drifted during a disconnect.
+const applySync = (data: string): void => {
+  let ids: string[];
+  try {
+    ids = JSON.parse(data) as string[];
+  } catch {
+    return;
+  }
+  const active = new Set(ids);
+  for (const item of document.querySelectorAll<HTMLElement>(
+    ".session-item[data-session-id]",
+  )) {
+    const id = item.dataset.sessionId;
+    if (id !== undefined) setStatusIndicator(id, active.has(id));
+  }
+};
+
+const onStatusEvent = (data: string): void => {
+  try {
+    const { sessionId, status } = JSON.parse(data) as {
+      sessionId: string;
+      status: string;
+    };
+    setStatusIndicator(sessionId, status !== "done");
+  } catch {
+    return;
+  }
+};
+
+// Lives outside #session-list so it survives detail-pane swaps and OOB sidebar
+// refreshes.
+let statusSource: EventSource | null = null;
+
+const connectStatusFeed = (): void => {
+  if (statusSource !== null) return;
+  statusSource = new EventSource("/events/status");
+  statusSource.addEventListener("sync", (e) => {
+    applySync((e as MessageEvent).data);
+  });
+  statusSource.addEventListener("status", (e) => {
+    onStatusEvent((e as MessageEvent).data);
+  });
+  // Only null once the connection is truly closed — EventSource auto-reconnects
+  // on transient failures, and dropping the reference would leak a duplicate.
+  statusSource.addEventListener("error", () => {
+    if (statusSource?.readyState === EventSource.CLOSED) statusSource = null;
+  });
+};
+
 updateBulkBar();
+connectStatusFeed();

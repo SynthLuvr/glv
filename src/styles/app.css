@@ -269,6 +269,21 @@ body {
 .session-item.htmx-request {
   opacity: 0.5;
 }
+/* Always rendered; hidden unless the session-item carries data-running. */
+.run-indicator {
+  display: none;
+}
+.session-item[data-running] .run-indicator {
+  display: inline-flex;
+  align-items: center;
+}
+.run-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
 .session-name {
   font-weight: 600;
   font-size: 0.88rem;
