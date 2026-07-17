@@ -373,6 +373,19 @@ describe("web viewer GET /sessions/:id", () => {
     expect(html).toContain('class="archive-btn"');
     expect(html).toContain('hx-post="/sessions/alpha/archive"');
   });
+
+  it("lays out the archive button beside the title so it stays clickable", async () => {
+    const { html } = await renderSession("alpha");
+    // The button must share a flex row with the title rather than float as
+    // an absolute overlay that the full-width title container paints over
+    // (which left only a sliver of the button clickable).
+    const top = html.indexOf('class="session-header-top"');
+    const title = html.indexOf('id="session-title-wrap"');
+    const btn = html.indexOf('class="archive-btn"');
+    expect(top).toBeGreaterThan(-1);
+    expect(title).toBeGreaterThan(top);
+    expect(btn).toBeGreaterThan(title);
+  });
 });
 
 describe("transcript readability (markdown, thinking, tools)", () => {
@@ -931,6 +944,26 @@ describe("GET /sessions/:id/stream (SSE)", () => {
 
     expect(text).toContain("event: done");
     expect(text).toContain("data: error");
+  });
+
+  it("emits a running status when a queued run starts", async () => {
+    // Concurrency of one so the second prompt queues behind the first.
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 300 });
+    const app = createApp(
+      db,
+      createRunner(makeRunnerConfig(1, "goose"), spawn),
+    );
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/beta/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/beta/stream");
+    const text = await res.text();
+
+    const queuedAt = text.indexOf('"status":"queued"');
+    const runningAt = text.indexOf('"status":"running"');
+    expect(queuedAt).toBeGreaterThanOrEqual(0);
+    expect(runningAt).toBeGreaterThan(queuedAt);
+    expect(text).toContain("event: done");
   });
 });
 

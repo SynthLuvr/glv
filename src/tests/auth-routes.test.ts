@@ -168,6 +168,20 @@ describe("claimed app — login flow", () => {
     expect(await res.text()).toContain("Goose Sessions");
   });
 
+  it("re-issues the session cookie on each authenticated request", async () => {
+    const token = createSession(authDb, ownerId);
+    const res = await app.request("/", {
+      headers: { Cookie: `glv_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    const cookie = res.headers
+      .getSetCookie()
+      .find((c) => c.startsWith("glv_session="));
+    expect(cookie).toBeDefined();
+    expect(cookie).toContain(`glv_session=${token}`);
+    expect(cookie?.toLowerCase()).toContain("max-age=86400");
+  });
+
   it("rejects an unknown session cookie", async () => {
     const res = await app.request("/", {
       headers: { Cookie: "glv_session=bogus-token" },

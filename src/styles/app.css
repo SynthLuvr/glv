@@ -419,10 +419,18 @@ body {
   padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--color-border);
 }
+.session-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.session-header-top > #session-title-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .archive-btn {
-  position: absolute;
-  top: -0.15rem;
-  right: 0;
+  flex-shrink: 0;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   color: var(--color-muted);

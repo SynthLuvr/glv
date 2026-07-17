@@ -1,4 +1,6 @@
 import { type } from "arktype";
+import createDOMPurify from "dompurify";
+import { JSDOM } from "jsdom";
 import { marked } from "marked";
 import type { MessageRow, SessionRow } from "./db.js";
 
@@ -142,12 +144,16 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
 
 const HtmlString = type("string");
 
-// Assistant prose is Markdown; render it to HTML. The data comes from the
-// user's own local session logs, so marked's output is trusted as-is. The
-// return is asserted (not cast) so a stray async/Promise result surfaces as
-// a clear error rather than silently leaking into the markup.
+// One DOM window for the process — creating one per call leaks memory.
+const purify = createDOMPurify(new JSDOM("").window);
+
+// Markdown comes from a shared DB written by goose and tool output, so it
+// is untrusted; sanitize to prevent stored XSS.
 const renderMarkdown = (md: string): string =>
-  HtmlString.assert(marked.parse(md, { gfm: true, breaks: true }));
+  purify.sanitize(
+    HtmlString.assert(marked.parse(md, { gfm: true, breaks: true })),
+    { USE_PROFILES: { html: true } },
+  );
 
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max - 1)}…`;
