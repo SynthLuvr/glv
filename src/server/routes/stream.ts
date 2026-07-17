@@ -91,6 +91,17 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         polls++;
         await stream.sleep(ctx.tailPollMs);
         if (stream.aborted) return;
+
+        // A session deleted mid-connection leaves no terminal signal:
+        // listMessages returns [], deltas flatten to nothing, and the loop
+        // would spin forever. Tear the stream down so the client closes its
+        // EventSource instead of reconnecting against a missing session.
+        const session = getSession(ctx.db, id);
+        if (session === undefined) {
+          await emit(stream, "done", "deleted");
+          return;
+        }
+
         const rows = listMessages(ctx.db, id);
         const messages = rows.map(parseMessage);
         const common = Math.min(snapshots.length, rows.length);
@@ -117,8 +128,6 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         snapshots = rows.map((row) => row.content_json);
 
         if (!changed) continue;
-        const session = getSession(ctx.db, id);
-        if (session === undefined) continue;
         if (!(await emitMeta(stream, session))) return;
       }
     });

@@ -190,6 +190,12 @@ const connectTail = (root: Element): void => {
     }
   });
 
+  // The server emits `done` once the session is deleted so the client stops
+  // polling instead of reconnecting against a missing session.
+  activeSource.addEventListener("done", () => {
+    teardown();
+  });
+
   activeSource.addEventListener("error", () => {
     teardownIfClosed();
   });

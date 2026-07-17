@@ -1584,6 +1584,33 @@ describe("GET /sessions/:id/tail (SSE)", () => {
 
     expect(text).toContain("event: meta");
   });
+
+  it("emits a done event and terminates when the session is deleted", async () => {
+    const delDir = mkdtempSync(join(tmpdir(), "glv-tail-del-"));
+    const delDb = new DatabaseSync(join(delDir, "sessions.db"));
+    seed(delDb);
+    const app = createApp(delDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 8,
+    });
+
+    const res = await app.request("/sessions/alpha/tail");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    // Let the handler capture its baseline and poll once before the session
+    // is removed, then delete it mid-connection.
+    await sleep(40);
+    delDb.prepare("DELETE FROM sessions WHERE id = ?").run("alpha");
+
+    const text = await res.text();
+    delDb.close();
+    rmSync(delDir, { recursive: true, force: true });
+
+    // The handler must emit a terminal event and close rather than spinning
+    // on an empty result set forever.
+    expect(text).toContain("event: done");
+    expect(text).toContain("deleted");
+  });
 });
 
 describe("listHomeDirs", () => {
