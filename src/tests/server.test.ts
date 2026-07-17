@@ -1890,6 +1890,45 @@ describe("M5: POST /sessions", () => {
     for (const key of runner.registry.keys()) expect(key).not.toMatch(/^tmp_/);
   });
 
+  it("serializes concurrent submissions for the same dir without orphaning a run", async () => {
+    const { spawn, insertedIds, killCalls } = createNewSessionSpawn(
+      newDb,
+      ["x"],
+      { delayMs: 300 },
+    );
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(newDb, runner, { pollTimeoutMs: 5000 });
+
+    const [r1, r2] = await Promise.all([
+      postForm(
+        app,
+        "/sessions",
+        { prompt: "first", working_dir: newDir },
+        { "HX-Request": "true" },
+      ),
+      postForm(
+        app,
+        "/sessions",
+        { prompt: "second", working_dir: newDir },
+        { "HX-Request": "true" },
+      ),
+    ]);
+
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(insertedIds).toHaveLength(2);
+    const id1 = r1.html.match(/data-session-id="([^"]+)" data-run-status/)?.[1];
+    const id2 = r2.html.match(/data-session-id="([^"]+)" data-run-status/)?.[1];
+    expect(id1).not.toBe(id2);
+
+    // Both real ids are tracked; no temp keys leak in the registry.
+    expect(getHandle(runner, id1!)).toBeDefined();
+    expect(getHandle(runner, id2!)).toBeDefined();
+    for (const key of runner.registry.keys()) expect(key).not.toMatch(/^tmp_/);
+    // No run was killed as a collision.
+    expect(killCalls).toHaveLength(0);
+  });
+
   it("does not match a pre-existing session in the same working dir", async () => {
     newDb
       .prepare(

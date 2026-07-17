@@ -72,6 +72,7 @@ type ServerContext = {
   readonly cloneJobs: Map<string, CloneJob>;
   readonly cloneJobTtlMs: number;
   readonly cloneJobSweepMs: number;
+  readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };
 

@@ -44,6 +44,7 @@ const createApp = (
     cloneJobs: new Map(),
     cloneJobTtlMs: opts.cloneJobTtlMs ?? CLONE_JOB_TTL_MS,
     cloneJobSweepMs: opts.cloneJobSweepMs ?? CLONE_JOB_SWEEP_MS,
+    createLocks: new Map(),
     assets: buildAssetBundle(),
   };
 
