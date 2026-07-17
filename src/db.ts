@@ -2,8 +2,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { defineTable, placeholders } from "./query";
 
-const SessionRow = type({
+const sessionShape = {
   id: "string",
   name: "string",
   user_set_name: "number | null",
@@ -15,30 +16,42 @@ const SessionRow = type({
   total_tokens: "number | null",
   provider_name: "string | null",
   archived_at: "string | null",
-});
+} as const;
+
+const SessionRow = type(sessionShape);
 
 type SessionRow = typeof SessionRow.infer;
 
-const MessageRow = type({
+const messageShape = {
   message_id: "string | null",
   session_id: "string",
   role: "string",
   content_json: "string",
   created_timestamp: "number",
   timestamp: "string",
-});
+} as const;
+
+const MessageRow = type(messageShape);
 
 type MessageRow = typeof MessageRow.infer;
-
-const IdRow = type({
-  id: "string",
-});
 
 type SessionFilter = {
   type: string;
   limit: number;
   includeArchived: boolean;
 };
+
+const sessions = defineTable({
+  table: "sessions",
+  columns: Object.keys(sessionShape),
+  schema: SessionRow,
+});
+
+const messages = defineTable({
+  table: "messages",
+  columns: Object.keys(messageShape),
+  schema: MessageRow,
+});
 
 const defaultDbPath = (): string =>
   join(homedir(), ".local", "share", "goose", "sessions", "sessions.db");
@@ -60,18 +73,6 @@ const openDb = (
   }
 };
 
-const sessionColumns =
-  "id, name, user_set_name, description, session_type, working_dir, " +
-  "created_at, updated_at, total_tokens, provider_name, archived_at";
-
-const validateRows = <T>(
-  schema: (data: unknown) => T | type.errors,
-  rows: unknown[],
-): T[] =>
-  rows
-    .map((row) => schema(row))
-    .filter((r): r is T => !(r instanceof type.errors));
-
 const listSessions = (
   db: DatabaseSync,
   filter: SessionFilter,
@@ -83,53 +84,56 @@ const listSessions = (
     params.push(filter.type);
   }
   if (!filter.includeArchived) clauses.push("archived_at IS NULL");
-  const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
-  const sql = `SELECT ${sessionColumns} FROM sessions ${where} ORDER BY updated_at DESC LIMIT ?`;
-  params.push(filter.limit);
-  return validateRows(SessionRow, db.prepare(sql).all(...params));
+  const where = clauses.length === 0 ? undefined : clauses.join(" AND ");
+  return sessions.all(db, {
+    where,
+    params,
+    orderBy: "updated_at DESC",
+    limit: filter.limit,
+  });
 };
 
-const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
-  const row = db
-    .prepare(`SELECT ${sessionColumns} FROM sessions WHERE id = ?`)
-    .get(id);
-  if (row === undefined) return undefined;
-  const result = SessionRow(row);
-  if (result instanceof type.errors) return undefined;
-  return result;
-};
+const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
+  sessions.one(db, { where: "id = ?", params: [id] });
 
-const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] => {
-  const sql =
-    "SELECT message_id, session_id, role, content_json, created_timestamp, " +
-    "timestamp FROM messages WHERE session_id = ? ORDER BY created_timestamp ASC";
-  return validateRows(MessageRow, db.prepare(sql).all(sessionId));
-};
+const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
+  messages.all(db, {
+    where: "session_id = ?",
+    params: [sessionId],
+    orderBy: "created_timestamp ASC",
+  });
 
 // Lets the new-session poll distinguish a freshly created session from
-// pre-existing ones in the same working dir.
+// pre-existing ones in the same working dir. Projects only `id` and validates
+// leniently so a half-written row is still recognised.
 const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
-  const rows = db
-    .prepare("SELECT id FROM sessions WHERE working_dir = ?")
-    .all(workingDir);
-  return validateRows(IdRow, rows).map((row) => row.id);
+  const idOnly = defineTable({
+    table: "sessions",
+    columns: ["id"],
+    schema: type({ id: "string" }),
+  });
+  return idOnly
+    .all(db, { where: "working_dir = ?", params: [workingDir] })
+    .map((row) => row.id);
 };
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
-  const placeholders = ids.map(() => "?").join(", ");
-  const sql =
-    "UPDATE sessions SET archived_at = CURRENT_TIMESTAMP " +
-    `WHERE id IN (${placeholders}) AND archived_at IS NULL`;
-  db.prepare(sql).run(...ids);
+  sessions.update(db, {
+    set: "archived_at = CURRENT_TIMESTAMP",
+    where: `id IN (${placeholders(ids.length)}) AND archived_at IS NULL`,
+    params: ids,
+  });
 };
 
 // A blank name clears the user-set flag.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
-  db.prepare(
-    "UPDATE sessions SET name = ?, user_set_name = ? WHERE id = ?",
-  ).run(name, name === "" ? 0 : 1, id);
+  sessions.update(db, {
+    set: "name = ?, user_set_name = ?",
+    where: "id = ?",
+    params: [name, name === "" ? 0 : 1, id],
+  });
 };
 
 export type { MessageRow, SessionFilter, SessionRow };

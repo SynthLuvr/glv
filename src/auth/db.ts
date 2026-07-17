@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { defineTable, placeholders, transaction } from "../query";
 
 const SESSION_TTL_SECONDS = 86400;
 
@@ -75,17 +76,37 @@ const parseTransports = (raw: string | null): string[] => {
   }
 };
 
-// Validated at the SQLite boundary rather than cast, mirroring the sessions
-// database module. Rows that drift from the expected shape are dropped.
-const CredentialRow = type({
+const credentialShape = {
   id: "string",
   user_id: "string",
   public_key: "unknown",
   counter: "number",
   transports: "string | null",
-});
+} as const;
+
+const CredentialRow = type(credentialShape);
 
 type CredentialRow = typeof CredentialRow.infer;
+
+// Validated at the SQLite boundary rather than cast, mirroring the sessions
+// database module. Rows that drift from the expected shape are dropped.
+const credentials = defineTable({
+  table: "credentials",
+  columns: Object.keys(credentialShape),
+  schema: CredentialRow,
+});
+
+const users = defineTable({
+  table: "users",
+  columns: ["id"],
+  schema: type({ id: "string" }),
+});
+
+const sessions = defineTable({
+  table: "sessions",
+  columns: ["id"],
+  schema: type({ id: "string" }),
+});
 
 const mapCredential = (row: CredentialRow): StoredCredential => ({
   id: row.id,
@@ -95,112 +116,83 @@ const mapCredential = (row: CredentialRow): StoredCredential => ({
   transports: parseTransports(row.transports),
 });
 
-const CountRow = type({
-  n: "number",
-});
-
-const userCount = (db: DatabaseSync): number => {
-  const result = CountRow(db.prepare("SELECT COUNT(*) AS n FROM users").get());
-  return result instanceof type.errors ? 0 : result.n;
-};
+const userCount = (db: DatabaseSync): number => users.count(db);
 
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
-const credentialCols = "id, user_id, public_key, counter, transports";
-
-const toCredential = (row: unknown): StoredCredential | undefined => {
-  const result = CredentialRow(row);
-  return result instanceof type.errors ? undefined : mapCredential(result);
-};
-
-const validateCredentials = (rows: unknown[]): StoredCredential[] =>
-  rows.map(toCredential).filter((c): c is StoredCredential => c !== undefined);
-
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
-  validateCredentials(
-    db.prepare(`SELECT ${credentialCols} FROM credentials`).all(),
-  );
+  credentials.all(db).map(mapCredential);
 
 const getCredential = (
   db: DatabaseSync,
   id: string,
 ): StoredCredential | undefined => {
-  const row = db
-    .prepare(`SELECT ${credentialCols} FROM credentials WHERE id = ?`)
-    .get(id);
-  return row === undefined ? undefined : toCredential(row);
+  const row = credentials.one(db, { where: "id = ?", params: [id] });
+  if (row === undefined) return undefined;
+  return mapCredential(row);
 };
 
 const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
   const userId = randomUUID();
-  db.exec("BEGIN");
-  try {
-    db.prepare("INSERT INTO users (id, username) VALUES (?, 'owner')").run(
-      userId,
-    );
-    db.prepare(
-      "INSERT INTO credentials " +
-        "(id, user_id, public_key, counter, transports) " +
-        "VALUES (?, ?, ?, ?, ?)",
-    ).run(
-      credential.id,
-      userId,
-      credential.publicKey,
-      credential.counter,
-      JSON.stringify(credential.transports),
-    );
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+  transaction(db, () => {
+    users.insert(db, {
+      columns: ["id", "username"],
+      values: placeholders(2),
+      params: [userId, "owner"],
+    });
+    credentials.insert(db, {
+      columns: ["id", "user_id", "public_key", "counter", "transports"],
+      values: placeholders(5),
+      params: [
+        credential.id,
+        userId,
+        credential.publicKey,
+        credential.counter,
+        JSON.stringify(credential.transports),
+      ],
+    });
+  });
   return userId;
 };
 
-const updateCounter = (db: DatabaseSync, id: string, counter: number): void => {
-  db.prepare("UPDATE credentials SET counter = ? WHERE id = ?").run(
-    counter,
-    id,
-  );
-};
+const updateCounter = (db: DatabaseSync, id: string, counter: number): void =>
+  credentials.update(db, {
+    set: "counter = ?",
+    where: "id = ?",
+    params: [counter, id],
+  });
 
 const newToken = (): string => randomBytes(32).toString("base64url");
 
 const createSession = (db: DatabaseSync, userId: string): string => {
   const token = newToken();
-  db.prepare(
-    "INSERT INTO sessions (id, user_id, expires_at) " +
-      "VALUES (?, ?, datetime('now', '+1 day'))",
-  ).run(token, userId);
+  sessions.insert(db, {
+    columns: ["id", "user_id", "expires_at"],
+    values: "?, ?, datetime('now', '+1 day')",
+    params: [token, userId],
+  });
   return token;
 };
 
-const OkRow = type({
-  ok: "number",
-});
-
 const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
   if (token === undefined || token === "") return false;
-  const result = OkRow(
-    db
-      .prepare(
-        "SELECT 1 AS ok FROM sessions " +
-          "WHERE id = ? AND expires_at > datetime('now')",
-      )
-      .get(token),
+  return (
+    sessions.count(db, {
+      where: "id = ? AND expires_at > datetime('now')",
+      params: [token],
+    }) > 0
   );
-  return !(result instanceof type.errors);
 };
 
-const refreshSession = (db: DatabaseSync, token: string): void => {
-  db.prepare(
-    "UPDATE sessions SET expires_at = datetime('now', '+1 day') WHERE id = ?",
-  ).run(token);
-};
+const refreshSession = (db: DatabaseSync, token: string): void =>
+  sessions.update(db, {
+    set: "expires_at = datetime('now', '+1 day')",
+    where: "id = ?",
+    params: [token],
+  });
 
-const deleteSession = (db: DatabaseSync, token: string): void => {
-  db.prepare("DELETE FROM sessions WHERE id = ?").run(token);
-};
+const deleteSession = (db: DatabaseSync, token: string): void =>
+  sessions.remove(db, { where: "id = ?", params: [token] });
 
 export type { NewCredential, StoredCredential };
 export {
