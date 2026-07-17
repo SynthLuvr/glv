@@ -43,7 +43,8 @@ const prUrlFromJson = (text: string): string | undefined => {
 
 // Ranked by confidence of being "the PR this session created". Higher rank
 // always wins; within a rank the latest mention wins (recency beats
-// frequency, which is gamed by changelogs).
+// frequency, which is gamed by changelogs). `pushLink` is intentionally
+// excluded from the ranking: a `pull/new` link is an invitation, not a PR.
 type PrCandidates = {
   created?: string;
   mcpResult?: string;
@@ -106,15 +107,28 @@ const scanMessage = (message: ParsedMessage, out: PrCandidates): void => {
 };
 
 // Reads only content already loaded for the page — no extra latency.
+const scanCandidates = (messages: readonly ParsedMessage[]): PrCandidates => {
+  const out: PrCandidates = {};
+  for (const message of messages) scanMessage(message, out);
+  return out;
+};
+
+// The detected PR URL — never a `pull/new/<branch>` invitation. A `pull/new`
+// link is *not* an existing PR, so it is excluded from the ranking and
+// surfaced separately by `detectCreatePrUrl` for a "Create PR" affordance.
 const detectPrUrl = (
   messages: readonly ParsedMessage[],
 ): string | undefined => {
-  const out: PrCandidates = {};
-  for (const message of messages) scanMessage(message, out);
-  return (
-    out.created ?? out.mcpResult ?? out.summary ?? out.mention ?? out.pushLink
-  );
+  const { created, mcpResult, summary, mention } = scanCandidates(messages);
+  return created ?? mcpResult ?? summary ?? mention;
 };
+
+// A `git push` "Create a pull request … pull/new/<branch>" hint — an
+// invitation to open a PR, not one that exists yet. Useful for rendering a
+// "Create PR" affordance, but never the session's PR itself.
+const detectCreatePrUrl = (
+  messages: readonly ParsedMessage[],
+): string | undefined => scanCandidates(messages).pushLink;
 
 const prLabel = (url: string): string => {
   const match = /\/pull\/(\d+)/.exec(url);
@@ -180,4 +194,4 @@ const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
 };
 
 export type { CommandRunner, PrState };
-export { detectPrUrl, prLabel, resolvePrState, STATE_LABEL };
+export { detectCreatePrUrl, detectPrUrl, prLabel, resolvePrState, STATE_LABEL };
