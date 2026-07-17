@@ -33,6 +33,14 @@ import {
   type ParsedMessage,
   parseMessage,
 } from "./format.js";
+import {
+  type CloneJob,
+  clonePathFor,
+  createGhClient,
+  type GhClient,
+  generateCloneJobId,
+  parseOwnerRepo,
+} from "./gh.js";
 import type { RunHandle, Runner, RunStatus } from "./runner.js";
 import {
   enqueue,
@@ -49,10 +57,12 @@ import { SessionTitleWrap } from "./views/Rename.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
+  CloningView,
   hasContent,
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
+  type SourceType,
   Transcript,
 } from "./views/Transcript.js";
 
@@ -255,6 +265,7 @@ const createApp = (
     /** Bounds status-feed poll iterations so tests can drain the stream. */
     maxStatusPolls?: number;
     listDirs?: () => string[];
+    gh?: GhClient;
     auth?: AuthService;
     rpName?: string;
     rpIdOverride?: string;
@@ -266,6 +277,8 @@ const createApp = (
   const statusPollMs = opts.statusPollMs ?? 1000;
   const maxStatusPolls = opts.maxStatusPolls ?? Infinity;
   const listDirs = opts.listDirs ?? listHomeDirs;
+  const gh = opts.gh ?? createGhClient();
+  const cloneJobs = new Map<string, CloneJob>();
   // Inside createApp so serve can build assets before these reads.
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
@@ -273,6 +286,7 @@ const createApp = (
   const themeScript = readAsset("../dist/theme.js");
   const markdownCopyScript = readAsset("../dist/markdown-copy.js");
   const renameScript = readAsset("../dist/rename.js");
+  const sourcePickerScript = readAsset("../dist/source-picker.js");
   const passkeyScript = readAsset("../dist/passkey.js");
   const auth = opts.auth;
   const app = new Hono<AppEnv>();
@@ -363,11 +377,19 @@ const createApp = (
       { status: 404 },
     );
 
-  const newSessionDetail = (error?: string): Child => (
+  const newSessionDetail = (
+    error?: string,
+    source: SourceType = "working_dir",
+    repo?: string,
+    branch?: string,
+  ): Child => (
     <NewSessionForm
       workingDir={process.cwd()}
       dirs={listDirs()}
       error={error}
+      source={source}
+      repo={repo}
+      branch={branch}
     />
   );
 
@@ -391,6 +413,9 @@ const createApp = (
   );
   app.get("/assets/rename.js", (c) =>
     serveAsset(c, renameScript, "application/javascript; charset=utf-8"),
+  );
+  app.get("/assets/source-picker.js", (c) =>
+    serveAsset(c, sourcePickerScript, "application/javascript; charset=utf-8"),
   );
   app.get("/assets/passkey.js", (c) =>
     serveAsset(c, passkeyScript, "application/javascript; charset=utf-8"),
@@ -457,21 +482,251 @@ const createApp = (
     return render(c, sessions, undefined, newSessionDetail());
   });
 
+  app.get("/github/repos", async (c) => {
+    try {
+      const repos = await gh.listRepos();
+      return c.json({ ok: true, repos });
+    } catch (err) {
+      return c.json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get("/github/repos/:owner/:repo/branches", async (c) => {
+    const owner = c.req.param("owner");
+    const repo = c.req.param("repo");
+    try {
+      const info = await gh.listBranches(owner, repo);
+      return c.json({ ok: true, ...info });
+    } catch (err) {
+      return c.json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get("/github/clone-status/:jobId", (c) => {
+    const jobId = c.req.param("jobId");
+    const job = cloneJobs.get(jobId);
+    const sessions = listSessions(db, VIEWER_FILTER);
+
+    if (job === undefined)
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail("Clone job not found."),
+        { status: 404 },
+      );
+
+    if (job.status === "cloning")
+      return render(
+        c,
+        sessions,
+        undefined,
+        <CloningView
+          repo={job.repo}
+          branch={job.branch}
+          jobId={job.jobId}
+          cloning={true}
+        />,
+      );
+
+    if (job.status === "error") {
+      cloneJobs.delete(jobId);
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(
+          job.error ?? "Clone failed.",
+          "github",
+          job.repo,
+          job.branch,
+        ),
+        { status: 422 },
+      );
+    }
+
+    // status === "done" — goose run has been enqueued; poll for the session.
+    if (
+      job.tempKey === undefined ||
+      job.known === undefined ||
+      job.runStartedAt === undefined
+    )
+      return render(
+        c,
+        sessions,
+        undefined,
+        <CloningView
+          repo={job.repo}
+          branch={job.branch}
+          jobId={job.jobId}
+          cloning={false}
+        />,
+      );
+
+    if (Date.now() - job.runStartedAt > pollTimeoutMs) {
+      stop(runner, job.tempKey);
+      cloneJobs.delete(jobId);
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(SESSION_TIMEOUT_ERROR, "github", job.repo, job.branch),
+        { status: 502 },
+      );
+    }
+
+    const realId = sessionIdsInDir(db, job.clonePath).find(
+      (id) => !job.known!.has(id),
+    );
+    if (realId === undefined)
+      return render(
+        c,
+        sessions,
+        undefined,
+        <CloningView
+          repo={job.repo}
+          branch={job.branch}
+          jobId={job.jobId}
+          cloning={false}
+        />,
+      );
+
+    rekey(runner, job.tempKey, realId);
+    cloneJobs.delete(jobId);
+    const session = getSession(db, realId);
+    if (session === undefined) {
+      stop(runner, realId);
+      return render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(SESSION_TIMEOUT_ERROR, "github", job.repo, job.branch),
+        { status: 502 },
+      );
+    }
+
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      realId,
+      <Transcript
+        session={session}
+        messages={listMessages(db, realId).map(parseMessage)}
+        run={getHandle(runner, realId)}
+        prompt={job.prompt}
+      />,
+      { refreshSidebar: true },
+    );
+  });
+
   app.post("/sessions", async (c) => {
     const sessions = listSessions(db, VIEWER_FILTER);
-    const reject = (error: string, status: ContentfulStatusCode) =>
-      render(c, sessions, undefined, newSessionDetail(error), { status });
-
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const source: SourceType =
+      typeof body.source === "string" && body.source === "github"
+        ? "github"
+        : "working_dir";
+    const repoVal = typeof body.repo === "string" ? body.repo.trim() : "";
+    const branchVal = typeof body.branch === "string" ? body.branch.trim() : "";
+
+    const rejectForm = (
+      error: string,
+      status: ContentfulStatusCode,
+      src: SourceType = source,
+    ) =>
+      render(
+        c,
+        sessions,
+        undefined,
+        newSessionDetail(
+          error,
+          src,
+          repoVal || undefined,
+          branchVal || undefined,
+        ),
+        { status },
+      );
+
+    if (prompt === "")
+      return rejectForm("A prompt is required to start a session.", 422);
+
+    if (source === "github") {
+      if (repoVal === "" || branchVal === "")
+        return rejectForm(
+          "A repository and branch are required for GitHub mode.",
+          422,
+          "github",
+        );
+
+      let parsed: { owner: string; repo: string };
+      try {
+        parsed = parseOwnerRepo(repoVal);
+      } catch {
+        return rejectForm(
+          "Invalid repository format. Expected owner/name.",
+          422,
+          "github",
+        );
+      }
+
+      const clonePath = clonePathFor(parsed.owner, parsed.repo);
+      const jobId = generateCloneJobId();
+      const job: CloneJob = {
+        jobId,
+        repo: repoVal,
+        owner: parsed.owner,
+        repoName: parsed.repo,
+        branch: branchVal,
+        clonePath,
+        prompt,
+        status: "cloning",
+        error: undefined,
+        tempKey: undefined,
+        known: undefined,
+        runStartedAt: undefined,
+      };
+      cloneJobs.set(jobId, job);
+
+      void (async () => {
+        try {
+          await gh.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
+          job.tempKey = generateTempKey();
+          job.known = new Set(sessionIdsInDir(db, clonePath));
+          job.runStartedAt = Date.now();
+          enqueueNew(runner, job.tempKey, prompt, clonePath);
+          job.status = "done";
+        } catch (err) {
+          job.status = "error";
+          job.error = err instanceof Error ? err.message : String(err);
+        }
+      })();
+
+      return render(
+        c,
+        sessions,
+        undefined,
+        <CloningView
+          repo={repoVal}
+          branch={branchVal}
+          jobId={jobId}
+          cloning={true}
+        />,
+      );
+    }
+
+    // Working directory flow (unchanged behaviour)
     const workingDir = expandHome(
       typeof body.working_dir === "string" ? body.working_dir.trim() : "",
     );
-
-    if (prompt === "")
-      return reject("A prompt is required to start a session.", 422);
     if (workingDir === "" || !existsSync(workingDir))
-      return reject("That working directory does not exist.", 422);
+      return rejectForm("That working directory does not exist.", 422);
 
     const tempKey = generateTempKey();
     const known = new Set(sessionIdsInDir(db, workingDir));
@@ -479,7 +734,7 @@ const createApp = (
 
     const rejectTimeout = (key: string) => {
       stop(runner, key);
-      return reject(SESSION_TIMEOUT_ERROR, 502);
+      return rejectForm(SESSION_TIMEOUT_ERROR, 502);
     };
     const realId = await pollForSessionId(db, workingDir, known, pollTimeoutMs);
     if (realId === undefined) return rejectTimeout(tempKey);
