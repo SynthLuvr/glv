@@ -926,3 +926,163 @@ describe("generateTempKey", () => {
     expect(keys.size).toBe(200);
   });
 });
+
+describe("line buffer cap", () => {
+  it("retains only the most recent lines up to maxLines", async () => {
+    const { spawn } = createMockSpawn(["l1", "l2", "l3", "l4", "l5"]);
+    const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(handle.lines).toEqual(["l3", "l4", "l5"]);
+    expect(handle.droppedLines).toBe(2);
+  });
+
+  it("keeps every line when output stays under the cap", async () => {
+    const { spawn } = createMockSpawn(["l1", "l2"]);
+    const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(handle.lines).toEqual(["l1", "l2"]);
+    expect(handle.droppedLines).toBe(0);
+  });
+
+  it("still invokes onLine for every line, even ones later evicted", async () => {
+    const { spawn } = createMockSpawn(["l1", "l2", "l3", "l4", "l5"]);
+    const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
+    const received: string[] = [];
+    const handle = enqueue(runner, "s1", "hi", "/tmp", {
+      onLine: (line) => received.push(line),
+    });
+    await waitForStatus(handle, "completed");
+    expect(received).toEqual(["l1", "l2", "l3", "l4", "l5"]);
+  });
+
+  it("caps lines across chained runs, tracking dropped count", async () => {
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 10 });
+    const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    enqueueOrQueue(runner, "s1", "third", "/tmp");
+    await waitForStatus(handle, "completed");
+    // Six lines (a,b x3); only the newest three are retained.
+    expect(handle.lines).toEqual(["b", "a", "b"]);
+    expect(handle.droppedLines).toBe(3);
+  });
+});
+
+describe("terminal handle eviction", () => {
+  it("evicts a completed handle after the retention window", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 20),
+      spawn,
+    );
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+    // Still present immediately after completion (within retention)...
+    expect(getHandle(runner, "s1")).toBeDefined();
+    // ...then evicted once the window elapses.
+    await waitFor(() => getHandle(runner, "s1") === undefined);
+    expect(runner.registry.has("s1")).toBe(false);
+  });
+
+  it("keeps a terminal handle queryable during the retention window", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 5000),
+      spawn,
+    );
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(getStatus(runner, "s1")).toBe("completed");
+  });
+
+  it("evicts a running-then-stopped handle after the retention window", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 20),
+      spawn,
+    );
+    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    await waitForStatus(handle, "running");
+    stop(runner, "s1");
+    await waitForStatus(handle, "stopped");
+    expect(getHandle(runner, "s1")).toBeDefined();
+    await waitFor(() => getHandle(runner, "s1") === undefined);
+  });
+
+  it("evicts a handle stopped while still queued", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 300 });
+    const runner = createRunner(
+      makeRunnerConfig(1, "goose", 5000, 5000, 20),
+      spawn,
+    );
+    enqueue(runner, "s1", "hi", "/tmp");
+    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    expect(h2.status).toBe("queued");
+    stop(runner, "s2");
+    await waitForStatus(h2, "stopped");
+    await waitFor(() => getHandle(runner, "s2") === undefined);
+  });
+
+  it("allows re-enqueue after eviction", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 20),
+      spawn,
+    );
+    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(h1, "completed");
+    await waitFor(() => getHandle(runner, "s1") === undefined);
+    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(h2, "completed");
+    expect(h2.prompt).toBe("second");
+  });
+
+  it("replaces a retained terminal handle on re-enqueue", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 20000),
+      spawn,
+    );
+    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(h1, "completed");
+    expect(runner.registry.size).toBe(1);
+    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(h2, "completed");
+    expect(runner.registry.size).toBe(1);
+    expect(runner.registry.get("s1")).toBe(h2);
+  });
+
+  it("does not evict a re-enqueued handle via the previous timer", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 100 });
+    const runner = createRunner(
+      makeRunnerConfig(1, "goose", 5000, 5000, 30),
+      spawn,
+    );
+    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(h1, "completed");
+    // h1's 30ms eviction timer is armed; immediately re-enqueue the slot.
+    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(h2, "running");
+    // Well past where h1's timer would have fired.
+    await sleep(80);
+    expect(runner.registry.get("s1")).toBe(h2);
+    await waitForStatus(h2, "completed");
+  });
+
+  it("bounds the registry: completed runs do not accumulate", async () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(
+      makeRunnerConfig(2, "goose", 5000, 5000, 20),
+      spawn,
+    );
+    for (let i = 0; i < 10; i++) {
+      const h = enqueue(runner, `s${i}`, "hi", "/tmp");
+      await waitForStatus(h, "completed");
+    }
+    // Every terminal handle is eventually reaped; the registry drains.
+    await waitFor(() => runner.registry.size === 0);
+  });
+});

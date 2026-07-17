@@ -20,12 +20,18 @@ const emit = async (
   }
 };
 
+// `from` and `dropped` are absolute line-sequence counts: `dropped` is how
+// many oldest lines the ring buffer has evicted, so the real start index is
+// max(from, dropped) - dropped. A live stream keeps its monotonic `sent`
+// offset intact even as the buffer trims the distant past.
 const flushLines = async (
   stream: SSEStreamingApi,
   lines: string[],
+  dropped: number,
   from: number,
 ): Promise<boolean> => {
-  for (let i = from; i < lines.length; i++) {
+  const start = Math.max(from, dropped) - dropped;
+  for (let i = start; i < lines.length; i++) {
     const html = renderStreamLine(lines[i]);
     if (html !== "" && !(await emit(stream, "line", html))) return false;
   }

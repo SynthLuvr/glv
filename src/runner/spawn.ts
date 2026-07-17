@@ -123,6 +123,11 @@ const runProcess = async (
   for await (const line of proc.stdout) {
     if (handle.status === "stopped") break;
     handle.lines.push(line);
+    const excess = handle.lines.length - runner.config.maxLines;
+    if (excess > 0) {
+      handle.lines.splice(0, excess);
+      handle.droppedLines += excess;
+    }
     handle.onLine?.(line);
   }
 

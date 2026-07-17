@@ -25,7 +25,8 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
       // Idle or terminal: flush catch-up output, then close.
       if (handle === undefined || isTerminalStatus(handle.status)) {
-        if (handle !== undefined) await flushLines(stream, handle.lines, 0);
+        if (handle !== undefined)
+          await flushLines(stream, handle.lines, handle.droppedLines, 0);
         await emit(stream, "done", handle?.status ?? "idle");
         return;
       }
@@ -56,12 +57,15 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
             return;
           lastStartedCount++;
         }
-        if (!(await flushLines(stream, handle.lines, sent))) return;
-        sent = handle.lines.length;
+        if (
+          !(await flushLines(stream, handle.lines, handle.droppedLines, sent))
+        )
+          return;
+        sent = handle.droppedLines + handle.lines.length;
         await stream.sleep(50);
       }
 
-      await flushLines(stream, handle.lines, sent);
+      await flushLines(stream, handle.lines, handle.droppedLines, sent);
       await emit(
         stream,
         "status",
