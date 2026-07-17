@@ -717,6 +717,52 @@ describe("web viewer rename", () => {
     expect(status).toBe(404);
     expect(html).toContain("Session not found");
   });
+
+  // Pressing Enter must rename in place via htmx. requestSubmit() can fall
+  // through to a native POST on the action-less form, navigating to a 404, so
+  // the client routes the submit through htmx.trigger instead.
+  it("submits the rename through htmx on Enter (no native navigation)", async () => {
+    const html = await (await app().request("/sessions/alpha")).text();
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+    const input = document.querySelector<HTMLInputElement>(
+      "#session-title-wrap input.rename-input",
+    );
+    const form = input?.form ?? null;
+    expect(form).toBeInstanceOf(dom.window.HTMLFormElement);
+
+    let nativeSubmits = 0;
+    if (form !== null)
+      (form as unknown as { requestSubmit: () => void }).requestSubmit =
+        (): void => {
+          nativeSubmits += 1;
+        };
+    const htmxCalls: unknown[] = [];
+    const htmx = {
+      trigger: (elt: unknown, event: string): void => {
+        htmxCalls.push([elt, event]);
+      },
+    };
+
+    const renameJs = await (await app().request("/assets/rename.js")).text();
+    vm.runInNewContext(renameJs, {
+      document,
+      HTMLInputElement: dom.window.HTMLInputElement,
+      Element: dom.window.Element,
+      htmx,
+    });
+
+    input?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(nativeSubmits).toBe(0);
+    expect(htmxCalls).toEqual([[form, "submit"]]);
+  });
 });
 
 // === M2: prompt runner HTTP API tests ===

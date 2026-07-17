@@ -30,6 +30,24 @@ const editActions: Record<string, (wrap: Element) => void> = {
   "cancel-rename": exitEdit,
 };
 
+// Submitting through requestSubmit() depends on htmx intercepting the synthetic
+// submit event. When it doesn't, the action-less form POSTs to the current URL
+// and the browser navigates to a 404. Driving the request through htmx directly
+// keeps Enter (and blur-to-save) an in-place rename with no page navigation.
+const submitRename = (form: HTMLFormElement | null): void => {
+  if (form === null) return;
+  const htmx = (
+    globalThis as unknown as {
+      htmx?: { trigger: (elt: HTMLFormElement, event: string) => void };
+    }
+  ).htmx;
+  if (htmx !== undefined) {
+    htmx.trigger(form, "submit");
+    return;
+  }
+  form.requestSubmit();
+};
+
 // Document-level delegation survives the out-of-band sidebar swaps that
 // renaming (and archiving) trigger, mirroring sidebar.ts.
 document.addEventListener("click", (e) => {
@@ -50,7 +68,7 @@ document.addEventListener("keydown", (e) => {
   if (wrap === null) return;
   if (e.key === "Enter") {
     e.preventDefault();
-    input.form?.requestSubmit();
+    submitRename(input.form);
   } else if (e.key === "Escape") {
     e.preventDefault();
     exitEdit(wrap);
@@ -71,5 +89,5 @@ document.addEventListener("focusout", (e) => {
     exitEdit(wrap);
     return;
   }
-  input.form?.requestSubmit();
+  submitRename(input.form);
 });
