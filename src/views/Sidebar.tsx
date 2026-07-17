@@ -45,7 +45,10 @@ const SessionItem = ({
           <time title={session.updated_at}>
             {fmtRelative(session.updated_at)}
           </time>
-          <span class="run-indicator" title="Session is running">
+          <span
+            class="run-indicator"
+            title={running ? "Session is running" : "Session idle"}
+          >
             <span class="run-dot" />
           </span>
           {session.provider_name !== null && (

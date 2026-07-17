@@ -269,11 +269,8 @@ body {
 .session-item.htmx-request {
   opacity: 0.5;
 }
-/* Always rendered; hidden unless the session-item carries data-running. */
+/* Always-visible status dot — gray when idle, green when running. */
 .run-indicator {
-  display: none;
-}
-.session-item[data-running] .run-indicator {
   display: inline-flex;
   align-items: center;
 }
@@ -281,7 +278,11 @@ body {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-faint);
+  flex-shrink: 0;
+}
+.session-item[data-running] .run-dot {
+  background: var(--color-ok);
   animation: live-pulse 1.6s ease-in-out infinite;
 }
 @keyframes live-pulse {

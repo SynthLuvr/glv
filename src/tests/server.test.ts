@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import vm from "node:vm";
+import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProcessResult, SpawnFn } from "../runner.js";
 import {
@@ -1884,5 +1886,46 @@ describe("session-running indicator (client wiring)", () => {
     expect(body).toContain("/events/status");
     expect(body).toContain("EventSource");
     expect(body).toContain("data-running");
+  });
+});
+
+const renderSessionDom = async (id: string): Promise<JSDOM> =>
+  new JSDOM((await renderSession(id)).html);
+
+describe("stream client session selector", () => {
+  // Sidebar cards carry data-session-id too and precede #detail-pane. Viewing
+  // gamma (not the first-listed alpha) exposes the bare-selector collision.
+  it("resolves the transcript root inside #detail-pane, not a sidebar card", async () => {
+    const document = (await renderSessionDom("gamma")).window.document;
+
+    const bare = document.querySelector("[data-session-id]");
+    expect(bare?.classList.contains("session-item")).toBe(true);
+    expect(bare?.hasAttribute("data-run-status")).toBe(false);
+
+    const scoped = document.querySelector("#detail-pane [data-session-id]");
+    expect(scoped?.getAttribute("data-session-id")).toBe("gamma");
+  });
+
+  it("connects the live stream to the viewed session, not the first sidebar card", async () => {
+    const dom = await renderSessionDom("gamma");
+    const document = dom.window.document;
+    const connected: string[] = [];
+    class FakeEventSource {
+      constructor(url: string) {
+        connected.push(url);
+      }
+      addEventListener(): void {
+        // only the requested URL is asserted
+      }
+    }
+    const streamJs = await (
+      await makeApp().request("/assets/stream.js")
+    ).text();
+    vm.runInNewContext(streamJs, {
+      document,
+      EventSource: FakeEventSource,
+    });
+    document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    expect(connected).toEqual(["/sessions/gamma/tail"]);
   });
 });

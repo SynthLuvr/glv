@@ -59,6 +59,9 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
   );
   if (item === null) return;
   item.toggleAttribute("data-running", running);
+  item
+    .querySelector(".run-indicator")
+    ?.setAttribute("title", running ? "Session is running" : "Session idle");
 };
 
 // On (re)connect the server emits a full snapshot of active session ids.

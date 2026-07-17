@@ -179,7 +179,10 @@ const connectTail = (root: Element): void => {
 
 const init = (): void => {
   teardown();
-  const root = document.querySelector("[data-session-id]");
+  // Sidebar cards carry data-session-id too (for the running indicator) and
+  // precede #detail-pane, so a bare selector matches a sidebar card rather
+  // than the transcript root.
+  const root = document.querySelector("#detail-pane [data-session-id]");
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
   if (status === "queued" || status === "running") connectRunner(root);
