@@ -53,15 +53,16 @@ const loadRepos = async (): Promise<void> => {
       isFork: boolean;
       updatedAt: string;
     }>;
-    datalist.innerHTML = repos
-      .map((r) => {
-        const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
-        if (r.isFork) parts.push("fork");
-        parts.push(r.updatedAt.slice(0, 10));
-        const label = parts.join(" · ");
-        return `<option value="${r.nameWithOwner}" label="${label}"></option>`;
-      })
-      .join("");
+    const opts = repos.map((r) => {
+      const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
+      if (r.isFork) parts.push("fork");
+      parts.push(r.updatedAt.slice(0, 10));
+      const opt = document.createElement("option");
+      opt.value = r.nameWithOwner;
+      opt.setAttribute("label", parts.join(" · "));
+      return opt;
+    });
+    datalist.replaceChildren(...opts);
   } catch {
     if (errorEl !== null) errorEl.textContent = "Could not load repositories.";
   }
@@ -82,10 +83,14 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
       return;
     }
     if (errorEl !== null) errorEl.textContent = "";
-    if (datalist !== null)
-      datalist.innerHTML = (data.branches as string[])
-        .map((b) => `<option value="${b}"></option>`)
-        .join("");
+    if (datalist !== null) {
+      const opts = (data.branches as string[]).map((b) => {
+        const opt = document.createElement("option");
+        opt.value = b;
+        return opt;
+      });
+      datalist.replaceChildren(...opts);
+    }
     if (branchInput instanceof HTMLInputElement && branchInput.value === "")
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");
