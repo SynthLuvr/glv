@@ -121,6 +121,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       const jobId = generateCloneJobId();
       const job: CloneJob = {
         jobId,
+        createdAt: Date.now(),
         repo: repoVal,
         branch: branchVal,
         clonePath,

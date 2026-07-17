@@ -1,8 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
+import { setInterval } from "node:timers";
 import { Hono } from "hono";
 import { authMiddleware } from "../auth/middleware.js";
 import { createGhClient } from "../gh.js";
-import type { Runner } from "../runner/index.js";
+import { type Runner, stop } from "../runner/index.js";
+import {
+  CLONE_JOB_SWEEP_MS,
+  CLONE_JOB_TTL_MS,
+  sweepCloneJobs,
+} from "./cloneJobs.js";
 import {
   type AppEnv,
   type ServerContext,
@@ -37,8 +43,23 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     cloneJobs: new Map(),
+    cloneJobTtlMs: opts.cloneJobTtlMs ?? CLONE_JOB_TTL_MS,
+    cloneJobSweepMs: opts.cloneJobSweepMs ?? CLONE_JOB_SWEEP_MS,
     assets: buildAssetBundle(),
   };
+
+  // A clone job is removed only when its clone-status poll reaches a terminal
+  // state, so jobs abandoned by a user navigating away would otherwise live in
+  // the map forever (each pinning an orphaned goose run). The sweep reaps them
+  // on a timer; unref'd so it never keeps the process alive on its own.
+  if (ctx.cloneJobSweepMs > 0) {
+    const sweep = (): void =>
+      sweepCloneJobs(ctx.cloneJobs, ctx.cloneJobTtlMs, (key) =>
+        stop(ctx.runner, key),
+      );
+    const timer = setInterval(sweep, ctx.cloneJobSweepMs);
+    timer.unref();
+  }
 
   const app = new Hono<AppEnv>();
   // Auth gate sits first: every non-public request must carry a valid

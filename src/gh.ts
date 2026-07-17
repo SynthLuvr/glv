@@ -30,6 +30,8 @@ type CloneJob = {
   tempKey: string | undefined;
   known: Set<string> | undefined;
   runStartedAt: number | undefined;
+  // When the job was created; the retention sweep's TTL is measured from it.
+  createdAt: number;
 };
 
 type GhClient = {

@@ -40,6 +40,10 @@ type ServerOptions = {
   statusPollMs?: number;
   /** Bounds status-feed poll iterations so tests can drain the stream. */
   maxStatusPolls?: number;
+  /** Retention window (ms) after which an unclaimed clone job is swept. */
+  cloneJobTtlMs?: number;
+  /** Cadence (ms) of the clone-job retention sweep; 0 disables it. */
+  cloneJobSweepMs?: number;
   listDirs?: () => string[];
   gh?: GhClient;
   auth?: AuthService;
@@ -66,6 +70,8 @@ type ServerContext = {
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
   readonly cloneJobs: Map<string, CloneJob>;
+  readonly cloneJobTtlMs: number;
+  readonly cloneJobSweepMs: number;
   readonly assets: AssetBundle;
 };
 
