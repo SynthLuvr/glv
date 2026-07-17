@@ -1,5 +1,6 @@
 import { type } from "arktype";
-import DOMPurify from "isomorphic-dompurify";
+import createDOMPurify from "dompurify";
+import { JSDOM } from "jsdom";
 import { marked } from "marked";
 import type { MessageRow, SessionRow } from "./db.js";
 
@@ -143,11 +144,17 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
 
 const HtmlString = type("string");
 
+// DOMPurify needs a DOM, which Node lacks. Build one JSDOM window once at
+// module load and reuse it — creating a fresh window per sanitize call
+// leaks memory over a long-running process. This is the upstream-blessed
+// server path (cure53/DOMPurify README) instead of the isomorphic wrapper.
+const purify = createDOMPurify(new JSDOM("").window);
+
 // Content is read from a shared DB that goose and arbitrary tool output
 // write to, so it is untrusted — DOMPurify strips XSS payloads that
 // marked's raw-HTML passthrough would otherwise inject via raw().
 const renderMarkdown = (md: string): string =>
-  DOMPurify.sanitize(
+  purify.sanitize(
     HtmlString.assert(marked.parse(md, { gfm: true, breaks: true })),
     { USE_PROFILES: { html: true } },
   );
