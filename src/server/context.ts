@@ -40,9 +40,9 @@ type ServerOptions = {
   statusPollMs?: number;
   /** Bounds status-feed poll iterations so tests can drain the stream. */
   maxStatusPolls?: number;
-  /** Retention window (ms) after which an unclaimed clone job is swept. */
+  /** Retention (ms) after which an unclaimed clone job is swept. */
   cloneJobTtlMs?: number;
-  /** Cadence (ms) of the clone-job retention sweep; 0 disables it. */
+  /** Sweep cadence (ms); 0 disables it. */
   cloneJobSweepMs?: number;
   listDirs?: () => string[];
   gh?: GhClient;

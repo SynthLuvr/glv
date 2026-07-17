@@ -1,28 +1,21 @@
 import type { CloneJob } from "../gh.js";
 
-// Upper bound on how long an unclaimed clone job is retained. Generous vs.
-// ctx.pollTimeoutMs so legitimately slow clones survive, but finite so the
-// map (and the orphaned goose run each entry pins) can't grow without limit
-// when a user navigates away mid-clone.
+// Clone jobs are only removed once their status poll reaches a terminal state,
+// so a job abandoned mid-clone would otherwise live forever, each pinning an
+// orphaned goose run. A sweep reaps stale entries to bound the leak.
 const CLONE_JOB_TTL_MS = 5 * 60_000;
-
-// Cadence of the background retention sweep started by createApp.
 const CLONE_JOB_SWEEP_MS = 60_000;
 
-// Reaps clone jobs older than maxAgeMs. A job whose goose run was enqueued but
-// never claimed is stopped via onStop so the runner reaps the process and
-// drops its registry entry instead of inheriting the leak. `now` is injected
-// so the sweep is deterministic in tests without real timers.
+// Drop jobs older than maxAgeMs. An enqueued-but-unclaimed run is stopped so
+// the runner reaps its process. `now` is injected for deterministic tests.
 const sweepCloneJobs = (
   cloneJobs: Map<string, CloneJob>,
   maxAgeMs: number,
   onStop: (tempKey: string) => void,
   now: number = Date.now(),
 ): void => {
-  const expired = [...cloneJobs.values()].filter(
-    (job) => now - job.createdAt >= maxAgeMs,
-  );
-  for (const job of expired) {
+  for (const job of cloneJobs.values()) {
+    if (now - job.createdAt < maxAgeMs) continue;
     if (job.tempKey !== undefined) onStop(job.tempKey);
     cloneJobs.delete(job.jobId);
   }

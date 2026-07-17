@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { setInterval } from "node:timers";
 import { Hono } from "hono";
 import { authMiddleware } from "../auth/middleware.js";
 import { createGhClient } from "../gh.js";
@@ -48,10 +47,7 @@ const createApp = (
     assets: buildAssetBundle(),
   };
 
-  // A clone job is removed only when its clone-status poll reaches a terminal
-  // state, so jobs abandoned by a user navigating away would otherwise live in
-  // the map forever (each pinning an orphaned goose run). The sweep reaps them
-  // on a timer; unref'd so it never keeps the process alive on its own.
+  // Background sweep; unref'd so it can't keep the process alive.
   if (ctx.cloneJobSweepMs > 0) {
     const sweep = (): void =>
       sweepCloneJobs(ctx.cloneJobs, ctx.cloneJobTtlMs, (key) =>
