@@ -535,10 +535,9 @@ body {
   font-weight: 600;
 }
 /*
-  The state is a tinted pill appended to the chip. Its background and text are
-  tinted per resolved state (open/merged/closed); the dot inherits the same
-  color via `currentColor`. While the status resolves, the pill is a plain
-  pulsing dot that blooms into the colored badge.
+  Tinted state pill: background and text are tinted per resolved state
+  (open/merged/closed); the dot shares the color via `currentColor`. While
+  status resolves, a pulsing dot blooms into the colored badge.
 */
 .pr-state {
   display: inline-flex;

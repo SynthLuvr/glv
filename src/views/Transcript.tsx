@@ -212,15 +212,13 @@ const MetaChip = ({
   </div>
 );
 
-// A compact, always-clickable link to the session's primary PR. The URL is
-// detected offline (detectPrUrl) and renders instantly; the colored
-// state label/dot is swapped in lazily via htmx so the page never blocks.
-// Any failure (unknown state, network error) leaves a plain link.
+// Link to the session's primary PR. The URL renders instantly from offline
+// detection; the colored state is swapped in lazily via htmx, so any failure
+// (unknown state, network error) leaves a plain link.
 const PrChip = ({ sessionId, url }: { sessionId: string; url: string }) => {
   const errorHandler = {
-    // htmx namespaced event needs the `::`; hono/jsx only emits it via spread.
-    // Removes the whole status pill if the lazy request itself fails so the
-    // chip degrades to a clean link (icon + number).
+    // hono/jsx can't emit the `::` attribute directly, so spread it. On
+    // error, drop the status pill so the chip degrades to a plain link.
     "hx-on::response-error": "this.querySelector('#pr-state')?.remove()",
   };
   return (

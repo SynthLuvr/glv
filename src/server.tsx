@@ -33,8 +33,7 @@ import {
   type ParsedMessage,
   parseMessage,
 } from "./format.js";
-import type { CommandRunner } from "./pr.js";
-import { resolvePrState, STATE_LABEL } from "./pr.js";
+import { type CommandRunner, resolvePrState, STATE_LABEL } from "./pr.js";
 import type { RunHandle, Runner, RunStatus } from "./runner.js";
 import {
   enqueue,
@@ -271,7 +270,6 @@ const createApp = (
   const maxStatusPolls = opts.maxStatusPolls ?? Infinity;
   const listDirs = opts.listDirs ?? listHomeDirs;
   // Inside createApp so serve can build assets before these reads.
-  const runPrState = opts.runPrState;
   const appCss = readAsset("../dist/app.css");
   const sidebarScript = readAsset("../dist/sidebar.js");
   const streamScript = readAsset("../dist/stream.js");
@@ -530,17 +528,16 @@ const createApp = (
     );
   });
 
-  // Lazy PR status fragment. The chip's URL is detected offline at render
-  // time and passed here; this resolves live state via `gh` and returns just
-  // the colored dot + label for htmx to swap in. Any failure (unknown state,
+  // Lazy PR status fragment: resolve live state via `gh` and return just the
+  // colored dot + label for htmx to swap in. Any failure (unknown state,
   // missing/unauthed gh, network error) yields an empty body so the chip
-  // degrades to a plain link — the page is never broken.
+  // degrades to a plain link.
   app.get("/sessions/:id/pr-state", async (c) => {
     const url = c.req.query("url") ?? "";
-    const state = await resolvePrState(url, runPrState);
+    const state = await resolvePrState(url, opts.runPrState);
     if (state === "unknown") return c.html("");
-    // Swapped in via outerHTML, so the whole pill carries its state class for
-    // the tinted background + matching text/dot color.
+    // Swapped via outerHTML, so the pill carries its state class for the tinted
+    // background and matching dot color (currentColor).
     return c.html(
       <span class={`pr-state pr-state-${state}`}>
         <span class="pr-dot" aria-hidden="true"></span>
