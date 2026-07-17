@@ -218,17 +218,19 @@ const TranscriptHeader = ({
   messageCount: number;
 }) => (
   <header class="session-header">
-    <button
-      type="button"
-      class="archive-btn"
-      hx-post={`/sessions/${session.id}/archive`}
-      hx-target="#detail-pane"
-      hx-swap="innerHTML"
-      hx-confirm="Archive this session? It will be hidden from the sidebar."
-    >
-      Archive
-    </button>
-    <SessionTitleWrap session={session} />
+    <div class="session-header-top">
+      <SessionTitleWrap session={session} />
+      <button
+        type="button"
+        class="archive-btn"
+        hx-post={`/sessions/${session.id}/archive`}
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        hx-confirm="Archive this session? It will be hidden from the sidebar."
+      >
+        Archive
+      </button>
+    </div>
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />
       <MetaChip

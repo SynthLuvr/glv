@@ -373,6 +373,19 @@ describe("web viewer GET /sessions/:id", () => {
     expect(html).toContain('class="archive-btn"');
     expect(html).toContain('hx-post="/sessions/alpha/archive"');
   });
+
+  it("lays out the archive button beside the title so it stays clickable", async () => {
+    const { html } = await renderSession("alpha");
+    // The button must share a flex row with the title rather than float as
+    // an absolute overlay that the full-width title container paints over
+    // (which left only a sliver of the button clickable).
+    const top = html.indexOf('class="session-header-top"');
+    const title = html.indexOf('id="session-title-wrap"');
+    const btn = html.indexOf('class="archive-btn"');
+    expect(top).toBeGreaterThan(-1);
+    expect(title).toBeGreaterThan(top);
+    expect(btn).toBeGreaterThan(title);
+  });
 });
 
 describe("transcript readability (markdown, thinking, tools)", () => {
