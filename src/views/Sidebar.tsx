@@ -3,6 +3,7 @@ import {
   displayName,
   fmtRelative,
   fmtTokens,
+  shortenHome,
   truncateMiddle,
 } from "../format.js";
 import { RenameWrap } from "./Rename.js";
@@ -55,7 +56,7 @@ const SessionItem = ({
           )}
         </span>
         <span class="session-dir" title={session.working_dir}>
-          {truncateMiddle(session.working_dir, 42)}
+          {truncateMiddle(shortenHome(session.working_dir), 42)}
         </span>
       </a>
       <RenameWrap session={session} context="sidebar" target="#session-list" />

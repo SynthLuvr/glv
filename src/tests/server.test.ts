@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ import {
   getHandle,
   makeRunnerConfig,
 } from "../runner.js";
-import { createApp, listHomeDirs } from "../server.js";
+import { createApp, expandHome, listHomeDirs } from "../server.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (
@@ -1435,6 +1435,26 @@ describe("listHomeDirs", () => {
   });
 });
 
+describe("expandHome", () => {
+  it("expands ~ to the home dir", () => {
+    expect(expandHome("~", "/home/me")).toBe("/home/me");
+  });
+
+  it("expands ~/child to a joined path", () => {
+    expect(expandHome("~/projects/app", "/home/me")).toBe(
+      join("/home/me", "projects/app"),
+    );
+  });
+
+  it("leaves an absolute path unchanged", () => {
+    expect(expandHome("/etc/config", "/home/me")).toBe("/etc/config");
+  });
+
+  it("leaves a bare relative path unchanged", () => {
+    expect(expandHome("repos/x", "/home/me")).toBe("repos/x");
+  });
+});
+
 describe("M5: new session entry points", () => {
   it("renders the new-session form on GET /sessions/new", async () => {
     const res = await makeApp().request("/sessions/new");
@@ -1598,6 +1618,22 @@ describe("M5: POST /sessions", () => {
     // sidebar refreshed out-of-band with the new session
     expect(html).toContain('hx-swap-oob="true"');
     expect(html).toContain("Stop");
+  });
+
+  it("expands ~ in the working dir before validating and spawning", async () => {
+    const { spawn, invocations } = createNewSessionSpawn(newDb, ["x"], {
+      delayMs: 200,
+    });
+    const app = makeNewApp(spawn);
+    const { status } = await postForm(
+      app,
+      "/sessions",
+      { prompt: "hello", working_dir: "~" },
+      { "HX-Request": "true" },
+    );
+    expect(status).toBe(200);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].opts.cwd).toBe(homedir());
   });
 
   it("invokes goose run with the prompt on stdin (no -n name)", async () => {
