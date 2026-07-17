@@ -30,7 +30,7 @@ import {
   type ParsedMessage,
   parseMessage,
 } from "./format.js";
-import type { Runner } from "./runner.js";
+import type { RunHandle, Runner } from "./runner.js";
 import {
   enqueue,
   enqueueNew,
@@ -144,6 +144,19 @@ const flushMessages = async (
   }
   return true;
 };
+
+const emitStatus = async (
+  stream: SSEStreamingApi,
+  handle: RunHandle,
+): Promise<boolean> =>
+  emit(
+    stream,
+    "status",
+    JSON.stringify({
+      status: handle.status,
+      queuePosition: handle.queuePosition,
+    }),
+  );
 
 const emitMeta = async (
   stream: SSEStreamingApi,
@@ -558,36 +571,16 @@ const createApp = (
         return;
       }
 
-      if (
-        !(await emit(
-          stream,
-          "status",
-          JSON.stringify({
-            status: handle.status,
-            queuePosition: handle.queuePosition,
-          }),
-        ))
-      )
-        return;
+      if (!(await emitStatus(stream, handle))) return;
 
-      // Emit a status event on any mid-run transition (e.g. queued → running)
-      // so observers aren't left on a stale hint until the terminal re-render.
+      // Surface mid-run transitions (e.g. queued → running) so the client
+      // isn't left on a stale status until the terminal re-render.
       let lastStatus = handle.status;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
         if (handle.status !== lastStatus) {
-          if (
-            !(await emit(
-              stream,
-              "status",
-              JSON.stringify({
-                status: handle.status,
-                queuePosition: handle.queuePosition,
-              }),
-            ))
-          )
-            return;
+          if (!(await emitStatus(stream, handle))) return;
           lastStatus = handle.status;
         }
         if (!(await flushLines(stream, handle.lines, sent))) return;
