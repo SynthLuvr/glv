@@ -35,6 +35,13 @@ const updatePreview = (value: string): void => {
   preview.textContent = `→ Will clone to /tmp/glv/${trimmed.slice(0, slash)}/${trimmed.slice(slash + 1)}`;
 };
 
+const option = (value: string, label?: string): HTMLOptionElement => {
+  const opt = document.createElement("option");
+  opt.value = value;
+  if (label !== undefined) opt.setAttribute("label", label);
+  return opt;
+};
+
 const loadRepos = async (): Promise<void> => {
   const datalist = document.getElementById("gh-repos");
   if (datalist === null || datalist.children.length > 0) return;
@@ -53,15 +60,13 @@ const loadRepos = async (): Promise<void> => {
       isFork: boolean;
       updatedAt: string;
     }>;
-    datalist.innerHTML = repos
-      .map((r) => {
-        const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
-        if (r.isFork) parts.push("fork");
-        parts.push(r.updatedAt.slice(0, 10));
-        const label = parts.join(" · ");
-        return `<option value="${r.nameWithOwner}" label="${label}"></option>`;
-      })
-      .join("");
+    const opts = repos.map((r) => {
+      const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
+      if (r.isFork) parts.push("fork");
+      parts.push(r.updatedAt.slice(0, 10));
+      return option(r.nameWithOwner, parts.join(" · "));
+    });
+    datalist.replaceChildren(...opts);
   } catch {
     if (errorEl !== null) errorEl.textContent = "Could not load repositories.";
   }
@@ -83,9 +88,9 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
     }
     if (errorEl !== null) errorEl.textContent = "";
     if (datalist !== null)
-      datalist.innerHTML = (data.branches as string[])
-        .map((b) => `<option value="${b}"></option>`)
-        .join("");
+      datalist.replaceChildren(
+        ...(data.branches as string[]).map((b) => option(b)),
+      );
     if (branchInput instanceof HTMLInputElement && branchInput.value === "")
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");
