@@ -1,6 +1,6 @@
 import { execa } from "execa";
-import type { ParsedMessage } from "./format.js";
-import { thinkingText, toolResultInfo } from "./format.js";
+import type { ParsedMessage } from "./format/index.js";
+import { thinkingText, toolResultInfo } from "./format/index.js";
 
 // Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
 // collides with issues and changelog noise.

@@ -5,14 +5,14 @@ import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ProcessResult, SpawnFn } from "../runner.js";
+import type { ProcessResult, SpawnFn } from "../runner/index.js";
 import {
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   getHandle,
   makeRunnerConfig,
-} from "../runner.js";
-import { createApp, expandHome, listHomeDirs } from "../server.js";
+} from "../runner/index.js";
+import { createApp, expandHome, listHomeDirs } from "../server/index.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (

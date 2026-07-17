@@ -8,7 +8,7 @@ import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
-import { makeRunnerConfig } from "./runner.js";
+import { makeRunnerConfig } from "./runner/index.js";
 
 type SessionsOpts = {
   type: string;

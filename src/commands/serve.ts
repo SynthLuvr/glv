@@ -3,9 +3,9 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
-import type { RunnerConfig } from "../runner.js";
-import { createRunner, stopAll } from "../runner.js";
-import { createApp } from "../server.js";
+import type { RunnerConfig } from "../runner/index.js";
+import { createRunner, stopAll } from "../runner/index.js";
+import { createApp } from "../server/index.js";
 
 type ServeOpts = {
   port: number;

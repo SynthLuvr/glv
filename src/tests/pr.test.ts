@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ContentItem, ParsedMessage } from "../format.js";
+import type { ContentItem, ParsedMessage } from "../format/index.js";
 import type { CommandRunner } from "../pr.js";
 import { detectPrUrl, prLabel, resolvePrState } from "../pr.js";
 

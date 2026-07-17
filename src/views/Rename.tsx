@@ -1,6 +1,6 @@
 import type { Child } from "hono/jsx";
 import type { SessionRow } from "../db.js";
-import { displayName } from "../format.js";
+import { displayName } from "../format/index.js";
 
 const icon = (children: Child): Child => (
   <svg

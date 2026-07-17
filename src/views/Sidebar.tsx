@@ -5,7 +5,7 @@ import {
   fmtTokens,
   shortenHome,
   truncateMiddle,
-} from "../format.js";
+} from "../format/index.js";
 import { RenameWrap } from "./Rename.js";
 
 type SidebarProps = {

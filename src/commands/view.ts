@@ -4,7 +4,7 @@ import {
   formatSessionHeader,
   formatTranscript,
   parseMessage,
-} from "../format.js";
+} from "../format/index.js";
 
 const runView = (db: DatabaseSync, sessionId: string): void => {
   const session = getSession(db, sessionId);
