@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import vm from "node:vm";
+import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProcessResult, SpawnFn } from "../runner.js";
 import {
@@ -1856,5 +1858,50 @@ describe("session-running indicator (client wiring)", () => {
     expect(body).toContain("/events/status");
     expect(body).toContain("EventSource");
     expect(body).toContain("data-running");
+  });
+});
+
+describe("stream client session selector", () => {
+  // Sessions are ordered by updated_at DESC, so alpha (10:00) precedes gamma
+  // (08:00) in the sidebar. Viewing gamma is what exposes the collision: a
+  // bare [data-session-id] selector hits alpha's sidebar card — added by
+  // PR #37 for the running indicator — instead of gamma's transcript root.
+  it("resolves the transcript root inside #detail-pane, not a sidebar card", async () => {
+    const { html } = await renderSession("gamma");
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+
+    const bare = document.querySelector("[data-session-id]");
+    expect(bare?.classList.contains("session-item")).toBe(true);
+    expect(bare?.hasAttribute("data-run-status")).toBe(false);
+
+    const scoped = document.querySelector("#detail-pane [data-session-id]");
+    expect(scoped?.getAttribute("data-session-id")).toBe("gamma");
+  });
+
+  it("connects the live stream to the viewed session, not the first sidebar card", async () => {
+    const { html } = await renderSession("gamma");
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+    const connected: string[] = [];
+    class FakeEventSource {
+      constructor(url: string) {
+        connected.push(url);
+      }
+      addEventListener(): void {
+        // No-op stub: this test only asserts the requested URL.
+      }
+    }
+    const streamJs = await (
+      await makeApp().request("/assets/stream.js")
+    ).text();
+    vm.runInNewContext(streamJs, {
+      document,
+      EventSource: FakeEventSource,
+      console,
+    });
+    document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    // No active run -> init() opens the tail for gamma, never alpha.
+    expect(connected).toEqual(["/sessions/gamma/tail"]);
   });
 });
