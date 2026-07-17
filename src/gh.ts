@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
 
 type RepoInfo = {
@@ -46,8 +46,23 @@ type GhClient = {
 // Hardcoded under /tmp — deliberately not configurable.
 const CLONE_ROOT = join("/tmp", "glv");
 
-const clonePathFor = (owner: string, repo: string): string =>
-  join(CLONE_ROOT, owner, repo);
+// A single owner/repo name segment. GitHub permits alphanumerics plus
+// `.`, `_` and `-`. A bare "." or ".." is rejected separately because
+// path.join resolves those as parent/current directory traversal.
+const NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+const isSafeSegment = (seg: string): boolean =>
+  seg !== "." && seg !== ".." && NAME_RE.test(seg);
+
+const clonePathFor = (owner: string, repo: string): string => {
+  const target = join(CLONE_ROOT, owner, repo);
+  // Defence in depth: even if a caller bypasses parseOwnerRepo, never
+  // hand back a path that resolves outside the clone root.
+  const rel = relative(CLONE_ROOT, target);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel))
+    throw new Error(`clone path "${target}" escapes the clone root`);
+  return target;
+};
 
 type OwnerRepo = { owner: string; repo: string };
 
@@ -56,7 +71,14 @@ const parseOwnerRepo = (repo: string): OwnerRepo => {
   const slash = trimmed.indexOf("/");
   if (slash <= 0 || slash === trimmed.length - 1)
     throw new Error(`Invalid repository "${trimmed}". Expected owner/name.`);
-  return { owner: trimmed.slice(0, slash), repo: trimmed.slice(slash + 1) };
+  const owner = trimmed.slice(0, slash);
+  const repoName = trimmed.slice(slash + 1);
+  if (!isSafeSegment(owner) || !isSafeSegment(repoName))
+    throw new Error(
+      `Invalid repository "${trimmed}". Owner and name may only contain ` +
+        "alphanumerics, '.', '_' and '-'.",
+    );
+  return { owner, repo: repoName };
 };
 
 const generateCloneJobId = (): string =>

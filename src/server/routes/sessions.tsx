@@ -107,8 +107,10 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         );
 
       let parsed: { owner: string; repo: string };
+      let clonePath: string;
       try {
         parsed = parseOwnerRepo(repoVal);
+        clonePath = clonePathFor(parsed.owner, parsed.repo);
       } catch {
         return rejectForm(
           "Invalid repository format. Expected owner/name.",
@@ -116,8 +118,6 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           "github",
         );
       }
-
-      const clonePath = clonePathFor(parsed.owner, parsed.repo);
       const jobId = generateCloneJobId();
       const job: CloneJob = {
         jobId,
