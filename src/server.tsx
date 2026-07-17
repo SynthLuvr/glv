@@ -4,12 +4,15 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie } from "hono/cookie";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
-import { SESSION_TTL_SECONDS } from "./auth/db.js";
-import { authMiddleware, COOKIE_NAME } from "./auth/middleware.js";
+import {
+  authMiddleware,
+  COOKIE_NAME,
+  setSessionCookie,
+} from "./auth/middleware.js";
 import {
   type AuthService,
   type RpConfig,
@@ -269,17 +272,6 @@ const createApp = (
       rpID: opts.rpIdOverride ?? (url.hostname || "localhost"),
       expectedOrigin: url.origin,
     };
-  };
-
-  const setSessionCookie = (c: Context, token: string): void => {
-    const url = new URL(c.req.url);
-    setCookie(c, COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "Strict",
-      secure: url.protocol === "https:",
-      path: "/",
-      maxAge: SESSION_TTL_SECONDS,
-    });
   };
 
   const finishAuth = (
