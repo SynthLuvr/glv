@@ -284,6 +284,7 @@ export {
   enqueueNew,
   enqueueOrQueue,
   generateTempKey,
+  isTerminalStatus,
   registerStream,
   rekey,
   releaseStream,

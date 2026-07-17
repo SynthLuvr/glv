@@ -70,16 +70,14 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
-// Append a captured output line, trimming the oldest once the buffer reaches
-// its cap so a verbose run can't grow without bound. lineOffset records how
-// many were dropped so live streams (which track an absolute send cursor)
-// stay aligned.
+// Append one output line, dropping the oldest once the buffer is full so a
+// verbose run can't grow without bound. lineOffset tracks how many were
+// dropped so live streams (which use an absolute send cursor) stay aligned.
 const pushLine = (handle: InternalHandle, line: string): void => {
   handle.lines.push(line);
   if (handle.lines.length <= MAX_LINE_BUFFER) return;
-  const drop = handle.lines.length - MAX_LINE_BUFFER;
-  handle.lines.splice(0, drop);
-  handle.lineOffset += drop;
+  handle.lines.shift();
+  handle.lineOffset++;
 };
 
 const runProcess = async (

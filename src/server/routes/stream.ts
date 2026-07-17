@@ -1,10 +1,11 @@
 import { type Hono } from "hono";
-import { streamSSE } from "hono/streaming";
+import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { getSession, listMessages } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
 import {
   getHandle,
   isTerminalStatus,
+  type RunHandle,
   registerStream,
   releaseStream,
 } from "../../runner/index.js";
@@ -19,6 +20,62 @@ import {
   flushMessages,
 } from "../sse.js";
 
+const pumpRunStream = async (
+  stream: SSEStreamingApi,
+  handle: RunHandle | undefined,
+): Promise<void> => {
+  // Idle or terminal: flush catch-up output, then close.
+  if (handle === undefined || isTerminalStatus(handle.status)) {
+    if (handle !== undefined) await flushLines(stream, handle);
+    await emit(stream, "done", handle?.status ?? "idle");
+    return;
+  }
+
+  if (!(await emitStatus(stream, handle))) return;
+
+  // Surface mid-run transitions (e.g. queued → running) so the client isn't
+  // left on a stale status until the terminal re-render.
+  let lastStatus = handle.status;
+  // Emit a prompt card for each chained run as it starts — including any that
+  // already started before this connection (replayed on first pass).
+  let lastStartedCount = 0;
+  // Absolute cursor into the (sliding) line buffer.
+  let sent = handle.lineOffset;
+  while (!isTerminalStatus(handle.status)) {
+    if (stream.aborted) return;
+    if (handle.status !== lastStatus) {
+      if (!(await emitStatus(stream, handle))) return;
+      lastStatus = handle.status;
+    }
+    while (lastStartedCount < handle.startedPrompts.length) {
+      if (
+        !(await emit(
+          stream,
+          "prompt",
+          renderPromptCard(handle.startedPrompts[lastStartedCount]),
+        ))
+      )
+        return;
+      lastStartedCount++;
+    }
+    if (!(await flushLines(stream, handle, sent))) return;
+    sent = handle.lineOffset + handle.lines.length;
+    await stream.sleep(50);
+  }
+
+  await flushLines(stream, handle, sent);
+  await emit(
+    stream,
+    "status",
+    JSON.stringify({
+      status: handle.status,
+      error: handle.error ?? null,
+      pendingCount: handle.pendingPrompts.length,
+    }),
+  );
+  await emit(stream, "done", handle.status);
+};
+
 const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/sessions/:id/stream", (c) => {
     const id = c.req.param("id");
@@ -27,63 +84,12 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
     return streamSSE(c, async (stream) => {
       const handle = getHandle(ctx.runner, id);
-      // Register against the live handle so a finished run isn't evicted
-      // while this stream is still draining it.
-      if (handle !== undefined) registerStream(ctx.runner, id);
+      // Pin the handle so eviction can't reclaim it mid-stream.
+      registerStream(ctx.runner, id);
       try {
-        // Idle or terminal: flush catch-up output, then close.
-        if (handle === undefined || isTerminalStatus(handle.status)) {
-          if (handle !== undefined) await flushLines(stream, handle);
-          await emit(stream, "done", handle?.status ?? "idle");
-          return;
-        }
-
-        if (!(await emitStatus(stream, handle))) return;
-
-        // Surface mid-run transitions (e.g. queued → running) so the client
-        // isn't left on a stale status until the terminal re-render.
-        let lastStatus = handle.status;
-        // Emit a prompt card for each chained run as it starts — including any
-        // that already started before this connection (replayed on first pass).
-        let lastStartedCount = 0;
-        // Absolute cursor into the (sliding) line buffer.
-        let sent = handle.lineOffset;
-        while (!isTerminalStatus(handle.status)) {
-          if (stream.aborted) return;
-          if (handle.status !== lastStatus) {
-            if (!(await emitStatus(stream, handle))) return;
-            lastStatus = handle.status;
-          }
-          while (lastStartedCount < handle.startedPrompts.length) {
-            if (
-              !(await emit(
-                stream,
-                "prompt",
-                renderPromptCard(handle.startedPrompts[lastStartedCount]),
-              ))
-            )
-              return;
-            lastStartedCount++;
-          }
-          if (!(await flushLines(stream, handle, sent))) return;
-          sent = handle.lineOffset + handle.lines.length;
-          await stream.sleep(50);
-        }
-
-        await flushLines(stream, handle, sent);
-        await emit(
-          stream,
-          "status",
-          JSON.stringify({
-            status: handle.status,
-            error: handle.error ?? null,
-            pendingCount: handle.pendingPrompts.length,
-          }),
-        );
-        await emit(stream, "done", handle.status);
+        await pumpRunStream(stream, handle);
       } finally {
-        // Detaching may be the last reference to a finished run; if so, evict.
-        if (handle !== undefined) releaseStream(ctx.runner, id);
+        releaseStream(ctx.runner, id);
       }
     });
   });

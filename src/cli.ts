@@ -99,31 +99,20 @@ program
     useDb((db) => runView(db, sessionId));
   });
 
-const MaxConcurrent = type("string.numeric.parse").pipe(
-  type("number.integer > 0"),
-);
-
-const parseMaxConcurrent = (value: string): number => {
-  const result = MaxConcurrent(value);
+const parseIntArg = (value: string, min: number, hint: string): number => {
+  const result = type("string.numeric.parse").pipe(
+    type(`number.integer >= ${min}`),
+  )(value);
   if (result instanceof type.errors)
-    throw new InvalidArgumentError(
-      `must be a positive integer (e.g. 6) — ${result.summary}`,
-    );
+    throw new InvalidArgumentError(`must be ${hint} — ${result.summary}`);
   return result;
 };
 
-const RetentionMs = type("string.numeric.parse").pipe(
-  type("number.integer >= 0"),
-);
+const parseMaxConcurrent = (value: string): number =>
+  parseIntArg(value, 1, "a positive integer (e.g. 6)");
 
-const parseRetentionMs = (value: string): number => {
-  const result = RetentionMs(value);
-  if (result instanceof type.errors)
-    throw new InvalidArgumentError(
-      `must be a non-negative integer (ms) — ${result.summary}`,
-    );
-  return result;
-};
+const parseRetentionMs = (value: string): number =>
+  parseIntArg(value, 0, "a non-negative integer (ms)");
 
 const resolveGooseBinary = (value: string): string => {
   if (value.includes("/")) {

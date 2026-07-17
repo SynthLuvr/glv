@@ -5,6 +5,7 @@ import {
   enqueueNew,
   enqueueOrQueue,
   generateTempKey,
+  isTerminalStatus,
   registerStream,
   rekey,
   releaseStream,
@@ -40,9 +41,6 @@ const createRunner = (
   const registry = new Map<string, InternalHandle>();
   return { config, queue, registry, spawn };
 };
-
-const isTerminalStatus = (status: RunStatus): boolean =>
-  status === "completed" || status === "stopped" || status === "error";
 
 const getStatus = (runner: Runner, sessionId: string): RunStatus | undefined =>
   runner.registry.get(sessionId)?.status;
