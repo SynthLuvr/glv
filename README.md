@@ -1,26 +1,83 @@
 # goose-log-viewer
 
-A small CLI to inspect your [goose](https://github.com/block/goose)
-session history stored on disk.
+A local web app for exploring your
+[goose](https://github.com/block/goose) session history and launching
+new goose runs straight from the browser.
 
-## What it does
+goose records every session — prompts, model responses, tool calls, and
+reasoning — in an on-disk SQLite database. **goose-log-viewer** (or
+**glv**) turns that database into a fast, self-hosted web UI: browse
+past sessions, watch live runs stream in real time, kick off fresh runs,
+and even launch goose against a GitHub repository — all without leaving
+the browser.
 
-- **`glv sessions`** — list your goose sessions (interactive `user`
-  sessions).
-- **`glv view <id>`** — show the prompts and final outputs for a
-  session.
-- **`glv logs`** — list sessions from `goose run --no-session` runs
-  (stored as `hidden` sessions).
-- **`glv serve`** — start a local web viewer that browses sessions in
-  your browser, and can start new `goose run` sessions from the detail
-  pane. The sidebar shows a `+` button (and a call-to-action when empty)
-  that opens a new-session form — just pick a working directory and type
-  a prompt. The session appears in the sidebar the moment goose writes
-  it, and its output streams live in the right pane.
+## Why
 
-Sessions are read from the goose SQLite database at
-`~/.local/share/goose/sessions/sessions.db` (opened read-only, so it is
-safe to use while goose is running).
+- **Make your session history navigable.** goose’s transcripts are rich
+  (markdown, tool calls, thinking blocks, token usage), but they live in
+  a database that is hard to read directly. glv renders them as a clean,
+  searchable web transcript.
+- **Run goose from a UI.** Instead of juggling terminals, start a new
+  `goose run` from a form, queue follow-up prompts, and watch the output
+  stream live — on one machine or many.
+- **Safe to use alongside goose.** It opens the goose session database
+  read-only, so it never interferes with a running goose session.
+- **Private by design.** The viewer is protected by passkey
+  authentication and runs entirely on your own machine.
+
+## Features
+
+- **Session browser.** A sidebar lists every goose session with its
+  name, working directory, provider, token count, and last-updated time.
+  Select one to read the full transcript of prompts and outputs.
+- **Live streaming.** Start a run in the viewer and its output streams
+  in real time via Server-Sent Events. The session appears in the
+  sidebar the moment goose writes it.
+- **New sessions.** A `+` button opens a form to start a fresh goose
+  run. Pick a **working directory** on disk, or point goose at a
+  **GitHub repository** — glv clones the repo (using your existing `gh`
+  auth) and runs goose against it.
+- **Queued follow-ups.** While a session is running you can queue
+  follow-up prompts that chain together once the current run finishes.
+  Runs are governed by a concurrency-limited queue (six by default).
+- **Tail external sessions.** Sessions started from the terminal,
+  desktop, or another CLI are tracked too — glv polls the shared
+  database and streams only the deltas, so you can keep an eye on a run
+  from anywhere.
+- **PR tracking.** When a session mentions a GitHub pull request, glv
+  surfaces a link with a live open / merged / closed status badge (via
+  `gh`).
+- **Session management.** Rename sessions, and archive them one at a
+  time or in bulk.
+- **Dark and light themes.**
+- **Passkey login.** The whole app is gated behind WebAuthn passkey
+  authentication — no emails, no passwords.
+
+## How it works
+
+glv is a single Node.js process built on the [Hono](https://hono.dev)
+web framework:
+
+- **Reads goose’s database directly.** Sessions are read from the goose
+  SQLite database at `~/.local/share/goose/sessions/sessions.db`.
+  Browsing uses a read-only connection, so it is always safe while goose
+  is running.
+- **Server-rendered with interactivity.** Pages are rendered server-side
+  with `hono/jsx` and updated incrementally with
+  [htmx](https://htmx.org) — there is no client-side SPA to build or
+  ship. Styling is [Tailwind CSS v4](https://tailwindcss.com).
+- **A runner spawns goose.** When you start or resume a session, glv
+  spawns a `goose run` subprocess, feeds the prompt over stdin, and
+  parses the `stream-json` output. A `p-queue` caps how many goose
+  processes run at once; surplus prompts are queued and chained
+  automatically.
+- **Live updates over SSE.** Active runs stream through
+  `/sessions/:id/stream`; sessions started elsewhere are followed via
+  `/sessions/:id/tail`, which polls the shared database for new and
+  edited messages.
+- **Sanitized output.** All model and tool output is rendered as GitHub-
+  Flavored Markdown and sanitized with DOMPurify before it reaches the
+  browser.
 
 ## Setup
 
@@ -31,33 +88,43 @@ safe to use while goose is running).
 This installs dependencies and symlinks the `glv` launcher onto your
 PATH (`~/.local/bin/glv`). Re-running is safe.
 
-## Usage
+### Prerequisites
+
+- **Node.js ≥ 24** and **pnpm ≥ 10**.
+- The **`goose`** binary on your `PATH` (to start new runs from the
+  viewer).
+- The **`gh`** CLI, authenticated, to use the GitHub repository source
+  and PR status features.
+- **pandoc ≥ 3.1** (only needed for the Markdown lint/format check
+  during development).
+
+## Running the web viewer
 
 ``` bash
-glv sessions              # list recent sessions
-glv view 20260713_120     # show prompts + outputs for a session
-glv logs                  # list --no-session runs
-glv serve                 # start the local web viewer
+glv serve
 ```
 
-Global options:
+Open the printed URL (e.g. <http://localhost:3000>). The first visitor
+is prompted to create a passkey and permanently claims the app.
 
-- `--db <path>` — override the database location.
-- `--auth-db <path>` — override the auth database location (default
-  `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
-- `--limit <n>` — number of rows to list (default 20).
-
-`glv serve` options:
+Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
 - `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
-  driven from the detail pane (default `6`).
+  driven from the viewer (default `6`).
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
+- `--db <path>` — override the goose sessions database location (or
+  `GOOSE_SESSIONS_DB`).
+- `--auth-db <path>` — override the auth database location (default
+  `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `Goose Log Viewer`).
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).
+
+The viewer rebuilds its stylesheet and client scripts on every start, so
+it always serves current assets.
 
 ## Authentication
 
@@ -99,7 +166,17 @@ v4](https://tailwindcss.com). The stylesheet source
 (`src/styles/app.css`) uses Tailwind’s CSS-first setup —
 `@import "tailwindcss"` plus a `@theme` block of design tokens — and is
 compiled to `dist/app.css` by `pnpm build:assets` (see `src/build.ts`).
-`glv serve` rebuilds it automatically before listening, so the viewer
-always serves current styles. Browser client scripts are written as
-TypeScript in `src/scripts/` and compiled to minified `dist/*.js` by the
-same command, which `glv serve` also rebuilds before listening.
+Browser client scripts are written as TypeScript in `src/scripts/` and
+compiled to minified `dist/*.js` by the same command.
+
+## The CLI
+
+Everything above is driven by the `glv` command, which also offers a few
+lightweight terminal commands for quick lookups without opening a
+browser:
+
+``` bash
+glv sessions              # list recent sessions
+glv view <id>             # show prompts + outputs for a session
+glv logs                  # list --no-session runs
+```
