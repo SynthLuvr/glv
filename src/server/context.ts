@@ -66,9 +66,6 @@ type ServerContext = {
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
   readonly cloneJobs: Map<string, CloneJob>;
-  // Serializes the snapshot-enqueue-poll-rekey sequence per working dir so two
-  // concurrent new-session submissions for the same dir can't race on the same
-  // discovered session id (orphaning a handle and leaking a goose process).
   readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };

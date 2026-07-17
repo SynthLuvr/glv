@@ -106,12 +106,8 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     );
     if (realId === undefined) return waitView(false);
 
-    // Serialize the claim across concurrent clone jobs that share the same
-    // clone path. rekey is atomic: false means another job already grabbed
-    // this session id, so stop our orphaned run and surface a clear error
-    // rather than silently clobbering the other handle.
     const claimed = await withCreateLock(ctx.createLocks, job.clonePath, () =>
-      Promise.resolve(rekey(ctx.runner, tempKey, realId)),
+      rekey(ctx.runner, tempKey, realId),
     );
     if (!claimed) {
       stop(ctx.runner, tempKey);

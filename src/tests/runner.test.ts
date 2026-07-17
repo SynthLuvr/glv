@@ -795,10 +795,8 @@ describe("rekey", () => {
     await waitForStatus(handleA, "running");
     await waitForStatus(handleB, "running");
 
-    // The first claim succeeds.
     expect(rekey(runner, "tmp-a", "real-1")).toBe(true);
-    // The second must NOT overwrite the first; the loser keeps its temp key so
-    // the caller can stop the orphaned run instead of silently leaking it.
+    // The second must not overwrite the first; the loser keeps its temp key.
     expect(rekey(runner, "tmp-b", "real-1")).toBe(false);
     expect(getHandle(runner, "real-1")).toBe(handleA);
     expect(getHandle(runner, "tmp-b")).toBe(handleB);

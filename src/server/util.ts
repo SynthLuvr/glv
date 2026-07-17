@@ -63,15 +63,12 @@ const errorMessage = (err: unknown): string =>
 const activeRunPrompt = (run: RunHandle | undefined): string | undefined =>
   run !== undefined && !isTerminalStatus(run.status) ? run.prompt : undefined;
 
-// Serializes an async task per key. Concurrent new-session submissions for the
-// same working directory wait their turn, so each snapshots the known-session
-// set after the prior run's session has appeared and discovers its own id
-// rather than colliding on the first one. The stored tail never rejects, so a
-// failure in one request can't poison the chain for the rest.
+// Serializes async tasks per key. The stored tail swallows rejections so one
+// failure can't poison the chain.
 const withCreateLock = <T>(
   locks: Map<string, Promise<void>>,
   key: string,
-  task: () => Promise<T>,
+  task: () => T | Promise<T>,
 ): Promise<T> => {
   const tail = locks.get(key) ?? Promise.resolve();
   const run = tail.then(task, task);

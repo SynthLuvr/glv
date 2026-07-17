@@ -413,9 +413,6 @@ describe("POST /sessions (github clone flow)", () => {
   });
 
   it("stops the orphan and surfaces a 409 when two clone jobs collide on the same repo", async () => {
-    // Each spawn waits before inserting its session row so both jobs snapshot
-    // the same (empty) known set before either run creates a session — the
-    // precondition for the concurrent race the fix guards against.
     const insertedIds: string[] = [];
     const killPids: number[] = [];
     let counter = 0;
@@ -440,8 +437,7 @@ describe("POST /sessions (github clone flow)", () => {
             "VALUES (?, ?, 'user', ?)",
         ).run(id, id, opts.cwd);
         yield "x";
-        // Stay running until killed so the orphan-stop path is exercised
-        // deterministically rather than racing the process's natural exit.
+        // Stay alive until killed to exercise the orphan-stop path.
         while (!local.killed) await sleep(5);
       })();
       const kill = (signal?: string) => {
@@ -458,7 +454,6 @@ describe("POST /sessions (github clone flow)", () => {
     const app = createApp(db, runner, { gh, pollTimeoutMs: 5000 });
     const repo = "SynthLuvr/collide-race";
 
-    // Fire two concurrent submissions for the same repo (same clone path).
     const [c1, c2] = await Promise.all([
       postForm(app, "/sessions", {
         source: "github",
@@ -483,18 +478,15 @@ describe("POST /sessions (github clone flow)", () => {
       pollCloneStatus(app, jobId2!),
     ]);
 
-    // Exactly one job wins the session; the other gets a clean 409 and its
-    // run is stopped — no silent clobber, no leaked process.
-    expect([r1.status, r2.status].sort()).toEqual([200, 409]);
+    // One job wins; the other gets a clean 409 and its orphaned run stopped.
+    expect([r1.status, r2.status].sort((a, b) => a - b)).toEqual([200, 409]);
     expect(insertedIds).toHaveLength(2);
     expect(killPids).toHaveLength(1);
     const failed = r1.status === 409 ? r1 : r2;
     expect(failed.html).toContain(
       "Another session is starting in that repository",
     );
-    // The losing run is tracked (not orphaned) under its temp key, marked
-    // stopped, and its process was killed — versus the bug, where the second
-    // rekey silently overwrote the first handle and leaked its process.
+    // The loser is tracked (not orphaned) under its temp key and marked stopped.
     const tempKeys = [...runner.registry.keys()].filter((k) =>
       k.startsWith("tmp_"),
     );

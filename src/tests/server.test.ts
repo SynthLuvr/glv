@@ -1914,7 +1914,6 @@ describe("M5: POST /sessions", () => {
       ),
     ]);
 
-    // Both requests succeed, each claiming its own freshly created session.
     expect(r1.status).toBe(200);
     expect(r2.status).toBe(200);
     expect(insertedIds).toHaveLength(2);
@@ -1922,12 +1921,11 @@ describe("M5: POST /sessions", () => {
     const id2 = r2.html.match(/data-session-id="([^"]+)" data-run-status/)?.[1];
     expect(id1).not.toBe(id2);
 
-    // Both real session ids are tracked — neither handle was orphaned by a
-    // clobbering rekey — and no temp keys leak in the registry.
+    // Both real ids are tracked; no temp keys leak in the registry.
     expect(getHandle(runner, id1!)).toBeDefined();
     expect(getHandle(runner, id2!)).toBeDefined();
     for (const key of runner.registry.keys()) expect(key).not.toMatch(/^tmp_/);
-    // The lock serialized the claims, so no run was stopped as a collision.
+    // No run was killed as a collision.
     expect(killCalls).toHaveLength(0);
   });
 

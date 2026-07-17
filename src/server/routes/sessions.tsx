@@ -177,12 +177,6 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
     const tempKey = generateTempKey();
 
-    // The snapshot-enqueue-poll-rekey sequence is serialized per working
-    // directory. Without the lock two concurrent submissions share the same
-    // known-session set, discover the same first new id, and the second rekey
-    // would silently clobber the first handle — orphaning a run and leaking
-    // its goose process. Holding the lock lets each request snapshot after
-    // the prior run's session has appeared, so each discovers its own id.
     type EstablishResult =
       | { ok: true; realId: string; session: SessionRow }
       | { ok: false; status: ContentfulStatusCode; error: string };
@@ -205,8 +199,6 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
         }
 
-        // rekey claims the id atomically; false means another request beat us
-        // to it. Stop our orphaned run instead of overwriting theirs.
         if (!rekey(ctx.runner, tempKey, realId)) {
           stop(ctx.runner, tempKey);
           return {
