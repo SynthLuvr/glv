@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GhClient, RepoInfo } from "../gh.js";
+import { clonePathFor, parseOwnerRepo } from "../gh.js";
 import type { ProcessResult, SpawnFn } from "../runner/index.js";
 import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
 import { createApp } from "../server/index.js";
@@ -301,6 +302,75 @@ describe("POST /sessions (github validation)", () => {
     expect(status).toBe(422);
     expect(html).toContain("prompt is required");
     expect(html).toContain('name="source" value="github"');
+  });
+
+  it("rejects a path-traversal repository with 422", async () => {
+    const app = makeApp(createStubGh());
+    const { status, html } = await postForm(app, "/sessions", {
+      source: "github",
+      repo: "a/../../../etc",
+      branch: "main",
+      prompt: "hello",
+    });
+    expect(status).toBe(422);
+    expect(html).toContain("Invalid repository format");
+  });
+
+  it("rejects a repository whose name segment is a bare ..", async () => {
+    const app = makeApp(createStubGh());
+    const { status } = await postForm(app, "/sessions", {
+      source: "github",
+      repo: "owner/..",
+      branch: "main",
+      prompt: "hello",
+    });
+    expect(status).toBe(422);
+  });
+});
+
+describe("parseOwnerRepo path-traversal guard", () => {
+  it("accepts a normal owner/name", () => {
+    expect(parseOwnerRepo("SynthLuvr/goose")).toEqual({
+      owner: "SynthLuvr",
+      repo: "goose",
+    });
+  });
+
+  it("accepts dots, underscores and hyphens in segments", () => {
+    expect(parseOwnerRepo("a.b_c/d-e.f")).toEqual({
+      owner: "a.b_c",
+      repo: "d-e.f",
+    });
+  });
+
+  it("rejects traversal in the repo segment", () => {
+    expect(() => parseOwnerRepo("a/../../../etc")).toThrow();
+    expect(() => parseOwnerRepo("a/..")).toThrow();
+    expect(() => parseOwnerRepo("a/.")).toThrow();
+    expect(() => parseOwnerRepo("../../etc/passwd")).toThrow();
+  });
+
+  it("rejects a slash inside the repo segment", () => {
+    expect(() => parseOwnerRepo("a/b/c")).toThrow();
+  });
+
+  it("rejects other path separators and whitespace", () => {
+    expect(() => parseOwnerRepo("a/b c")).toThrow();
+    expect(() => parseOwnerRepo("a/b\\c")).toThrow();
+  });
+});
+
+describe("clonePathFor containment guard", () => {
+  it("stays inside the clone root for valid segments", () => {
+    expect(clonePathFor("SynthLuvr", "goose")).toBe(
+      join("/tmp", "glv", "SynthLuvr", "goose"),
+    );
+  });
+
+  it("throws when a traversal segment escapes the clone root", () => {
+    expect(() => clonePathFor("a", "../../../etc")).toThrow();
+    expect(() => clonePathFor("..", "etc")).toThrow();
+    expect(() => clonePathFor("a", "..")).toThrow();
   });
 });
 
