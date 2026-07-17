@@ -80,6 +80,7 @@ const updateMeta = (data: MetaUpdate): void => {
 type StreamStatus = {
   status: string;
   queuePosition?: number;
+  pendingCount?: number;
   error?: string | null;
 };
 
@@ -91,11 +92,24 @@ const updateStatusHint = (data: StreamStatus): void => {
     hint.textContent = `Queued, waiting… (position ${data.queuePosition})`;
   } else if (data.status === "running") {
     hint.className = "status-hint running";
-    hint.textContent = "Running…";
+    const count = data.pendingCount ?? 0;
+    hint.textContent =
+      count > 0
+        ? `Running… (${count} prompt${count > 1 ? "s" : ""} queued next)`
+        : "Running…";
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;
   }
+};
+
+// A chained prompt just started, so its queued card is now live: drop one
+// queued card, then remove the empty queue container (and its Clear button).
+const dismissQueuedCard = (): void => {
+  document.querySelector(".queued-prompt")?.remove();
+  const container = document.getElementById("queued-prompts");
+  if (container !== null && container.querySelector(".queued-prompt") === null)
+    container.remove();
 };
 
 const connectRunner = (root: Element): void => {
@@ -115,6 +129,14 @@ const connectRunner = (root: Element): void => {
     } catch {
       /* ignore malformed status payloads */
     }
+  });
+
+  activeSource.addEventListener("prompt", (e) => {
+    const html = (e as MessageEvent).data;
+    if (html === "" || output === null) return;
+    output.insertAdjacentHTML("beforeend", html);
+    dismissQueuedCard();
+    scrollToBottom();
   });
 
   activeSource.addEventListener("line", (e) => {

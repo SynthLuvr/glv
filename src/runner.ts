@@ -60,6 +60,10 @@ type RunHandle = {
   queuePosition: number | undefined;
   lines: string[];
   error: string | undefined;
+  /** FIFO queue of prompts not yet started (for chained-run display). */
+  readonly pendingPrompts: readonly string[];
+  /** Every prompt that has begun executing, oldest first (for stream replay). */
+  readonly startedPrompts: readonly string[];
 };
 
 type ProcessResult = {
@@ -86,9 +90,16 @@ type EnqueueOptions = {
   onStatus?: (handle: RunHandle) => void;
 };
 
-type InternalHandle = Omit<RunHandle, "sessionId"> & {
+type InternalHandle = Omit<
+  RunHandle,
+  "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts"
+> & {
   // Writable: rekeyed from the temp id to goose's real session id.
   sessionId: string;
+  // Writable: updated as chained prompts advance.
+  prompt: string;
+  pendingPrompts: string[];
+  startedPrompts: string[];
   readonly workingDir: string;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
@@ -215,6 +226,27 @@ const createRunner = (
   return { config, queue, registry, spawn };
 };
 
+const isActiveStatus = (status: RunStatus): boolean =>
+  status === "queued" || status === "running";
+
+// Advance to the next queued prompt after a run finishes, or end the chain.
+// A run that errored still chains onward; only "stopped" or an empty pending
+// queue ends it. Every state change here is synchronous, so observers never
+// glimpse the terminal status of the run that just finished.
+const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
+  if (handle.status === "stopped") {
+    handle.pendingPrompts = [];
+    return undefined;
+  }
+  const nextPrompt = handle.pendingPrompts.shift();
+  if (nextPrompt === undefined) return undefined;
+  handle.startedPrompts.push(nextPrompt);
+  handle.prompt = nextPrompt;
+  handle.error = undefined;
+  handle.status = "running";
+  return resumeInvocation(handle.sessionId, nextPrompt);
+};
+
 const enqueueInvocation = (
   runner: Runner,
   key: string,
@@ -223,15 +255,14 @@ const enqueueInvocation = (
   opts: EnqueueOptions = {},
 ): RunHandle => {
   const existing = runner.registry.get(key);
-  if (
-    existing !== undefined &&
-    (existing.status === "queued" || existing.status === "running")
-  )
+  if (existing !== undefined && isActiveStatus(existing.status))
     throw new Error(`Session ${key} already has an active or queued run`);
 
   const handle: InternalHandle = {
     sessionId: key,
     prompt: invocation.stdin,
+    pendingPrompts: [],
+    startedPrompts: [],
     workingDir,
     status: "queued",
     queuePosition: undefined,
@@ -246,19 +277,24 @@ const enqueueInvocation = (
   refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
-    if (handle.cancelled) return;
-    handle.status = "running";
-    handle.queuePosition = undefined;
-    handle.onStatus?.(handle);
-    refreshQueuePositions(runner);
+    let currentInvocation: GooseInvocation | undefined = invocation;
+    while (currentInvocation !== undefined) {
+      if (handle.cancelled) return;
+      handle.status = "running";
+      handle.queuePosition = undefined;
+      handle.onStatus?.(handle);
+      refreshQueuePositions(runner);
 
-    try {
-      await runProcess(runner, handle, invocation);
-    } catch (err) {
-      failRun(handle, err);
+      try {
+        await runProcess(runner, handle, currentInvocation);
+      } catch (err) {
+        failRun(handle, err);
+      }
+      handle.process = undefined;
+
+      currentInvocation = advanceChain(handle);
+      if (currentInvocation !== undefined) handle.onStatus?.(handle);
     }
-
-    handle.process = undefined;
     handle.onStatus?.(handle);
   });
 
@@ -279,6 +315,35 @@ const enqueue = (
     workingDir,
     opts,
   );
+
+const enqueueOrQueue = (
+  runner: Runner,
+  sessionId: string,
+  prompt: string,
+  workingDir: string,
+  opts: EnqueueOptions = {},
+): { handle: RunHandle; queued: boolean } => {
+  const existing = runner.registry.get(sessionId);
+  if (existing !== undefined && isActiveStatus(existing.status)) {
+    existing.pendingPrompts.push(prompt);
+    existing.onStatus?.(existing);
+    return { handle: existing, queued: true };
+  }
+  return {
+    handle: enqueue(runner, sessionId, prompt, workingDir, opts),
+    queued: false,
+  };
+};
+
+const clearPending = (runner: Runner, sessionId: string): number => {
+  const handle = runner.registry.get(sessionId);
+  if (handle === undefined) return 0;
+  const count = handle.pendingPrompts.length;
+  if (count === 0) return 0;
+  handle.pendingPrompts = [];
+  handle.onStatus?.(handle);
+  return count;
+};
 
 const enqueueNew = (
   runner: Runner,
@@ -315,6 +380,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   if (handle.status === "queued") {
     handle.cancelled = true;
     handle.status = "stopped";
+    handle.pendingPrompts = [];
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
     refreshQueuePositions(runner);
@@ -323,6 +389,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
 
   if (handle.status === "running" && handle.process !== undefined) {
     handle.status = "stopped";
+    handle.pendingPrompts = [];
     handle.process.kill("SIGINT");
     return true;
   }
@@ -359,11 +426,13 @@ export type {
   SpawnFn,
 };
 export {
+  clearPending,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   defaultSpawn,
   enqueue,
   enqueueNew,
+  enqueueOrQueue,
   generateTempKey,
   getHandle,
   getStatus,

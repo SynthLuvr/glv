@@ -822,7 +822,7 @@ describe("prompt bar in transcript", () => {
 });
 
 describe("POST /sessions/:id/prompt", () => {
-  it("submits a prompt and shows the running state with Stop button", async () => {
+  it("submits a prompt and shows the running state with Queue + Stop buttons", async () => {
     const { spawn } = createMockSpawn(["line1"], { delayMs: 500 });
     const app = makeApp(spawn);
     const { status, html } = await postForm(app, "/sessions/alpha/prompt", {
@@ -830,7 +830,7 @@ describe("POST /sessions/:id/prompt", () => {
     });
     expect(status).toBe(200);
     expect(html).toContain("hello goose");
-    expect(html).toContain("disabled");
+    expect(html).toContain("queue-btn");
     expect(html).toContain("Stop");
     expect(html).not.toContain(">Send<");
   });
@@ -885,13 +885,106 @@ describe("POST /sessions/:id/prompt", () => {
     expect(html).toContain("position");
   });
 
-  it("keeps the existing run when a second prompt is submitted", async () => {
+  it("queues the prompt instead of starting a second run", async () => {
     const { spawn, invocations } = createMockSpawn(["x"], { delayMs: 500 });
     const app = makeApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+    // Only the first prompt started; the second was queued.
     expect(invocations).toHaveLength(1);
     expect(invocations[0].opts.stdin).toBe("first");
+  });
+});
+
+describe("follow-up prompt queuing", () => {
+  it("shows a queued-prompt card when a follow-up is submitted", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "do more",
+    });
+    expect(html).toContain("queued-prompt");
+    expect(html).toContain("do more");
+    expect(html).toContain("Clear all queued");
+  });
+
+  it("shows multiple queued-prompt cards in FIFO order", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "third",
+    });
+    expect(html).toContain("second");
+    expect(html).toContain("third");
+    const firstIdx = html.indexOf("second");
+    const secondIdx = html.indexOf("third");
+    expect(firstIdx).toBeLessThan(secondIdx);
+  });
+
+  it("shows queue and stop buttons when busy", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "second",
+    });
+    expect(html).toContain("queue-btn");
+    expect(html).toContain("stop-btn");
+    expect(html).not.toContain(">Send<");
+  });
+
+  it("shows the pending count in the running status hint", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "third",
+    });
+    expect(html).toContain("2 prompts queued next");
+  });
+
+  it("keeps the running prompt visible after queuing", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "original" });
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "follow-up",
+    });
+    // The running prompt should still be shown as SubmittedPrompt.
+    expect(html).toContain("submitted-prompt");
+    expect(html).toContain("original");
+  });
+});
+
+describe("POST /sessions/:id/queue/cancel", () => {
+  it("clears all pending prompts", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "third" });
+
+    const { html } = await postForm(app, "/sessions/alpha/queue/cancel", {});
+    expect(html).not.toContain("queued-prompt");
+    expect(html).not.toContain("Clear all queued");
+    // The running prompt should still be active.
+    expect(html).toContain("Running");
+  });
+
+  it("returns 404 for a non-existent session", async () => {
+    const { spawn } = createMockSpawn([]);
+    const app = makeApp(spawn);
+    const { status, html } = await postForm(
+      app,
+      "/sessions/missing/queue/cancel",
+      {},
+    );
+    expect(status).toBe(404);
+    expect(html).toContain("Session not found");
   });
 });
 
@@ -976,6 +1069,51 @@ describe("GET /sessions/:id/stream (SSE)", () => {
     expect(queuedAt).toBeGreaterThanOrEqual(0);
     expect(runningAt).toBeGreaterThan(queuedAt);
     expect(text).toContain("event: done");
+  });
+
+  it("includes pendingCount in status events", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 50 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("pendingCount");
+    expect(text).toContain('"pendingCount":1');
+  });
+
+  it("emits prompt events for chained runs", async () => {
+    const { spawn } = createMockSpawn(["line1"], { delayMs: 50 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    expect(text).toContain("event: prompt");
+    expect(text).toContain("second");
+    expect(text).toContain("event: done");
+  });
+
+  it("accumulates lines across chained runs in the stream", async () => {
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 30 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    // Each run produces lines a, b — both runs' output should appear.
+    const firstA = text.indexOf("a");
+    const firstB = text.indexOf("b");
+    const secondA = text.indexOf("a", firstB + 1);
+    expect(firstA).toBeGreaterThanOrEqual(0);
+    expect(firstB).toBeGreaterThan(firstA);
+    expect(secondA).toBeGreaterThan(firstB);
   });
 });
 
