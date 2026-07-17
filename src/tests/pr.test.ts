@@ -90,6 +90,17 @@ describe("detectPrUrl", () => {
     );
   });
 
+  it("ignores a pull/new URL quoted in a code comment (not real git output)", () => {
+    // A session that reads the detection source itself: the example URL sits
+    // in a `//` comment, not a genuine `remote:` line, so it must never be
+    // treated as a created-PR push link.
+    const source =
+      "// `git push` of a new branch prints a create-PR link:\n" +
+      "//   remote:      https://github.com/owner/repo/pull/new/feat/x\n" +
+      "const X = 1;";
+    expect(detectPrUrl([msg("user", [toolResult(source)])])).toBeUndefined();
+  });
+
   it("chooses the assistant summary mention over reference noise (tier 4 > 5)", () => {
     // A dependency/changelog dump cites 125 foreign PRs in a tool result.
     const changelog = Array.from(

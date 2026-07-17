@@ -12,16 +12,19 @@ const PR_URL_GLOBAL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 // successful `gh pr create`, which prints nothing but the new PR's URL.
 const BARE_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 
-// `git push` of a new branch prints a "create a PR" link:
+// Genuine `git push` prints the create-PR link on its own `remote:` line:
 //   remote:      https://github.com/owner/repo/pull/new/feat/x
+// Anchored to the line's `remote:` prefix (spaces/tabs only, never a diff
+// marker) so a pull/new URL merely *quoted* in a code comment or string
+// literal — e.g. this very comment — is never mistaken for real git output.
 const PULL_NEW_URL_GLOBAL =
-  /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/new\/[\w./-]+/g;
+  /^[ \t]*remote:[ \t]*(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/new\/[\w./-]+)/gm;
 
 const findPrUrls = (text: string): string[] =>
   [...text.matchAll(PR_URL_GLOBAL)].map((match) => match[0]);
 
 const findPullNewUrls = (text: string): string[] =>
-  [...text.matchAll(PULL_NEW_URL_GLOBAL)].map((match) => match[0]);
+  [...text.matchAll(PULL_NEW_URL_GLOBAL)].map((match) => match[1]);
 
 const last = <T>(values: readonly T[]): T | undefined =>
   values.length === 0 ? undefined : values[values.length - 1];
