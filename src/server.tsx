@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -107,20 +108,23 @@ const Shell = ({
   selectedId,
   runningIds,
   logout = false,
+  assetVersion,
   children,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   selectedId: string | undefined;
   runningIds: Set<string>;
   logout?: boolean;
+  assetVersion: string;
 }>) => (
-  <Layout title="Goose Sessions">
+  <Layout title="Goose Sessions" assetVersion={assetVersion}>
     <div class="app">
       <Sidebar
         sessions={sessions}
         selectedId={selectedId}
         runningIds={runningIds}
         logout={logout}
+        assetVersion={assetVersion}
       />
       <main class="detail" id="detail-pane">
         {children}
@@ -285,6 +289,17 @@ const createApp = (
   const renameScript = readAsset("../dist/rename.js");
   const sourcePickerScript = readAsset("../dist/source-picker.js");
   const passkeyScript = readAsset("../dist/passkey.js");
+  const assetVersion = createHash("sha256")
+    .update(appCss)
+    .update(sidebarScript)
+    .update(streamScript)
+    .update(themeScript)
+    .update(markdownCopyScript)
+    .update(renameScript)
+    .update(sourcePickerScript)
+    .update(passkeyScript)
+    .digest("hex")
+    .slice(0, 8);
   const auth = opts.auth;
   const app = new Hono<AppEnv>();
   // Auth gate sits first: every non-public request must carry a valid
@@ -334,6 +349,7 @@ const createApp = (
             selectedId={selectedId}
             runningIds={runningIds}
             logout={showLogout}
+            assetVersion={assetVersion}
           >
             {detail}
           </Shell>,
@@ -421,12 +437,12 @@ const createApp = (
   if (auth !== undefined) {
     app.get("/auth/register", (c) => {
       if (auth.isClaimed()) return c.redirect("/auth/login", 302);
-      return c.html(<RegisterPage />);
+      return c.html(<RegisterPage assetVersion={assetVersion} />);
     });
 
     app.get("/auth/login", (c) => {
       if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
-      return c.html(<LoginPage />);
+      return c.html(<LoginPage assetVersion={assetVersion} />);
     });
 
     app.get("/auth/register/options", async (c) => {

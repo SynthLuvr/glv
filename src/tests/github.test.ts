@@ -262,7 +262,14 @@ describe("NewSessionForm source toggle", () => {
   it("includes the source-picker client script", async () => {
     const app = makeApp(createStubGh());
     const html = await (await app.request("/sessions/new")).text();
-    expect(html).toContain('src="/assets/source-picker.js"');
+    expect(html).toContain('src="/assets/source-picker.js');
+  });
+
+  it("appends a cache-busting version to asset URLs", async () => {
+    const app = makeApp(createStubGh());
+    const html = await (await app.request("/sessions/new")).text();
+    expect(html).toMatch(/\/assets\/app\.css\?v=[a-f0-9]+/);
+    expect(html).toMatch(/\/assets\/source-picker\.js\?v=[a-f0-9]+/);
   });
 });
 

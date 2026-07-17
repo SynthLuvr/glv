@@ -217,7 +217,8 @@ const Sidebar = ({
   selectedId,
   runningIds,
   logout = false,
-}: SidebarProps & { logout?: boolean }) => (
+  assetVersion,
+}: SidebarProps & { logout?: boolean; assetVersion: string }) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Goose Sessions</h1>
@@ -246,7 +247,7 @@ const Sidebar = ({
         runningIds={runningIds}
       />
     )}
-    <script src="/assets/sidebar.js" defer></script>
+    <script src={`/assets/sidebar.js?v=${assetVersion}`} defer></script>
   </aside>
 );
 

@@ -7,17 +7,18 @@ const themeBootstrap = `(function(){try{var t=localStorage.getItem('glv-theme');
 type AuthLayoutProps = {
   title: string;
   children: Child;
+  assetVersion: string;
 };
 
-const AuthLayout = ({ title, children }: AuthLayoutProps) => (
+const AuthLayout = ({ title, children, assetVersion }: AuthLayoutProps) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
-      <link rel="stylesheet" href="/assets/app.css" />
-      <script src="/assets/passkey.js" defer></script>
+      <link rel="stylesheet" href={`/assets/app.css?v=${assetVersion}`} />
+      <script src={`/assets/passkey.js?v=${assetVersion}`} defer></script>
     </head>
     <body>
       <main class="auth-main">{children}</main>
@@ -60,8 +61,8 @@ const AuthCard = ({ heading, sub, action, label, error }: AuthCardProps) => (
   </div>
 );
 
-const RegisterPage = () => (
-  <AuthLayout title="Claim Goose Log Viewer">
+const RegisterPage = ({ assetVersion }: { assetVersion: string }) => (
+  <AuthLayout title="Claim Goose Log Viewer" assetVersion={assetVersion}>
     <AuthCard
       heading="Claim this app"
       sub="This viewer has no owner yet. Create a passkey to become its permanent owner — no email, no password. Anyone can claim it first."
@@ -71,8 +72,14 @@ const RegisterPage = () => (
   </AuthLayout>
 );
 
-const LoginPage = ({ error }: { error?: string }) => (
-  <AuthLayout title="Log in — Goose Log Viewer">
+const LoginPage = ({
+  assetVersion,
+  error,
+}: {
+  assetVersion: string;
+  error?: string;
+}) => (
+  <AuthLayout title="Log in — Goose Log Viewer" assetVersion={assetVersion}>
     <AuthCard
       heading="Welcome back"
       sub="Log in with your passkey to continue."

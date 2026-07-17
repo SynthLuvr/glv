@@ -1135,6 +1135,7 @@ pre::-webkit-scrollbar-thumb {
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  appearance: none;
   transition:
     background 0.12s ease,
     color 0.12s ease;

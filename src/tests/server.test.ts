@@ -308,7 +308,7 @@ describe("web viewer GET /", () => {
 
   it("wires the sidebar with htmx to swap only the detail pane", async () => {
     const html = await renderRoot();
-    expect(html).toContain('<script src="/assets/htmx.min.js"');
+    expect(html).toContain('<script src="/assets/htmx.min.js');
     expect(html).toContain('id="detail-pane"');
     expect(html).toContain('hx-target="#detail-pane"');
     expect(html).toContain('hx-push-url="true"');
@@ -458,8 +458,8 @@ describe("web viewer static assets", () => {
   it("references the stylesheet and client script in the document", async () => {
     const res = await makeApp().request("/");
     const html = await res.text();
-    expect(html).toContain('rel="stylesheet" href="/assets/app.css"');
-    expect(html).toContain('<script src="/assets/sidebar.js"');
+    expect(html).toContain('rel="stylesheet" href="/assets/app.css');
+    expect(html).toContain('<script src="/assets/sidebar.js');
   });
 
   it("serves the stylesheet as CSS", async () => {
@@ -660,7 +660,7 @@ describe("web viewer rename", () => {
 
   it("serves the rename client script and references it in the document", async () => {
     const doc = await (await app().request("/")).text();
-    expect(doc).toContain('<script src="/assets/rename.js"');
+    expect(doc).toContain('<script src="/assets/rename.js');
     const res = await app().request("/assets/rename.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
@@ -1023,7 +1023,7 @@ describe("M3: streaming assets & layout", () => {
   it("references the stream client script in the document", async () => {
     const res = await makeApp().request("/");
     const html = await res.text();
-    expect(html).toContain('<script src="/assets/stream.js"');
+    expect(html).toContain('<script src="/assets/stream.js');
   });
 
   it("serves the stream client script as JavaScript", async () => {
