@@ -4,6 +4,7 @@ import {
   fmtRelative,
   messageKind,
   renderMarkdown,
+  shortenHome,
   thinkingText,
   toolCallInfo,
   toolResultInfo,
@@ -223,5 +224,29 @@ describe("truncateMiddle", () => {
     expect(out).toContain("…");
     expect(out.startsWith("abcdef")).toBe(true);
     expect(out.endsWith("xyz")).toBe(true);
+  });
+});
+
+describe("shortenHome", () => {
+  it("collapses the exact home dir to ~", () => {
+    expect(shortenHome("/home/me", "/home/me")).toBe("~");
+  });
+
+  it("replaces a home prefix with ~", () => {
+    expect(shortenHome("/home/me/projects/app", "/home/me")).toBe(
+      "~/projects/app",
+    );
+  });
+
+  it("leaves an unrelated path unchanged", () => {
+    expect(shortenHome("/etc/config", "/home/me")).toBe("/etc/config");
+  });
+
+  it("does not match a sibling of home", () => {
+    expect(shortenHome("/home/other/x", "/home/me")).toBe("/home/other/x");
+  });
+
+  it("leaves paths unchanged when home is empty", () => {
+    expect(shortenHome("/home/me", "")).toBe("/home/me");
   });
 });

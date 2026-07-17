@@ -232,6 +232,14 @@ const listHomeDirs = (home: string = homedir()): string[] =>
     .map((entry) => join(home, entry.name))
     .sort();
 
+// The new-session form submits ~, which Node will not expand itself.
+const expandHome = (path: string, home: string = homedir()): string =>
+  path === "~"
+    ? home
+    : path.startsWith("~/")
+      ? join(home, path.slice(2))
+      : path;
+
 type AppEnv = { Variables: { runner: Runner } };
 
 const createApp = (
@@ -456,8 +464,9 @@ const createApp = (
 
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    const workingDir =
-      typeof body.working_dir === "string" ? body.working_dir.trim() : "";
+    const workingDir = expandHome(
+      typeof body.working_dir === "string" ? body.working_dir.trim() : "",
+    );
 
     if (prompt === "")
       return reject("A prompt is required to start a session.", 422);
@@ -753,4 +762,4 @@ const createApp = (
   return app;
 };
 
-export { createApp, listHomeDirs };
+export { createApp, expandHome, listHomeDirs };

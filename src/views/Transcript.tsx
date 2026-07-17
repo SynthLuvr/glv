@@ -14,6 +14,7 @@ import {
   fmtTokens,
   messageKind,
   renderMarkdown,
+  shortenHome,
   thinkingText,
   toolCallInfo,
   toolResultInfo,
@@ -235,7 +236,7 @@ const TranscriptHeader = ({
       <MetaChip label="ID" value={session.id} mono />
       <MetaChip
         label="Working dir"
-        value={truncateMiddle(session.working_dir, 48)}
+        value={truncateMiddle(shortenHome(session.working_dir), 48)}
         mono
         title={session.working_dir}
       />
@@ -400,14 +401,14 @@ const NewSessionForm = ({
           type="text"
           name="working_dir"
           list="recent-dirs"
-          value={workingDir}
+          value={shortenHome(workingDir)}
           class="form-input"
           autocomplete="off"
           spellcheck={false}
         />
         <datalist id="recent-dirs">
           {dirs.map((dir) => (
-            <option value={dir} />
+            <option value={shortenHome(dir)} />
           ))}
         </datalist>
       </label>
