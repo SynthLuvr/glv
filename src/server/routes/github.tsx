@@ -17,7 +17,7 @@ import {
   VIEWER_FILTER,
 } from "../context.js";
 import { newSessionDetail, render } from "../render.js";
-import { errorMessage } from "../util.js";
+import { errorMessage, withCreateLock } from "../util.js";
 
 const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/github/repos", async (c) => {
@@ -39,7 +39,7 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     }
   });
 
-  app.get("/github/clone-status/:jobId", (c) => {
+  app.get("/github/clone-status/:jobId", async (c) => {
     const jobId = c.req.param("jobId");
     const job = ctx.cloneJobs.get(jobId);
     const sessions = listSessions(ctx.db, VIEWER_FILTER);
@@ -100,12 +100,24 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     }
 
     const known = job.known;
+    const tempKey = job.tempKey;
     const realId = sessionIdsInDir(ctx.db, job.clonePath).find(
       (id) => !known.has(id),
     );
     if (realId === undefined) return waitView(false);
 
-    rekey(ctx.runner, job.tempKey, realId);
+    const claimed = await withCreateLock(ctx.createLocks, job.clonePath, () =>
+      rekey(ctx.runner, tempKey, realId),
+    );
+    if (!claimed) {
+      stop(ctx.runner, tempKey);
+      ctx.cloneJobs.delete(jobId);
+      return failForm(
+        "Another session is starting in that repository. Please try again.",
+        409,
+      );
+    }
+
     ctx.cloneJobs.delete(jobId);
     const session = getSession(ctx.db, realId);
     if (session === undefined) {

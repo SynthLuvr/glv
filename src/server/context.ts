@@ -66,6 +66,7 @@ type ServerContext = {
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
   readonly cloneJobs: Map<string, CloneJob>;
+  readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };
 

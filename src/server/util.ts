@@ -63,6 +63,25 @@ const errorMessage = (err: unknown): string =>
 const activeRunPrompt = (run: RunHandle | undefined): string | undefined =>
   run !== undefined && !isTerminalStatus(run.status) ? run.prompt : undefined;
 
+// Serializes async tasks per key. The stored tail swallows rejections so one
+// failure can't poison the chain.
+const withCreateLock = <T>(
+  locks: Map<string, Promise<void>>,
+  key: string,
+  task: () => T | Promise<T>,
+): Promise<T> => {
+  const tail = locks.get(key) ?? Promise.resolve();
+  const run = tail.then(task, task);
+  locks.set(
+    key,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+};
+
 // Resolved relative to this file (src/server/) so dist/ is two levels up.
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
@@ -94,4 +113,5 @@ export {
   pollForSessionId,
   serveAsset,
   sleep,
+  withCreateLock,
 };

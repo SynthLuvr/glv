@@ -162,7 +162,9 @@ const enqueueNew = (
     opts,
   );
 
+// Returns false rather than clobbering so callers can stop the orphaned run.
 const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
+  if (runner.registry.has(newKey)) return false;
   const handle = runner.registry.get(oldKey);
   if (handle === undefined) return false;
   runner.registry.delete(oldKey);

@@ -412,6 +412,88 @@ describe("POST /sessions (github clone flow)", () => {
     expect(html).toContain("hx-swap-oob");
   });
 
+  it("stops the orphan and surfaces a 409 when two clone jobs collide on the same repo", async () => {
+    const insertedIds: string[] = [];
+    const killPids: number[] = [];
+    let counter = 0;
+    let pidCounter = 60000;
+    const spawn: SpawnFn = (_binary, _args, opts) => {
+      const pid = ++pidCounter;
+      const local = { killed: false };
+      let resolveExit!: (r: ProcessResult) => void;
+      const exit = new Promise<ProcessResult>((resolve) => {
+        resolveExit = resolve;
+      });
+      const id = `collide-${++counter}`;
+      const stdout = (async function* () {
+        for (let i = 0; i < 4; i++) {
+          if (local.killed) return;
+          await sleep(5);
+        }
+        if (local.killed) return;
+        insertedIds.push(id);
+        db.prepare(
+          "INSERT INTO sessions (id, name, session_type, working_dir) " +
+            "VALUES (?, ?, 'user', ?)",
+        ).run(id, id, opts.cwd);
+        yield "x";
+        // Stay alive until killed to exercise the orphan-stop path.
+        while (!local.killed) await sleep(5);
+      })();
+      const kill = (signal?: string) => {
+        if (local.killed) return;
+        local.killed = true;
+        killPids.push(pid);
+        resolveExit({ exitCode: null, signal: signal ?? "SIGTERM" });
+      };
+      return { pid, kill, stdout, exit };
+    };
+
+    const gh = createStubGh();
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, runner, { gh, pollTimeoutMs: 5000 });
+    const repo = "SynthLuvr/collide-race";
+
+    const [c1, c2] = await Promise.all([
+      postForm(app, "/sessions", {
+        source: "github",
+        repo,
+        branch: "main",
+        prompt: "first",
+      }),
+      postForm(app, "/sessions", {
+        source: "github",
+        repo,
+        branch: "main",
+        prompt: "second",
+      }),
+    ]);
+    const jobId1 = extractJobId(c1.html);
+    const jobId2 = extractJobId(c2.html);
+    expect(jobId1).toBeDefined();
+    expect(jobId2).toBeDefined();
+
+    const [r1, r2] = await Promise.all([
+      pollCloneStatus(app, jobId1!),
+      pollCloneStatus(app, jobId2!),
+    ]);
+
+    // One job wins; the other gets a clean 409 and its orphaned run stopped.
+    expect([r1.status, r2.status].sort((a, b) => a - b)).toEqual([200, 409]);
+    expect(insertedIds).toHaveLength(2);
+    expect(killPids).toHaveLength(1);
+    const failed = r1.status === 409 ? r1 : r2;
+    expect(failed.html).toContain(
+      "Another session is starting in that repository",
+    );
+    // The loser is tracked (not orphaned) under its temp key and marked stopped.
+    const tempKeys = [...runner.registry.keys()].filter((k) =>
+      k.startsWith("tmp_"),
+    );
+    expect(tempKeys).toHaveLength(1);
+    expect(runner.registry.get(tempKeys[0])!.status).toBe("stopped");
+  });
+
   it("shows the error form when the clone fails", async () => {
     const gh = createStubGh({
       materialiseError: "repository not found",

@@ -8,6 +8,7 @@ import {
   listMessages,
   listSessions,
   renameSession,
+  type SessionRow,
   sessionIdsInDir,
 } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
@@ -49,6 +50,7 @@ import {
   extractIds,
   isHtmxRequest,
   pollForSessionId,
+  withCreateLock,
 } from "../util.js";
 
 const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
@@ -166,7 +168,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       );
     }
 
-    // Working directory flow (unchanged behaviour)
+    // Working directory flow
     const workingDir = expandHome(
       typeof body.working_dir === "string" ? body.working_dir.trim() : "",
     );
@@ -174,24 +176,49 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       return rejectForm("That working directory does not exist.", 422);
 
     const tempKey = generateTempKey();
-    const known = new Set(sessionIdsInDir(ctx.db, workingDir));
-    enqueueNew(ctx.runner, tempKey, prompt, workingDir);
 
-    const rejectTimeout = (key: string) => {
-      stop(ctx.runner, key);
-      return rejectForm(SESSION_TIMEOUT_ERROR, 502);
-    };
-    const realId = await pollForSessionId(
-      ctx.db,
+    type EstablishResult =
+      | { ok: true; realId: string; session: SessionRow }
+      | { ok: false; status: ContentfulStatusCode; error: string };
+
+    const result = await withCreateLock(
+      ctx.createLocks,
       workingDir,
-      known,
-      ctx.pollTimeoutMs,
-    );
-    if (realId === undefined) return rejectTimeout(tempKey);
+      async (): Promise<EstablishResult> => {
+        const known = new Set(sessionIdsInDir(ctx.db, workingDir));
+        enqueueNew(ctx.runner, tempKey, prompt, workingDir);
 
-    rekey(ctx.runner, tempKey, realId);
-    const session = getSession(ctx.db, realId);
-    if (session === undefined) return rejectTimeout(realId);
+        const realId = await pollForSessionId(
+          ctx.db,
+          workingDir,
+          known,
+          ctx.pollTimeoutMs,
+        );
+        if (realId === undefined) {
+          stop(ctx.runner, tempKey);
+          return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
+        }
+
+        if (!rekey(ctx.runner, tempKey, realId)) {
+          stop(ctx.runner, tempKey);
+          return {
+            ok: false,
+            status: 409,
+            error:
+              "Another session is starting in that directory. Please try again.",
+          };
+        }
+        const session = getSession(ctx.db, realId);
+        if (session === undefined) {
+          stop(ctx.runner, realId);
+          return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
+        }
+        return { ok: true, realId, session };
+      },
+    );
+
+    if (!result.ok) return rejectForm(result.error, result.status);
+    const { realId, session } = result;
 
     return render(
       c,
