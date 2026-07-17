@@ -33,8 +33,6 @@ describe("renderMarkdown", () => {
     expect(renderMarkdown("just text")).toContain("just text");
   });
 
-  // Content is read from a shared DB written by goose and arbitrary tool
-  // output, so it must be treated as untrusted (stored XSS surface).
   it("strips raw script tags and inline event handlers", () => {
     expect(renderMarkdown("<script>alert(1)</script>")).not.toContain(
       "<script>",
