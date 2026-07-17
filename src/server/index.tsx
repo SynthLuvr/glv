@@ -37,6 +37,7 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     cloneJobs: new Map(),
+    createLocks: new Map(),
     assets: buildAssetBundle(),
   };
 

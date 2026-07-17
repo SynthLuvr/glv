@@ -162,7 +162,13 @@ const enqueueNew = (
     opts,
   );
 
+// Atomic claim of the real session id. Without the `newKey` guard two
+// concurrent new-session requests that discover the same id would silently
+// clobber each other's handle, orphaning a run and leaking its goose process.
+// Returning false (instead of overwriting) lets the caller stop the orphaned
+// run and surface a clear error.
 const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
+  if (runner.registry.has(newKey)) return false;
   const handle = runner.registry.get(oldKey);
   if (handle === undefined) return false;
   runner.registry.delete(oldKey);

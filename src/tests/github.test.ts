@@ -412,6 +412,96 @@ describe("POST /sessions (github clone flow)", () => {
     expect(html).toContain("hx-swap-oob");
   });
 
+  it("stops the orphan and surfaces a 409 when two clone jobs collide on the same repo", async () => {
+    // Each spawn waits before inserting its session row so both jobs snapshot
+    // the same (empty) known set before either run creates a session — the
+    // precondition for the concurrent race the fix guards against.
+    const insertedIds: string[] = [];
+    const killPids: number[] = [];
+    let counter = 0;
+    let pidCounter = 60000;
+    const spawn: SpawnFn = (_binary, _args, opts) => {
+      const pid = ++pidCounter;
+      const local = { killed: false };
+      let resolveExit!: (r: ProcessResult) => void;
+      const exit = new Promise<ProcessResult>((resolve) => {
+        resolveExit = resolve;
+      });
+      const id = `collide-${++counter}`;
+      const stdout = (async function* () {
+        for (let i = 0; i < 4; i++) {
+          if (local.killed) return;
+          await sleep(5);
+        }
+        if (local.killed) return;
+        insertedIds.push(id);
+        db.prepare(
+          "INSERT INTO sessions (id, name, session_type, working_dir) " +
+            "VALUES (?, ?, 'user', ?)",
+        ).run(id, id, opts.cwd);
+        yield "x";
+        // Stay running until killed so the orphan-stop path is exercised
+        // deterministically rather than racing the process's natural exit.
+        while (!local.killed) await sleep(5);
+      })();
+      const kill = (signal?: string) => {
+        if (local.killed) return;
+        local.killed = true;
+        killPids.push(pid);
+        resolveExit({ exitCode: null, signal: signal ?? "SIGTERM" });
+      };
+      return { pid, kill, stdout, exit };
+    };
+
+    const gh = createStubGh();
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, runner, { gh, pollTimeoutMs: 5000 });
+    const repo = "SynthLuvr/collide-race";
+
+    // Fire two concurrent submissions for the same repo (same clone path).
+    const [c1, c2] = await Promise.all([
+      postForm(app, "/sessions", {
+        source: "github",
+        repo,
+        branch: "main",
+        prompt: "first",
+      }),
+      postForm(app, "/sessions", {
+        source: "github",
+        repo,
+        branch: "main",
+        prompt: "second",
+      }),
+    ]);
+    const jobId1 = extractJobId(c1.html);
+    const jobId2 = extractJobId(c2.html);
+    expect(jobId1).toBeDefined();
+    expect(jobId2).toBeDefined();
+
+    const [r1, r2] = await Promise.all([
+      pollCloneStatus(app, jobId1!),
+      pollCloneStatus(app, jobId2!),
+    ]);
+
+    // Exactly one job wins the session; the other gets a clean 409 and its
+    // run is stopped — no silent clobber, no leaked process.
+    expect([r1.status, r2.status].sort()).toEqual([200, 409]);
+    expect(insertedIds).toHaveLength(2);
+    expect(killPids).toHaveLength(1);
+    const failed = r1.status === 409 ? r1 : r2;
+    expect(failed.html).toContain(
+      "Another session is starting in that repository",
+    );
+    // The losing run is tracked (not orphaned) under its temp key, marked
+    // stopped, and its process was killed — versus the bug, where the second
+    // rekey silently overwrote the first handle and leaked its process.
+    const tempKeys = [...runner.registry.keys()].filter((k) =>
+      k.startsWith("tmp_"),
+    );
+    expect(tempKeys).toHaveLength(1);
+    expect(runner.registry.get(tempKeys[0])!.status).toBe("stopped");
+  });
+
   it("shows the error form when the clone fails", async () => {
     const gh = createStubGh({
       materialiseError: "repository not found",

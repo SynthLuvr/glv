@@ -786,6 +786,24 @@ describe("rekey", () => {
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     expect(rekey(runner, "nope", "real-1")).toBe(false);
   });
+
+  it("refuses to clobber a handle already keyed to the target id", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const handleA = enqueueNew(runner, "tmp-a", "hi", "/tmp");
+    const handleB = enqueueNew(runner, "tmp-b", "hi", "/tmp");
+    await waitForStatus(handleA, "running");
+    await waitForStatus(handleB, "running");
+
+    // The first claim succeeds.
+    expect(rekey(runner, "tmp-a", "real-1")).toBe(true);
+    // The second must NOT overwrite the first; the loser keeps its temp key so
+    // the caller can stop the orphaned run instead of silently leaking it.
+    expect(rekey(runner, "tmp-b", "real-1")).toBe(false);
+    expect(getHandle(runner, "real-1")).toBe(handleA);
+    expect(getHandle(runner, "tmp-b")).toBe(handleB);
+    expect(getHandle(runner, "tmp-a")).toBeUndefined();
+  });
 });
 
 describe("generateTempKey", () => {

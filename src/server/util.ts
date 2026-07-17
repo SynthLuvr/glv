@@ -63,6 +63,28 @@ const errorMessage = (err: unknown): string =>
 const activeRunPrompt = (run: RunHandle | undefined): string | undefined =>
   run !== undefined && !isTerminalStatus(run.status) ? run.prompt : undefined;
 
+// Serializes an async task per key. Concurrent new-session submissions for the
+// same working directory wait their turn, so each snapshots the known-session
+// set after the prior run's session has appeared and discovers its own id
+// rather than colliding on the first one. The stored tail never rejects, so a
+// failure in one request can't poison the chain for the rest.
+const withCreateLock = <T>(
+  locks: Map<string, Promise<void>>,
+  key: string,
+  task: () => Promise<T>,
+): Promise<T> => {
+  const tail = locks.get(key) ?? Promise.resolve();
+  const run = tail.then(task, task);
+  locks.set(
+    key,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+};
+
 // Resolved relative to this file (src/server/) so dist/ is two levels up.
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
@@ -94,4 +116,5 @@ export {
   pollForSessionId,
   serveAsset,
   sleep,
+  withCreateLock,
 };
