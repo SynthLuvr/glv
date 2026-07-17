@@ -88,8 +88,6 @@ const CredentialRow = type(credentialShape);
 
 type CredentialRow = typeof CredentialRow.infer;
 
-// Validated at the SQLite boundary rather than cast, mirroring the sessions
-// database module. Rows that drift from the expected shape are dropped.
 const credentials = defineTable({
   table: "credentials",
   columns: Object.keys(credentialShape),

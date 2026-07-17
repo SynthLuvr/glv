@@ -32,11 +32,9 @@ type TableDescriptor<T> = {
   count: (db: DatabaseSync, options?: MutateOptions) => number;
 };
 
-// Builds a "?, ?, ?" list for IN (...) clauses and INSERT VALUES fragments.
 const placeholders = (n: number): string =>
   Array.from({ length: n }, () => "?").join(", ");
 
-// Runs fn inside a transaction, rolling back on error.
 const transaction = <T>(db: DatabaseSync, fn: () => T): T => {
   db.exec("BEGIN");
   try {
@@ -49,20 +47,18 @@ const transaction = <T>(db: DatabaseSync, fn: () => T): T => {
   }
 };
 
-// Validates a row and drops it (returns undefined) when it drifts from the
-// schema. Mirrors Papr's strict mode for a DB whose shape we don't control.
 const validate = <T>(schema: Validator<T>, row: unknown): T | undefined => {
   const result = schema(row);
   if (result instanceof type.errors) return undefined;
   return result;
 };
 
-// Describes a table once: its name, the columns to project, and an arktype
-// schema used to validate every returned row. Returns typed query helpers.
-//
-// SQL fragments (where / set / values) stay raw strings with ? placeholders
-// bound by params in order. This keeps SQLite idioms like
-// datetime('now') readable instead of forcing them through a query DSL.
+const whereClause = (options: MutateOptions): string =>
+  options.where ? ` WHERE ${options.where}` : "";
+
+// SQL fragments (where / set / values) stay raw strings bound by params in
+// order, so SQLite idioms like datetime('now') stay readable instead of going
+// through a query DSL. Every returned row is validated and dropped on drift.
 const defineTable = <T>(opts: {
   table: string;
   columns: readonly string[];
@@ -72,17 +68,16 @@ const defineTable = <T>(opts: {
   const { table, schema } = opts;
 
   const all = (db: DatabaseSync, options: SelectOptions = {}): T[] => {
-    const clauses = [
-      `SELECT ${cols} FROM ${table}`,
-      options.where ? `WHERE ${options.where}` : "",
-      options.orderBy ? `ORDER BY ${options.orderBy}` : "",
-      options.limit !== undefined ? "LIMIT ?" : "",
-    ];
-    const sql = clauses.filter((s) => s !== "").join(" ");
+    const parts = [`SELECT ${cols} FROM ${table}`];
+    if (options.where) parts.push(`WHERE ${options.where}`);
+    if (options.orderBy) parts.push(`ORDER BY ${options.orderBy}`);
+    if (options.limit !== undefined) parts.push("LIMIT ?");
+
     const params = [...(options.params ?? [])];
     if (options.limit !== undefined) params.push(options.limit);
+
     return db
-      .prepare(sql)
+      .prepare(parts.join(" "))
       .all(...params)
       .map((row) => validate(schema, row))
       .filter((r): r is T => r !== undefined);
@@ -92,9 +87,8 @@ const defineTable = <T>(opts: {
     db: DatabaseSync,
     options: MutateOptions = {},
   ): T | undefined => {
-    const tail = options.where ? ` WHERE ${options.where}` : "";
     const row = db
-      .prepare(`SELECT ${cols} FROM ${table}${tail}`)
+      .prepare(`SELECT ${cols} FROM ${table}${whereClause(options)}`)
       .get(...(options.params ?? []));
     if (row === undefined) return undefined;
     return validate(schema, row);
@@ -111,25 +105,22 @@ const defineTable = <T>(opts: {
     db: DatabaseSync,
     options: { set: string } & MutateOptions,
   ): void => {
-    const tail = options.where ? ` WHERE ${options.where}` : "";
-    db.prepare(`UPDATE ${table} SET ${options.set}${tail}`).run(
+    db.prepare(`UPDATE ${table} SET ${options.set}${whereClause(options)}`).run(
       ...(options.params ?? []),
     );
   };
 
   const remove = (db: DatabaseSync, options: MutateOptions = {}): void => {
-    const tail = options.where ? ` WHERE ${options.where}` : "";
-    db.prepare(`DELETE FROM ${table}${tail}`).run(...(options.params ?? []));
+    db.prepare(`DELETE FROM ${table}${whereClause(options)}`).run(
+      ...(options.params ?? []),
+    );
   };
 
   const count = (db: DatabaseSync, options: MutateOptions = {}): number => {
-    const tail = options.where ? ` WHERE ${options.where}` : "";
     const row = db
-      .prepare(`SELECT COUNT(*) AS n FROM ${table}${tail}`)
+      .prepare(`SELECT COUNT(*) AS n FROM ${table}${whereClause(options)}`)
       .get(...(options.params ?? []));
-    const n = row?.n;
-    if (typeof n !== "number") return 0;
-    return n;
+    return typeof row?.n === "number" ? row.n : 0;
   };
 
   return { all, one, insert, update, remove, count };

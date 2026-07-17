@@ -53,6 +53,12 @@ const messages = defineTable({
   schema: MessageRow,
 });
 
+const sessionIds = defineTable({
+  table: "sessions",
+  columns: ["id"],
+  schema: type({ id: "string" }),
+});
+
 const defaultDbPath = (): string =>
   join(homedir(), ".local", "share", "goose", "sessions", "sessions.db");
 
@@ -104,18 +110,12 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
   });
 
 // Lets the new-session poll distinguish a freshly created session from
-// pre-existing ones in the same working dir. Projects only `id` and validates
-// leniently so a half-written row is still recognised.
-const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] => {
-  const idOnly = defineTable({
-    table: "sessions",
-    columns: ["id"],
-    schema: type({ id: "string" }),
-  });
-  return idOnly
+// pre-existing ones in the same working dir. Selects only `id` with a lenient
+// schema so a half-written row still matches.
+const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] =>
+  sessionIds
     .all(db, { where: "working_dir = ?", params: [workingDir] })
     .map((row) => row.id);
-};
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
