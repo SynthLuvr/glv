@@ -718,9 +718,8 @@ describe("web viewer rename", () => {
     expect(html).toContain("Session not found");
   });
 
-  // Pressing Enter must rename in place via htmx. requestSubmit() can fall
-  // through to a native POST on the action-less form, navigating to a 404, so
-  // the client routes the submit through htmx.trigger instead.
+  // Regression: the action-less form POSTs to the current URL (a 404) when
+  // requestSubmit() isn't intercepted by htmx; Enter must route through htmx.
   it("submits the rename through htmx on Enter (no native navigation)", async () => {
     const html = await (await app().request("/sessions/alpha")).text();
     const dom = new JSDOM(html);
@@ -731,14 +730,13 @@ describe("web viewer rename", () => {
     const form = input?.form ?? null;
     expect(form).toBeInstanceOf(dom.window.HTMLFormElement);
 
+    const formWithStub = form as unknown as { requestSubmit: () => void };
     let nativeSubmits = 0;
-    if (form !== null)
-      (form as unknown as { requestSubmit: () => void }).requestSubmit =
-        (): void => {
-          nativeSubmits += 1;
-        };
+    formWithStub.requestSubmit = (): void => {
+      nativeSubmits += 1;
+    };
     const htmxCalls: unknown[] = [];
-    const htmx = {
+    const fakeHtmx = {
       trigger: (elt: unknown, event: string): void => {
         htmxCalls.push([elt, event]);
       },
@@ -749,7 +747,7 @@ describe("web viewer rename", () => {
       document,
       HTMLInputElement: dom.window.HTMLInputElement,
       Element: dom.window.Element,
-      htmx,
+      htmx: fakeHtmx,
     });
 
     input?.dispatchEvent(

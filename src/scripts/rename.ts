@@ -30,10 +30,8 @@ const editActions: Record<string, (wrap: Element) => void> = {
   "cancel-rename": exitEdit,
 };
 
-// Submitting through requestSubmit() depends on htmx intercepting the synthetic
-// submit event. When it doesn't, the action-less form POSTs to the current URL
-// and the browser navigates to a 404. Driving the request through htmx directly
-// keeps Enter (and blur-to-save) an in-place rename with no page navigation.
+// The form has no action, so requestSubmit() can fall back to a native POST to
+// the current URL (a 404); trigger htmx directly so the rename stays in place.
 const submitRename = (form: HTMLFormElement | null): void => {
   if (form === null) return;
   const htmx = (
