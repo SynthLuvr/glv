@@ -4,12 +4,15 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie } from "hono/cookie";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ContentfulStatusCode } from "hono/utils/http-status";
-import { SESSION_TTL_SECONDS } from "./auth/db.js";
-import { authMiddleware, COOKIE_NAME } from "./auth/middleware.js";
+import {
+  authMiddleware,
+  COOKIE_NAME,
+  setSessionCookie,
+} from "./auth/middleware.js";
 import {
   type AuthService,
   type RpConfig,
@@ -30,7 +33,7 @@ import {
   type ParsedMessage,
   parseMessage,
 } from "./format.js";
-import type { Runner } from "./runner.js";
+import type { RunHandle, Runner } from "./runner.js";
 import {
   enqueue,
   enqueueNew,
@@ -144,6 +147,19 @@ const flushMessages = async (
   }
   return true;
 };
+
+const emitStatus = async (
+  stream: SSEStreamingApi,
+  handle: RunHandle,
+): Promise<boolean> =>
+  emit(
+    stream,
+    "status",
+    JSON.stringify({
+      status: handle.status,
+      queuePosition: handle.queuePosition,
+    }),
+  );
 
 const emitMeta = async (
   stream: SSEStreamingApi,
@@ -269,17 +285,6 @@ const createApp = (
       rpID: opts.rpIdOverride ?? (url.hostname || "localhost"),
       expectedOrigin: url.origin,
     };
-  };
-
-  const setSessionCookie = (c: Context, token: string): void => {
-    const url = new URL(c.req.url);
-    setCookie(c, COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "Strict",
-      secure: url.protocol === "https:",
-      path: "/",
-      maxAge: SESSION_TTL_SECONDS,
-    });
   };
 
   const finishAuth = (
@@ -558,15 +563,18 @@ const createApp = (
         return;
       }
 
-      const statusPayload = JSON.stringify({
-        status: handle.status,
-        queuePosition: handle.queuePosition,
-      });
-      if (!(await emit(stream, "status", statusPayload))) return;
+      if (!(await emitStatus(stream, handle))) return;
 
+      // Surface mid-run transitions (e.g. queued → running) so the client
+      // isn't left on a stale status until the terminal re-render.
+      let lastStatus = handle.status;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
+        if (handle.status !== lastStatus) {
+          if (!(await emitStatus(stream, handle))) return;
+          lastStatus = handle.status;
+        }
         if (!(await flushLines(stream, handle.lines, sent))) return;
         sent = handle.lines.length;
         await stream.sleep(50);
