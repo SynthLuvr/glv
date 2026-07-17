@@ -27,12 +27,7 @@ import {
   renameSession,
   sessionIdsInDir,
 } from "./db.js";
-import {
-  fmtRelative,
-  fmtTokens,
-  type ParsedMessage,
-  parseMessage,
-} from "./format.js";
+import { fmtRelative, type ParsedMessage, parseMessage } from "./format.js";
 import { type CommandRunner, resolvePrState, STATE_LABEL } from "./pr.js";
 import type { RunHandle, Runner, RunStatus } from "./runner.js";
 import {
@@ -50,7 +45,6 @@ import { SessionTitleWrap } from "./views/Rename.js";
 import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
-  hasContent,
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
@@ -195,7 +189,6 @@ const emitStatus = async (
 const emitMeta = async (
   stream: SSEStreamingApi,
   session: SessionRow,
-  messageCount: number,
 ): Promise<boolean> =>
   emit(
     stream,
@@ -203,8 +196,6 @@ const emitMeta = async (
     JSON.stringify({
       updated: fmtRelative(session.updated_at),
       updatedTitle: session.updated_at,
-      messages: String(messageCount),
-      tokens: fmtTokens(session.total_tokens),
     }),
   );
 
@@ -732,10 +723,7 @@ const createApp = (
         if (!changed) continue;
         const session = getSession(db, id);
         if (session === undefined) continue;
-        if (
-          !(await emitMeta(stream, session, messages.filter(hasContent).length))
-        )
-          return;
+        if (!(await emitMeta(stream, session))) return;
       }
     });
   });
