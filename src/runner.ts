@@ -127,10 +127,7 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   handle.error = err instanceof Error ? err.message : String(err);
 };
 
-// Recompute the position of every still-waiting handle from the live registry
-// (insertion order == enqueue order) and notify any listener whose position
-// changed. Called whenever a run enters or leaves the queue, so the reported
-// position stays accurate as earlier runs finish instead of going stale.
+// Map preserves insertion order, so registry order mirrors queue order.
 const refreshQueuePositions = (runner: Runner): void => {
   let position = 0;
   for (const handle of runner.registry.values()) {
