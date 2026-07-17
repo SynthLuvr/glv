@@ -143,13 +143,9 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
 
 const HtmlString = type("string");
 
-// Assistant prose is Markdown; render it to HTML. Content is read from a
-// shared SQLite DB that goose and arbitrary tool output write to, so it is
-// NOT trusted. marked passes raw HTML through by default, so a stored
-// <script> or <img onerror=...> payload would execute when injected via
-// raw(). DOMPurify strips scripts, event handlers and unsafe URLs
-// (javascript:, entity-encoded schemes, ...) while keeping the tags marked
-// emits for real Markdown.
+// Content is read from a shared DB that goose and arbitrary tool output
+// write to, so it is untrusted — DOMPurify strips XSS payloads that
+// marked's raw-HTML passthrough would otherwise inject via raw().
 const renderMarkdown = (md: string): string =>
   DOMPurify.sanitize(
     HtmlString.assert(marked.parse(md, { gfm: true, breaks: true })),

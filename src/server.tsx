@@ -558,17 +558,11 @@ const createApp = (
         return;
       }
 
-      if (
-        !(await emit(
-          stream,
-          "status",
-          JSON.stringify({
-            status: handle.status,
-            queuePosition: handle.queuePosition,
-          }),
-        ))
-      )
-        return;
+      const statusPayload = JSON.stringify({
+        status: handle.status,
+        queuePosition: handle.queuePosition,
+      });
+      if (!(await emit(stream, "status", statusPayload))) return;
 
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
