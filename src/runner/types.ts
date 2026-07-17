@@ -4,23 +4,34 @@ import type PQueue from "p-queue";
 type RunnerConfig = {
   maxConcurrent: number;
   gooseBinary: string;
+  /** Grace window (ms) after each stop signal before escalating it. */
+  stopGraceMs: number;
 };
+
+const DEFAULT_STOP_GRACE_MS = 5000;
 
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   gooseBinary: "string >= 1",
+  stopGraceMs: "number.integer >= 1",
 });
 
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   maxConcurrent: 6,
   gooseBinary: "goose",
+  stopGraceMs: DEFAULT_STOP_GRACE_MS,
 };
 
 const makeRunnerConfig = (
   maxConcurrent: number,
   gooseBinary: string,
+  stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
 ): RunnerConfig => {
-  const result = RunnerConfigSchema({ maxConcurrent, gooseBinary });
+  const result = RunnerConfigSchema({
+    maxConcurrent,
+    gooseBinary,
+    stopGraceMs,
+  });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
   return result;
