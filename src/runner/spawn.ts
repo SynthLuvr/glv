@@ -85,14 +85,11 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
-// Await the child's exit. While the run is active this is just a long await;
-// each elapsed grace window is re-armed. Once stop() has flipped the status
-// (and sent SIGINT) the windows instead escalate the signal — SIGTERM, then
-// SIGKILL — so a process that traps or ignores SIGINT can't leave runProcess
-// parked on `await proc.exit` forever, which would hold a runner slot and
-// leak a detached process group. Polling while active lets a stop requested
-// mid-await be noticed within the grace window; SIGKILL is uncatchable, so
-// the loop ends there.
+// Poll proc.exit in grace-sized windows. A stop() issued mid-run is noticed
+// within one window; once stopped, each elapsed window escalates the kill
+// signal — SIGTERM, then uncatchable SIGKILL — so a process that traps SIGINT
+// can't park runProcess here forever, holding a runner slot and leaking its
+// detached process group.
 const awaitExit = async (
   proc: SpawnedProcess,
   handle: InternalHandle,

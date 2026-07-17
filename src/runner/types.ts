@@ -8,9 +8,6 @@ type RunnerConfig = {
   stopGraceMs: number;
 };
 
-// Grace window given to a child after each stop signal before escalating:
-// SIGINT (sent by stop) -> SIGTERM -> SIGKILL. Stops a stuck run from holding
-// a runner slot and leaking a detached process group.
 const DEFAULT_STOP_GRACE_MS = 5000;
 
 const RunnerConfigSchema = type({

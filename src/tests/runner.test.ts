@@ -106,9 +106,8 @@ const createMockSpawn = (
 };
 
 /**
- * A SpawnFn whose children ignore the given signals (never resolving exit for
- * them) and never exit on their own — they die only when killed with a signal
- * they don't ignore. Lets stop-signal escalation be observed deterministically.
+ * Children ignore `ignoreSignals` and never exit on their own; they die only
+ * when killed with a signal they don't ignore.
  */
 const createStubbornSpawn = (
   ignoreSignals: ReadonlySet<string>,
@@ -135,7 +134,6 @@ const createStubbornSpawn = (
         if (opts.delayMs !== undefined) await sleep(opts.delayMs);
         yield line;
       }
-      // Deliberately never auto-resolves: the child stays alive until killed.
     })();
 
     const kill = (signal = "SIGINT"): void => {
