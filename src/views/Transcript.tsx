@@ -11,7 +11,6 @@ import type {
 } from "../format.js";
 import {
   fmtRelative,
-  fmtTokens,
   messageKind,
   renderMarkdown,
   shortenHome,
@@ -211,13 +210,7 @@ const MetaChip = ({
   </div>
 );
 
-const TranscriptHeader = ({
-  session,
-  messageCount,
-}: {
-  session: SessionRow;
-  messageCount: number;
-}) => (
+const TranscriptHeader = ({ session }: { session: SessionRow }) => (
   <header class="session-header">
     <div class="session-header-top">
       <SessionTitleWrap session={session} />
@@ -251,19 +244,6 @@ const TranscriptHeader = ({
         value={fmtRelative(session.updated_at)}
         title={session.updated_at}
       />
-      <MetaChip
-        id="meta-messages"
-        label="Messages"
-        value={String(messageCount)}
-      />
-      <MetaChip
-        id="meta-tokens"
-        label="Tokens"
-        value={fmtTokens(session.total_tokens)}
-      />
-      {session.provider_name !== null && (
-        <MetaChip label="Provider" value={session.provider_name} />
-      )}
     </div>
   </header>
 );
@@ -355,7 +335,7 @@ const Transcript = ({
       data-session-id={session.id}
       data-run-status={run?.status}
     >
-      <TranscriptHeader session={session} messageCount={visible.length} />
+      <TranscriptHeader session={session} />
       {isEmpty ? (
         <p class="empty">This session has no messages.</p>
       ) : (

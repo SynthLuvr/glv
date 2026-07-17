@@ -27,12 +27,7 @@ import {
   renameSession,
   sessionIdsInDir,
 } from "./db.js";
-import {
-  fmtRelative,
-  fmtTokens,
-  type ParsedMessage,
-  parseMessage,
-} from "./format.js";
+import { fmtRelative, type ParsedMessage, parseMessage } from "./format.js";
 import {
   type CloneJob,
   clonePathFor,
@@ -58,7 +53,6 @@ import { SessionList, Sidebar } from "./views/Sidebar.js";
 import { renderStreamLine } from "./views/stream-line.js";
 import {
   CloningView,
-  hasContent,
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
@@ -204,7 +198,6 @@ const emitStatus = async (
 const emitMeta = async (
   stream: SSEStreamingApi,
   session: SessionRow,
-  messageCount: number,
 ): Promise<boolean> =>
   emit(
     stream,
@@ -212,8 +205,6 @@ const emitMeta = async (
     JSON.stringify({
       updated: fmtRelative(session.updated_at),
       updatedTitle: session.updated_at,
-      messages: String(messageCount),
-      tokens: fmtTokens(session.total_tokens),
     }),
   );
 
@@ -966,10 +957,7 @@ const createApp = (
         if (!changed) continue;
         const session = getSession(db, id);
         if (session === undefined) continue;
-        if (
-          !(await emitMeta(stream, session, messages.filter(hasContent).length))
-        )
-          return;
+        if (!(await emitMeta(stream, session))) return;
       }
     });
   });

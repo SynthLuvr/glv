@@ -1238,8 +1238,6 @@ describe("M6: live-tail header metadata hooks", () => {
   it("tags the updatable header chips with stable ids", async () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain('id="meta-updated"');
-    expect(html).toContain('id="meta-messages"');
-    expect(html).toContain('id="meta-tokens"');
   });
 
   it("tags each rendered message with a stable data-msg-index", async () => {
@@ -1403,9 +1401,6 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     rmSync(metaDir, { recursive: true, force: true });
 
     expect(text).toContain("event: meta");
-    // alpha shipped with 4 visible messages; the append brings it to 5
-    expect(text).toContain('"messages":"5"');
-    expect(text).toContain('"tokens":"5,678"');
   });
 });
 

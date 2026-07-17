@@ -64,8 +64,6 @@ const applyReplace = (messages: Element | null, data: string): void => {
 type MetaUpdate = {
   updated: string;
   updatedTitle: string;
-  messages: string;
-  tokens: string;
 };
 
 const updateMeta = (data: MetaUpdate): void => {
@@ -77,8 +75,6 @@ const updateMeta = (data: MetaUpdate): void => {
     if (title !== undefined) chip.title = title;
   };
   setValue("meta-updated", data.updated, data.updatedTitle);
-  setValue("meta-messages", data.messages);
-  setValue("meta-tokens", data.tokens);
 };
 
 type StreamStatus = {
