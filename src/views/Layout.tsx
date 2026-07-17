@@ -7,9 +7,6 @@ type LayoutProps = PropsWithChildren<{ title: string; assetVersion: string }>;
 // of the light theme on reload.
 const themeBootstrap = `(function(){try{var t=localStorage.getItem('glv-theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`;
 
-const assetSrc = (path: string, version: string): string =>
-  `${path}?v=${version}`;
-
 const Layout = ({ title, assetVersion, children }: LayoutProps) => (
   <html lang="en">
     <head>
@@ -17,22 +14,13 @@ const Layout = ({ title, assetVersion, children }: LayoutProps) => (
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
-      <link rel="stylesheet" href={assetSrc("/assets/app.css", assetVersion)} />
-      <script
-        src={assetSrc("/assets/htmx.min.js", assetVersion)}
-        defer
-      ></script>
-      <script src={assetSrc("/assets/stream.js", assetVersion)} defer></script>
-      <script src={assetSrc("/assets/theme.js", assetVersion)} defer></script>
-      <script
-        src={assetSrc("/assets/markdown-copy.js", assetVersion)}
-        defer
-      ></script>
-      <script src={assetSrc("/assets/rename.js", assetVersion)} defer></script>
-      <script
-        src={assetSrc("/assets/source-picker.js", assetVersion)}
-        defer
-      ></script>
+      <link rel="stylesheet" href={`/assets/app.css?v=${assetVersion}`} />
+      <script src={`/assets/htmx.min.js?v=${assetVersion}`} defer></script>
+      <script src={`/assets/stream.js?v=${assetVersion}`} defer></script>
+      <script src={`/assets/theme.js?v=${assetVersion}`} defer></script>
+      <script src={`/assets/markdown-copy.js?v=${assetVersion}`} defer></script>
+      <script src={`/assets/rename.js?v=${assetVersion}`} defer></script>
+      <script src={`/assets/source-picker.js?v=${assetVersion}`} defer></script>
     </head>
     <body>{children}</body>
   </html>

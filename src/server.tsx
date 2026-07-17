@@ -289,6 +289,8 @@ const createApp = (
   const renameScript = readAsset("../dist/rename.js");
   const sourcePickerScript = readAsset("../dist/source-picker.js");
   const passkeyScript = readAsset("../dist/passkey.js");
+  // Content hash over all bundled assets; appended to asset URLs as ?v=
+  // so browsers refetch whenever any asset changes.
   const assetVersion = createHash("sha256")
     .update(appCss)
     .update(sidebarScript)
