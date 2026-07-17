@@ -39,8 +39,9 @@ import {
 import { type CommandRunner, resolvePrState, STATE_LABEL } from "./pr.js";
 import type { RunHandle, Runner, RunStatus } from "./runner.js";
 import {
-  enqueue,
+  clearPending,
   enqueueNew,
+  enqueueOrQueue,
   generateTempKey,
   getHandle,
   isTerminalStatus,
@@ -57,6 +58,7 @@ import {
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
+  renderPromptCard,
   type SourceType,
   Transcript,
 } from "./views/Transcript.js";
@@ -193,6 +195,7 @@ const emitStatus = async (
     JSON.stringify({
       status: handle.status,
       queuePosition: handle.queuePosition,
+      pendingCount: handle.pendingPrompts.length,
     }),
   );
 
@@ -825,13 +828,50 @@ const createApp = (
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
 
-    if (prompt !== "")
-      try {
-        enqueue(runner, id, prompt, session.working_dir);
-      } catch {
-        // Already running or queued — fall through to render current state.
-      }
+    // Only pass the prompt prop when it started immediately (not queued);
+    // queued prompts render as QueuedPrompt cards via the handle's
+    // pendingPrompts, avoiding double-display.
+    let startedPrompt: string | undefined;
+    if (prompt !== "") {
+      const { queued } = enqueueOrQueue(
+        runner,
+        id,
+        prompt,
+        session.working_dir,
+      );
+      if (!queued) startedPrompt = prompt;
+    }
 
+    const run = getHandle(runner, id);
+    // When the prompt was queued (not started), show the currently running
+    // prompt so its SubmittedPrompt card doesn't vanish on re-render.
+    if (
+      startedPrompt === undefined &&
+      run !== undefined &&
+      !isTerminalStatus(run.status)
+    )
+      startedPrompt = run.prompt;
+
+    const messages = listMessages(db, id).map(parseMessage);
+    return render(
+      c,
+      listSessions(db, VIEWER_FILTER),
+      id,
+      <Transcript
+        session={session}
+        messages={messages}
+        run={run}
+        prompt={startedPrompt}
+      />,
+    );
+  });
+
+  app.post("/sessions/:id/queue/cancel", (c) => {
+    const id = c.req.param("id");
+    const session = getSession(db, id);
+    if (session === undefined) return renderNotFound(c, id);
+
+    clearPending(runner, id);
     const run = getHandle(runner, id);
     const messages = listMessages(db, id).map(parseMessage);
     return render(
@@ -842,7 +882,11 @@ const createApp = (
         session={session}
         messages={messages}
         run={run}
-        prompt={prompt || undefined}
+        prompt={
+          run !== undefined && !isTerminalStatus(run.status)
+            ? run.prompt
+            : undefined
+        }
       />,
     );
   });
@@ -864,15 +908,29 @@ const createApp = (
 
       if (!(await emitStatus(stream, handle))) return;
 
+      // Replay prompt cards for chained runs that already started
+      // (e.g. on reconnect mid-chain) before flushing any lines.
+      for (const p of handle.startedPrompts)
+        if (!(await emit(stream, "prompt", renderPromptCard(p)))) return;
+
       // Surface mid-run transitions (e.g. queued → running) so the client
       // isn't left on a stale status until the terminal re-render.
       let lastStatus = handle.status;
+      let lastStartedCount = handle.startedPrompts.length;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
         if (handle.status !== lastStatus) {
           if (!(await emitStatus(stream, handle))) return;
           lastStatus = handle.status;
+        }
+        // Emit prompt cards for newly started chained runs.
+        while (lastStartedCount < handle.startedPrompts.length) {
+          const card = renderPromptCard(
+            handle.startedPrompts[lastStartedCount],
+          );
+          if (!(await emit(stream, "prompt", card))) return;
+          lastStartedCount++;
         }
         if (!(await flushLines(stream, handle.lines, sent))) return;
         sent = handle.lines.length;
@@ -886,6 +944,7 @@ const createApp = (
         JSON.stringify({
           status: handle.status,
           error: handle.error ?? null,
+          pendingCount: handle.pendingPrompts.length,
         }),
       );
       await emit(stream, "done", handle.status);

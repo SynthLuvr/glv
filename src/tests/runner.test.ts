@@ -6,10 +6,12 @@ import type {
   SpawnFn,
 } from "../runner.js";
 import {
+  clearPending,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   enqueue,
   enqueueNew,
+  enqueueOrQueue,
   generateTempKey,
   getHandle,
   getStatus,
@@ -503,6 +505,146 @@ describe("session exclusivity", () => {
 
     const h2 = enqueue(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "completed");
+  });
+});
+
+describe("enqueueOrQueue (follow-up prompt queuing)", () => {
+  it("starts immediately when the session is idle", () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle, queued } = enqueueOrQueue(runner, "s1", "hi", "/tmp");
+    expect(queued).toBe(false);
+    expect(handle.prompt).toBe("hi");
+    expect(state.invocations).toHaveLength(1);
+  });
+
+  it("queues the prompt when the session is busy", async () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(getHandle(runner, "s1")!, "running");
+    const { handle, queued } = enqueueOrQueue(runner, "s1", "second", "/tmp");
+    expect(queued).toBe(true);
+    expect(handle.pendingPrompts).toEqual(["second"]);
+    expect(state.invocations).toHaveLength(1);
+  });
+
+  it("runs queued prompts automatically after the current run completes", async () => {
+    const { spawn, state } = createMockSpawn(["line1"], { delayMs: 30 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(state.invocations).toHaveLength(2);
+    expect(state.invocations[0].opts.stdin).toBe("first");
+    expect(state.invocations[1].opts.stdin).toBe("second");
+  });
+
+  it("accumulates lines across all chained runs without resetting", async () => {
+    const { spawn } = createMockSpawn(["a", "b"], { delayMs: 20 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(handle.lines).toEqual(["a", "b", "a", "b"]);
+  });
+
+  it("tracks started prompts for stream replay", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 20 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    enqueueOrQueue(runner, "s1", "third", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(handle.startedPrompts).toEqual(["second", "third"]);
+  });
+
+  it("does not block the chain when a run errors", async () => {
+    const { spawn, state } = createMockSpawn(["x"], {
+      delayMs: 20,
+      exitCode: 1,
+    });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    await waitForStatus(handle, "error");
+    expect(state.invocations).toHaveLength(2);
+  });
+
+  it("queues multiple prompts in FIFO order", async () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 20 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "p1", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "p2", "/tmp");
+    enqueueOrQueue(runner, "s1", "p3", "/tmp");
+    await waitForStatus(handle, "completed");
+    expect(state.invocations.map((i) => i.opts.stdin)).toEqual([
+      "p1",
+      "p2",
+      "p3",
+    ]);
+  });
+
+  it("stops the current run and clears all pending prompts", async () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    enqueueOrQueue(runner, "s1", "third", "/tmp");
+    expect(handle.pendingPrompts).toHaveLength(2);
+    stop(runner, "s1");
+    await waitForStatus(handle, "stopped");
+    expect(handle.pendingPrompts).toEqual([]);
+    expect(state.invocations).toHaveLength(1);
+  });
+
+  it("fires onStatus when a prompt is queued", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const statuses: string[] = [];
+    enqueueOrQueue(runner, "s1", "first", "/tmp", {
+      onStatus: (h) => statuses.push(`${h.status}:${h.pendingPrompts.length}`),
+    });
+    await waitForStatus(getHandle(runner, "s1")!, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    expect(statuses).toContain("running:1");
+  });
+});
+
+describe("clearPending", () => {
+  it("removes all pending prompts and returns the count", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    enqueueOrQueue(runner, "s1", "third", "/tmp");
+    const cleared = clearPending(runner, "s1");
+    expect(cleared).toBe(2);
+    expect(handle.pendingPrompts).toEqual([]);
+  });
+
+  it("returns 0 when there are no pending prompts", () => {
+    const { spawn } = createMockSpawn(["x"]);
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    expect(clearPending(runner, "s1")).toBe(0);
+  });
+
+  it("does not stop the currently running process", async () => {
+    const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const { handle } = enqueueOrQueue(runner, "s1", "first", "/tmp");
+    await waitForStatus(handle, "running");
+    enqueueOrQueue(runner, "s1", "second", "/tmp");
+    clearPending(runner, "s1");
+    expect(handle.status).toBe("running");
+    expect(state.killCalls).toHaveLength(0);
   });
 });
 

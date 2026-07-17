@@ -307,6 +307,21 @@ const SubmittedPrompt = ({ prompt }: { prompt: string }) => (
   </article>
 );
 
+const renderPromptCard = (prompt: string): string =>
+  renderToString(<SubmittedPrompt prompt={prompt} />);
+
+const QueuedPrompt = ({ prompt }: { prompt: string }) => (
+  <article class="message prompt queued-prompt">
+    <div class="message-head">
+      <span class="tag prompt">▸ PROMPT</span>
+      <span class="queued-badge">⏳ Queued</span>
+    </div>
+    <div class="message-body">
+      <p class="message-text">{prompt}</p>
+    </div>
+  </article>
+);
+
 const PromptBar = ({
   sessionId,
   run,
@@ -315,6 +330,7 @@ const PromptBar = ({
   run?: RunHandle;
 }) => {
   const busy = isRunActive(run);
+  const pendingCount = run?.pendingPrompts.length ?? 0;
   return (
     <form
       class="prompt-bar"
@@ -327,28 +343,38 @@ const PromptBar = ({
           Queued, waiting… (position {run.queuePosition})
         </p>
       )}
-      {run?.status === "running" && <p class="status-hint running">Running…</p>}
+      {run?.status === "running" && (
+        <p class="status-hint running">
+          Running…
+          {pendingCount > 0 &&
+            ` (${pendingCount} prompt${pendingCount > 1 ? "s" : ""} queued next)`}
+        </p>
+      )}
       {run?.status === "error" && run.error !== undefined && (
         <p class="status-hint error">{run.error}</p>
       )}
       <div class="prompt-input-row">
         <textarea
           name="prompt"
-          placeholder="Ask goose…"
-          disabled={busy ? true : undefined}
+          placeholder={busy ? "Queue a follow-up prompt…" : "Ask goose…"}
           class="prompt-input"
           rows={2}
         />
         {busy ? (
-          <button
-            type="button"
-            class="stop-btn"
-            hx-post={`/sessions/${sessionId}/stop`}
-            hx-target="#detail-pane"
-            hx-swap="innerHTML"
-          >
-            Stop
-          </button>
+          <>
+            <button type="submit" class="queue-btn">
+              Queue
+            </button>
+            <button
+              type="button"
+              class="stop-btn"
+              hx-post={`/sessions/${sessionId}/stop`}
+              hx-target="#detail-pane"
+              hx-swap="innerHTML"
+            >
+              Stop
+            </button>
+          </>
         ) : (
           <button type="submit" class="send-btn">
             Send
@@ -396,6 +422,22 @@ const Transcript = ({
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
       {isRunActive(run) && <div id="live-output" class="live-output"></div>}
+      {(run?.pendingPrompts.length ?? 0) > 0 && (
+        <div id="queued-prompts" class="queued-prompts">
+          {run!.pendingPrompts.map((p) => (
+            <QueuedPrompt prompt={p} />
+          ))}
+          <button
+            type="button"
+            class="clear-queue-btn"
+            hx-post={`/sessions/${session.id}/queue/cancel`}
+            hx-target="#detail-pane"
+            hx-swap="innerHTML"
+          >
+            Clear all queued
+          </button>
+        </div>
+      )}
       <PromptBar sessionId={session.id} run={run} />
     </div>
   );
@@ -625,6 +667,7 @@ export {
   NewSessionForm,
   NotFoundDetail,
   renderMessage,
+  renderPromptCard,
   SourceType,
   Transcript,
   tagFor,

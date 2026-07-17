@@ -80,6 +80,7 @@ const updateMeta = (data: MetaUpdate): void => {
 type StreamStatus = {
   status: string;
   queuePosition?: number;
+  pendingCount?: number;
   error?: string | null;
 };
 
@@ -91,7 +92,11 @@ const updateStatusHint = (data: StreamStatus): void => {
     hint.textContent = `Queued, waiting… (position ${data.queuePosition})`;
   } else if (data.status === "running") {
     hint.className = "status-hint running";
-    hint.textContent = "Running…";
+    const count = data.pendingCount ?? 0;
+    hint.textContent =
+      count > 0
+        ? `Running… (${count} prompt${count > 1 ? "s" : ""} queued next)`
+        : "Running…";
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;
@@ -114,6 +119,24 @@ const connectRunner = (root: Element): void => {
       updateStatusHint(JSON.parse((e as MessageEvent).data));
     } catch {
       /* ignore malformed status payloads */
+    }
+  });
+
+  activeSource.addEventListener("prompt", (e) => {
+    const html = (e as MessageEvent).data;
+    if (html !== "" && output !== null) {
+      output.insertAdjacentHTML("beforeend", html);
+      // A chained run just started — remove its stale queued-prompt card.
+      const firstQueued = document.querySelector(".queued-prompt");
+      if (firstQueued !== null) firstQueued.remove();
+      // If no more queued prompts remain, remove the container + button.
+      const container = document.getElementById("queued-prompts");
+      if (
+        container !== null &&
+        container.querySelector(".queued-prompt") === null
+      )
+        container.remove();
+      scrollToBottom();
     }
   });
 
