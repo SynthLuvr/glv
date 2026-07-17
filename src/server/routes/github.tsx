@@ -1,4 +1,4 @@
-import { type Hono } from "hono";
+import { type Context, type Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   getSession,
@@ -19,12 +19,15 @@ import {
 import { newSessionDetail, render } from "../render.js";
 import { errorMessage, withCreateLock } from "../util.js";
 
+const ghErrorResponse = (c: Context<AppEnv>, err: unknown) =>
+  c.json({ ok: false, error: errorMessage(err) }, 502);
+
 const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/github/repos", async (c) => {
     try {
       return c.json({ ok: true, repos: await ctx.gh.listRepos() });
     } catch (err) {
-      return c.json({ ok: false, error: errorMessage(err) }, 502);
+      return ghErrorResponse(c, err);
     }
   });
 
@@ -35,7 +38,7 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       const info = await ctx.gh.listBranches(owner, repo);
       return c.json({ ok: true, ...info });
     } catch (err) {
-      return c.json({ ok: false, error: errorMessage(err) }, 502);
+      return ghErrorResponse(c, err);
     }
   });
 

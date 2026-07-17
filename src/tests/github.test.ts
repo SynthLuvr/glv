@@ -215,7 +215,7 @@ describe("GET /github/repos", () => {
     expect(data.repos[2].nameWithOwner).toBe("SynthLuvr/private-app");
   });
 
-  it("returns ok:false with an error message when gh fails", async () => {
+  it("returns ok:false with 502 when gh fails", async () => {
     const app = makeApp(createStubGh({ listError: "Could not authenticate" }));
     const res = await app.request("/github/repos");
     const data = await res.json();
