@@ -162,7 +162,14 @@ const updateCounter = (db: DatabaseSync, id: string, counter: number): void =>
 
 const newToken = (): string => randomBytes(32).toString("base64url");
 
+// Expired sessions are otherwise only removed on explicit logout, so the
+// sessions table would grow without bound. Purge on every session creation
+// (login/registration) for opportunistic GC at no extra cost.
+const purgeExpiredSessions = (db: DatabaseSync): void =>
+  sessions.remove(db, { where: "expires_at <= datetime('now')" });
+
 const createSession = (db: DatabaseSync, userId: string): string => {
+  purgeExpiredSessions(db);
   const token = newToken();
   sessions.insert(db, {
     columns: ["id", "user_id", "expires_at"],
@@ -201,6 +208,7 @@ export {
   isClaimed,
   listCredentials,
   openAuthDb,
+  purgeExpiredSessions,
   refreshSession,
   resolveAuthDbPath,
   SESSION_TTL_SECONDS,

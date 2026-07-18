@@ -11,6 +11,7 @@ import {
   isClaimed,
   listCredentials,
   openAuthDb,
+  purgeExpiredSessions,
   updateCounter,
   userCount,
   validSession,
@@ -160,5 +161,69 @@ describe("session lifecycle", () => {
     expect(validSession(db, token)).toBe(true);
     deleteSession(db, token);
     expect(validSession(db, token)).toBe(false);
+  });
+});
+
+describe("expired session purging", () => {
+  let db: DatabaseSync;
+  let dir: string;
+  let ownerId: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "glv-auth-purge-"));
+    db = openAuthDb(join(dir, "auth.db"));
+    ownerId = createOwner(db, {
+      id: "cred-purge",
+      publicKey: new Uint8Array([7]),
+      counter: 0,
+      transports: [],
+    });
+  });
+
+  afterAll(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const insertExpired = (id: string): void => {
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at) " +
+        "VALUES (?, ?, datetime('now', '-1 hour'))",
+    ).run(id, ownerId);
+  };
+
+  const sessionExists = (id: string): boolean =>
+    db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) !== undefined;
+
+  const totalSessions = (): number => {
+    const row = db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as {
+      n: number;
+    };
+    return row.n;
+  };
+
+  it("purgeExpiredSessions removes only expired rows", () => {
+    const fresh = createSession(db, ownerId);
+    insertExpired("purge-a");
+    expect(sessionExists("purge-a")).toBe(true);
+    purgeExpiredSessions(db);
+    expect(sessionExists("purge-a")).toBe(false);
+    expect(sessionExists(fresh)).toBe(true);
+    expect(validSession(db, fresh)).toBe(true);
+  });
+
+  it("createSession opportunistically purges expired rows", () => {
+    insertExpired("purge-on-login");
+    expect(sessionExists("purge-on-login")).toBe(true);
+    createSession(db, ownerId);
+    expect(sessionExists("purge-on-login")).toBe(false);
+  });
+
+  it("is a no-op when nothing is expired", () => {
+    const fresh = createSession(db, ownerId);
+    const before = totalSessions();
+    purgeExpiredSessions(db);
+    expect(totalSessions()).toBe(before);
+    expect(sessionExists(fresh)).toBe(true);
   });
 });
