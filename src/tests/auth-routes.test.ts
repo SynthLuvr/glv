@@ -106,6 +106,21 @@ describe("unclaimed app — registration flow", () => {
     expect(body.verified).toBe(false);
     expect(body.error).toBeTruthy();
   });
+
+  it("rejects registration verification without a valid challenge", async () => {
+    const res = await makeApp(join(authDir, "f.db")).request(
+      "/auth/register/verify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.verified).toBe(false);
+    expect(json.error).toContain("No registration in progress");
+  });
 });
 
 describe("claimed app — login flow", () => {
@@ -231,5 +246,17 @@ describe("claimed app — login flow", () => {
   it("allows static assets without authentication", async () => {
     const res = await app.request("/assets/app.css");
     expect(res.status).toBe(200);
+  });
+
+  it("rejects login verification without a valid challenge", async () => {
+    const res = await app.request("/auth/login/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.verified).toBe(false);
+    expect(json.error).toContain("No login in progress");
   });
 });

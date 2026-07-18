@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type AuthenticationResponseJSON,
@@ -72,28 +73,93 @@ const toTransports = (raw: string[]): AuthenticatorTransportFuture[] =>
     return parsed instanceof type.errors ? [] : [parsed];
   });
 
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+type ChallengeFlow = "register" | "login";
+
+// The token is itself the WebAuthn challenge: the authenticator signs and
+// echoes it back, so the server re-verifies it statelessly. Each options call
+// mints an independent token, so concurrent ceremonies never clobber each other.
+const makeChallengeAuthority = (
+  ttlMs = CHALLENGE_TTL_MS,
+): {
+  issue: (flow: ChallengeFlow) => string;
+  verify: (token: string, flow: ChallengeFlow) => boolean;
+} => {
+  // Per-process secret: a restart invalidates any in-flight ceremony.
+  const secret = randomBytes(32);
+
+  const sign = (data: string): string =>
+    createHmac("sha256", secret).update(data, "utf8").digest("hex");
+
+  const sameSig = (a: string, b: string): boolean => {
+    const ba = Buffer.from(a, "hex");
+    const bb = Buffer.from(b, "hex");
+    return ba.length === bb.length && timingSafeEqual(ba, bb);
+  };
+
+  const issue = (flow: ChallengeFlow): string => {
+    const body = JSON.stringify({
+      nonce: randomBytes(16).toString("base64url"),
+      expiry: Date.now() + ttlMs,
+      flow,
+    });
+    return Buffer.from(JSON.stringify({ body, sig: sign(body) })).toString(
+      "base64url",
+    );
+  };
+
+  const verify = (token: string, flow: ChallengeFlow): boolean => {
+    let outer: { body?: unknown; sig?: unknown };
+    try {
+      outer = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+    } catch {
+      return false;
+    }
+    const { body, sig } = outer;
+    if (typeof body !== "string" || typeof sig !== "string") return false;
+    if (!sameSig(sign(body), sig)) return false;
+    let payload: { expiry?: unknown; flow?: unknown };
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      return false;
+    }
+    return (
+      payload.flow === flow &&
+      typeof payload.expiry === "number" &&
+      Date.now() <= payload.expiry
+    );
+  };
+
+  return { issue, verify };
+};
+
+const challengeFromResponse = (response: unknown): string | undefined => {
+  if (typeof response !== "object" || response === null) return undefined;
+  const { clientDataJSON } = response as { clientDataJSON?: unknown };
+  if (typeof clientDataJSON !== "string") return undefined;
+  try {
+    const data = JSON.parse(
+      Buffer.from(clientDataJSON, "base64url").toString("utf8"),
+    ) as { challenge?: unknown };
+    return typeof data.challenge === "string" ? data.challenge : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const makeAuthService = (authDb: DatabaseSync): AuthService => {
-  // Single-user app: only one in-flight challenge is needed at a time. The
-  // options endpoint stores it; the verify endpoint consumes it.
-  let currentChallenge: string | undefined;
+  const authority = makeChallengeAuthority();
 
-  const storeChallenge = (challenge: string): void => {
-    currentChallenge = challenge;
-  };
-
-  const takeChallenge = (): string | undefined => {
-    const challenge = currentChallenge;
-    currentChallenge = undefined;
-    return challenge;
-  };
-
-  const registrationOptions = async (
+  const registrationOptions = (
     rp: RpConfig,
-  ): Promise<PublicKeyCredentialCreationOptionsJSON> => {
-    const options = await generateRegistrationOptions({
+  ): Promise<PublicKeyCredentialCreationOptionsJSON> =>
+    generateRegistrationOptions({
       rpName: rp.rpName,
       rpID: rp.rpID,
       userName: "owner",
+      challenge: authority.issue("register"),
       attestationType: "none",
       // ES256 + RS256; excludes Ed25519 which some runtimes can't verify.
       supportedAlgorithmIDs: [-7, -257],
@@ -102,16 +168,16 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
         userVerification: "preferred",
       },
     });
-    storeChallenge(options.challenge);
-    return options;
-  };
 
   const verifyRegistration = async (
     rp: RpConfig,
     body: RegistrationResponseJSON,
   ): Promise<VerifyResult> => {
-    const expectedChallenge = takeChallenge();
-    if (expectedChallenge === undefined)
+    const expectedChallenge = challengeFromResponse(body.response);
+    if (
+      expectedChallenge === undefined ||
+      !authority.verify(expectedChallenge, "register")
+    )
       return {
         verified: false,
         error: "No registration in progress. Please reload and try again.",
@@ -142,12 +208,13 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     return { verified: true, token };
   };
 
-  const loginOptions = async (
+  const loginOptions = (
     rp: RpConfig,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> => {
     const creds = listCredentials(authDb);
-    const options = await generateAuthenticationOptions({
+    return generateAuthenticationOptions({
       rpID: rp.rpID,
+      challenge: authority.issue("login"),
       allowCredentials: creds.map((c) => ({
         id: c.id,
         type: "public-key",
@@ -155,16 +222,17 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
       })),
       userVerification: "preferred",
     });
-    storeChallenge(options.challenge);
-    return options;
   };
 
   const verifyLogin = async (
     rp: RpConfig,
     body: AuthenticationResponseJSON,
   ): Promise<VerifyResult> => {
-    const expectedChallenge = takeChallenge();
-    if (expectedChallenge === undefined)
+    const expectedChallenge = challengeFromResponse(body.response);
+    if (
+      expectedChallenge === undefined ||
+      !authority.verify(expectedChallenge, "login")
+    )
       return {
         verified: false,
         error: "No login in progress. Please reload and try again.",
@@ -221,4 +289,4 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
 };
 
 export type { AuthService, RpConfig, VerifyResult };
-export { makeAuthService };
+export { makeAuthService, makeChallengeAuthority };
