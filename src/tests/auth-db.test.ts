@@ -11,6 +11,10 @@ import {
   isClaimed,
   listCredentials,
   openAuthDb,
+  purgeExpiredSessions,
+  refreshSession,
+  SESSION_MAX_LIFETIME_SECONDS,
+  SESSION_TTL_SECONDS,
   updateCounter,
   userCount,
   validSession,
@@ -160,5 +164,170 @@ describe("session lifecycle", () => {
     expect(validSession(db, token)).toBe(true);
     deleteSession(db, token);
     expect(validSession(db, token)).toBe(false);
+  });
+});
+
+describe("expired session purging", () => {
+  let db: DatabaseSync;
+  let dir: string;
+  let ownerId: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "glv-auth-purge-"));
+    db = openAuthDb(join(dir, "auth.db"));
+    ownerId = createOwner(db, {
+      id: "cred-purge",
+      publicKey: new Uint8Array([7]),
+      counter: 0,
+      transports: [],
+    });
+  });
+
+  afterAll(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const insertExpired = (id: string): void => {
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at) " +
+        "VALUES (?, ?, datetime('now', '-1 hour'))",
+    ).run(id, ownerId);
+  };
+
+  const sessionExists = (id: string): boolean =>
+    db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) !== undefined;
+
+  const totalSessions = (): number => {
+    const row = db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as {
+      n: number;
+    };
+    return row.n;
+  };
+
+  it("purgeExpiredSessions removes only expired rows", () => {
+    const fresh = createSession(db, ownerId);
+    insertExpired("purge-a");
+    expect(sessionExists("purge-a")).toBe(true);
+    purgeExpiredSessions(db);
+    expect(sessionExists("purge-a")).toBe(false);
+    expect(sessionExists(fresh)).toBe(true);
+    expect(validSession(db, fresh)).toBe(true);
+  });
+
+  it("createSession opportunistically purges expired rows", () => {
+    insertExpired("purge-on-login");
+    expect(sessionExists("purge-on-login")).toBe(true);
+    createSession(db, ownerId);
+    expect(sessionExists("purge-on-login")).toBe(false);
+  });
+
+  it("is a no-op when nothing is expired", () => {
+    const fresh = createSession(db, ownerId);
+    const before = totalSessions();
+    purgeExpiredSessions(db);
+    expect(totalSessions()).toBe(before);
+    expect(sessionExists(fresh)).toBe(true);
+  });
+});
+
+describe("session absolute max lifetime", () => {
+  let db: DatabaseSync;
+  let dir: string;
+  let ownerId: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "glv-auth-maxlife-"));
+    db = openAuthDb(join(dir, "auth.db"));
+    ownerId = createOwner(db, {
+      id: "cred-maxlife",
+      publicKey: new Uint8Array([5]),
+      counter: 0,
+      transports: [],
+    });
+  });
+
+  afterAll(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Sub-second precision tolerates wall-clock drift in assertions.
+  const expirySecondsFromNow = (token: string): number => {
+    const row = db
+      .prepare(
+        "SELECT CAST((julianday(expires_at) - julianday('now')) * 86400 " +
+          "AS REAL) AS s FROM sessions WHERE id = ?",
+      )
+      .get(token) as { s?: number } | undefined;
+    return row?.s ?? NaN;
+  };
+
+  // Compares two stored columns, so it is exact and clock-independent.
+  const expiresAtAbsoluteCap = (token: string): boolean => {
+    const row = db
+      .prepare(
+        "SELECT expires_at = datetime(created_at, ?) AS matches " +
+          "FROM sessions WHERE id = ?",
+      )
+      .get(`+${SESSION_MAX_LIFETIME_SECONDS} seconds`, token) as
+      | { matches?: number }
+      | undefined;
+    return row?.matches === 1;
+  };
+
+  // expires_at is far in the future, so only created_at governs validity.
+  const insertSession = (id: string, createdAtOffset: string): void => {
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
+        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', ?))",
+    ).run(id, ownerId, createdAtOffset);
+  };
+
+  it("rejects a session whose absolute lifetime has elapsed", () => {
+    const token = "maxed-out-token";
+    insertSession(token, "-8 days");
+    expect(validSession(db, token)).toBe(false);
+  });
+
+  it("refreshSession extends a fresh session by the sliding window", () => {
+    const token = createSession(db, ownerId);
+    refreshSession(db, token);
+    // The absolute cap (7 days out) is not yet binding, so the 1-day
+    // sliding window governs.
+    expect(validSession(db, token)).toBe(true);
+    expect(expirySecondsFromNow(token)).toBeGreaterThan(
+      SESSION_TTL_SECONDS - 10,
+    );
+    expect(expirySecondsFromNow(token)).toBeLessThanOrEqual(
+      SESSION_TTL_SECONDS,
+    );
+  });
+
+  it("refreshSession never extends a session past the absolute maximum", () => {
+    const token = "capped-token";
+    // 8 days old: created_at + max lifetime is already in the past, so a
+    // refresh cannot keep the session alive.
+    insertSession(token, "-8 days");
+    refreshSession(db, token);
+    expect(expiresAtAbsoluteCap(token)).toBe(true);
+    expect(validSession(db, token)).toBe(false);
+  });
+
+  it("clamps to the absolute ceiling when it is closer than the sliding window", () => {
+    const token = "near-cap-token";
+    // ~6.5 days old: the cap (~0.5 days out) is sooner than the 1-day
+    // sliding window, so the cap must win.
+    insertSession(token, "-6.5 days");
+    refreshSession(db, token);
+    expect(expiresAtAbsoluteCap(token)).toBe(true);
+    expect(validSession(db, token)).toBe(true);
+    // ~0.5 days remaining rather than the full 1-day sliding window.
+    expect(expirySecondsFromNow(token)).toBeGreaterThan(
+      SESSION_TTL_SECONDS / 2 - 10,
+    );
+    expect(expirySecondsFromNow(token)).toBeLessThan(
+      SESSION_TTL_SECONDS / 2 + 10,
+    );
   });
 });

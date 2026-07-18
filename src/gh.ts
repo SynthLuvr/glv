@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
 
 type RepoInfo = {
@@ -87,33 +87,61 @@ const generateCloneJobId = (): string =>
 const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
 
-const parseRepoList = (stdout: string): RepoInfo[] => {
-  const raw = JSON.parse(stdout) as Array<Record<string, unknown>>;
-  return raw
-    .map(
-      (r): RepoInfo => ({
-        nameWithOwner:
-          typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
-        visibility: r.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC",
-        isFork: r.isFork === true,
-        updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
-        description: typeof r.description === "string" ? r.description : null,
-      }),
-    )
+// `gh` may exit 0 with non-JSON stdout (an update notice, a warning, or
+// unauthenticated help text); degrade rather than crash on a SyntaxError.
+const tryParseJson = (stdout: string): unknown => {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+};
+
+const toRepoInfo = (r: Record<string, unknown>): RepoInfo => ({
+  nameWithOwner: typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
+  visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
+  isFork: r.isFork === true,
+  updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
+  description: typeof r.description === "string" ? r.description : null,
+});
+
+// `gh api ... --paginate --jq` emits one repo object per line (JSONL),
+// so each line is parsed on its own rather than as a single JSON array.
+const parseRepoList = (stdout: string): RepoInfo[] =>
+  stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => tryParseJson(line) as Record<string, unknown> | null)
+    .filter((r): r is Record<string, unknown> => r !== null)
+    .map(toRepoInfo)
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-};
+
+// `gh repo list` caps at a finite `--limit` with no `--paginate`, silently
+// dropping repos beyond it. The REST endpoint paginates fully (as listBranches
+// does) and `type=owner` matches the "repositories I own" set, so nothing is
+// lost.
+const REPO_LIST_JQ =
+  ".[] | {nameWithOwner: .full_name, visibility: .visibility," +
+  " isFork: .fork, updatedAt: .updated_at, description: .description}";
 
 const listRepos = async (): Promise<RepoInfo[]> => {
   const { stdout } = await execa("gh", [
-    "repo",
-    "list",
-    "--limit",
-    "100",
-    "--json",
-    "nameWithOwner,visibility,isFork,updatedAt,description",
+    "api",
+    "user/repos?type=owner&per_page=100",
+    "--paginate",
+    "--jq",
+    REPO_LIST_JQ,
   ]);
   return parseRepoList(stdout);
+};
+
+const parseDefaultBranch = (stdout: string): string => {
+  const view = tryParseJson(stdout) as {
+    defaultBranchRef: { name: string } | null;
+  } | null;
+  return view?.defaultBranchRef?.name ?? "main";
 };
 
 const listBranches = async (
@@ -127,10 +155,7 @@ const listBranches = async (
     "--json",
     "defaultBranchRef",
   ]);
-  const view = JSON.parse(viewResult.stdout) as {
-    defaultBranchRef: { name: string } | null;
-  };
-  const defaultBranch = view.defaultBranchRef?.name ?? "main";
+  const defaultBranch = parseDefaultBranch(viewResult.stdout);
 
   const apiResult = await execa("gh", [
     "api",
@@ -149,6 +174,22 @@ const listBranches = async (
   return { branches, defaultBranch };
 };
 
+// No safe fallback for a missing sshUrl, so surface a structured error
+// rather than degrade silently.
+const parseSshUrl = (stdout: string): string => {
+  const parsed = tryParseJson(stdout) as { sshUrl: unknown } | null;
+  if (parsed === null)
+    throw new Error(
+      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
+    );
+  const { sshUrl } = parsed;
+  if (typeof sshUrl !== "string" || sshUrl === "")
+    throw new Error(
+      `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
+    );
+  return sshUrl;
+};
+
 const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   const { stdout } = await execa("gh", [
     "repo",
@@ -157,45 +198,42 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
     "--json",
     "sshUrl",
   ]);
-  const parsed = JSON.parse(stdout) as { sshUrl: string };
-  return parsed.sshUrl;
+  return parseSshUrl(stdout);
 };
 
-// Clones only the selected branch (--single-branch) to keep it cheap.
+const runGit = async (
+  args: string[],
+  failure: string,
+  cwd?: string,
+): Promise<void> => {
+  const result = await execa("git", args, { cwd, reject: false });
+  if (result.exitCode !== 0)
+    throw new Error(stderrGist(result.stderr) || failure);
+};
+
+// --single-branch keeps the clone cheap. The URL is passed in (rather than
+// resolved via gh) so this can run against a local repo in tests.
 const runClone = async (
-  owner: string,
-  repo: string,
+  url: string,
   branch: string,
   path: string,
 ): Promise<void> => {
-  mkdirSync(join(CLONE_ROOT, owner), { recursive: true });
-  const url = await getSshUrl(owner, repo);
-  const result = await execa(
-    "git",
+  await runGit(
     ["clone", "--branch", branch, "--single-branch", url, path],
-    { reject: false },
+    `git clone failed for ${branch}`,
   );
-  if (result.exitCode !== 0)
-    throw new Error(
-      stderrGist(result.stderr) || `git clone failed for ${owner}/${repo}`,
-    );
 };
 
-// Cheap reuse: fetch + checkout + pull instead of re-downloading.
+// A --single-branch clone tracks only one ref, so fetch the target branch
+// explicitly and reset onto FETCH_HEAD. A plain checkout would fail for any
+// branch the clone never fetched.
 const runUpdate = async (path: string, branch: string): Promise<void> => {
-  const steps: Array<[string, string[]]> = [
-    ["fetch", []],
-    ["checkout", [branch]],
-    ["pull", []],
-  ];
-  for (const [cmd, args] of steps) {
-    const result = await execa("git", [cmd, ...args], {
-      cwd: path,
-      reject: false,
-    });
-    if (result.exitCode !== 0)
-      throw new Error(stderrGist(result.stderr) || `git ${cmd} failed`);
-  }
+  await runGit(["fetch", "origin", branch], "git fetch failed", path);
+  await runGit(
+    ["checkout", "-B", branch, "FETCH_HEAD"],
+    "git checkout failed",
+    path,
+  );
 };
 
 const materialise = async (
@@ -204,8 +242,13 @@ const materialise = async (
   branch: string,
   path: string,
 ): Promise<void> => {
-  if (existsSync(path)) await runUpdate(path, branch);
-  else await runClone(owner, repo, branch, path);
+  if (existsSync(path)) {
+    await runUpdate(path, branch);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const url = await getSshUrl(owner, repo);
+  await runClone(url, branch, path);
 };
 
 const createGhClient = (): GhClient => ({
@@ -227,5 +270,10 @@ export {
   clonePathFor,
   createGhClient,
   generateCloneJobId,
+  parseDefaultBranch,
   parseOwnerRepo,
+  parseRepoList,
+  parseSshUrl,
+  runClone,
+  runUpdate,
 };

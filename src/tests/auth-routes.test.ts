@@ -92,8 +92,23 @@ describe("unclaimed app — registration flow", () => {
     expect(res.headers.get("content-type")).toContain("javascript");
   });
 
-  it("rejects registration verification without a valid challenge", async () => {
+  it("returns a structured 400 on malformed registration JSON", async () => {
     const res = await makeApp(join(authDir, "e.db")).request(
+      "/auth/register/verify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      },
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.verified).toBe(false);
+    expect(body.error).toBeTruthy();
+  });
+
+  it("rejects registration verification without a valid challenge", async () => {
+    const res = await makeApp(join(authDir, "f.db")).request(
       "/auth/register/verify",
       {
         method: "POST",
@@ -166,6 +181,18 @@ describe("claimed app — login flow", () => {
     const options = await res.json();
     expect(options.challenge).toBeTruthy();
     expect(options.allowCredentials).toHaveLength(1);
+  });
+
+  it("returns a structured 400 on malformed login JSON", async () => {
+    const res = await app.request("/auth/login/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.verified).toBe(false);
+    expect(body.error).toBeTruthy();
   });
 
   it("serves the login screen", async () => {

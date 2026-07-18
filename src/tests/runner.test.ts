@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ProcessResult,
   RunHandle,
+  Runner,
   RunStatus,
   SpawnFn,
 } from "../runner/index.js";
@@ -408,6 +409,38 @@ describe("stop", () => {
   });
 });
 
+// Exercises the race window — status "running" but process not yet
+// assigned — by calling stop() from inside the spawn seam.
+const stopDuringSpawn = (
+  lines: string[],
+): { state: MockState; handle: RunHandle } => {
+  const mock = createMockSpawn(lines, { delayMs: 200 });
+  let runner: Runner;
+  const spawn: SpawnFn = (binary, args, opts) => {
+    const result = mock.spawn(binary, args, opts);
+    stop(runner, "s1");
+    return result;
+  };
+  runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
+  return { state: mock.state, handle: enqueue(runner, "s1", "hi", "/tmp") };
+};
+
+describe("stop race-window guard", () => {
+  it("stops a run whose process handle is not yet assigned", async () => {
+    const { state, handle } = stopDuringSpawn(["x"]);
+    await waitForStatus(handle, "stopped");
+    expect(state.killCalls).toHaveLength(1);
+    expect(state.killCalls[0].signal).toBe("SIGINT");
+  });
+
+  it("kills the spawned process without consuming any output", async () => {
+    const { state, handle } = stopDuringSpawn(["a", "b", "c"]);
+    await waitForStatus(handle, "stopped");
+    expect(handle.lines).toEqual([]);
+    expect(state.killCalls).toHaveLength(1);
+  });
+});
+
 describe("stop signal escalation", () => {
   it("escalates to SIGTERM when SIGINT is ignored past the grace period", async () => {
     const { spawn, state } = createStubbornSpawn(new Set(["SIGINT"]));
@@ -530,6 +563,14 @@ describe("killProcessGroup", () => {
       throw new Error("ESRCH");
     });
     expect(() => killProcessGroup(12345)).not.toThrow();
+    spy.mockRestore();
+  });
+
+  it("is a no-op for a non-positive sentinel PID", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    killProcessGroup(-1);
+    killProcessGroup(0);
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });

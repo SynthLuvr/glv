@@ -72,18 +72,36 @@ const loadRepos = async (): Promise<void> => {
   }
 };
 
+// Guard a branches race: rapid repo changes can let a slower earlier fetch
+// resolve after a newer one. Abort the prior request, and ignore any
+// superseded response that still slips through.
+let activeBranchController: AbortController | null = null;
+
+const BRANCH_LOAD_ERROR = "Could not load branches.";
+
+const showBranchError = (errorEl: Element | null, message: string): void => {
+  if (errorEl !== null) errorEl.textContent = message;
+  hideBranchField();
+};
+
 const loadBranches = async (owner: string, repo: string): Promise<void> => {
+  activeBranchController?.abort();
+  const controller = new AbortController();
+  activeBranchController = controller;
+  const superseded = (): boolean => controller !== activeBranchController;
+
   const datalist = document.getElementById("gh-branches");
   const branchInput = document.querySelector('input[name="branch"]');
   const branchField = document.querySelector("[data-branch-field]");
   const errorEl = document.querySelector("[data-repo-error]");
   try {
-    const res = await fetch(`/github/repos/${owner}/${repo}/branches`);
+    const res = await fetch(`/github/repos/${owner}/${repo}/branches`, {
+      signal: controller.signal,
+    });
     const data = await res.json();
+    if (superseded()) return;
     if (!data.ok) {
-      if (errorEl !== null)
-        errorEl.textContent = data.error ?? "Could not load branches.";
-      hideBranchField();
+      showBranchError(errorEl, data.error ?? BRANCH_LOAD_ERROR);
       return;
     }
     if (errorEl !== null) errorEl.textContent = "";
@@ -95,8 +113,8 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");
   } catch {
-    if (errorEl !== null) errorEl.textContent = "Could not load branches.";
-    hideBranchField();
+    if (superseded()) return;
+    showBranchError(errorEl, BRANCH_LOAD_ERROR);
   }
 };
 
