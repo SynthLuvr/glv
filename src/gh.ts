@@ -97,9 +97,16 @@ const tryParseJson = (stdout: string): unknown => {
   }
 };
 
-// listRepos streams repositories as one JSON object per line (JSONL) via
-// `gh api ... --paginate --jq`, so each line is parsed independently rather
-// than as a single array.
+const toRepoInfo = (r: Record<string, unknown>): RepoInfo => ({
+  nameWithOwner: typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
+  visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
+  isFork: r.isFork === true,
+  updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
+  description: typeof r.description === "string" ? r.description : null,
+});
+
+// `gh api ... --paginate --jq` emits one repo object per line (JSONL),
+// so each line is parsed on its own rather than as a single JSON array.
 const parseRepoList = (stdout: string): RepoInfo[] =>
   stdout
     .split("\n")
@@ -107,24 +114,14 @@ const parseRepoList = (stdout: string): RepoInfo[] =>
     .filter((line) => line !== "")
     .map((line) => tryParseJson(line) as Record<string, unknown> | null)
     .filter((r): r is Record<string, unknown> => r !== null)
-    .map(
-      (r): RepoInfo => ({
-        nameWithOwner:
-          typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
-        visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
-        isFork: r.isFork === true,
-        updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
-        description: typeof r.description === "string" ? r.description : null,
-      }),
-    )
+    .map(toRepoInfo)
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-// `gh repo list` honours only a finite `--limit` and has no `--paginate` flag,
-// so users with many repositories silently lose the overflow. The REST
-// endpoint paginates fully via `--paginate` (the same pattern listBranches
-// uses) and `type=owner` reproduces the "repositories I own" set that
-// `gh repo list` returns, so every owned repository is now fetched.
+// `gh repo list` caps at a finite `--limit` with no `--paginate`, silently
+// dropping repos beyond it. The REST endpoint paginates fully (as listBranches
+// does) and `type=owner` matches the "repositories I own" set, so nothing is
+// lost.
 const REPO_LIST_JQ =
   ".[] | {nameWithOwner: .full_name, visibility: .visibility," +
   " isFork: .fork, updatedAt: .updated_at, description: .description}";

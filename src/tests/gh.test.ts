@@ -4,8 +4,6 @@ import { parseDefaultBranch, parseRepoList, parseSshUrl } from "../gh.js";
 // --- parseRepoList --------------------------------------------------------
 
 describe("parseRepoList", () => {
-  // listRepos streams one JSON object per line (JSONL) from
-  // `gh api ... --paginate --jq`, projecting these five fields per repo.
   const repoLine = (r: {
     nameWithOwner: string;
     visibility?: string;
@@ -75,7 +73,7 @@ describe("parseRepoList", () => {
           updatedAt: `2024-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
         }),
       );
-    // gh --paginate can emit a trailing/blank line between pages.
+    // gh --paginate may emit a blank line between pages.
     const stdout = `${lines.join("\n")}\n\n`;
     expect(parseRepoList(stdout)).toHaveLength(250);
   });
