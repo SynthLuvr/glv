@@ -72,14 +72,29 @@ const loadRepos = async (): Promise<void> => {
   }
 };
 
+// The AbortController for the most recently issued branches request. Because
+// repo changes can fire in quick succession, an earlier fetch may resolve
+// after a newer one and clobber the #gh-branches datalist with branches that
+// belong to the wrong repository. We abort the in-flight request on each new
+// change and additionally ignore any superseded response that slips through.
+let activeBranchController: AbortController | null = null;
+
 const loadBranches = async (owner: string, repo: string): Promise<void> => {
+  activeBranchController?.abort();
+  const controller = new AbortController();
+  activeBranchController = controller;
+
   const datalist = document.getElementById("gh-branches");
   const branchInput = document.querySelector('input[name="branch"]');
   const branchField = document.querySelector("[data-branch-field]");
   const errorEl = document.querySelector("[data-repo-error]");
+  const superseded = (): boolean => controller !== activeBranchController;
   try {
-    const res = await fetch(`/github/repos/${owner}/${repo}/branches`);
+    const res = await fetch(`/github/repos/${owner}/${repo}/branches`, {
+      signal: controller.signal,
+    });
     const data = await res.json();
+    if (superseded()) return;
     if (!data.ok) {
       if (errorEl !== null)
         errorEl.textContent = data.error ?? "Could not load branches.";
@@ -95,6 +110,7 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");
   } catch {
+    if (superseded()) return;
     if (errorEl !== null) errorEl.textContent = "Could not load branches.";
     hideBranchField();
   }

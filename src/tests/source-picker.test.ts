@@ -111,3 +111,91 @@ describe("source-picker datalist rendering", () => {
     await assertNoInjection(datalist, dom);
   });
 });
+
+// Two quick repo changes start two branches requests. Resolving them out of
+// order must leave the datalist reflecting the currently selected repo, not
+// whichever response arrived last.
+describe("source-picker branches request race", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  // A fetch mock whose responses resolve only when we say so, so we can settle
+  // them in the wrong order and assert the guard holds.
+  const deferredFetch = (): {
+    fetchImpl: ReturnType<typeof vi.fn>;
+    resolve: (index: number, value: unknown) => void;
+  } => {
+    const pending: Array<(value: unknown) => void> = [];
+    const fetchImpl = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    const resolve = (index: number, value: unknown): void => {
+      pending[index]?.(value);
+    };
+    return { fetchImpl, resolve };
+  };
+
+  const flush = (): Promise<void> =>
+    new Promise((r) => {
+      setTimeout(r, 0);
+    });
+
+  const branchValues = (datalist: Element | null): string[] =>
+    datalist === null
+      ? []
+      : [...datalist.children].map((o) => (o as HTMLOptionElement).value);
+
+  it("ignores a stale branches response after the repo changes", async () => {
+    const dom = new JSDOM(
+      [
+        "<!DOCTYPE html><html><body>",
+        '<input name="repo" value="">',
+        '<datalist id="gh-branches"></datalist>',
+        '<input name="branch">',
+        "<div data-branch-field></div>",
+        "</body></html>",
+      ].join(""),
+    );
+    const { fetchImpl, resolve } = deferredFetch();
+    stubBrowser(dom, fetchImpl);
+
+    await import(SOURCE_PICKER_MODULE);
+
+    const repoInput = dom.window.document.querySelector('input[name="repo"]');
+    if (!(repoInput instanceof HTMLInputElement))
+      throw new Error("repo input missing");
+
+    // Repo A fires request #0, then repo B fires request #1 (superseding A).
+    repoInput.value = "alpha/repo";
+    repoInput.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    repoInput.value = "beta/repo";
+    repoInput.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+
+    const datalist = dom.window.document.getElementById("gh-branches");
+
+    // The currently selected repo (B) resolves first: its branches render.
+    resolve(
+      1,
+      jsonOk({ ok: true, branches: ["beta-main"], defaultBranch: "beta-main" }),
+    );
+    await flush();
+    expect(branchValues(datalist)).toEqual(["beta-main"]);
+
+    // The stale response for repo A arrives last: it must be discarded.
+    resolve(
+      0,
+      jsonOk({
+        ok: true,
+        branches: ["alpha-main"],
+        defaultBranch: "alpha-main",
+      }),
+    );
+    await flush();
+    expect(branchValues(datalist)).toEqual(["beta-main"]);
+  });
+});
