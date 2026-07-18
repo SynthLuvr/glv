@@ -28,6 +28,9 @@ const registerAssetRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/assets/source-picker.js", (c) =>
     serveAsset(c, a.sourcePicker, "application/javascript; charset=utf-8"),
   );
+  app.get("/assets/ui.js", (c) =>
+    serveAsset(c, a.ui, "application/javascript; charset=utf-8"),
+  );
   app.get("/assets/passkey.js", (c) =>
     serveAsset(c, a.passkey, "application/javascript; charset=utf-8"),
   );

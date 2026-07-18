@@ -157,19 +157,21 @@ const PromptBar = ({
       hx-swap="innerHTML"
     >
       {run?.status === "queued" && run.queuePosition !== undefined && (
-        <p class="status-hint queued">
+        <p class="status-hint queued" aria-live="polite">
           Queued, waiting… (position {run.queuePosition})
         </p>
       )}
       {run?.status === "running" && (
-        <p class="status-hint running">
+        <p class="status-hint running" aria-live="polite">
           Running…
           {pendingCount > 0 &&
             ` (${pendingCount} prompt${pendingCount > 1 ? "s" : ""} queued next)`}
         </p>
       )}
       {run?.status === "error" && run.error !== undefined && (
-        <p class="status-hint error">{run.error}</p>
+        <p class="status-hint error" aria-live="polite">
+          {run.error}
+        </p>
       )}
       <div class="prompt-input-row">
         <textarea

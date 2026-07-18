@@ -2362,3 +2362,48 @@ describe("stream client session selector", () => {
     expect(connected).toEqual(["/sessions/gamma/tail"]);
   });
 });
+
+describe("UI polish: branding, assets, and a11y", () => {
+  it("includes a favicon and document metadata in the head", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('rel="icon"');
+    expect(html).toContain('name="description"');
+    expect(html).toContain('name="color-scheme"');
+    expect(html).toContain('name="theme-color"');
+  });
+
+  it("renders the new-session button as an svg icon", async () => {
+    const html = await renderRoot();
+    const start = html.indexOf('class="new-session-btn"');
+    const end = html.indexOf("</a>", start);
+    const btn = html.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(btn).toContain("<svg");
+    expect(btn).toContain('aria-label="Start a new session"');
+  });
+
+  it("loads the ui enhancement script", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('<script src="/assets/ui.js"');
+  });
+
+  it("serves the ui client script as JavaScript", async () => {
+    const res = await makeApp().request("/assets/ui.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    const body = await res.text();
+    expect(body).toContain("copy-code-btn");
+    expect(body).toContain("scroll-latest");
+    expect(body).toContain("session-title");
+  });
+
+  it("marks the run status hint as an ARIA live region", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "hello",
+    });
+    expect(html).toContain("status-hint running");
+    expect(html).toContain('aria-live="polite"');
+  });
+});

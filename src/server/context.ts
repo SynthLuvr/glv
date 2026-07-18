@@ -28,6 +28,7 @@ type AssetBundle = {
   readonly markdownCopy: string;
   readonly rename: string;
   readonly sourcePicker: string;
+  readonly ui: string;
   readonly passkey: string;
 };
 
