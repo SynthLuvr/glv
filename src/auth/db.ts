@@ -8,6 +8,11 @@ import { defineTable, placeholders, transaction } from "../query";
 
 const SESSION_TTL_SECONDS = 86400;
 
+// Absolute ceiling on a session's lifespan. Without it a continuously
+// refreshed session never expires, so a stolen cookie stays valid as long
+// as it keeps seeing activity.
+const SESSION_MAX_LIFETIME_SECONDS = 604800; // 7 days
+
 const defaultAuthDbPath = (): string =>
   join(homedir(), ".local", "share", "glv", "auth.db");
 
@@ -182,17 +187,23 @@ const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
   if (token === undefined || token === "") return false;
   return (
     sessions.count(db, {
-      where: "id = ? AND expires_at > datetime('now')",
-      params: [token],
+      where:
+        "id = ? AND expires_at > datetime('now') " +
+        "AND datetime(created_at, ?) > datetime('now')",
+      params: [token, `+${SESSION_MAX_LIFETIME_SECONDS} seconds`],
     }) > 0
   );
 };
 
 const refreshSession = (db: DatabaseSync, token: string): void =>
   sessions.update(db, {
-    set: "expires_at = datetime('now', '+1 day')",
+    set: "expires_at = min(datetime('now', ?), datetime(created_at, ?))",
     where: "id = ?",
-    params: [token],
+    params: [
+      `+${SESSION_TTL_SECONDS} seconds`,
+      `+${SESSION_MAX_LIFETIME_SECONDS} seconds`,
+      token,
+    ],
   });
 
 const deleteSession = (db: DatabaseSync, token: string): void =>
@@ -210,6 +221,7 @@ export {
   purgeExpiredSessions,
   refreshSession,
   resolveAuthDbPath,
+  SESSION_MAX_LIFETIME_SECONDS,
   SESSION_TTL_SECONDS,
   updateCounter,
   userCount,
