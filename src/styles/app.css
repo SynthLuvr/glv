@@ -1497,9 +1497,8 @@ pre::-webkit-scrollbar-thumb {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  /* Static so the absolutely positioned form resolves against the
-     positioned `.session-item` (not this ~1.5rem pencil slot), letting the
-     editor overlay the whole card. See the .rename-form rule below. */
+  /* Overrides the base relative so the overlay form anchors to
+     .session-item instead of this narrow pencil slot. */
   position: static;
 }
 .rename-wrap.is-sidebar .rename-pencil {
@@ -1510,16 +1509,13 @@ pre::-webkit-scrollbar-thumb {
   opacity: 0.85;
 }
 .rename-wrap.is-sidebar .rename-form {
-  /* Overlays the entire card. inset:0 lands inside the session-item border
-     (absolute offsets are measured from the padding box of the positioned
-     ancestor). A solid background covers the name/sub/dir text so the input
-     reads as editing in place rather than floating beside it. */
   position: absolute;
   inset: 0;
   z-index: 4;
   gap: 0.3rem;
   align-items: center;
   padding: 0.4rem 0.55rem;
+  /* Solid surface hides the card text behind the input while editing. */
   background: var(--color-surface);
   border-radius: 0.6rem;
 }
