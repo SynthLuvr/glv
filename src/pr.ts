@@ -113,9 +113,6 @@ const scanCandidates = (messages: readonly ParsedMessage[]): PrCandidates => {
   return out;
 };
 
-// The detected PR URL — never a `pull/new/<branch>` invitation. A `pull/new`
-// link is *not* an existing PR, so it is excluded from the ranking and
-// surfaced separately by `detectCreatePrUrl` for a "Create PR" affordance.
 const detectPrUrl = (
   messages: readonly ParsedMessage[],
 ): string | undefined => {
@@ -123,9 +120,6 @@ const detectPrUrl = (
   return created ?? mcpResult ?? summary ?? mention;
 };
 
-// A `git push` "Create a pull request … pull/new/<branch>" hint — an
-// invitation to open a PR, not one that exists yet. Useful for rendering a
-// "Create PR" affordance, but never the session's PR itself.
 const detectCreatePrUrl = (
   messages: readonly ParsedMessage[],
 ): string | undefined => scanCandidates(messages).pushLink;

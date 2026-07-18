@@ -84,8 +84,6 @@ describe("detectPrUrl", () => {
   });
 
   it("never returns a `git push` pull/new link — it is not an existing PR", () => {
-    // A pull/new link is an invitation to create a PR, never a real one, so it
-    // must not be detected as the session's PR (use detectCreatePrUrl instead).
     const pushOut =
       "remote: Create a pull request for 'feat/x' on GitHub by visiting:\n" +
       `remote:      https://github.com/SynthLuvr/lisko/pull/new/feat/x`;
