@@ -97,15 +97,21 @@ const tryParseJson = (stdout: string): unknown => {
   }
 };
 
-const parseRepoList = (stdout: string): RepoInfo[] => {
-  const parsed = tryParseJson(stdout);
-  if (!Array.isArray(parsed)) return [];
-  return parsed
+// listRepos streams repositories as one JSON object per line (JSONL) via
+// `gh api ... --paginate --jq`, so each line is parsed independently rather
+// than as a single array.
+const parseRepoList = (stdout: string): RepoInfo[] =>
+  stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => tryParseJson(line) as Record<string, unknown> | null)
+    .filter((r): r is Record<string, unknown> => r !== null)
     .map(
       (r): RepoInfo => ({
         nameWithOwner:
           typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
-        visibility: r.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC",
+        visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
         isFork: r.isFork === true,
         updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
         description: typeof r.description === "string" ? r.description : null,
@@ -113,16 +119,23 @@ const parseRepoList = (stdout: string): RepoInfo[] => {
     )
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-};
+
+// `gh repo list` honours only a finite `--limit` and has no `--paginate` flag,
+// so users with many repositories silently lose the overflow. The REST
+// endpoint paginates fully via `--paginate` (the same pattern listBranches
+// uses) and `type=owner` reproduces the "repositories I own" set that
+// `gh repo list` returns, so every owned repository is now fetched.
+const REPO_LIST_JQ =
+  ".[] | {nameWithOwner: .full_name, visibility: .visibility," +
+  " isFork: .fork, updatedAt: .updated_at, description: .description}";
 
 const listRepos = async (): Promise<RepoInfo[]> => {
   const { stdout } = await execa("gh", [
-    "repo",
-    "list",
-    "--limit",
-    "100",
-    "--json",
-    "nameWithOwner,visibility,isFork,updatedAt,description",
+    "api",
+    "user/repos?type=owner&per_page=100",
+    "--paginate",
+    "--jq",
+    REPO_LIST_JQ,
   ]);
   return parseRepoList(stdout);
 };
