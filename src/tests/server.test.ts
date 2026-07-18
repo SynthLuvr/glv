@@ -1865,9 +1865,16 @@ describe("M5: POST /sessions", () => {
     });
     const html = await res.text();
     expect(html).toContain('hx-swap-oob="true"');
-    // Scope to this session's sidebar entry; the shared test DB holds other
-    // leftover "session-N" rows from sibling tests.
-    const item = html.slice(html.lastIndexOf(`data-session-id="${id}"`));
+    // Scope to just this session's card. The shared test DB holds other
+    // leftover "session-N" rows from sibling tests, and slicing to the end
+    // of the document would wrongly include their names.
+    const marker = `data-session-id="${id}"`;
+    const start = html.lastIndexOf(marker);
+    const next = html.indexOf(
+      '<div class="session-item"',
+      start + marker.length,
+    );
+    const item = next === -1 ? html.slice(start) : html.slice(start, next);
     expect(item).toContain(">Build the project<");
     expect(item).not.toContain("session-1");
   });
