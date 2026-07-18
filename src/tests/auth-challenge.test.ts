@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeChallengeAuthority } from "../auth/service.js";
 
-// Reconstruct the inner { body, sig } envelope of a token so tests can probe
-// the signature path without the signing secret.
 const decodeEnvelope = (token: string): { body: string; sig: string } =>
   JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
     body: string;
@@ -14,7 +12,6 @@ describe("challenge authority", () => {
     const ca = makeChallengeAuthority();
     const a = ca.issue("register");
     const b = ca.issue("register");
-    // Two concurrent ceremonies: both stay valid — no single shared slot.
     expect(a).not.toBe(b);
     expect(ca.verify(a, "register")).toBe(true);
     expect(ca.verify(b, "register")).toBe(true);
@@ -26,7 +23,6 @@ describe("challenge authority", () => {
     const login = ca.issue("login");
     expect(ca.verify(reg, "login")).toBe(false);
     expect(ca.verify(login, "register")).toBe(false);
-    // And each still validates against its own flow.
     expect(ca.verify(reg, "register")).toBe(true);
     expect(ca.verify(login, "login")).toBe(true);
   });
@@ -43,7 +39,7 @@ describe("challenge authority", () => {
     const b = ca.issue("register");
     const { body: bodyA } = decodeEnvelope(a);
     const { sig: sigB } = decodeEnvelope(b);
-    // bodyA is intact JSON, but signed by a different (valid) signature.
+    // Valid body paired with a different token's valid signature.
     const tampered = Buffer.from(
       JSON.stringify({ body: bodyA, sig: sigB }),
     ).toString("base64url");

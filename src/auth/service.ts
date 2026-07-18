@@ -73,26 +73,20 @@ const toTransports = (raw: string[]): AuthenticatorTransportFuture[] =>
     return parsed instanceof type.errors ? [] : [parsed];
   });
 
-// WebAuthn challenges should be short-lived: a ceremony that never completes
-// must not leave a valid challenge sitting around indefinitely.
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 type ChallengeFlow = "register" | "login";
 
-// A self-validating, per-ceremony challenge token. The token is itself the
-// WebAuthn challenge: the authenticator signs it and echoes it back, so the
-// server can re-verify it statelessly without remembering anything in memory.
-// Every options call mints an independent token, so a second request — a retry,
-// a second tab, or an unauthenticated attacker hammering the endpoint — can
-// never overwrite another ceremony's challenge.
+// The token is itself the WebAuthn challenge: the authenticator signs and
+// echoes it back, so the server re-verifies it statelessly. Each options call
+// mints an independent token, so concurrent ceremonies never clobber each other.
 const makeChallengeAuthority = (
   ttlMs = CHALLENGE_TTL_MS,
 ): {
   issue: (flow: ChallengeFlow) => string;
   verify: (token: string, flow: ChallengeFlow) => boolean;
 } => {
-  // Random per process start. A restart invalidates any in-flight ceremony,
-  // matching the lifetime the old in-memory slot had.
+  // Per-process secret: a restart invalidates any in-flight ceremony.
   const secret = randomBytes(32);
 
   const sign = (data: string): string =>
@@ -106,9 +100,9 @@ const makeChallengeAuthority = (
 
   const issue = (flow: ChallengeFlow): string => {
     const body = JSON.stringify({
-      n: randomBytes(16).toString("base64url"),
-      e: Date.now() + ttlMs,
-      f: flow,
+      nonce: randomBytes(16).toString("base64url"),
+      expiry: Date.now() + ttlMs,
+      flow,
     });
     return Buffer.from(JSON.stringify({ body, sig: sign(body) })).toString(
       "base64url",
@@ -125,25 +119,22 @@ const makeChallengeAuthority = (
     const { body, sig } = outer;
     if (typeof body !== "string" || typeof sig !== "string") return false;
     if (!sameSig(sign(body), sig)) return false;
-    let parsed: { e?: unknown; f?: unknown };
+    let payload: { expiry?: unknown; flow?: unknown };
     try {
-      parsed = JSON.parse(body);
+      payload = JSON.parse(body);
     } catch {
       return false;
     }
     return (
-      parsed.f === flow &&
-      typeof parsed.e === "number" &&
-      Date.now() <= parsed.e
+      payload.flow === flow &&
+      typeof payload.expiry === "number" &&
+      Date.now() <= payload.expiry
     );
   };
 
   return { issue, verify };
 };
 
-// Pull the challenge back out of a WebAuthn response's clientDataJSON so a
-// signed token can be validated before the response reaches the verifier. The
-// response body is untrusted, so every step is defensive.
 const challengeFromResponse = (response: unknown): string | undefined => {
   if (typeof response !== "object" || response === null) return undefined;
   const { clientDataJSON } = response as { clientDataJSON?: unknown };
@@ -159,19 +150,16 @@ const challengeFromResponse = (response: unknown): string | undefined => {
 };
 
 const makeAuthService = (authDb: DatabaseSync): AuthService => {
-  const challenge = makeChallengeAuthority();
+  const authority = makeChallengeAuthority();
 
-  const registrationOptions = async (
+  const registrationOptions = (
     rp: RpConfig,
-  ): Promise<PublicKeyCredentialCreationOptionsJSON> => {
-    const options = await generateRegistrationOptions({
+  ): Promise<PublicKeyCredentialCreationOptionsJSON> =>
+    generateRegistrationOptions({
       rpName: rp.rpName,
       rpID: rp.rpID,
       userName: "owner",
-      // The challenge is a signed, time-boxed token (see makeChallengeAuthority)
-      // so the server validates it statelessly instead of stashing it in a
-      // single shared slot that any second request would clobber.
-      challenge: challenge.issue("register"),
+      challenge: authority.issue("register"),
       attestationType: "none",
       // ES256 + RS256; excludes Ed25519 which some runtimes can't verify.
       supportedAlgorithmIDs: [-7, -257],
@@ -180,8 +168,6 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
         userVerification: "preferred",
       },
     });
-    return options;
-  };
 
   const verifyRegistration = async (
     rp: RpConfig,
@@ -190,7 +176,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     const expectedChallenge = challengeFromResponse(body.response);
     if (
       expectedChallenge === undefined ||
-      !challenge.verify(expectedChallenge, "register")
+      !authority.verify(expectedChallenge, "register")
     )
       return {
         verified: false,
@@ -222,13 +208,13 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     return { verified: true, token };
   };
 
-  const loginOptions = async (
+  const loginOptions = (
     rp: RpConfig,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> => {
     const creds = listCredentials(authDb);
-    const options = await generateAuthenticationOptions({
+    return generateAuthenticationOptions({
       rpID: rp.rpID,
-      challenge: challenge.issue("login"),
+      challenge: authority.issue("login"),
       allowCredentials: creds.map((c) => ({
         id: c.id,
         type: "public-key",
@@ -236,7 +222,6 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
       })),
       userVerification: "preferred",
     });
-    return options;
   };
 
   const verifyLogin = async (
@@ -246,7 +231,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     const expectedChallenge = challengeFromResponse(body.response);
     if (
       expectedChallenge === undefined ||
-      !challenge.verify(expectedChallenge, "login")
+      !authority.verify(expectedChallenge, "login")
     )
       return {
         verified: false,
@@ -303,5 +288,5 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
   };
 };
 
-export type { AuthService, ChallengeFlow, RpConfig, VerifyResult };
+export type { AuthService, RpConfig, VerifyResult };
 export { makeAuthService, makeChallengeAuthority };
