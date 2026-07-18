@@ -88,7 +88,17 @@ const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
 
 const parseRepoList = (stdout: string): RepoInfo[] => {
-  const raw = JSON.parse(stdout) as Array<Record<string, unknown>>;
+  // `gh` may exit 0 with non-JSON stdout (an update notice, a warning,
+  // or unauthenticated help text); treat that as "no repos".
+  let raw: Array<Record<string, unknown>>;
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    raw = Array.isArray(parsed)
+      ? (parsed as Array<Record<string, unknown>>)
+      : [];
+  } catch {
+    return [];
+  }
   return raw
     .map(
       (r): RepoInfo => ({
@@ -116,6 +126,20 @@ const listRepos = async (): Promise<RepoInfo[]> => {
   return parseRepoList(stdout);
 };
 
+// "main" is a safe fallback when `gh repo view` exits 0 with non-JSON
+// stdout (an update notice, a warning, or unauthenticated help text).
+const parseDefaultBranch = (stdout: string): string => {
+  let view: { defaultBranchRef: { name: string } | null };
+  try {
+    view = JSON.parse(stdout) as {
+      defaultBranchRef: { name: string } | null;
+    };
+  } catch {
+    return "main";
+  }
+  return view.defaultBranchRef?.name ?? "main";
+};
+
 const listBranches = async (
   owner: string,
   repo: string,
@@ -127,10 +151,7 @@ const listBranches = async (
     "--json",
     "defaultBranchRef",
   ]);
-  const view = JSON.parse(viewResult.stdout) as {
-    defaultBranchRef: { name: string } | null;
-  };
-  const defaultBranch = view.defaultBranchRef?.name ?? "main";
+  const defaultBranch = parseDefaultBranch(viewResult.stdout);
 
   const apiResult = await execa("gh", [
     "api",
@@ -149,6 +170,24 @@ const listBranches = async (
   return { branches, defaultBranch };
 };
 
+// No safe fallback for a missing sshUrl: surface a structured error
+// instead of an opaque SyntaxError.
+const parseSshUrl = (stdout: string): string => {
+  let parsed: { sshUrl: unknown };
+  try {
+    parsed = JSON.parse(stdout) as { sshUrl: unknown };
+  } catch {
+    throw new Error(
+      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
+    );
+  }
+  if (typeof parsed.sshUrl !== "string" || parsed.sshUrl === "")
+    throw new Error(
+      `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
+    );
+  return parsed.sshUrl;
+};
+
 const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   const { stdout } = await execa("gh", [
     "repo",
@@ -157,8 +196,7 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
     "--json",
     "sshUrl",
   ]);
-  const parsed = JSON.parse(stdout) as { sshUrl: string };
-  return parsed.sshUrl;
+  return parseSshUrl(stdout);
 };
 
 // Clones only the selected branch (--single-branch) to keep it cheap.
@@ -227,5 +265,8 @@ export {
   clonePathFor,
   createGhClient,
   generateCloneJobId,
+  parseDefaultBranch,
   parseOwnerRepo,
+  parseRepoList,
+  parseSshUrl,
 };
