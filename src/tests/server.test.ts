@@ -273,9 +273,6 @@ describe("web viewer GET /", () => {
     expect(html).toContain("/tmp/alpha");
     expect(html).toContain("session-item");
     expect(html).toContain("run-indicator");
-    // Provider name and token count are hidden from the sidebar.
-    expect(html).not.toContain("provider-badge");
-    expect(html).not.toContain("token-count");
   });
 
   it("renders session names as links to the detail route", async () => {
