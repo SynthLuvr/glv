@@ -72,23 +72,28 @@ const loadRepos = async (): Promise<void> => {
   }
 };
 
-// The AbortController for the most recently issued branches request. Because
-// repo changes can fire in quick succession, an earlier fetch may resolve
-// after a newer one and clobber the #gh-branches datalist with branches that
-// belong to the wrong repository. We abort the in-flight request on each new
-// change and additionally ignore any superseded response that slips through.
+// Guard a branches race: rapid repo changes can let a slower earlier fetch
+// resolve after a newer one. Abort the prior request, and ignore any
+// superseded response that still slips through.
 let activeBranchController: AbortController | null = null;
+
+const BRANCH_LOAD_ERROR = "Could not load branches.";
+
+const showBranchError = (errorEl: Element | null, message: string): void => {
+  if (errorEl !== null) errorEl.textContent = message;
+  hideBranchField();
+};
 
 const loadBranches = async (owner: string, repo: string): Promise<void> => {
   activeBranchController?.abort();
   const controller = new AbortController();
   activeBranchController = controller;
+  const superseded = (): boolean => controller !== activeBranchController;
 
   const datalist = document.getElementById("gh-branches");
   const branchInput = document.querySelector('input[name="branch"]');
   const branchField = document.querySelector("[data-branch-field]");
   const errorEl = document.querySelector("[data-repo-error]");
-  const superseded = (): boolean => controller !== activeBranchController;
   try {
     const res = await fetch(`/github/repos/${owner}/${repo}/branches`, {
       signal: controller.signal,
@@ -96,9 +101,7 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
     const data = await res.json();
     if (superseded()) return;
     if (!data.ok) {
-      if (errorEl !== null)
-        errorEl.textContent = data.error ?? "Could not load branches.";
-      hideBranchField();
+      showBranchError(errorEl, data.error ?? BRANCH_LOAD_ERROR);
       return;
     }
     if (errorEl !== null) errorEl.textContent = "";
@@ -111,8 +114,7 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
     if (branchField !== null) branchField.classList.remove("source-hidden");
   } catch {
     if (superseded()) return;
-    if (errorEl !== null) errorEl.textContent = "Could not load branches.";
-    hideBranchField();
+    showBranchError(errorEl, BRANCH_LOAD_ERROR);
   }
 };
 
