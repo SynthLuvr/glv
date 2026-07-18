@@ -13,6 +13,8 @@ import type {
 // extensions) are reaped too. Runs spawn detached, so the goose PID doubles as
 // the group leader ID.
 const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
+  // -1 is the unknown-PID sentinel; negating it would target PID 1 (init).
+  if (pid <= 0) return;
   try {
     process.kill(-pid, signal);
   } catch {
