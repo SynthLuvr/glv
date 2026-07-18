@@ -135,21 +135,19 @@ const makeChallengeAuthority = (
   return { issue, verify };
 };
 
-const ClientDataView = type({ "clientDataJSON?": "string" });
+const ClientDataView = type({ clientDataJSON: "string" });
 
-const ChallengeView = type({ "challenge?": "string" });
+const ChallengeView = type({ challenge: "string" });
 
 const challengeFromResponse = (response: unknown): string | undefined => {
   const view = ClientDataView(response);
   if (view instanceof type.errors) return undefined;
-  const { clientDataJSON } = view;
-  if (clientDataJSON === undefined) return undefined;
   try {
-    const data = ChallengeView(
-      JSON.parse(Buffer.from(clientDataJSON, "base64url").toString("utf8")),
+    const decoded = Buffer.from(view.clientDataJSON, "base64url").toString(
+      "utf8",
     );
-    if (data instanceof type.errors) return undefined;
-    return data.challenge;
+    const data = ChallengeView(JSON.parse(decoded));
+    return data instanceof type.errors ? undefined : data.challenge;
   } catch {
     return undefined;
   }

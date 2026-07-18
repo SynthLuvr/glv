@@ -34,6 +34,9 @@ const isReposResponse = (value: unknown): value is ReposResponse => {
   return true;
 };
 
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
 type BranchesResponse = {
   ok: boolean;
   branches?: string[];
@@ -44,14 +47,7 @@ type BranchesResponse = {
 const isBranchesResponse = (value: unknown): value is BranchesResponse => {
   if (typeof value !== "object" || value === null) return false;
   if (!("ok" in value) || typeof value.ok !== "boolean") return false;
-  if (
-    "branches" in value &&
-    !(
-      Array.isArray(value.branches) &&
-      value.branches.every((b) => typeof b === "string")
-    )
-  )
-    return false;
+  if ("branches" in value && !isStringList(value.branches)) return false;
   if ("defaultBranch" in value && typeof value.defaultBranch !== "string")
     return false;
   if ("error" in value && typeof value.error !== "string") return false;
@@ -102,6 +98,12 @@ const option = (value: string, label?: string): HTMLOptionElement => {
   return opt;
 };
 
+const REPO_LOAD_ERROR = "Could not load repositories.";
+
+const showRepoError = (errorEl: Element | null, message: string): void => {
+  if (errorEl !== null) errorEl.textContent = message;
+};
+
 const loadRepos = async (): Promise<void> => {
   const datalist = document.getElementById("gh-repos");
   if (datalist === null || datalist.children.length > 0) return;
@@ -110,13 +112,11 @@ const loadRepos = async (): Promise<void> => {
     const res = await fetch("/github/repos");
     const data: unknown = await res.json();
     if (!isReposResponse(data)) {
-      if (errorEl !== null)
-        errorEl.textContent = "Could not load repositories.";
+      showRepoError(errorEl, REPO_LOAD_ERROR);
       return;
     }
     if (!data.ok) {
-      if (errorEl !== null)
-        errorEl.textContent = data.error ?? "Could not load repositories.";
+      showRepoError(errorEl, data.error ?? REPO_LOAD_ERROR);
       return;
     }
     const repos = data.repos ?? [];
@@ -128,7 +128,7 @@ const loadRepos = async (): Promise<void> => {
     });
     datalist.replaceChildren(...opts);
   } catch {
-    if (errorEl !== null) errorEl.textContent = "Could not load repositories.";
+    showRepoError(errorEl, REPO_LOAD_ERROR);
   }
 };
 

@@ -98,9 +98,8 @@ const tryParseJson = (stdout: string): unknown => {
   }
 };
 
-// Validate each line against a runtime schema rather than asserting; fields
-// beyond nameWithOwner are optional and defaulted, so a malformed or non-repo
-// line is dropped instead of crashing.
+// nameWithOwner is required; the rest are optional and defaulted so a
+// malformed or non-repo line is dropped instead of crashing.
 const RepoRecord = type({
   nameWithOwner: "string",
   "visibility?": "string",
@@ -203,21 +202,16 @@ const listBranches = async (
 const SshUrlView = type({ "sshUrl?": "unknown" });
 
 const parseSshUrl = (stdout: string): string => {
+  const tail = stdout.trim().slice(-200);
   const parsed = tryParseJson(stdout);
   if (parsed === null)
-    throw new Error(
-      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
-    );
+    throw new Error(`gh repo view printed non-JSON output: "${tail}"`);
   const view = SshUrlView(parsed);
   if (view instanceof type.errors)
-    throw new Error(
-      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
-    );
+    throw new Error(`gh repo view printed non-JSON output: "${tail}"`);
   const { sshUrl } = view;
   if (typeof sshUrl !== "string" || sshUrl === "")
-    throw new Error(
-      `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
-    );
+    throw new Error(`gh repo view did not return an sshUrl: "${tail}"`);
   return sshUrl;
 };
 
