@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
 
 type RepoInfo = {
@@ -161,15 +161,14 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   return parsed.sshUrl;
 };
 
-// Clones only the selected branch (--single-branch) to keep it cheap.
+// Clones only the selected branch (--single-branch) to keep it cheap. The
+// remote URL is resolved by the caller (materialise) so this stays free of
+// the gh CLI and can be exercised against a local repository in tests.
 const runClone = async (
-  owner: string,
-  repo: string,
+  url: string,
   branch: string,
   path: string,
 ): Promise<void> => {
-  mkdirSync(join(CLONE_ROOT, owner), { recursive: true });
-  const url = await getSshUrl(owner, repo);
   const result = await execa(
     "git",
     ["clone", "--branch", branch, "--single-branch", url, path],
@@ -177,16 +176,23 @@ const runClone = async (
   );
   if (result.exitCode !== 0)
     throw new Error(
-      stderrGist(result.stderr) || `git clone failed for ${owner}/${repo}`,
+      stderrGist(result.stderr) || `git clone failed for ${branch}`,
     );
 };
 
-// Cheap reuse: fetch + checkout + pull instead of re-downloading.
+// Cheap reuse: fetch the requested branch and reset the local branch onto the
+// fetched tip instead of re-downloading. A --single-branch clone only ever
+// fetched one branch, so a bare `git fetch` misses every other branch and a
+// plain `git checkout <branch>` then fails with "pathspec ... did not match".
+// Fetching the branch explicitly and pointing the local branch at FETCH_HEAD
+// works both for the original branch and for any branch the caller switches
+// to, always landing on the latest remote tip. The old `git pull` step is
+// gone: the single-branch refspec made it a no-op for switched branches and
+// `checkout -B ... FETCH_HEAD` already syncs the tip.
 const runUpdate = async (path: string, branch: string): Promise<void> => {
   const steps: Array<[string, string[]]> = [
-    ["fetch", []],
-    ["checkout", [branch]],
-    ["pull", []],
+    ["fetch", ["origin", branch]],
+    ["checkout", ["-B", branch, "FETCH_HEAD"]],
   ];
   for (const [cmd, args] of steps) {
     const result = await execa("git", [cmd, ...args], {
@@ -204,8 +210,13 @@ const materialise = async (
   branch: string,
   path: string,
 ): Promise<void> => {
-  if (existsSync(path)) await runUpdate(path, branch);
-  else await runClone(owner, repo, branch, path);
+  if (existsSync(path)) {
+    await runUpdate(path, branch);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const url = await getSshUrl(owner, repo);
+  await runClone(url, branch, path);
 };
 
 const createGhClient = (): GhClient => ({
@@ -228,4 +239,6 @@ export {
   createGhClient,
   generateCloneJobId,
   parseOwnerRepo,
+  runClone,
+  runUpdate,
 };
