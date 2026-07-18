@@ -87,19 +87,20 @@ const generateCloneJobId = (): string =>
 const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
 
-const parseRepoList = (stdout: string): RepoInfo[] => {
-  // `gh` may exit 0 with non-JSON stdout (an update notice, a warning,
-  // or unauthenticated help text); treat that as "no repos".
-  let raw: Array<Record<string, unknown>>;
+// `gh` may exit 0 with non-JSON stdout (an update notice, a warning, or
+// unauthenticated help text); degrade rather than crash on a SyntaxError.
+const tryParseJson = (stdout: string): unknown => {
   try {
-    const parsed: unknown = JSON.parse(stdout);
-    raw = Array.isArray(parsed)
-      ? (parsed as Array<Record<string, unknown>>)
-      : [];
+    return JSON.parse(stdout);
   } catch {
-    return [];
+    return null;
   }
-  return raw
+};
+
+const parseRepoList = (stdout: string): RepoInfo[] => {
+  const parsed = tryParseJson(stdout);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
     .map(
       (r): RepoInfo => ({
         nameWithOwner:
@@ -126,18 +127,11 @@ const listRepos = async (): Promise<RepoInfo[]> => {
   return parseRepoList(stdout);
 };
 
-// "main" is a safe fallback when `gh repo view` exits 0 with non-JSON
-// stdout (an update notice, a warning, or unauthenticated help text).
 const parseDefaultBranch = (stdout: string): string => {
-  let view: { defaultBranchRef: { name: string } | null };
-  try {
-    view = JSON.parse(stdout) as {
-      defaultBranchRef: { name: string } | null;
-    };
-  } catch {
-    return "main";
-  }
-  return view.defaultBranchRef?.name ?? "main";
+  const view = tryParseJson(stdout) as {
+    defaultBranchRef: { name: string } | null;
+  } | null;
+  return view?.defaultBranchRef?.name ?? "main";
 };
 
 const listBranches = async (
@@ -170,22 +164,20 @@ const listBranches = async (
   return { branches, defaultBranch };
 };
 
-// No safe fallback for a missing sshUrl: surface a structured error
-// instead of an opaque SyntaxError.
+// No safe fallback for a missing sshUrl, so surface a structured error
+// rather than degrade silently.
 const parseSshUrl = (stdout: string): string => {
-  let parsed: { sshUrl: unknown };
-  try {
-    parsed = JSON.parse(stdout) as { sshUrl: unknown };
-  } catch {
+  const parsed = tryParseJson(stdout) as { sshUrl: unknown } | null;
+  if (parsed === null)
     throw new Error(
       `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
     );
-  }
-  if (typeof parsed.sshUrl !== "string" || parsed.sshUrl === "")
+  const { sshUrl } = parsed;
+  if (typeof sshUrl !== "string" || sshUrl === "")
     throw new Error(
       `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
     );
-  return parsed.sshUrl;
+  return sshUrl;
 };
 
 const getSshUrl = async (owner: string, repo: string): Promise<string> => {
