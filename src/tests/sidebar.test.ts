@@ -9,9 +9,6 @@ const SIDEBAR_MODULE = "../scripts/sidebar";
 
 type Handler = (event: unknown) => void;
 
-// Minimal EventSource stand-in: records every instance and lets the test drive
-// readyState and dispatch "error", so the reconnect path can be exercised
-// without a live server or a real SSE implementation.
 class MockEventSource {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -44,13 +41,10 @@ class MockEventSource {
   }
 }
 
-const setupDom = (): JSDOM =>
-  new JSDOM("<!DOCTYPE html><html><body></body></html>");
-
 describe("status feed reconnection", () => {
   beforeEach(() => {
     MockEventSource.instances = [];
-    const dom = setupDom();
+    const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>");
     vi.stubGlobal("document", dom.window.document);
     vi.stubGlobal("EventSource", MockEventSource);
     vi.useFakeTimers();

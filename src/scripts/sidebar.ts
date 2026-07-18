@@ -94,18 +94,17 @@ const onStatusEvent = (data: string): void => {
   }
 };
 
-// Lives outside #session-list so it survives detail-pane swaps and OOB sidebar
-// refreshes.
 const STATUS_RECONNECT_BASE_MS = 1000;
 const STATUS_RECONNECT_MAX_MS = 30000;
 
+// Lives outside #session-list so it survives detail-pane swaps and OOB sidebar
+// refreshes.
 let statusSource: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = STATUS_RECONNECT_BASE_MS;
 
 // A permanent close never auto-reconnects, so without this the sidebar's
 // running/idle indicators would go stale for the rest of the page session.
-// Reopen the feed with capped exponential backoff, reset once it stays open.
 const scheduleReconnect = (): void => {
   if (reconnectTimer !== null) return;
   const delay = reconnectDelay;
@@ -128,9 +127,8 @@ const connectStatusFeed = (): void => {
   statusSource.addEventListener("status", (e) => {
     onStatusEvent((e as MessageEvent).data);
   });
-  // EventSource auto-reconnects on transient failures, so only act once the
-  // connection is truly closed: drop the dead reference and schedule a fresh
-  // connection so the feed doesn't stay dead until the page is reloaded.
+  // EventSource auto-reconnects on transient failures, so only act on a
+  // permanent close.
   statusSource.addEventListener("error", () => {
     if (statusSource?.readyState !== EventSource.CLOSED) return;
     statusSource = null;
