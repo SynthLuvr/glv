@@ -8,11 +8,9 @@ import { defineTable, placeholders, transaction } from "../query";
 
 const SESSION_TTL_SECONDS = 86400;
 
-// Hard ceiling on a session's total lifespan, independent of the sliding
-// refresh window. Without it, a session that is used continuously is
-// refreshed forever and a stolen cookie stays alive as long as it remains
-// in active use. created_at is recorded at issue time and refreshSession
-// will never push expires_at past created_at + this value.
+// Absolute ceiling on a session's lifespan. Without it a continuously
+// refreshed session never expires, so a stolen cookie stays valid as long
+// as it keeps seeing activity.
 const SESSION_MAX_LIFETIME_SECONDS = 604800; // 7 days
 
 const defaultAuthDbPath = (): string =>
@@ -199,9 +197,6 @@ const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
 
 const refreshSession = (db: DatabaseSync, token: string): void =>
   sessions.update(db, {
-    // Cap the sliding window at the absolute maximum so a session cannot be
-    // kept alive beyond created_at + SESSION_MAX_LIFETIME_SECONDS no matter
-    // how often it is refreshed.
     set: "expires_at = min(datetime('now', ?), datetime(created_at, ?))",
     where: "id = ?",
     params: [

@@ -252,8 +252,7 @@ describe("session absolute max lifetime", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // Seconds remaining until the session's expires_at, using sub-second
-  // precision so assertions are robust to wall-clock drift within the test.
+  // Sub-second precision tolerates wall-clock drift in assertions.
   const expirySecondsFromNow = (token: string): number => {
     const row = db
       .prepare(
@@ -264,9 +263,7 @@ describe("session absolute max lifetime", () => {
     return row?.s ?? NaN;
   };
 
-  // expires_at (stored) must equal created_at + max lifetime (a deterministic
-  // function of another stored column), so this comparison is exact and
-  // independent of the wall clock.
+  // Compares two stored columns, so it is exact and clock-independent.
   const expiresAtAbsoluteCap = (token: string): boolean => {
     const row = db
       .prepare(
@@ -274,20 +271,22 @@ describe("session absolute max lifetime", () => {
           "FROM sessions WHERE id = ?",
       )
       .get(`+${SESSION_MAX_LIFETIME_SECONDS} seconds`, token) as
-      | {
-          matches?: number;
-        }
+      | { matches?: number }
       | undefined;
     return row?.matches === 1;
   };
 
-  it("rejects a session whose absolute lifetime has elapsed", () => {
-    const token = "maxed-out-token";
-    // expires_at is far in the future, but created_at is past the cap.
+  // expires_at is far in the future, so only created_at governs validity.
+  const insertSession = (id: string, createdAtOffset: string): void => {
     db.prepare(
       "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
-        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', '-8 days'))",
-    ).run(token, ownerId);
+        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', ?))",
+    ).run(id, ownerId, createdAtOffset);
+  };
+
+  it("rejects a session whose absolute lifetime has elapsed", () => {
+    const token = "maxed-out-token";
+    insertSession(token, "-8 days");
     expect(validSession(db, token)).toBe(false);
   });
 
@@ -307,12 +306,9 @@ describe("session absolute max lifetime", () => {
 
   it("refreshSession never extends a session past the absolute maximum", () => {
     const token = "capped-token";
-    // 8 days old: created_at + max lifetime is already in the past, so
-    // refreshing cannot keep the session alive.
-    db.prepare(
-      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
-        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', '-8 days'))",
-    ).run(token, ownerId);
+    // 8 days old: created_at + max lifetime is already in the past, so a
+    // refresh cannot keep the session alive.
+    insertSession(token, "-8 days");
     refreshSession(db, token);
     expect(expiresAtAbsoluteCap(token)).toBe(true);
     expect(validSession(db, token)).toBe(false);
@@ -320,13 +316,9 @@ describe("session absolute max lifetime", () => {
 
   it("clamps to the absolute ceiling when it is closer than the sliding window", () => {
     const token = "near-cap-token";
-    // ~6.5 days old: created_at + max lifetime (~0.5 days out) is sooner
-    // than the 1-day sliding window, so the cap must win.
-    db.prepare(
-      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
-        "VALUES (?, ?, datetime('now', '+2 days'), " +
-        "datetime('now', '-6 days', '-12 hours'))",
-    ).run(token, ownerId);
+    // ~6.5 days old: the cap (~0.5 days out) is sooner than the 1-day
+    // sliding window, so the cap must win.
+    insertSession(token, "-6.5 days");
     refreshSession(db, token);
     expect(expiresAtAbsoluteCap(token)).toBe(true);
     expect(validSession(db, token)).toBe(true);
