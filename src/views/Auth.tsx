@@ -1,4 +1,5 @@
 import type { Child } from "hono/jsx";
+import { HeadMeta } from "./head.js";
 
 // Mirrors the inline bootstrap in Layout.tsx so the saved theme applies before
 // first paint on the auth screens (which use a standalone layout).
@@ -14,6 +15,7 @@ const AuthLayout = ({ title, children }: AuthLayoutProps) => (
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <HeadMeta />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />

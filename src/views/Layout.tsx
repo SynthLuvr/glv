@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "hono/jsx";
+import { HeadMeta } from "./head.js";
 
 type LayoutProps = PropsWithChildren<{ title: string }>;
 
@@ -12,6 +13,7 @@ const Layout = ({ title, children }: LayoutProps) => (
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <HeadMeta />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />
@@ -21,6 +23,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <script src="/assets/markdown-copy.js" defer></script>
       <script src="/assets/rename.js" defer></script>
       <script src="/assets/source-picker.js" defer></script>
+      <script src="/assets/ui.js" defer></script>
     </head>
     <body>{children}</body>
   </html>
