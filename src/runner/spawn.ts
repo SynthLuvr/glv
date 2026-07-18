@@ -13,6 +13,11 @@ import type {
 // extensions) are reaped too. Runs spawn detached, so the goose PID doubles as
 // the group leader ID.
 const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
+  // Never signal a non-positive PID. A missing/unknown PID is represented by a
+  // sentinel (see defaultSpawn), and negating that sentinel (-(-1) === 1)
+  // would target PID 1 (init). Treat anything that isn't a real PID as
+  // "nothing to kill" rather than risking the wrong target.
+  if (pid <= 0) return;
   try {
     process.kill(-pid, signal);
   } catch {
@@ -53,6 +58,9 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     cwd: opts.cwd,
     detached: true,
   });
+  // execa assigns the PID synchronously and throws first on a failed spawn, so
+  // this is normally always set. -1 is an (effectively unreachable) sentinel;
+  // killProcessGroup treats it as a no-op rather than targeting PID 1.
   const pid = proc.pid ?? -1;
 
   // execa emits stdout in arbitrary chunks; split into lines so each yielded
