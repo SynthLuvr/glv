@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
+import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
 import { createRunner, stopAll } from "../runner/index.js";
 import { createApp } from "../server/index.js";
@@ -11,6 +12,7 @@ type ServeOpts = {
   port: number;
   runner: RunnerConfig;
   authDbPath: string;
+  promptsDbPath: string;
   rpName: string;
   rpIdOverride?: string;
 };
@@ -77,9 +79,11 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached goose processes.
   const runner = createRunner(opts.runner);
   const authDb = openAuthDb(opts.authDbPath);
+  const promptsDb = openPromptsDb(opts.promptsDbPath);
   const auth = makeAuthService(authDb);
   const app = createApp(db, runner, {
     auth,
+    prompts: promptsDb,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
@@ -90,6 +94,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   const closeDbs = (): void => {
     db.close();
     authDb.close();
+    promptsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
