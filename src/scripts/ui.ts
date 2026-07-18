@@ -11,18 +11,19 @@ const uiCheckIcon =
 const uiDownIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>';
 
-// The tab title should reflect what the reader is looking at. htmx swaps only
-// the detail pane, so the <title> set by the server on first load grows stale;
+// htmx swaps only the detail pane, so the server-set <title> grows stale;
 // re-derive it from the rendered heading on every swap.
 const uiSyncTitle = (): void => {
-  const session = document.querySelector(".session-title");
-  if (session?.textContent?.trim() !== "") {
-    document.title = `${session?.textContent?.trim() ?? ""}${UI_TITLE_SUFFIX}`;
+  const session = document.querySelector(".session-title")?.textContent?.trim();
+  if (session !== "") {
+    document.title = `${session ?? ""}${UI_TITLE_SUFFIX}`;
     return;
   }
-  const heading = document.querySelector(".new-session h2");
-  if (heading?.textContent?.trim() !== "") {
-    document.title = `${heading?.textContent?.trim() ?? ""}${UI_TITLE_SUFFIX}`;
+  const heading = document
+    .querySelector(".new-session h2")
+    ?.textContent?.trim();
+  if (heading !== "") {
+    document.title = `${heading ?? ""}${UI_TITLE_SUFFIX}`;
     return;
   }
   document.title = UI_HOME_TITLE;
@@ -62,8 +63,8 @@ const uiCopyCode = async (btn: HTMLElement, text: string): Promise<void> => {
   }, UI_COPIED_MS);
 };
 
-// Wrap a <pre> in a positioning container and append a copy button. Idempotent
-// (guarded by the wrapper class) so re-runs from the MutationObserver settle.
+// Wrap a <pre> in a positioning container and append a copy button. Guarded by
+// the wrapper class so re-runs from the MutationObserver are idempotent.
 const uiEnhancePre = (pre: HTMLPreElement): void => {
   if (pre.parentElement?.classList.contains("code-block")) return;
   const wrap = document.createElement("div");
@@ -97,7 +98,6 @@ document.addEventListener("click", (e) => {
   void uiCopyCode(btn, code.textContent ?? "");
 });
 
-// Textareas grow as the user types.
 document.addEventListener("input", (e) => {
   if (
     e.target instanceof HTMLTextAreaElement &&
@@ -106,8 +106,8 @@ document.addEventListener("input", (e) => {
     uiGrow(e.target);
 });
 
-// Mounted on <body> (which survives #detail-pane innerHTML swaps) since the
-// button is position:fixed and lives outside the scroll container.
+// Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
+// is position:fixed and lives outside the scroll container.
 const uiEnsureScrollButton = (): void => {
   if (document.getElementById("scroll-latest") !== null) return;
   const pane = document.getElementById("detail-pane");
@@ -136,8 +136,8 @@ const uiUpdateScrollButton = (): void => {
   btn.hidden = distance < UI_NEAR_BOTTOM_PX;
 };
 
-// A single rAF-coalesced pass reacts to every DOM change in the detail pane —
-// htmx swaps, streamed lines, and tail appends — without per-source wiring.
+// One rAF-coalesced pass reacts to every DOM change in the detail pane — htmx
+// swaps, streamed lines, tail appends — without per-source wiring.
 let uiScheduled = false;
 const uiSchedule = (): void => {
   if (uiScheduled) return;
@@ -170,7 +170,7 @@ const uiInit = (): void => {
 };
 
 document.addEventListener("DOMContentLoaded", uiInit);
-// htmx swaps replace #detail-pane's children; re-sync title and focus, and the
+// htmx swaps replace #detail-pane's children; re-sync title and focus — the
 // MutationObserver picks up the new nodes for code-block enhancement.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   if ((e as CustomEvent).detail.target?.id === "detail-pane") {
