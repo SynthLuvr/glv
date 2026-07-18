@@ -226,10 +226,13 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     return true;
   }
 
-  if (handle.status === "running" && handle.process !== undefined) {
+  if (handle.status === "running") {
     handle.status = "stopped";
     handle.pendingPrompts = [];
-    handle.process.kill("SIGINT");
+    // A running handle may briefly have no process (the spawn assignment
+    // hasn't run yet); in that case defer the kill via cancelled.
+    if (handle.process !== undefined) handle.process.kill("SIGINT");
+    else handle.cancelled = true;
     return true;
   }
 
