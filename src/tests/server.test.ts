@@ -271,10 +271,11 @@ describe("web viewer GET /", () => {
   it("surfaces session metadata in the sidebar cards", async () => {
     const html = await renderRoot();
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
     expect(html).toContain("session-item");
-    expect(html).toContain("provider-badge");
+    expect(html).toContain("run-indicator");
+    // Provider name and token count are hidden from the sidebar.
+    expect(html).not.toContain("provider-badge");
+    expect(html).not.toContain("token-count");
   });
 
   it("renders session names as links to the detail route", async () => {
@@ -352,8 +353,6 @@ describe("web viewer GET /sessions/:id", () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("Alpha Session");
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
   });
 
   it("keeps the sidebar and highlights the selected session", async () => {

@@ -2,7 +2,6 @@ import type { SessionRow } from "../db.js";
 import {
   displayName,
   fmtRelative,
-  fmtTokens,
   shortenHome,
   truncateMiddle,
 } from "../format/index.js";
@@ -51,12 +50,6 @@ const SessionItem = ({
           >
             <span class="run-dot" />
           </span>
-          {session.provider_name !== null && (
-            <span class="provider-badge">{session.provider_name}</span>
-          )}
-          {session.total_tokens !== null && (
-            <span class="token-count">{fmtTokens(session.total_tokens)}</span>
-          )}
         </span>
         <span class="session-dir" title={session.working_dir}>
           {truncateMiddle(shortenHome(session.working_dir), 42)}
