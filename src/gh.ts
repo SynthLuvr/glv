@@ -97,32 +97,42 @@ const tryParseJson = (stdout: string): unknown => {
   }
 };
 
-const parseRepoList = (stdout: string): RepoInfo[] => {
-  const parsed = tryParseJson(stdout);
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .map(
-      (r): RepoInfo => ({
-        nameWithOwner:
-          typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
-        visibility: r.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC",
-        isFork: r.isFork === true,
-        updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
-        description: typeof r.description === "string" ? r.description : null,
-      }),
-    )
+const toRepoInfo = (r: Record<string, unknown>): RepoInfo => ({
+  nameWithOwner: typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
+  visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
+  isFork: r.isFork === true,
+  updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
+  description: typeof r.description === "string" ? r.description : null,
+});
+
+// `gh api ... --paginate --jq` emits one repo object per line (JSONL),
+// so each line is parsed on its own rather than as a single JSON array.
+const parseRepoList = (stdout: string): RepoInfo[] =>
+  stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => tryParseJson(line) as Record<string, unknown> | null)
+    .filter((r): r is Record<string, unknown> => r !== null)
+    .map(toRepoInfo)
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-};
+
+// `gh repo list` caps at a finite `--limit` with no `--paginate`, silently
+// dropping repos beyond it. The REST endpoint paginates fully (as listBranches
+// does) and `type=owner` matches the "repositories I own" set, so nothing is
+// lost.
+const REPO_LIST_JQ =
+  ".[] | {nameWithOwner: .full_name, visibility: .visibility," +
+  " isFork: .fork, updatedAt: .updated_at, description: .description}";
 
 const listRepos = async (): Promise<RepoInfo[]> => {
   const { stdout } = await execa("gh", [
-    "repo",
-    "list",
-    "--limit",
-    "100",
-    "--json",
-    "nameWithOwner,visibility,isFork,updatedAt,description",
+    "api",
+    "user/repos?type=owner&per_page=100",
+    "--paginate",
+    "--jq",
+    REPO_LIST_JQ,
   ]);
   return parseRepoList(stdout);
 };
