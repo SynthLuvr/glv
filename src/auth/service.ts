@@ -200,7 +200,9 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
   const isValidSession = (token: string | undefined): boolean => {
     if (token === undefined || token === "") return false;
     if (!validSession(authDb, token)) return false;
-    // Sliding window: refresh on every authenticated request.
+    // Sliding window with an absolute cap: refresh on every authenticated
+    // request. validSession already rejected sessions past their hard
+    // lifetime, and refreshSession never extends expires_at past it.
     refreshSession(authDb, token);
     return true;
   };

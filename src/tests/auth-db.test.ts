@@ -12,6 +12,9 @@ import {
   listCredentials,
   openAuthDb,
   purgeExpiredSessions,
+  refreshSession,
+  SESSION_MAX_LIFETIME_SECONDS,
+  SESSION_TTL_SECONDS,
   updateCounter,
   userCount,
   validSession,
@@ -225,5 +228,114 @@ describe("expired session purging", () => {
     purgeExpiredSessions(db);
     expect(totalSessions()).toBe(before);
     expect(sessionExists(fresh)).toBe(true);
+  });
+});
+
+describe("session absolute max lifetime", () => {
+  let db: DatabaseSync;
+  let dir: string;
+  let ownerId: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "glv-auth-maxlife-"));
+    db = openAuthDb(join(dir, "auth.db"));
+    ownerId = createOwner(db, {
+      id: "cred-maxlife",
+      publicKey: new Uint8Array([5]),
+      counter: 0,
+      transports: [],
+    });
+  });
+
+  afterAll(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Seconds remaining until the session's expires_at, using sub-second
+  // precision so assertions are robust to wall-clock drift within the test.
+  const expirySecondsFromNow = (token: string): number => {
+    const row = db
+      .prepare(
+        "SELECT CAST((julianday(expires_at) - julianday('now')) * 86400 " +
+          "AS REAL) AS s FROM sessions WHERE id = ?",
+      )
+      .get(token) as { s?: number } | undefined;
+    return row?.s ?? NaN;
+  };
+
+  // expires_at (stored) must equal created_at + max lifetime (a deterministic
+  // function of another stored column), so this comparison is exact and
+  // independent of the wall clock.
+  const expiresAtAbsoluteCap = (token: string): boolean => {
+    const row = db
+      .prepare(
+        "SELECT expires_at = datetime(created_at, ?) AS matches " +
+          "FROM sessions WHERE id = ?",
+      )
+      .get(`+${SESSION_MAX_LIFETIME_SECONDS} seconds`, token) as
+      | {
+          matches?: number;
+        }
+      | undefined;
+    return row?.matches === 1;
+  };
+
+  it("rejects a session whose absolute lifetime has elapsed", () => {
+    const token = "maxed-out-token";
+    // expires_at is far in the future, but created_at is past the cap.
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
+        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', '-8 days'))",
+    ).run(token, ownerId);
+    expect(validSession(db, token)).toBe(false);
+  });
+
+  it("refreshSession extends a fresh session by the sliding window", () => {
+    const token = createSession(db, ownerId);
+    refreshSession(db, token);
+    // The absolute cap (7 days out) is not yet binding, so the 1-day
+    // sliding window governs.
+    expect(validSession(db, token)).toBe(true);
+    expect(expirySecondsFromNow(token)).toBeGreaterThan(
+      SESSION_TTL_SECONDS - 10,
+    );
+    expect(expirySecondsFromNow(token)).toBeLessThanOrEqual(
+      SESSION_TTL_SECONDS,
+    );
+  });
+
+  it("refreshSession never extends a session past the absolute maximum", () => {
+    const token = "capped-token";
+    // 8 days old: created_at + max lifetime is already in the past, so
+    // refreshing cannot keep the session alive.
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
+        "VALUES (?, ?, datetime('now', '+2 days'), datetime('now', '-8 days'))",
+    ).run(token, ownerId);
+    refreshSession(db, token);
+    expect(expiresAtAbsoluteCap(token)).toBe(true);
+    expect(validSession(db, token)).toBe(false);
+  });
+
+  it("clamps to the absolute ceiling when it is closer than the sliding window", () => {
+    const token = "near-cap-token";
+    // ~6.5 days old: created_at + max lifetime (~0.5 days out) is sooner
+    // than the 1-day sliding window, so the cap must win.
+    db.prepare(
+      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
+        "VALUES (?, ?, datetime('now', '+2 days'), " +
+        "datetime('now', '-6 days', '-12 hours'))",
+    ).run(token, ownerId);
+    refreshSession(db, token);
+    expect(expiresAtAbsoluteCap(token)).toBe(true);
+    expect(validSession(db, token)).toBe(true);
+    // ~0.5 days remaining rather than the full 1-day sliding window.
+    expect(expirySecondsFromNow(token)).toBeGreaterThan(
+      SESSION_TTL_SECONDS / 2 - 10,
+    );
+    expect(expirySecondsFromNow(token)).toBeLessThan(
+      SESSION_TTL_SECONDS / 2 + 10,
+    );
   });
 });
