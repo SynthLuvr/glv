@@ -26,10 +26,31 @@ const finishAuth = (
   return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
 };
 
-// Normalises a thrown value into a human-readable message so failures surface
-// as structured JSON rather than an opaque 500.
-const describeErr = (err: unknown): string =>
+const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
+
+// Route failures become structured JSON instead of an opaque 500: malformed
+// verify bodies are client input (400), while option generation is server-side
+// (500).
+const jsonOrError = async <T,>(c: Context, run: () => Promise<T>) => {
+  try {
+    return c.json(await run());
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 500);
+  }
+};
+
+const verifyAndRespond = async (
+  c: Context,
+  fallbackError: string,
+  verify: () => Promise<VerifyResult>,
+) => {
+  try {
+    return finishAuth(c, await verify(), fallbackError);
+  } catch (err) {
+    return c.json({ verified: false, error: errorMessage(err) }, 400);
+  }
+};
 
 const registerAuthRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const auth = ctx.auth;
@@ -48,46 +69,28 @@ const registerAuthRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/auth/register/options", async (c) => {
     if (auth.isClaimed())
       return c.json({ error: "Registration is closed." }, 403);
-    try {
-      return c.json(await auth.registrationOptions(rpFromContext(c, ctx)));
-    } catch (err) {
-      return c.json({ error: describeErr(err) }, 500);
-    }
+    return jsonOrError(c, () =>
+      auth.registrationOptions(rpFromContext(c, ctx)),
+    );
   });
 
   app.post("/auth/register/verify", async (c) => {
     if (auth.isClaimed())
       return c.json({ verified: false, error: "Registration is closed." }, 403);
-    try {
-      const result = await auth.verifyRegistration(
-        rpFromContext(c, ctx),
-        await c.req.json(),
-      );
-      return finishAuth(c, result, "Verification failed.");
-    } catch (err) {
-      return c.json({ verified: false, error: describeErr(err) }, 400);
-    }
+    return verifyAndRespond(c, "Verification failed.", async () =>
+      auth.verifyRegistration(rpFromContext(c, ctx), await c.req.json()),
+    );
   });
 
-  app.get("/auth/login/options", async (c) => {
-    try {
-      return c.json(await auth.loginOptions(rpFromContext(c, ctx)));
-    } catch (err) {
-      return c.json({ error: describeErr(err) }, 500);
-    }
-  });
+  app.get("/auth/login/options", (c) =>
+    jsonOrError(c, () => auth.loginOptions(rpFromContext(c, ctx))),
+  );
 
-  app.post("/auth/login/verify", async (c) => {
-    try {
-      const result = await auth.verifyLogin(
-        rpFromContext(c, ctx),
-        await c.req.json(),
-      );
-      return finishAuth(c, result, "Login failed.");
-    } catch (err) {
-      return c.json({ verified: false, error: describeErr(err) }, 400);
-    }
-  });
+  app.post("/auth/login/verify", (c) =>
+    verifyAndRespond(c, "Login failed.", async () =>
+      auth.verifyLogin(rpFromContext(c, ctx), await c.req.json()),
+    ),
+  );
 
   app.post("/auth/logout", (c) => {
     auth.logout(getCookie(c, COOKIE_NAME));
