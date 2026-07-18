@@ -118,7 +118,7 @@ type EnqueueOptions = {
 
 type InternalHandle = Omit<
   RunHandle,
-  "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts" | "droppedLines"
+  "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts"
 > & {
   // Writable: rekeyed from the temp id to goose's real session id.
   sessionId: string;
@@ -126,15 +126,12 @@ type InternalHandle = Omit<
   prompt: string;
   pendingPrompts: string[];
   startedPrompts: string[];
-  // Writable: incremented as the lines ring buffer drops oldest entries.
-  droppedLines: number;
   readonly workingDir: string;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
   onLine: ((line: string) => void) | undefined;
   onStatus: ((handle: RunHandle) => void) | undefined;
-  // Pending eviction timer for a terminal handle; unref'd so it never blocks
-  // process exit, identity-guarded so a re-enqueued/rekeyed handle is safe.
+  // Retention timer that eventually deletes a terminal handle from the registry.
   evictionTimer: ReturnType<typeof setTimeout> | undefined;
 };
 
