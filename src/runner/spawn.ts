@@ -122,6 +122,12 @@ const runProcess = async (
   });
   handle.process = proc;
 
+  // stop() may have set cancelled before we assigned the process
+  if (handle.cancelled) {
+    proc.kill("SIGINT");
+    return;
+  }
+
   for await (const line of proc.stdout) {
     if (handle.status === "stopped") break;
     handle.lines.push(line);
