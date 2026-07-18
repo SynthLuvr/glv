@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import { execa } from "execa";
 import type { ParsedMessage } from "./format/index.js";
 import { thinkingText, toolResultInfo } from "./format/index.js";
@@ -25,19 +26,24 @@ const last = <T>(values: readonly T[]): T | undefined =>
   values.length === 0 ? undefined : values[values.length - 1];
 
 // GitHub-MCP returns JSON with an `html_url` (preferred over the API `url`).
+const PrJson = type({
+  "html_url?": "string",
+  "url?": "string",
+});
+
 const prUrlFromJson = (text: string): string | undefined => {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{")) return undefined;
-  let value: unknown;
+  let parsed: unknown;
   try {
-    value = JSON.parse(trimmed);
+    parsed = JSON.parse(trimmed);
   } catch {
     return undefined;
   }
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as Record<string, unknown>;
+  const record = PrJson(parsed);
+  if (record instanceof type.errors) return undefined;
   const candidate = record.html_url ?? record.url;
-  if (typeof candidate === "string" && PR_URL.test(candidate)) return candidate;
+  if (candidate !== undefined && PR_URL.test(candidate)) return candidate;
   return undefined;
 };
 
@@ -149,6 +155,8 @@ const runGh = async (args: readonly string[]): Promise<CommandResult> => {
 
 // Judge by parsed state, not exit code: unauthed `gh` exits 0 but prints
 // help text instead of JSON.
+const GhStateView = type({ "state?": "string" });
+
 const parseGhState = (stdout: string): PrState => {
   let parsed: unknown;
   try {
@@ -156,8 +164,9 @@ const parseGhState = (stdout: string): PrState => {
   } catch {
     return "unknown";
   }
-  if (typeof parsed !== "object" || parsed === null) return "unknown";
-  const state = (parsed as { state?: unknown }).state;
+  const view = GhStateView(parsed);
+  if (view instanceof type.errors) return "unknown";
+  const { state } = view;
   if (state === "OPEN") return "open";
   if (state === "MERGED") return "merged";
   if (state === "CLOSED") return "closed";

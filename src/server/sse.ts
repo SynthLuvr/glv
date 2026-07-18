@@ -5,9 +5,16 @@ import type { RunHandle } from "../runner/index.js";
 import { renderMessage } from "../views/message-blocks.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
+// Minimal structural shape emit()/flushLines() touch, so tests can supply a
+// fake stream without asserting the full SSEStreamingApi interface.
+type SseWriter = {
+  aborted: boolean;
+  writeSSE: (input: { event: string; data: string }) => Promise<unknown>;
+};
+
 // Writing to a closed stream (client disconnect) throws; guard each emission.
 const emit = async (
-  stream: SSEStreamingApi,
+  stream: SseWriter,
   event: string,
   data: string,
 ): Promise<boolean> => {
@@ -24,7 +31,7 @@ const emit = async (
 // drops oldest lines as `dropped` grows, so a live stream's monotonic `from`
 // must be rebased past the dropped prefix before indexing into `lines`.
 const flushLines = async (
-  stream: SSEStreamingApi,
+  stream: SseWriter,
   lines: string[],
   dropped: number,
   from: number,

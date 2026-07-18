@@ -310,10 +310,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/archive", async (c) => {
-    const body = (await c.req.parseBody({ all: true })) as Record<
-      string,
-      unknown
-    >;
+    const body = await c.req.parseBody({ all: true });
     archiveSessions(ctx.db, extractIds(body.id));
     const sessions = sessionsAll();
     return c.html(

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ContentItem, ParsedMessage } from "../format/index.js";
+import {
+  type ContentItem,
+  type ParsedMessage,
+  parseContent,
+} from "../format/index.js";
 import type { CommandRunner } from "../pr.js";
 import {
   detectCreatePrUrl,
@@ -14,15 +18,19 @@ import {
 const textItem = (text: string): ContentItem => ({ type: "text", text });
 
 const thinkingItem = (text: string): ContentItem =>
-  ({ type: "thinking", thinking: text }) as ContentItem;
+  parseContent(JSON.stringify([{ type: "thinking", thinking: text }]))[0];
 
 const toolResult = (text: string, isError = false): ContentItem =>
-  ({
-    type: "toolResponse",
-    toolResult: {
-      value: { content: [{ type: "text", text }], isError },
-    },
-  }) as ContentItem;
+  parseContent(
+    JSON.stringify([
+      {
+        type: "toolResponse",
+        toolResult: {
+          value: { content: [{ type: "text", text }], isError },
+        },
+      },
+    ]),
+  )[0];
 
 const msg = (
   role: string,
@@ -305,9 +313,9 @@ describe("resolvePrState", () => {
   });
 
   it("passes the expected gh invocation", async () => {
-    const seen: readonly string[] = [];
+    const seen: string[] = [];
     const spy: CommandRunner = async (args) => {
-      (seen as string[]).push([...args].join(" "));
+      seen.push([...args].join(" "));
       return { stdout: '{"state":"MERGED"}' };
     };
     await resolvePrState(URL(7), spy);

@@ -34,7 +34,13 @@ const isActiveStatus = (status: RunStatus): boolean =>
 // `unref` keeps a pending eviction timer from blocking process exit; guarded
 // because the global setTimeout type may resolve to a number in DOM-libs.
 const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
-  (timer as { unref?: () => void }).unref?.();
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
+  )
+    timer.unref();
 };
 
 // Schedules a terminal handle for eviction from the registry after a short

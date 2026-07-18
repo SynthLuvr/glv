@@ -108,7 +108,7 @@ describe("ui enhancements (client script)", () => {
     );
     const btn = document.getElementById("scroll-latest");
     expect(btn).not.toBeNull();
-    expect((btn as HTMLButtonElement).hidden).toBe(true);
+    expect(btn?.hidden).toBe(true);
   });
 });
 

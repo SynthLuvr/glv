@@ -640,10 +640,23 @@ describe("web viewer rename", () => {
     return { status: res.status, html: await res.text() };
   };
 
-  const row = (id: string): { name: string; user_set_name: number } =>
-    renameDb
+  const isNameRow = (
+    v: unknown,
+  ): v is { name: string; user_set_name: number } =>
+    typeof v === "object" &&
+    v !== null &&
+    "name" in v &&
+    typeof v.name === "string" &&
+    "user_set_name" in v &&
+    typeof v.user_set_name === "number";
+
+  const row = (id: string): { name: string; user_set_name: number } => {
+    const result = renameDb
       .prepare("SELECT name, user_set_name FROM sessions WHERE id = ?")
-      .get(id) as { name: string; user_set_name: number };
+      .get(id);
+    if (!isNameRow(result)) throw new Error(`no row for session ${id}`);
+    return result;
+  };
 
   it("renders inline rename controls in the transcript header", async () => {
     const html = await (await app().request("/sessions/alpha")).text();
@@ -729,10 +742,11 @@ describe("web viewer rename", () => {
     );
     const form = input?.form ?? null;
     expect(form).toBeInstanceOf(dom.window.HTMLFormElement);
+    if (!(form instanceof dom.window.HTMLFormElement))
+      throw new Error("rename form missing");
 
-    const formWithStub = form as unknown as { requestSubmit: () => void };
     let nativeSubmits = 0;
-    formWithStub.requestSubmit = (): void => {
+    form.requestSubmit = (): void => {
       nativeSubmits += 1;
     };
     const htmxCalls: unknown[] = [];

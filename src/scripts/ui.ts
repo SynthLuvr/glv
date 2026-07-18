@@ -173,7 +173,8 @@ document.addEventListener("DOMContentLoaded", uiInit);
 // htmx swaps replace #detail-pane's children; re-sync title and focus — the
 // MutationObserver picks up the new nodes for code-block enhancement.
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if ((e as CustomEvent).detail.target?.id === "detail-pane") {
+  if (!(e instanceof CustomEvent)) return;
+  if (e.detail.target?.id === "detail-pane") {
     uiSyncTitle();
     uiAutogrowAll();
     uiFocusAutofocus();

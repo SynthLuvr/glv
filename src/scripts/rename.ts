@@ -32,13 +32,22 @@ const editActions: Record<string, (wrap: Element) => void> = {
 
 // The form has no action, so requestSubmit() can fall back to a native POST to
 // the current URL (a 404); trigger htmx directly so the rename stays in place.
+type Htmx = { trigger: (...args: unknown[]) => void };
+
+const isHtmx = (value: unknown): value is Htmx =>
+  typeof value === "object" &&
+  value !== null &&
+  "trigger" in value &&
+  typeof value.trigger === "function";
+
 const submitRename = (form: HTMLFormElement | null): void => {
   if (form === null) return;
-  const htmx = (
-    globalThis as unknown as {
-      htmx?: { trigger: (elt: HTMLFormElement, event: string) => void };
-    }
-  ).htmx;
+  const global: unknown = globalThis;
+  const candidate =
+    typeof global === "object" && global !== null && "htmx" in global
+      ? global.htmx
+      : undefined;
+  const htmx = isHtmx(candidate) ? candidate : undefined;
   if (htmx !== undefined) {
     htmx.trigger(form, "submit");
     return;
