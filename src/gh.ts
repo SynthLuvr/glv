@@ -161,47 +161,39 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   return parsed.sshUrl;
 };
 
-// Clones only the selected branch (--single-branch) to keep it cheap. The
-// remote URL is resolved by the caller (materialise) so this stays free of
-// the gh CLI and can be exercised against a local repository in tests.
+const runGit = async (
+  args: string[],
+  failure: string,
+  cwd?: string,
+): Promise<void> => {
+  const result = await execa("git", args, { cwd, reject: false });
+  if (result.exitCode !== 0)
+    throw new Error(stderrGist(result.stderr) || failure);
+};
+
+// --single-branch keeps the clone cheap. The URL is passed in (rather than
+// resolved via gh) so this can run against a local repo in tests.
 const runClone = async (
   url: string,
   branch: string,
   path: string,
 ): Promise<void> => {
-  const result = await execa(
-    "git",
+  await runGit(
     ["clone", "--branch", branch, "--single-branch", url, path],
-    { reject: false },
+    `git clone failed for ${branch}`,
   );
-  if (result.exitCode !== 0)
-    throw new Error(
-      stderrGist(result.stderr) || `git clone failed for ${branch}`,
-    );
 };
 
-// Cheap reuse: fetch the requested branch and reset the local branch onto the
-// fetched tip instead of re-downloading. A --single-branch clone only ever
-// fetched one branch, so a bare `git fetch` misses every other branch and a
-// plain `git checkout <branch>` then fails with "pathspec ... did not match".
-// Fetching the branch explicitly and pointing the local branch at FETCH_HEAD
-// works both for the original branch and for any branch the caller switches
-// to, always landing on the latest remote tip. The old `git pull` step is
-// gone: the single-branch refspec made it a no-op for switched branches and
-// `checkout -B ... FETCH_HEAD` already syncs the tip.
+// A --single-branch clone tracks only one ref, so fetch the target branch
+// explicitly and reset onto FETCH_HEAD. A plain checkout would fail for any
+// branch the clone never fetched.
 const runUpdate = async (path: string, branch: string): Promise<void> => {
-  const steps: Array<[string, string[]]> = [
-    ["fetch", ["origin", branch]],
-    ["checkout", ["-B", branch, "FETCH_HEAD"]],
-  ];
-  for (const [cmd, args] of steps) {
-    const result = await execa("git", [cmd, ...args], {
-      cwd: path,
-      reject: false,
-    });
-    if (result.exitCode !== 0)
-      throw new Error(stderrGist(result.stderr) || `git ${cmd} failed`);
-  }
+  await runGit(["fetch", "origin", branch], "git fetch failed", path);
+  await runGit(
+    ["checkout", "-B", branch, "FETCH_HEAD"],
+    "git checkout failed",
+    path,
+  );
 };
 
 const materialise = async (

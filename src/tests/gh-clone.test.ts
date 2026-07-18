@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -48,15 +54,6 @@ const remoteBranches = async (cwd: string): Promise<string[]> => {
     .filter((line) => line !== "" && !line.includes("HEAD"));
 };
 
-const exists = (file: string): boolean => {
-  try {
-    readFileSync(file);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 let base: string;
 
 beforeAll(() => {
@@ -79,8 +76,8 @@ describe("runClone", () => {
     const refs = await remoteBranches(work);
     expect(refs).toContain("origin/main");
     expect(refs).not.toContain("origin/develop");
-    expect(exists(join(work, "file.txt"))).toBe(true);
-    expect(exists(join(work, "dev.txt"))).toBe(false);
+    expect(existsSync(join(work, "file.txt"))).toBe(true);
+    expect(existsSync(join(work, "dev.txt"))).toBe(false);
     expect(await headBranch(work)).toBe("main");
   });
 
@@ -105,7 +102,7 @@ describe("runUpdate (branch switching after a single-branch clone)", () => {
     // with "pathspec 'develop' did not match".
     await runUpdate(work, "develop");
 
-    expect(exists(join(work, "dev.txt"))).toBe(true);
+    expect(existsSync(join(work, "dev.txt"))).toBe(true);
     expect(readFileSync(join(work, "dev.txt"), "utf8")).toBe("dev-v1");
     expect(await headBranch(work)).toBe("develop");
   });
@@ -130,8 +127,8 @@ describe("runUpdate (branch switching after a single-branch clone)", () => {
     await runUpdate(work, "develop");
     await runUpdate(work, "main");
 
-    expect(exists(join(work, "dev.txt"))).toBe(false);
-    expect(exists(join(work, "file.txt"))).toBe(true);
+    expect(existsSync(join(work, "dev.txt"))).toBe(false);
+    expect(existsSync(join(work, "file.txt"))).toBe(true);
     expect(await headBranch(work)).toBe("main");
   });
 
@@ -139,7 +136,6 @@ describe("runUpdate (branch switching after a single-branch clone)", () => {
     const origin = join(base, "update-origin");
     const work = join(base, "update-work");
     await buildOrigin(origin);
-    // Single-branch clone of develop directly.
     await runClone(origin, "develop", work);
 
     // Advance develop on the remote after the clone.
