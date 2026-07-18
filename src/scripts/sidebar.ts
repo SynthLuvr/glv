@@ -96,21 +96,45 @@ const onStatusEvent = (data: string): void => {
 
 // Lives outside #session-list so it survives detail-pane swaps and OOB sidebar
 // refreshes.
+const STATUS_RECONNECT_BASE_MS = 1000;
+const STATUS_RECONNECT_MAX_MS = 30000;
+
 let statusSource: EventSource | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectDelay = STATUS_RECONNECT_BASE_MS;
+
+// A permanent close never auto-reconnects, so without this the sidebar's
+// running/idle indicators would go stale for the rest of the page session.
+// Reopen the feed with capped exponential backoff, reset once it stays open.
+const scheduleReconnect = (): void => {
+  if (reconnectTimer !== null) return;
+  const delay = reconnectDelay;
+  reconnectDelay = Math.min(reconnectDelay * 2, STATUS_RECONNECT_MAX_MS);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectStatusFeed();
+  }, delay);
+};
 
 const connectStatusFeed = (): void => {
   if (statusSource !== null) return;
   statusSource = new EventSource("/events/status");
+  statusSource.addEventListener("open", () => {
+    reconnectDelay = STATUS_RECONNECT_BASE_MS;
+  });
   statusSource.addEventListener("sync", (e) => {
     applySync((e as MessageEvent).data);
   });
   statusSource.addEventListener("status", (e) => {
     onStatusEvent((e as MessageEvent).data);
   });
-  // Only null once the connection is truly closed — EventSource auto-reconnects
-  // on transient failures, and dropping the reference would leak a duplicate.
+  // EventSource auto-reconnects on transient failures, so only act once the
+  // connection is truly closed: drop the dead reference and schedule a fresh
+  // connection so the feed doesn't stay dead until the page is reloaded.
   statusSource.addEventListener("error", () => {
-    if (statusSource?.readyState === EventSource.CLOSED) statusSource = null;
+    if (statusSource?.readyState !== EventSource.CLOSED) return;
+    statusSource = null;
+    scheduleReconnect();
   });
 };
 
