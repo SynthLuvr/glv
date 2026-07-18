@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
 
 type RepoInfo = {
@@ -191,41 +191,39 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   return parseSshUrl(stdout);
 };
 
-// Clones only the selected branch (--single-branch) to keep it cheap.
+const runGit = async (
+  args: string[],
+  failure: string,
+  cwd?: string,
+): Promise<void> => {
+  const result = await execa("git", args, { cwd, reject: false });
+  if (result.exitCode !== 0)
+    throw new Error(stderrGist(result.stderr) || failure);
+};
+
+// --single-branch keeps the clone cheap. The URL is passed in (rather than
+// resolved via gh) so this can run against a local repo in tests.
 const runClone = async (
-  owner: string,
-  repo: string,
+  url: string,
   branch: string,
   path: string,
 ): Promise<void> => {
-  mkdirSync(join(CLONE_ROOT, owner), { recursive: true });
-  const url = await getSshUrl(owner, repo);
-  const result = await execa(
-    "git",
+  await runGit(
     ["clone", "--branch", branch, "--single-branch", url, path],
-    { reject: false },
+    `git clone failed for ${branch}`,
   );
-  if (result.exitCode !== 0)
-    throw new Error(
-      stderrGist(result.stderr) || `git clone failed for ${owner}/${repo}`,
-    );
 };
 
-// Cheap reuse: fetch + checkout + pull instead of re-downloading.
+// A --single-branch clone tracks only one ref, so fetch the target branch
+// explicitly and reset onto FETCH_HEAD. A plain checkout would fail for any
+// branch the clone never fetched.
 const runUpdate = async (path: string, branch: string): Promise<void> => {
-  const steps: Array<[string, string[]]> = [
-    ["fetch", []],
-    ["checkout", [branch]],
-    ["pull", []],
-  ];
-  for (const [cmd, args] of steps) {
-    const result = await execa("git", [cmd, ...args], {
-      cwd: path,
-      reject: false,
-    });
-    if (result.exitCode !== 0)
-      throw new Error(stderrGist(result.stderr) || `git ${cmd} failed`);
-  }
+  await runGit(["fetch", "origin", branch], "git fetch failed", path);
+  await runGit(
+    ["checkout", "-B", branch, "FETCH_HEAD"],
+    "git checkout failed",
+    path,
+  );
 };
 
 const materialise = async (
@@ -234,8 +232,13 @@ const materialise = async (
   branch: string,
   path: string,
 ): Promise<void> => {
-  if (existsSync(path)) await runUpdate(path, branch);
-  else await runClone(owner, repo, branch, path);
+  if (existsSync(path)) {
+    await runUpdate(path, branch);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const url = await getSshUrl(owner, repo);
+  await runClone(url, branch, path);
 };
 
 const createGhClient = (): GhClient => ({
@@ -261,4 +264,6 @@ export {
   parseOwnerRepo,
   parseRepoList,
   parseSshUrl,
+  runClone,
+  runUpdate,
 };
