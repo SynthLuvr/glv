@@ -26,6 +26,11 @@ const finishAuth = (
   return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
 };
 
+// Normalises a thrown value into a human-readable message so failures surface
+// as structured JSON rather than an opaque 500.
+const describeErr = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 const registerAuthRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const auth = ctx.auth;
   if (auth === undefined) return;
@@ -43,29 +48,45 @@ const registerAuthRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/auth/register/options", async (c) => {
     if (auth.isClaimed())
       return c.json({ error: "Registration is closed." }, 403);
-    return c.json(await auth.registrationOptions(rpFromContext(c, ctx)));
+    try {
+      return c.json(await auth.registrationOptions(rpFromContext(c, ctx)));
+    } catch (err) {
+      return c.json({ error: describeErr(err) }, 500);
+    }
   });
 
   app.post("/auth/register/verify", async (c) => {
     if (auth.isClaimed())
       return c.json({ verified: false, error: "Registration is closed." }, 403);
-    const result = await auth.verifyRegistration(
-      rpFromContext(c, ctx),
-      await c.req.json(),
-    );
-    return finishAuth(c, result, "Verification failed.");
+    try {
+      const result = await auth.verifyRegistration(
+        rpFromContext(c, ctx),
+        await c.req.json(),
+      );
+      return finishAuth(c, result, "Verification failed.");
+    } catch (err) {
+      return c.json({ verified: false, error: describeErr(err) }, 400);
+    }
   });
 
-  app.get("/auth/login/options", async (c) =>
-    c.json(await auth.loginOptions(rpFromContext(c, ctx))),
-  );
+  app.get("/auth/login/options", async (c) => {
+    try {
+      return c.json(await auth.loginOptions(rpFromContext(c, ctx)));
+    } catch (err) {
+      return c.json({ error: describeErr(err) }, 500);
+    }
+  });
 
   app.post("/auth/login/verify", async (c) => {
-    const result = await auth.verifyLogin(
-      rpFromContext(c, ctx),
-      await c.req.json(),
-    );
-    return finishAuth(c, result, "Login failed.");
+    try {
+      const result = await auth.verifyLogin(
+        rpFromContext(c, ctx),
+        await c.req.json(),
+      );
+      return finishAuth(c, result, "Login failed.");
+    } catch (err) {
+      return c.json({ verified: false, error: describeErr(err) }, 400);
+    }
   });
 
   app.post("/auth/logout", (c) => {
