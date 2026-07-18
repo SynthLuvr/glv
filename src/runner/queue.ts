@@ -31,6 +31,36 @@ const refreshQueuePositions = (runner: Runner): void => {
 const isActiveStatus = (status: RunStatus): boolean =>
   status === "queued" || status === "running";
 
+// `unref` keeps a pending eviction timer from blocking process exit; guarded
+// because the global setTimeout type may resolve to a number in DOM-libs.
+const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
+  (timer as { unref?: () => void }).unref?.();
+};
+
+// Schedules a terminal handle for eviction from the registry after a short
+// retention window. Identity-guarded: if the slot has since been re-enqueued
+// or rekeyed, the timer leaves the new handle untouched.
+const scheduleEviction = (runner: Runner, handle: InternalHandle): void => {
+  if (handle.evictionTimer !== undefined) return;
+  if (isActiveStatus(handle.status)) return;
+  const timer = setTimeout(() => {
+    handle.evictionTimer = undefined;
+    if (runner.registry.get(handle.sessionId) === handle)
+      runner.registry.delete(handle.sessionId);
+  }, runner.config.terminalRetentionMs);
+  unrefTimer(timer);
+  handle.evictionTimer = timer;
+};
+
+// Cancels a pending eviction so a replaced handle's stale timer releases its
+// reference and can't fire against the new handle (the identity guard would
+// stop it anyway, but this also lets the old handle be GC'd promptly).
+const clearEviction = (handle: InternalHandle | undefined): void => {
+  if (handle === undefined || handle.evictionTimer === undefined) return;
+  clearTimeout(handle.evictionTimer);
+  handle.evictionTimer = undefined;
+};
+
 // Advance to the next queued prompt after a run finishes, or end the chain.
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
@@ -74,7 +104,10 @@ const enqueueInvocation = (
     process: undefined,
     onLine: opts.onLine,
     onStatus: opts.onStatus,
+    droppedLines: 0,
+    evictionTimer: undefined,
   };
+  clearEviction(existing);
   runner.registry.set(key, handle);
   refreshQueuePositions(runner);
 
@@ -98,6 +131,7 @@ const enqueueInvocation = (
       if (currentInvocation !== undefined) handle.onStatus?.(handle);
     }
     handle.onStatus?.(handle);
+    scheduleEviction(runner, handle);
   });
 
   return handle;
@@ -188,6 +222,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     handle.queuePosition = undefined;
     handle.onStatus?.(handle);
     refreshQueuePositions(runner);
+    scheduleEviction(runner, handle);
     return true;
   }
 

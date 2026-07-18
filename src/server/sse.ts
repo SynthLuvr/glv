@@ -20,12 +20,16 @@ const emit = async (
   }
 };
 
+// `from` and `dropped` are absolute line-sequence offsets. The ring buffer
+// drops oldest lines as `dropped` grows, so a live stream's monotonic `from`
+// must be rebased past the dropped prefix before indexing into `lines`.
 const flushLines = async (
   stream: SSEStreamingApi,
   lines: string[],
+  dropped: number,
   from: number,
 ): Promise<boolean> => {
-  for (let i = from; i < lines.length; i++) {
+  for (let i = Math.max(from - dropped, 0); i < lines.length; i++) {
     const html = renderStreamLine(lines[i]);
     if (html !== "" && !(await emit(stream, "line", html))) return false;
   }

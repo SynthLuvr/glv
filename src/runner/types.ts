@@ -6,31 +6,45 @@ type RunnerConfig = {
   gooseBinary: string;
   /** Grace window (ms) after each stop signal before escalating it. */
   stopGraceMs: number;
+  /** Max NDJSON lines retained per run before the oldest are dropped. */
+  maxLines: number;
+  /** How long (ms) a terminal run lingers before eviction from the registry. */
+  terminalRetentionMs: number;
 };
 
 const DEFAULT_STOP_GRACE_MS = 5000;
+const DEFAULT_MAX_LINES = 5000;
+const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   gooseBinary: "string >= 1",
   stopGraceMs: "number.integer >= 1",
+  maxLines: "number.integer >= 1",
+  terminalRetentionMs: "number.integer >= 1",
 });
 
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   maxConcurrent: 6,
   gooseBinary: "goose",
   stopGraceMs: DEFAULT_STOP_GRACE_MS,
+  maxLines: DEFAULT_MAX_LINES,
+  terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
 };
 
 const makeRunnerConfig = (
   maxConcurrent: number,
   gooseBinary: string,
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
+  maxLines: number = DEFAULT_MAX_LINES,
+  terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
 ): RunnerConfig => {
   const result = RunnerConfigSchema({
     maxConcurrent,
     gooseBinary,
     stopGraceMs,
+    maxLines,
+    terminalRetentionMs,
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
@@ -69,6 +83,8 @@ type RunHandle = {
   /** Approximate position in the queue (undefined when running or done). */
   queuePosition: number | undefined;
   lines: string[];
+  /** Count of NDJSON lines dropped from the front of `lines` (ring buffer). */
+  droppedLines: number;
   error: string | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
   readonly pendingPrompts: readonly string[];
@@ -115,6 +131,8 @@ type InternalHandle = Omit<
   process: SpawnedProcess | undefined;
   onLine: ((line: string) => void) | undefined;
   onStatus: ((handle: RunHandle) => void) | undefined;
+  // Retention timer that eventually deletes a terminal handle from the registry.
+  evictionTimer: ReturnType<typeof setTimeout> | undefined;
 };
 
 type Runner = {
