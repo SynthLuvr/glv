@@ -190,6 +190,11 @@ const connectTail = (root: Element): void => {
     }
   });
 
+  // Server closed the stream; teardown so EventSource doesn't reconnect.
+  activeSource.addEventListener("done", () => {
+    teardown();
+  });
+
   activeSource.addEventListener("error", () => {
     teardownIfClosed();
   });
