@@ -671,6 +671,19 @@ describe("web viewer rename", () => {
     expect(html).toContain("rename-pencil");
   });
 
+  // The editor must live inside each session card so its form can overlay the
+  // card (see .rename-wrap.is-sidebar .rename-form in app.css).
+  it("renders the sidebar rename editor as an overlay over each card", async () => {
+    const html = await (await app().request("/")).text();
+    expect(html).toContain("rename-wrap is-sidebar");
+    expect(html).toContain('class="rename-form"');
+    expect(html).toContain('class="rename-input"');
+    expect(html).toContain('class="rename-confirm"');
+    expect(html).toContain('class="rename-cancel"');
+    // The sidebar form targets the session list so it re-renders in place.
+    expect(html).toContain('hx-target="#session-list"');
+  });
+
   it("serves the rename client script and references it in the document", async () => {
     const doc = await (await app().request("/")).text();
     expect(doc).toContain('<script src="/assets/rename.js"');
