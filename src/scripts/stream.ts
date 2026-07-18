@@ -43,22 +43,33 @@ const insertMessageInOrder = (
   html: string,
 ): void => {
   for (const sibling of Array.from(container.children)) {
-    const sibIndex = Number((sibling as HTMLElement).dataset.msgIndex);
+    const sibIndex = Number(sibling.getAttribute("data-msg-index"));
     if (!Number.isNaN(sibIndex) && sibIndex > index) {
-      (sibling as HTMLElement).insertAdjacentHTML("beforebegin", html);
+      sibling.insertAdjacentHTML("beforebegin", html);
       return;
     }
   }
   container.insertAdjacentHTML("beforeend", html);
 };
 
+type ReplacePayload = { index: number; html: string };
+
+const isReplacePayload = (value: unknown): value is ReplacePayload =>
+  typeof value === "object" &&
+  value !== null &&
+  "index" in value &&
+  typeof value.index === "number" &&
+  "html" in value &&
+  typeof value.html === "string";
+
 const applyReplace = (messages: Element | null, data: string): void => {
   if (messages === null) return;
-  const { index, html } = JSON.parse(data) as { index: number; html: string };
-  if (html === "") return;
-  const existing = messages.querySelector(`[data-msg-index="${index}"]`);
-  if (existing !== null) (existing as HTMLElement).outerHTML = html;
-  else insertMessageInOrder(messages, index, html);
+  const parsed: unknown = JSON.parse(data);
+  if (!isReplacePayload(parsed)) return;
+  if (parsed.html === "") return;
+  const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
+  if (existing !== null) existing.outerHTML = parsed.html;
+  else insertMessageInOrder(messages, parsed.index, parsed.html);
 };
 
 type MetaUpdate = {
@@ -124,15 +135,17 @@ const connectRunner = (root: Element): void => {
   });
 
   activeSource.addEventListener("status", (e) => {
+    if (!(e instanceof MessageEvent)) return;
     try {
-      updateStatusHint(JSON.parse((e as MessageEvent).data));
+      updateStatusHint(JSON.parse(e.data));
     } catch {
       /* ignore malformed status payloads */
     }
   });
 
   activeSource.addEventListener("prompt", (e) => {
-    const html = (e as MessageEvent).data;
+    if (!(e instanceof MessageEvent)) return;
+    const html = e.data;
     if (html === "" || output === null) return;
     output.insertAdjacentHTML("beforeend", html);
     dismissQueuedCard();
@@ -140,7 +153,8 @@ const connectRunner = (root: Element): void => {
   });
 
   activeSource.addEventListener("line", (e) => {
-    const line = (e as MessageEvent).data;
+    if (!(e instanceof MessageEvent)) return;
+    const line = e.data;
     if (line !== "" && output !== null) {
       output.insertAdjacentHTML("beforeend", line);
       scrollToBottom();
@@ -166,7 +180,8 @@ const connectTail = (root: Element): void => {
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
   activeSource.addEventListener("append", (e) => {
-    const html = (e as MessageEvent).data;
+    if (!(e instanceof MessageEvent)) return;
+    const html = e.data;
     if (html !== "" && messages !== null) {
       messages.insertAdjacentHTML("beforeend", html);
       if (nearBottom()) scrollToBottom();
@@ -174,8 +189,9 @@ const connectTail = (root: Element): void => {
   });
 
   activeSource.addEventListener("replace", (e) => {
+    if (!(e instanceof MessageEvent)) return;
     try {
-      applyReplace(messages, (e as MessageEvent).data);
+      applyReplace(messages, e.data);
       if (nearBottom()) scrollToBottom();
     } catch {
       /* ignore malformed replace payloads */
@@ -183,8 +199,9 @@ const connectTail = (root: Element): void => {
   });
 
   activeSource.addEventListener("meta", (e) => {
+    if (!(e instanceof MessageEvent)) return;
     try {
-      updateMeta(JSON.parse((e as MessageEvent).data));
+      updateMeta(JSON.parse(e.data));
     } catch {
       /* ignore malformed meta payloads */
     }
@@ -214,5 +231,6 @@ const init = (): void => {
 
 document.addEventListener("DOMContentLoaded", init);
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if ((e as CustomEvent).detail.target?.id === "detail-pane") init();
+  if (!(e instanceof CustomEvent)) return;
+  if (e.detail.target?.id === "detail-pane") init();
 });

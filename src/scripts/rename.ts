@@ -30,15 +30,23 @@ const editActions: Record<string, (wrap: Element) => void> = {
   "cancel-rename": exitEdit,
 };
 
+type Htmx = { trigger: (...args: unknown[]) => void };
+
+const isHtmx = (value: unknown): value is Htmx =>
+  typeof value === "object" &&
+  value !== null &&
+  "trigger" in value &&
+  typeof value.trigger === "function";
+
 // The form has no action, so requestSubmit() can fall back to a native POST to
 // the current URL (a 404); trigger htmx directly so the rename stays in place.
 const submitRename = (form: HTMLFormElement | null): void => {
   if (form === null) return;
-  const htmx = (
-    globalThis as unknown as {
-      htmx?: { trigger: (elt: HTMLFormElement, event: string) => void };
-    }
-  ).htmx;
+  const g: unknown = globalThis;
+  const htmx =
+    typeof g === "object" && g !== null && "htmx" in g && isHtmx(g.htmx)
+      ? g.htmx
+      : undefined;
   if (htmx !== undefined) {
     htmx.trigger(form, "submit");
     return;

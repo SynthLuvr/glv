@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
+import { type } from "arktype";
 import { execa } from "execa";
 
 type RepoInfo = {
@@ -97,12 +98,24 @@ const tryParseJson = (stdout: string): unknown => {
   }
 };
 
-const toRepoInfo = (r: Record<string, unknown>): RepoInfo => ({
-  nameWithOwner: typeof r.nameWithOwner === "string" ? r.nameWithOwner : "",
+// nameWithOwner is required; the rest are optional and defaulted so a
+// malformed or non-repo line is dropped instead of crashing.
+const RepoRecord = type({
+  nameWithOwner: "string",
+  "visibility?": "string",
+  "isFork?": "boolean",
+  "updatedAt?": "string",
+  "description?": "string | null",
+});
+
+type RepoRecord = typeof RepoRecord.infer;
+
+const toRepoInfo = (r: RepoRecord): RepoInfo => ({
+  nameWithOwner: r.nameWithOwner,
   visibility: r.visibility === "private" ? "PRIVATE" : "PUBLIC",
   isFork: r.isFork === true,
-  updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
-  description: typeof r.description === "string" ? r.description : null,
+  updatedAt: r.updatedAt ?? "",
+  description: r.description ?? null,
 });
 
 // `gh api ... --paginate --jq` emits one repo object per line (JSONL),
@@ -112,8 +125,13 @@ const parseRepoList = (stdout: string): RepoInfo[] =>
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "")
-    .map((line) => tryParseJson(line) as Record<string, unknown> | null)
-    .filter((r): r is Record<string, unknown> => r !== null)
+    .map((line) => {
+      const parsed = tryParseJson(line);
+      if (parsed === null) return undefined;
+      const record = RepoRecord(parsed);
+      return record instanceof type.errors ? undefined : record;
+    })
+    .filter((r): r is RepoRecord => r !== undefined)
     .map(toRepoInfo)
     .filter((r) => r.nameWithOwner !== "")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -137,11 +155,16 @@ const listRepos = async (): Promise<RepoInfo[]> => {
   return parseRepoList(stdout);
 };
 
+const DefaultBranchView = type({
+  "defaultBranchRef?": type({ name: "string" }).or("null"),
+});
+
 const parseDefaultBranch = (stdout: string): string => {
-  const view = tryParseJson(stdout) as {
-    defaultBranchRef: { name: string } | null;
-  } | null;
-  return view?.defaultBranchRef?.name ?? "main";
+  const parsed = tryParseJson(stdout);
+  if (parsed === null) return "main";
+  const view = DefaultBranchView(parsed);
+  if (view instanceof type.errors) return "main";
+  return view.defaultBranchRef?.name ?? "main";
 };
 
 const listBranches = async (
@@ -176,17 +199,19 @@ const listBranches = async (
 
 // No safe fallback for a missing sshUrl, so surface a structured error
 // rather than degrade silently.
+const SshUrlView = type({ "sshUrl?": "unknown" });
+
 const parseSshUrl = (stdout: string): string => {
-  const parsed = tryParseJson(stdout) as { sshUrl: unknown } | null;
+  const tail = stdout.trim().slice(-200);
+  const parsed = tryParseJson(stdout);
   if (parsed === null)
-    throw new Error(
-      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
-    );
-  const { sshUrl } = parsed;
+    throw new Error(`gh repo view printed non-JSON output: "${tail}"`);
+  const view = SshUrlView(parsed);
+  if (view instanceof type.errors)
+    throw new Error(`gh repo view printed non-JSON output: "${tail}"`);
+  const { sshUrl } = view;
   if (typeof sshUrl !== "string" || sshUrl === "")
-    throw new Error(
-      `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
-    );
+    throw new Error(`gh repo view did not return an sshUrl: "${tail}"`);
   return sshUrl;
 };
 

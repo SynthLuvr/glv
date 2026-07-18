@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { makeChallengeAuthority } from "../auth/service.js";
 
-const decodeEnvelope = (token: string): { body: string; sig: string } =>
-  JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
-    body: string;
-    sig: string;
-  };
+type Envelope = { body: string; sig: string };
+
+const isEnvelope = (value: unknown): value is Envelope =>
+  typeof value === "object" &&
+  value !== null &&
+  "body" in value &&
+  typeof value.body === "string" &&
+  "sig" in value &&
+  typeof value.sig === "string";
+
+const decodeEnvelope = (token: string): Envelope => {
+  const parsed: unknown = JSON.parse(
+    Buffer.from(token, "base64url").toString("utf8"),
+  );
+  if (!isEnvelope(parsed))
+    throw new Error(`invalid challenge envelope for token ${token}`);
+  return parsed;
+};
 
 describe("challenge authority", () => {
   it("issues independent challenges that do not clobber each other", () => {

@@ -66,14 +66,18 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
 
 // On (re)connect the server emits a full snapshot of active session ids.
 // Reconcile every card to correct indicators that drifted during a disconnect.
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
 const applySync = (data: string): void => {
-  let ids: string[];
+  let parsed: unknown;
   try {
-    ids = JSON.parse(data) as string[];
+    parsed = JSON.parse(data);
   } catch {
     return;
   }
-  const active = new Set(ids);
+  if (!isStringArray(parsed)) return;
+  const active = new Set(parsed);
   for (const item of document.querySelectorAll<HTMLElement>(
     ".session-item[data-session-id]",
   )) {
@@ -82,16 +86,25 @@ const applySync = (data: string): void => {
   }
 };
 
+type StatusPayload = { sessionId: string; status: string };
+
+const isStatusPayload = (value: unknown): value is StatusPayload =>
+  typeof value === "object" &&
+  value !== null &&
+  "sessionId" in value &&
+  typeof value.sessionId === "string" &&
+  "status" in value &&
+  typeof value.status === "string";
+
 const onStatusEvent = (data: string): void => {
+  let parsed: unknown;
   try {
-    const { sessionId, status } = JSON.parse(data) as {
-      sessionId: string;
-      status: string;
-    };
-    setStatusIndicator(sessionId, status !== "done");
+    parsed = JSON.parse(data);
   } catch {
     return;
   }
+  if (!isStatusPayload(parsed)) return;
+  setStatusIndicator(parsed.sessionId, parsed.status !== "done");
 };
 
 const STATUS_RECONNECT_BASE_MS = 1000;
@@ -122,10 +135,12 @@ const connectStatusFeed = (): void => {
     reconnectDelay = STATUS_RECONNECT_BASE_MS;
   });
   statusSource.addEventListener("sync", (e) => {
-    applySync((e as MessageEvent).data);
+    if (!(e instanceof MessageEvent)) return;
+    applySync(e.data);
   });
   statusSource.addEventListener("status", (e) => {
-    onStatusEvent((e as MessageEvent).data);
+    if (!(e instanceof MessageEvent)) return;
+    onStatusEvent(e.data);
   });
   // EventSource auto-reconnects on transient failures, so only act on a
   // permanent close.

@@ -148,7 +148,9 @@ describe("source-picker branches request race", () => {
   const branchValues = (datalist: Element | null): string[] =>
     datalist === null
       ? []
-      : [...datalist.children].map((o) => (o as HTMLOptionElement).value);
+      : [...datalist.children]
+          .filter((o): o is HTMLOptionElement => o instanceof HTMLOptionElement)
+          .map((o) => o.value);
 
   it("ignores a stale branches response after the repo changes", async () => {
     const dom = new JSDOM(

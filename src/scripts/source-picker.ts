@@ -1,3 +1,59 @@
+type RepoSummary = {
+  nameWithOwner: string;
+  visibility: string;
+  isFork: boolean;
+  updatedAt: string;
+};
+
+const isRepoSummary = (value: unknown): value is RepoSummary =>
+  typeof value === "object" &&
+  value !== null &&
+  "nameWithOwner" in value &&
+  typeof value.nameWithOwner === "string" &&
+  "visibility" in value &&
+  typeof value.visibility === "string" &&
+  "isFork" in value &&
+  typeof value.isFork === "boolean" &&
+  "updatedAt" in value &&
+  typeof value.updatedAt === "string";
+
+type ReposResponse = {
+  ok: boolean;
+  repos?: RepoSummary[];
+  error?: string;
+};
+
+const isReposResponse = (value: unknown): value is ReposResponse => {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || typeof value.ok !== "boolean") return false;
+  if ("repos" in value) {
+    if (!Array.isArray(value.repos)) return false;
+    if (!value.repos.every(isRepoSummary)) return false;
+  }
+  if ("error" in value && typeof value.error !== "string") return false;
+  return true;
+};
+
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+type BranchesResponse = {
+  ok: boolean;
+  branches?: string[];
+  defaultBranch?: string;
+  error?: string;
+};
+
+const isBranchesResponse = (value: unknown): value is BranchesResponse => {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || typeof value.ok !== "boolean") return false;
+  if ("branches" in value && !isStringList(value.branches)) return false;
+  if ("defaultBranch" in value && typeof value.defaultBranch !== "string")
+    return false;
+  if ("error" in value && typeof value.error !== "string") return false;
+  return true;
+};
+
 const setHiddenSource = (source: string): void => {
   const input = document.querySelector('input[name="source"]');
   if (input instanceof HTMLInputElement) input.value = source;
@@ -42,24 +98,28 @@ const option = (value: string, label?: string): HTMLOptionElement => {
   return opt;
 };
 
+const REPO_LOAD_ERROR = "Could not load repositories.";
+
+const showRepoError = (errorEl: Element | null, message: string): void => {
+  if (errorEl !== null) errorEl.textContent = message;
+};
+
 const loadRepos = async (): Promise<void> => {
   const datalist = document.getElementById("gh-repos");
   if (datalist === null || datalist.children.length > 0) return;
   const errorEl = document.querySelector("[data-repo-error]");
   try {
     const res = await fetch("/github/repos");
-    const data = await res.json();
-    if (!data.ok) {
-      if (errorEl !== null)
-        errorEl.textContent = data.error ?? "Could not load repositories.";
+    const data: unknown = await res.json();
+    if (!isReposResponse(data)) {
+      showRepoError(errorEl, REPO_LOAD_ERROR);
       return;
     }
-    const repos = data.repos as Array<{
-      nameWithOwner: string;
-      visibility: string;
-      isFork: boolean;
-      updatedAt: string;
-    }>;
+    if (!data.ok) {
+      showRepoError(errorEl, data.error ?? REPO_LOAD_ERROR);
+      return;
+    }
+    const repos = data.repos ?? [];
     const opts = repos.map((r) => {
       const parts = [r.visibility === "PRIVATE" ? "🔒" : "🔓"];
       if (r.isFork) parts.push("fork");
@@ -68,7 +128,7 @@ const loadRepos = async (): Promise<void> => {
     });
     datalist.replaceChildren(...opts);
   } catch {
-    if (errorEl !== null) errorEl.textContent = "Could not load repositories.";
+    showRepoError(errorEl, REPO_LOAD_ERROR);
   }
 };
 
@@ -98,17 +158,19 @@ const loadBranches = async (owner: string, repo: string): Promise<void> => {
     const res = await fetch(`/github/repos/${owner}/${repo}/branches`, {
       signal: controller.signal,
     });
-    const data = await res.json();
+    const data: unknown = await res.json();
     if (superseded()) return;
+    if (!isBranchesResponse(data)) {
+      showBranchError(errorEl, BRANCH_LOAD_ERROR);
+      return;
+    }
     if (!data.ok) {
       showBranchError(errorEl, data.error ?? BRANCH_LOAD_ERROR);
       return;
     }
     if (errorEl !== null) errorEl.textContent = "";
     if (datalist !== null)
-      datalist.replaceChildren(
-        ...(data.branches as string[]).map((b) => option(b)),
-      );
+      datalist.replaceChildren(...(data.branches ?? []).map((b) => option(b)));
     if (branchInput instanceof HTMLInputElement && branchInput.value === "")
       branchInput.value = data.defaultBranch ?? "main";
     if (branchField !== null) branchField.classList.remove("source-hidden");

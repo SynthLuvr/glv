@@ -1,4 +1,3 @@
-import type { SSEStreamingApi } from "hono/streaming";
 import { describe, expect, it } from "vitest";
 import { flushLines } from "../server/sse.js";
 
@@ -14,10 +13,12 @@ type RecordedWrite = { event: string; data: string };
 type FakeStream = {
   aborted: boolean;
   writes: RecordedWrite[];
+  writeSSE: (msg: RecordedWrite) => Promise<void>;
 };
 
-// Only the two members emit() touches are needed; cast away the rest.
-const createFakeStream = (): FakeStream & SSEStreamingApi => {
+// Only the members emit()/flushLines() touch are needed; the structural
+// SseWriter type makes the fake assignable without asserting the interface.
+const createFakeStream = (): FakeStream => {
   const writes: RecordedWrite[] = [];
   return {
     aborted: false,
@@ -25,7 +26,7 @@ const createFakeStream = (): FakeStream & SSEStreamingApi => {
     writeSSE: async (msg: RecordedWrite): Promise<void> => {
       writes.push(msg);
     },
-  } as unknown as FakeStream & SSEStreamingApi;
+  };
 };
 
 const lineCount = (stream: FakeStream): number =>

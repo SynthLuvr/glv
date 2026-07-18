@@ -93,9 +93,16 @@ describe("cross-connection database freshness", () => {
     const { dir, dbPath } = setupDb("WAL");
     const viewer = openDb(dbPath, { readOnly: false });
     try {
-      const mode = viewer.prepare("PRAGMA journal_mode").get() as {
-        journal_mode: string;
-      };
+      const mode = viewer.prepare("PRAGMA journal_mode").get();
+      if (
+        !(
+          typeof mode === "object" &&
+          mode !== null &&
+          "journal_mode" in mode &&
+          typeof mode.journal_mode === "string"
+        )
+      )
+        throw new Error("PRAGMA journal_mode did not return a row");
       expect(mode.journal_mode).toBe("wal");
 
       expect(listMessages(viewer, "fresh")).toHaveLength(0);

@@ -40,11 +40,17 @@ describe("fresh auth database", () => {
   });
 
   it("creates all three tables", () => {
+    const isNameRow = (v: unknown): v is { name: string } =>
+      typeof v === "object" &&
+      v !== null &&
+      "name" in v &&
+      typeof v.name === "string";
     const tables = db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
       )
-      .all() as Array<{ name: string }>;
+      .all()
+      .filter(isNameRow);
     expect(tables.map((t) => t.name)).toEqual([
       "credentials",
       "sessions",
@@ -199,10 +205,15 @@ describe("expired session purging", () => {
     db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) !== undefined;
 
   const totalSessions = (): number => {
-    const row = db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as {
-      n: number;
-    };
-    return row.n;
+    const row = db.prepare("SELECT COUNT(*) AS n FROM sessions").get();
+    if (
+      typeof row === "object" &&
+      row !== null &&
+      "n" in row &&
+      typeof row.n === "number"
+    )
+      return row.n;
+    return 0;
   };
 
   it("purgeExpiredSessions removes only expired rows", () => {
@@ -259,8 +270,15 @@ describe("session absolute max lifetime", () => {
         "SELECT CAST((julianday(expires_at) - julianday('now')) * 86400 " +
           "AS REAL) AS s FROM sessions WHERE id = ?",
       )
-      .get(token) as { s?: number } | undefined;
-    return row?.s ?? NaN;
+      .get(token);
+    if (
+      typeof row === "object" &&
+      row !== null &&
+      "s" in row &&
+      typeof row.s === "number"
+    )
+      return row.s;
+    return NaN;
   };
 
   // Compares two stored columns, so it is exact and clock-independent.

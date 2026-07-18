@@ -3,6 +3,7 @@ import type { ContentItem } from "../format/index.js";
 import {
   fmtRelative,
   messageKind,
+  parseContent,
   renderMarkdown,
   shortenHome,
   thinkingText,
@@ -12,9 +13,9 @@ import {
 } from "../format/index.js";
 
 // The accessors narrow the permissive ContentItem shape; tests build raw items
-// and cast through unknown so they read like real parsed content blocks.
+// and route them through the real parser so they read like content blocks.
 const item = (obj: Record<string, unknown>): ContentItem =>
-  obj as unknown as ContentItem;
+  parseContent(JSON.stringify([obj]))[0];
 
 describe("renderMarkdown", () => {
   it("renders headings, bold and inline code", () => {
