@@ -532,6 +532,14 @@ describe("killProcessGroup", () => {
     expect(() => killProcessGroup(12345)).not.toThrow();
     spy.mockRestore();
   });
+
+  it("is a no-op for a non-positive sentinel PID", () => {
+    const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    killProcessGroup(-1);
+    killProcessGroup(0);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });
 
 describe("concurrency", () => {

@@ -87,9 +87,20 @@ const generateCloneJobId = (): string =>
 const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
 
+// `gh` may exit 0 with non-JSON stdout (an update notice, a warning, or
+// unauthenticated help text); degrade rather than crash on a SyntaxError.
+const tryParseJson = (stdout: string): unknown => {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+};
+
 const parseRepoList = (stdout: string): RepoInfo[] => {
-  const raw = JSON.parse(stdout) as Array<Record<string, unknown>>;
-  return raw
+  const parsed = tryParseJson(stdout);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
     .map(
       (r): RepoInfo => ({
         nameWithOwner:
@@ -116,6 +127,13 @@ const listRepos = async (): Promise<RepoInfo[]> => {
   return parseRepoList(stdout);
 };
 
+const parseDefaultBranch = (stdout: string): string => {
+  const view = tryParseJson(stdout) as {
+    defaultBranchRef: { name: string } | null;
+  } | null;
+  return view?.defaultBranchRef?.name ?? "main";
+};
+
 const listBranches = async (
   owner: string,
   repo: string,
@@ -127,10 +145,7 @@ const listBranches = async (
     "--json",
     "defaultBranchRef",
   ]);
-  const view = JSON.parse(viewResult.stdout) as {
-    defaultBranchRef: { name: string } | null;
-  };
-  const defaultBranch = view.defaultBranchRef?.name ?? "main";
+  const defaultBranch = parseDefaultBranch(viewResult.stdout);
 
   const apiResult = await execa("gh", [
     "api",
@@ -149,6 +164,22 @@ const listBranches = async (
   return { branches, defaultBranch };
 };
 
+// No safe fallback for a missing sshUrl, so surface a structured error
+// rather than degrade silently.
+const parseSshUrl = (stdout: string): string => {
+  const parsed = tryParseJson(stdout) as { sshUrl: unknown } | null;
+  if (parsed === null)
+    throw new Error(
+      `gh repo view printed non-JSON output: "${stdout.trim().slice(-200)}"`,
+    );
+  const { sshUrl } = parsed;
+  if (typeof sshUrl !== "string" || sshUrl === "")
+    throw new Error(
+      `gh repo view did not return an sshUrl: "${stdout.trim().slice(-200)}"`,
+    );
+  return sshUrl;
+};
+
 const getSshUrl = async (owner: string, repo: string): Promise<string> => {
   const { stdout } = await execa("gh", [
     "repo",
@@ -157,8 +188,7 @@ const getSshUrl = async (owner: string, repo: string): Promise<string> => {
     "--json",
     "sshUrl",
   ]);
-  const parsed = JSON.parse(stdout) as { sshUrl: string };
-  return parsed.sshUrl;
+  return parseSshUrl(stdout);
 };
 
 const runGit = async (
@@ -230,7 +260,10 @@ export {
   clonePathFor,
   createGhClient,
   generateCloneJobId,
+  parseDefaultBranch,
   parseOwnerRepo,
+  parseRepoList,
+  parseSshUrl,
   runClone,
   runUpdate,
 };
