@@ -68,13 +68,36 @@ const findWorktree = (
   return matches[0];
 };
 
+// Walks candidate paths (most-recent-first) and returns the worktree enclosing
+// the first match. `excludePath` (the launch worktree) is skipped so a session
+// that worked in a different worktree is reported instead of its launch dir.
+const selectWorktreeByPaths = (
+  blocks: readonly WorktreeBlock[],
+  paths: readonly string[],
+  excludePath?: string,
+): WorktreeBlock | undefined => {
+  for (const path of paths) {
+    const block = findWorktree(blocks, path);
+    if (block === undefined) continue;
+    if (excludePath !== undefined && block.path === excludePath) continue;
+    return block;
+  }
+  return undefined;
+};
+
 const resolveGitInfo = async (
   cwd: string,
   run: GitRunner,
+  paths: readonly string[] = [],
 ): Promise<GitInfo> => {
   const result = await run(["worktree", "list", "--porcelain"], cwd);
   if (result.exitCode !== 0) return {};
-  const block = findWorktree(parseWorktreeList(result.stdout), cwd);
+  const blocks = parseWorktreeList(result.stdout);
+  const launch = findWorktree(blocks, cwd);
+  // A session launched from one worktree (e.g. `main`) may `git worktree add`
+  // a second and do all its work there. Recover that worktree from the paths
+  // the transcript touched, preferring it over the bare launch dir.
+  const block = selectWorktreeByPaths(blocks, paths, launch?.path) ?? launch;
   if (block === undefined) return {};
   const info: GitInfo = { worktree: block.path };
   if (!block.detached && block.branch !== undefined && block.branch !== "")
@@ -85,13 +108,14 @@ const resolveGitInfo = async (
 const readGitInfo = async (
   cwd: string,
   run: GitRunner = runGit,
+  paths: readonly string[] = [],
 ): Promise<GitInfo> => {
   try {
-    return await resolveGitInfo(cwd, run);
+    return await resolveGitInfo(cwd, run, paths);
   } catch {
     return {};
   }
 };
 
 export type { GitInfo, GitRunner, WorktreeBlock };
-export { findWorktree, parseWorktreeList, readGitInfo };
+export { findWorktree, parseWorktreeList, readGitInfo, selectWorktreeByPaths };

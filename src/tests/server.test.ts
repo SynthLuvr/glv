@@ -2412,6 +2412,48 @@ describe("git info endpoint GET /sessions/:id/git-info", () => {
     });
     expect(body).toBe("");
   });
+
+  it("reports the worktree a session worked in, not its launch dir", async () => {
+    // A session launched from /main that `cd`s into /feat and works there
+    // should surface /feat's branch, not the launch dir's.
+    const wtDir = mkdtempSync(join(tmpdir(), "glv-wt-"));
+    const wtDb = new DatabaseSync(join(wtDir, "sessions.db"));
+    wtDb.exec(SCHEMA);
+    wtDb
+      .prepare("INSERT INTO sessions (id, working_dir) VALUES (?, ?)")
+      .run("wt-sess", "/main");
+    wtDb
+      .prepare(
+        "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "wt-sess",
+        "assistant",
+        JSON.stringify([
+          {
+            type: "toolRequest",
+            id: "c1",
+            toolCall: {
+              status: "success",
+              value: {
+                name: "shell",
+                arguments: { command: "cd /feat && git status" },
+              },
+            },
+          },
+        ]),
+        1,
+      );
+    const porcelain =
+      "worktree /main\nbranch refs/heads/main\n\nworktree /feat\nbranch refs/heads/feat/x";
+    const app = createApp(wtDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      runGit: async () => ({ stdout: porcelain, exitCode: 0 }),
+    });
+    const body = await (await app.request("/sessions/wt-sess/git-info")).text();
+    expect(body).toContain("feat/x");
+    expect(body).toContain("/feat");
+    expect(body).not.toContain("/main");
+  });
 });
 
 describe("stream client session selector", () => {
