@@ -106,13 +106,16 @@ const newSessionDetail = (
   source: SourceType = "working_dir",
   repo?: string,
   branch?: string,
+  // Optional working directory to pre-fill (e.g. from the worktree chip link);
+  // falls back to the server's cwd when unset.
+  workingDir?: string,
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
   return (
     <NewSessionForm
-      workingDir={process.cwd()}
+      workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
       source={source}

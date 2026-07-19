@@ -16,22 +16,21 @@ type GitChipProps = {
   label: string;
   mono?: boolean;
   compact?: boolean;
+  // When set the chip renders as a link that swaps the detail pane, letting a
+  // chip act as navigation (the worktree chip pre-fills the New Session form).
+  href?: string;
 };
 
-// `compact` swaps the kind-specific class for the shared `git-chip-sm` sizing
-// used by the sidebar.
-const GitChip = ({
-  kind,
+const GitChipInner = ({
   icon,
-  title,
   label,
-  mono = false,
-  compact = false,
-}: GitChipProps) => (
-  <span
-    class={`git-chip${compact ? " git-chip-sm" : ` git-chip-${kind}`}`}
-    title={title}
-  >
+  mono,
+}: {
+  icon: string;
+  label: string;
+  mono: boolean;
+}) => (
+  <>
     <svg
       class="git-icon"
       xmlns="http://www.w3.org/2000/svg"
@@ -42,8 +41,42 @@ const GitChip = ({
       <path d={icon} />
     </svg>
     <span class={`git-chip-label${mono ? " mono" : ""}`}>{label}</span>
-  </span>
+  </>
 );
+
+// `compact` swaps the kind-specific class for the shared `git-chip-sm` sizing
+// used by the sidebar. `href` turns the chip into an htmx link that swaps the
+// detail pane in place — the worktree chip uses it to start a new session with
+// that working directory pre-filled.
+const GitChip = ({
+  kind,
+  icon,
+  title,
+  label,
+  mono = false,
+  compact = false,
+  href,
+}: GitChipProps) => {
+  const cls = `git-chip${compact ? " git-chip-sm" : ` git-chip-${kind}`}`;
+  if (href !== undefined)
+    return (
+      <a
+        class={cls}
+        href={href}
+        hx-get={href}
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        title={title}
+      >
+        <GitChipInner icon={icon} label={label} mono={mono} />
+      </a>
+    );
+  return (
+    <span class={cls} title={title}>
+      <GitChipInner icon={icon} label={label} mono={mono} />
+    </span>
+  );
+};
 
 const BranchChip = ({
   branch,
@@ -65,9 +98,10 @@ const WorktreeChip = ({ worktree }: { worktree: string }) => (
   <GitChip
     kind="worktree"
     icon={FOLDER_ICON}
-    title={`git worktree: ${worktree}`}
+    title={`git worktree: ${worktree} — start a new session here`}
     label={truncateMiddle(shortenHome(worktree), 40)}
     mono
+    href={`/sessions/new?working_dir=${encodeURIComponent(worktree)}`}
   />
 );
 

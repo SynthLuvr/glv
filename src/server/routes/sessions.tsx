@@ -68,9 +68,25 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
   // Registered before the /sessions/:id wildcard so "new" is treated as a
   // literal segment rather than a session id.
-  app.get("/sessions/new", (c) =>
-    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
-  );
+  app.get("/sessions/new", (c) => {
+    // A `working_dir` query param (e.g. from the worktree chip) pre-fills the
+    // form instead of defaulting to the server's cwd.
+    const workingDir = c.req.query("working_dir") || undefined;
+    return render(
+      c,
+      ctx,
+      sessionsAll(),
+      undefined,
+      newSessionDetail(
+        ctx,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        workingDir,
+      ),
+    );
+  });
 
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
@@ -101,6 +117,11 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           src,
           repoVal || undefined,
           branchVal || undefined,
+          // Preserve the working directory the user entered so a validation
+          // error (e.g. a blank prompt) doesn't reset the field.
+          expandHome(
+            typeof body.working_dir === "string" ? body.working_dir.trim() : "",
+          ),
         ),
         { status },
       );

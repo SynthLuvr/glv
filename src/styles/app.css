@@ -656,6 +656,21 @@ body {
   font-size: 0.78rem;
   font-weight: 500;
 }
+/* A chip that doubles as a link (the worktree chip starts a new session with
+   its path pre-filled) gets interactive affordances. */
+a.git-chip {
+  cursor: pointer;
+  text-decoration: none;
+}
+a.git-chip:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+a.git-chip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
 
 /* ---------- messages ---------- */
 .message {
