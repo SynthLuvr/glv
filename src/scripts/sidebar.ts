@@ -64,6 +64,19 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
     ?.setAttribute("title", running ? "Session is running" : "Session idle");
 };
 
+// goose renames a session mid-run (replacing the "CLI session" placeholder
+// with a derived name); the status feed pushes the new name here so the
+// sidebar card updates without a full page reload. An empty name renders as
+// "(unnamed)" to match the server-side displayName helper.
+const setSessionName = (sessionId: string, name: string): void => {
+  const item = document.querySelector(
+    `.session-item[data-session-id="${sessionId}"]`,
+  );
+  if (item === null) return;
+  const node = item.querySelector(".session-name");
+  if (node !== null) node.textContent = name === "" ? "(unnamed)" : name;
+};
+
 // On (re)connect the server emits a full snapshot of active session ids.
 // Reconcile every card to correct indicators that drifted during a disconnect.
 const isStringArray = (value: unknown): value is string[] =>
@@ -107,6 +120,27 @@ const onStatusEvent = (data: string): void => {
   setStatusIndicator(parsed.sessionId, parsed.status !== "done");
 };
 
+type RenamePayload = { sessionId: string; name: string };
+
+const isRenamePayload = (value: unknown): value is RenamePayload =>
+  typeof value === "object" &&
+  value !== null &&
+  "sessionId" in value &&
+  typeof value.sessionId === "string" &&
+  "name" in value &&
+  typeof value.name === "string";
+
+const onRenameEvent = (data: string): void => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return;
+  }
+  if (!isRenamePayload(parsed)) return;
+  setSessionName(parsed.sessionId, parsed.name);
+};
+
 const STATUS_RECONNECT_BASE_MS = 1000;
 const STATUS_RECONNECT_MAX_MS = 30000;
 
@@ -141,6 +175,10 @@ const connectStatusFeed = (): void => {
   statusSource.addEventListener("status", (e) => {
     if (!(e instanceof MessageEvent)) return;
     onStatusEvent(e.data);
+  });
+  statusSource.addEventListener("rename", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    onRenameEvent(e.data);
   });
   // EventSource auto-reconnects on transient failures, so only act on a
   // permanent close.
