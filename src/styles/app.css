@@ -313,17 +313,6 @@ body {
 .session-sub time {
   white-space: nowrap;
 }
-.provider-badge {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  padding: 0 0.35rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  color: var(--color-muted);
-}
-.token-count {
-  color: var(--color-faint);
-}
 .session-dir {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 0.68rem;
@@ -1497,6 +1486,9 @@ pre::-webkit-scrollbar-thumb {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  /* Overrides the base relative so the overlay form anchors to
+     .session-item instead of this narrow pencil slot. */
+  position: static;
 }
 .rename-wrap.is-sidebar .rename-pencil {
   opacity: 0;
@@ -1507,13 +1499,14 @@ pre::-webkit-scrollbar-thumb {
 }
 .rename-wrap.is-sidebar .rename-form {
   position: absolute;
-  top: 0.3rem;
-  right: 0.5rem;
-  bottom: 0.3rem;
-  left: 0.5rem;
+  inset: 0;
   z-index: 4;
   gap: 0.3rem;
   align-items: center;
+  padding: 0.4rem 0.55rem;
+  /* Solid surface hides the card text behind the input while editing. */
+  background: var(--color-surface);
+  border-radius: 0.6rem;
 }
 .rename-wrap.is-sidebar.is-editing .rename-form {
   display: flex;

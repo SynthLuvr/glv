@@ -271,10 +271,8 @@ describe("web viewer GET /", () => {
   it("surfaces session metadata in the sidebar cards", async () => {
     const html = await renderRoot();
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
     expect(html).toContain("session-item");
-    expect(html).toContain("provider-badge");
+    expect(html).toContain("run-indicator");
   });
 
   it("renders session names as links to the detail route", async () => {
@@ -352,8 +350,6 @@ describe("web viewer GET /sessions/:id", () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("Alpha Session");
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
   });
 
   it("keeps the sidebar and highlights the selected session", async () => {
@@ -669,6 +665,16 @@ describe("web viewer rename", () => {
   it("renders a rename pencil on each sidebar card", async () => {
     const html = await (await app().request("/")).text();
     expect(html).toContain("rename-pencil");
+  });
+
+  it("renders the sidebar rename editor as an overlay over each card", async () => {
+    const html = await (await app().request("/")).text();
+    expect(html).toContain("rename-wrap is-sidebar");
+    expect(html).toContain('class="rename-form"');
+    expect(html).toContain('class="rename-input"');
+    expect(html).toContain('class="rename-confirm"');
+    expect(html).toContain('class="rename-cancel"');
+    expect(html).toContain('hx-target="#session-list"');
   });
 
   it("serves the rename client script and references it in the document", async () => {
@@ -1869,9 +1875,9 @@ describe("M5: POST /sessions", () => {
     });
     const html = await res.text();
     expect(html).toContain('hx-swap-oob="true"');
-    // Scope to just this session's card; the shared test DB holds other
-    // leftover "session-N" rows, so slicing to the end of the document would
-    // wrongly include their names.
+    // Scope to just this session's card. The shared test DB holds other
+    // leftover "session-N" rows from sibling tests, and slicing to the end
+    // of the document would wrongly include their names.
     const marker = `data-session-id="${id}"`;
     const start = html.lastIndexOf(marker);
     const next = html.indexOf(
