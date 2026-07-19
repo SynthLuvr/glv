@@ -99,6 +99,14 @@ describe("ui enhancements (client script)", () => {
     const document = await runUi(
       '<!DOCTYPE html><html><body><main id="detail-pane"><h2 class="session-title">Build the thing</h2></main></body></html>',
     );
+    // Server <title> covers full page loads; the client re-derives it on
+    // htmx detail-pane swaps (where the <title> isn't part of the payload).
+    const pane = document.getElementById("detail-pane");
+    const win = document.defaultView;
+    if (win === null) throw new Error("no defaultView");
+    document.body.dispatchEvent(
+      new win.CustomEvent("htmx:afterSwap", { detail: { target: pane } }),
+    );
     expect(document.title).toBe("Build the thing \u2014 Goose Log Viewer");
   });
 

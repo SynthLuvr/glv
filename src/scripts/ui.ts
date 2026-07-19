@@ -1,5 +1,5 @@
 const UI_TITLE_SUFFIX = " \u2014 Goose Log Viewer";
-const UI_HOME_TITLE = "Goose Sessions";
+const UI_HOME_TITLE = "Goose Log Viewer";
 const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
 const UI_COPIED_MS = 1500;
@@ -14,17 +14,16 @@ const uiDownIcon =
 // htmx swaps only the detail pane, so the server-set <title> grows stale;
 // re-derive it from the rendered heading on every swap.
 const uiSyncTitle = (): void => {
-  const session = document.querySelector(".session-title")?.textContent?.trim();
-  if (session !== "") {
-    document.title = `${session ?? ""}${UI_TITLE_SUFFIX}`;
-    return;
-  }
-  const heading = document
-    .querySelector(".new-session h2")
-    ?.textContent?.trim();
-  if (heading !== "") {
-    document.title = `${heading ?? ""}${UI_TITLE_SUFFIX}`;
-    return;
+  for (const selector of [
+    ".session-title",
+    ".new-session h2",
+    ".placeholder h2",
+  ]) {
+    const heading = document.querySelector(selector)?.textContent?.trim();
+    if (heading) {
+      document.title = `${heading}${UI_TITLE_SUFFIX}`;
+      return;
+    }
   }
   document.title = UI_HOME_TITLE;
 };
@@ -160,7 +159,6 @@ const uiObserve = (): void => {
 };
 
 const uiInit = (): void => {
-  uiSyncTitle();
   uiAutogrowAll();
   uiFocusAutofocus();
   uiEnsureScrollButton();
@@ -173,11 +171,11 @@ document.addEventListener("DOMContentLoaded", uiInit);
 // htmx swaps replace #detail-pane's children; re-sync title and focus — the
 // MutationObserver picks up the new nodes for code-block enhancement.
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (!(e instanceof CustomEvent)) return;
-  if (e.detail.target?.id === "detail-pane") {
-    uiSyncTitle();
-    uiAutogrowAll();
-    uiFocusAutofocus();
-  }
+  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
+    .detail?.target;
+  if (target?.id !== "detail-pane") return;
+  uiSyncTitle();
+  uiAutogrowAll();
+  uiFocusAutofocus();
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });

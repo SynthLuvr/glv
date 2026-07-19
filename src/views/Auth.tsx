@@ -63,7 +63,7 @@ const AuthCard = ({ heading, sub, action, label, error }: AuthCardProps) => (
 );
 
 const RegisterPage = () => (
-  <AuthLayout title="Claim Goose Log Viewer">
+  <AuthLayout title="Claim — Goose Log Viewer">
     <AuthCard
       heading="Claim this app"
       sub="This viewer has no owner yet. Create a passkey to become its permanent owner — no email, no password. Anyone can claim it first."
