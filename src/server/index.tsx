@@ -21,6 +21,7 @@ import { registerGithubRoutes } from "./routes/github.js";
 import { registerPrRoutes } from "./routes/pr.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
+import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 import { buildAssetBundle, expandHome, listHomeDirs } from "./util.js";
 
@@ -74,6 +75,7 @@ const createApp = (
   registerAssetRoutes(app, ctx);
   registerAuthRoutes(app, ctx);
   registerGithubRoutes(app, ctx);
+  registerSidebarMetaRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
   registerPrRoutes(app, ctx);
   registerGitRoutes(app, ctx);

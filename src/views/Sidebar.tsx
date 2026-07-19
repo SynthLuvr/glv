@@ -38,23 +38,29 @@ const SessionItem = ({
           aria-label={`Select ${displayName(session.name)}`}
         />
       </label>
-      <a class="session-link" href={href} hx-get={href}>
-        <span class="session-name">{displayName(session.name)}</span>
-        <span class="session-sub">
-          <time title={session.updated_at}>
-            {fmtRelative(session.updated_at)}
-          </time>
-          <span
-            class="run-indicator"
-            title={running ? "Session is running" : "Session idle"}
-          >
-            <span class="run-dot" />
+      <div class="session-main">
+        <a class="session-link" href={href} hx-get={href}>
+          <span class="session-name">{displayName(session.name)}</span>
+          <span class="session-sub">
+            <time title={session.updated_at}>
+              {fmtRelative(session.updated_at)}
+            </time>
+            <span
+              class="run-indicator"
+              title={running ? "Session is running" : "Session idle"}
+            >
+              <span class="run-dot" />
+            </span>
           </span>
-        </span>
-        <span class="session-dir" title={session.working_dir}>
-          {truncateMiddle(shortenHome(session.working_dir), 42)}
-        </span>
-      </a>
+          <span class="session-dir" title={session.working_dir}>
+            {truncateMiddle(shortenHome(session.working_dir), 42)}
+          </span>
+        </a>
+        <span
+          id={`sidebar-meta-${session.id}`}
+          class="session-meta-tags"
+        ></span>
+      </div>
       <RenameWrap session={session} context="sidebar" target="#session-list" />
     </div>
   );
@@ -113,6 +119,13 @@ const SessionList = ({
     hx-swap-oob={oob ? "true" : undefined}
   >
     <BulkActionBar />
+    <div
+      class="sidebar-meta-loader"
+      hx-get="/sessions/sidebar-meta"
+      hx-trigger="load"
+      hx-swap="none"
+      aria-hidden="true"
+    ></div>
     {sessions.map((session) => (
       <SessionItem
         session={session}

@@ -322,6 +322,53 @@ body {
   white-space: nowrap;
 }
 
+/* ---------- sidebar git/PR meta ---------- */
+.session-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  flex: 1;
+  min-width: 0;
+}
+.session-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 0;
+}
+.sidebar-meta-loader {
+  display: none;
+}
+.git-chip-sm {
+  padding: 0.08rem 0.32rem;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  border-radius: 0.36rem;
+}
+.git-chip-sm .git-icon {
+  width: 0.66rem;
+  height: 0.66rem;
+}
+.pr-chip-sm {
+  padding: 0.06rem 0.3rem 0.06rem 0.38rem;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  border-radius: 0.36rem;
+}
+.pr-chip-sm .pr-icon {
+  width: 0.66rem;
+  height: 0.66rem;
+}
+.pr-chip-sm .pr-state {
+  font-size: 0.6rem;
+  padding: 0.06rem 0.32rem;
+}
+.pr-chip-sm .pr-dot-loading {
+  width: 0.38rem;
+  height: 0.38rem;
+}
+
 /* ---------- bulk selection ---------- */
 .bulk-bar {
   display: flex;

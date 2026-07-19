@@ -2,7 +2,7 @@ import { type Hono } from "hono";
 import { getSession, listMessages } from "../../db.js";
 import { extractCandidatePaths, parseMessage } from "../../format/index.js";
 import { readGitInfo } from "../../git.js";
-import { BranchChip, WorktreeChip } from "../../views/transcript.js";
+import { BranchChip, WorktreeChip } from "../../views/chips.js";
 import type { AppEnv, ServerContext } from "../context.js";
 
 // Resolve branch + worktree from local git and swap in chips via htmx. A
