@@ -423,6 +423,17 @@ describe("transcript readability (markdown, thinking, tools)", () => {
     expect(html).toContain("copy-md-btn");
   });
 
+  it("adds a copy-as-markdown button to user prompts", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain("What is goose?");
+    expect(html).toContain("▸ PROMPT");
+    // Prompts render as a plain-text bubble, not parsed markdown — but the
+    // raw text is still offered via the same copy affordance as outputs.
+    expect(html).toContain("copy-md-btn");
+    expect(html).toContain('data-md="What is goose?"');
+    expect(html).not.toContain("<strong>");
+  });
+
   it("surfaces reasoning in collapsible thinking blocks", async () => {
     const { html } = await renderSession("gamma");
     expect(html).toContain("Thinking");

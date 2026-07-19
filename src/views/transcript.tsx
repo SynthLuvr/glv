@@ -6,7 +6,7 @@ import { detectPrUrl } from "../pr.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import type { RunHandle } from "../runner/index.js";
 import { PrChip } from "./chips.js";
-import { hasContent, MessageView } from "./message-blocks.js";
+import { CopyButton, hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
 
 const MetaChip = ({
@@ -85,7 +85,10 @@ const SubmittedPrompt = ({ prompt }: { prompt: string }) => (
       <span class="tag prompt">▸ PROMPT</span>
     </div>
     <div class="message-body">
-      <p class="message-text">{prompt}</p>
+      <div class="markdown-wrap">
+        <p class="message-text">{prompt}</p>
+        <CopyButton text={prompt} />
+      </div>
     </div>
   </article>
 );
@@ -100,7 +103,10 @@ const QueuedPrompt = ({ prompt }: { prompt: string }) => (
       <span class="queued-badge">⏳ Queued</span>
     </div>
     <div class="message-body">
-      <p class="message-text">{prompt}</p>
+      <div class="markdown-wrap">
+        <p class="message-text">{prompt}</p>
+        <CopyButton text={prompt} />
+      </div>
     </div>
   </article>
 );
