@@ -1,3 +1,4 @@
+import type { Socket } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
@@ -15,16 +16,40 @@ type ServeOpts = {
   rpIdOverride?: string;
 };
 
-// close() stops accepting connections; in-flight requests drain asynchronously.
+// close() stops accepting new connections; in-flight requests drain
+// asynchronously, so long-lived ones (SSE streams) must be torn down by hand.
 type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
+};
+
+// A server that surfaces every socket it opens so shutdown can destroy them.
+type ConnectionTrackingServer = CloseableServer & {
+  on: (event: "connection", listener: (socket: Socket) => void) => void;
 };
 
 const closeServer = (server: CloseableServer): Promise<void> =>
   new Promise((resolve) => server.close(() => resolve()));
 
+// Tracks live sockets so a destroyer can force them down. Without this,
+// server.close()'s callback waits for in-flight SSE requests — which never end
+// on their own — and a single Ctrl+C hangs until the browser disconnects,
+// forcing a second Ctrl+C to hit the force-exit escape hatch.
+const trackConnections = (server: ConnectionTrackingServer): (() => void) => {
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+  });
+  return () => {
+    for (const socket of sockets) socket.destroy();
+  };
+};
+
 type ShutdownDeps = {
   server: CloseableServer;
+  destroyConnections: () => void;
   stopProcesses: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
@@ -41,6 +66,9 @@ const createShutdown = (
       return;
     }
     draining = true;
+    // Tear down live sockets first so close()'s drain resolves promptly; the
+    // SSE poll loops would otherwise keep the callback pending indefinitely.
+    deps.destroyConnections();
     await closeServer(deps.server);
     deps.stopProcesses();
     deps.closeDbs();
@@ -86,6 +114,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) =>
     console.log(`glv web viewer → http://localhost:${info.port}`),
   );
+  const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
     db.close();
@@ -99,6 +128,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
 
   const shutdown = createShutdown({
     server,
+    destroyConnections,
     stopProcesses: () => stopAll(runner),
     closeDbs,
     exit: (code?: number) => process.exit(code),
@@ -106,4 +136,10 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   registerShutdown(shutdown);
 };
 
-export { closeServer, createShutdown, registerShutdown, runServe };
+export {
+  closeServer,
+  createShutdown,
+  registerShutdown,
+  runServe,
+  trackConnections,
+};
