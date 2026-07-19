@@ -22,13 +22,15 @@ const Shell = ({
   runningIds,
   logout = false,
   children,
+  title,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   selectedId: string | undefined;
   runningIds: Set<string>;
   logout?: boolean;
+  title: string;
 }>) => (
-  <Layout title="Goose Sessions">
+  <Layout title={title}>
     <div class="app">
       <Sidebar
         sessions={sessions}
@@ -55,9 +57,11 @@ const render = (
   {
     refreshSidebar = false,
     status = 200,
+    title = "Goose Log Viewer",
   }: {
     refreshSidebar?: boolean;
     status?: ContentfulStatusCode;
+    title?: string;
   } = {},
 ) => {
   const runningIds = activeSessionIds(ctx.runner);
@@ -83,6 +87,7 @@ const render = (
           selectedId={selectedId}
           runningIds={runningIds}
           logout={showLogout}
+          title={title}
         >
           {detail}
         </Shell>,
@@ -97,7 +102,7 @@ const renderNotFound = (c: Context<AppEnv>, ctx: ServerContext, id: string) =>
     listSessions(ctx.db, VIEWER_FILTER),
     undefined,
     <NotFoundDetail id={id} />,
-    { status: 404 },
+    { status: 404, title: "Session not found — Goose Log Viewer" },
   );
 
 const newSessionDetail = (

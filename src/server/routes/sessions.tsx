@@ -11,7 +11,7 @@ import {
   type SessionRow,
   sessionIdsInDir,
 } from "../../db.js";
-import { parseMessage } from "../../format/index.js";
+import { displayName, parseMessage } from "../../format/index.js";
 import {
   type CloneJob,
   clonePathFor,
@@ -62,6 +62,13 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const libraryPrompts = (): SavedPrompt[] =>
     ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
 
+  // Page titles — the app brand is "Goose Log Viewer". Sub-pages use an
+  // em-dash suffix; the home/root uses the bare brand (no dash).
+  const NEW_SESSION_TITLE = "New Session — Goose Log Viewer";
+  const NOT_FOUND_TITLE = "Session not found — Goose Log Viewer";
+  const sessionTitle = (name: string): string =>
+    `${displayName(name)} — Goose Log Viewer`;
+
   app.get("/", (c) =>
     render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
   );
@@ -76,6 +83,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       sessionsAll(),
       undefined,
       newSessionDetail(ctx, { workingDir }),
+      { title: NEW_SESSION_TITLE },
     );
   });
 
@@ -112,7 +120,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           branch: branchVal || undefined,
           workingDir,
         }),
-        { status },
+        { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
@@ -186,6 +194,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           jobId={jobId}
           cloning={true}
         />,
+        { title: NEW_SESSION_TITLE },
       );
     }
 
@@ -255,7 +264,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         prompt={prompt}
         prompts={libraryPrompts()}
       />,
-      { refreshSidebar: true },
+      { refreshSidebar: true, title: sessionTitle(session.name) },
     );
   });
 
@@ -266,6 +275,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     if (session === undefined)
       return render(c, ctx, sessions, undefined, <NotFoundDetail id={id} />, {
         status: 404,
+        title: NOT_FOUND_TITLE,
       });
     const messages = listMessages(ctx.db, id).map(parseMessage);
     // Surfaced so a re-render after the stream reflects the run's outcome.
@@ -284,7 +294,10 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         run={run}
         prompts={libraryPrompts()}
       />,
-      { refreshSidebar: c.req.query("sidebar") === "1" },
+      {
+        refreshSidebar: c.req.query("sidebar") === "1",
+        title: sessionTitle(session.name),
+      },
     );
   });
 
@@ -293,6 +306,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     archiveSessions(ctx.db, [id]);
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,
+      title: NEW_SESSION_TITLE,
     });
   });
 
@@ -327,6 +341,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           run={run}
           prompts={libraryPrompts()}
         />,
+        { title: sessionTitle(updated.name) },
       );
     }
     return c.html(
@@ -395,6 +410,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         prompt={activePrompt}
         prompts={libraryPrompts()}
       />,
+      { title: sessionTitle(session.name) },
     );
   });
 
@@ -418,6 +434,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         prompt={activeRunPrompt(run)}
         prompts={libraryPrompts()}
       />,
+      { title: sessionTitle(session.name) },
     );
   });
 
@@ -437,6 +454,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         messages={messages}
         prompts={libraryPrompts()}
       />,
+      { title: sessionTitle(session.name) },
     );
   });
 };
