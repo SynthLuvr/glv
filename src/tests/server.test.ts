@@ -2471,6 +2471,24 @@ describe("PR status endpoint GET /sessions/:id/pr-state", () => {
     expect(body).toContain("Open");
   });
 
+  it("holds the badge while the session run is still active", async () => {
+    // gh would resolve the PR as open, but the run is in progress, so the
+    // badge (which reads as "finished") must not appear on a mid-run refresh.
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
+    const app = createApp(db, runner, {
+      runPrState: async () => ({ stdout: '{"state":"OPEN"}' }),
+    });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hi" });
+    expect(getHandle(runner, "alpha")?.status).toBe("running");
+    const body = await (
+      await app.request(
+        `/sessions/alpha/pr-state?url=${encodeURIComponent(PR_URL)}`,
+      )
+    ).text();
+    expect(body).toBe("");
+  });
+
   it("returns a purple merged-tinted badge for MERGED", async () => {
     const body = await (await fetchState('{"state":"MERGED"}')).text();
     expect(body).toContain("pr-state-merged");
