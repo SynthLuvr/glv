@@ -3,6 +3,7 @@ import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionRow } from "../db.js";
 import { listSessions } from "../db.js";
+import { listCategories, listPrompts } from "../prompts/db.js";
 import { Layout } from "../views/Layout.js";
 import {
   NewSessionForm,
@@ -105,15 +106,22 @@ const newSessionDetail = (
   source: SourceType = "working_dir",
   repo?: string,
   branch?: string,
-): Child => (
-  <NewSessionForm
-    workingDir={process.cwd()}
-    dirs={ctx.listDirs()}
-    error={error}
-    source={source}
-    repo={repo}
-    branch={branch}
-  />
-);
+): Child => {
+  const db = ctx.prompts;
+  const prompts = db !== undefined ? listPrompts(db) : [];
+  const categories = db !== undefined ? listCategories(db) : [];
+  return (
+    <NewSessionForm
+      workingDir={process.cwd()}
+      dirs={ctx.listDirs()}
+      error={error}
+      source={source}
+      repo={repo}
+      branch={branch}
+      prompts={prompts}
+      categories={categories}
+    />
+  );
+};
 
 export { newSessionDetail, render, renderNotFound };
