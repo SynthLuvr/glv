@@ -315,6 +315,18 @@ describe("web viewer GET /", () => {
     expect(html).toContain('href="/sessions/alpha" hx-get="/sessions/alpha"');
   });
 
+  it("does not rewrite the URL when the out-of-band sidebar-meta loader fires", async () => {
+    // #session-list carries hx-push-url="true" so detail-pane swaps update the
+    // address bar. The sidebar-meta OOB loader is a child of #session-list, so
+    // without an explicit override it inherits that and rewrites the URL to
+    // /sessions/sidebar-meta on every page load.
+    const html = await renderRoot();
+    const dom = new JSDOM(html);
+    const loader = dom.window.document.querySelector(".sidebar-meta-loader");
+    expect(loader).not.toBeNull();
+    expect(loader?.getAttribute("hx-push-url")).toBe("false");
+  });
+
   it("does not force the detail pane to scroll to the top on navigation", async () => {
     // Scroll position is now remembered per session by stream.js; forcing
     // scrollTop:top here would override the restored offset.
