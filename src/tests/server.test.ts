@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { GitRunner } from "../git.js";
 import type { ProcessResult, SpawnFn } from "../runner/index.js";
 import {
   createRunner,
@@ -350,6 +351,12 @@ describe("web viewer GET /sessions/:id", () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("Alpha Session");
     expect(html).toContain("/tmp/alpha");
+  });
+
+  it("renders a lazy git-info hook in the session meta row", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain("/sessions/alpha/git-info");
+    expect(html).toContain('hx-trigger="load"');
   });
 
   it("keeps the sidebar and highlights the selected session", async () => {
@@ -2348,6 +2355,61 @@ describe("PR status endpoint GET /sessions/:id/pr-state", () => {
         `/sessions/alpha/pr-state?url=${encodeURIComponent(PR_URL)}`,
       )
     ).text();
+    expect(body).toBe("");
+  });
+});
+
+describe("git info endpoint GET /sessions/:id/git-info", () => {
+  // The runner is keyed on cwd so one fake answers any session.
+  const runnerFor =
+    (out: (cwd: string) => string): GitRunner =>
+    async (_args, cwd) => ({ stdout: out(cwd), exitCode: 0 });
+
+  const fetchGit = async (id: string, runGit?: GitRunner): Promise<string> => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), { runGit });
+    return (await app.request(`/sessions/${id}/git-info`)).text();
+  };
+
+  it("renders branch and worktree chips for a git repo session", async () => {
+    const body = await fetchGit(
+      "alpha",
+      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/feat/git-info\n`),
+    );
+    expect(body).toContain("git-chip-branch");
+    expect(body).toContain("feat/git-info");
+    expect(body).toContain("git-chip-worktree");
+    expect(body).toContain("/tmp/alpha");
+  });
+
+  it("renders only the worktree chip for a detached HEAD", async () => {
+    const body = await fetchGit(
+      "alpha",
+      runnerFor((cwd) => `worktree ${cwd}\ndetached\n`),
+    );
+    expect(body).toContain("git-chip-worktree");
+    expect(body).not.toContain("git-chip-branch");
+  });
+
+  it("returns an empty body when the working dir is not a git repo", async () => {
+    const body = await fetchGit("alpha", async () => ({
+      stdout: "fatal: not a git repository",
+      exitCode: 128,
+    }));
+    expect(body).toBe("");
+  });
+
+  it("returns an empty body for a missing session", async () => {
+    const body = await fetchGit(
+      "nope",
+      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/main\n`),
+    );
+    expect(body).toBe("");
+  });
+
+  it("never propagates a runner failure to the page", async () => {
+    const body = await fetchGit("alpha", async () => {
+      throw new Error("git missing");
+    });
     expect(body).toBe("");
   });
 });

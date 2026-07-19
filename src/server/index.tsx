@@ -16,6 +16,7 @@ import {
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerEventsRoutes } from "./routes/events.js";
+import { registerGitRoutes } from "./routes/git.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerPrRoutes } from "./routes/pr.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
@@ -43,6 +44,7 @@ const createApp = (
     statusPollMs: opts.statusPollMs ?? 1000,
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
+    runGit: opts.runGit,
     cloneJobs: new Map(),
     cloneJobTtlMs: opts.cloneJobTtlMs ?? CLONE_JOB_TTL_MS,
     cloneJobSweepMs: opts.cloneJobSweepMs ?? CLONE_JOB_SWEEP_MS,
@@ -74,6 +76,7 @@ const createApp = (
   registerGithubRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
   registerPrRoutes(app, ctx);
+  registerGitRoutes(app, ctx);
   registerPromptRoutes(app, ctx);
   registerStreamRoutes(app, ctx);
   registerEventsRoutes(app, ctx);
