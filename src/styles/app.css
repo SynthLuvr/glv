@@ -209,6 +209,9 @@ body {
   height: 1.3rem;
   margin: 0.02rem 0 0;
   cursor: pointer;
+  /* Raised above the stretched .session-link so the checkbox still works. */
+  position: relative;
+  z-index: 1;
 }
 .session-check {
   appearance: none;
@@ -260,6 +263,18 @@ body {
   min-width: 0;
   text-decoration: none;
   color: var(--color-text);
+}
+/*
+ * Stretched-link: an invisible ::before fills .session-item (its positioned
+ * ancestor) so every bit of empty space inside the card — padding, gaps, the
+ * meta-tags row — is a click on this <a> and navigates, matching the hover
+ * highlight that already covers the whole row. Interactive siblings stay on
+ * top via position: relative + z-index so they keep working.
+ */
+.session-link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 .session-item.selected {
   background: var(--color-accent-soft);
@@ -546,6 +561,10 @@ body {
   font-size: 0.8rem;
   line-height: 1.2;
   min-width: 0;
+  /* Raised above the stretched .session-link so it opens the PR, not the
+     session. */
+  position: relative;
+  z-index: 1;
   transition:
     border-color 0.12s ease,
     background 0.12s ease;
@@ -1576,6 +1595,9 @@ pre::-webkit-scrollbar-thumb {
 }
 .rename-wrap.is-sidebar .rename-pencil {
   opacity: 0;
+  /* Raised above the stretched .session-link so it stays clickable. */
+  position: relative;
+  z-index: 1;
 }
 .session-item:hover .rename-pencil,
 .session-item.selected .rename-pencil {
