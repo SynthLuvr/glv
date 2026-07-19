@@ -16,25 +16,22 @@ type ServeOpts = {
   rpIdOverride?: string;
 };
 
-// close() stops accepting new connections; in-flight requests drain
-// asynchronously, so long-lived ones (SSE streams) must be torn down by hand.
+// close() stops accepting connections; in-flight requests drain asynchronously.
 type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
 };
 
-// A server that surfaces every socket it opens so shutdown can destroy them.
-type ConnectionTrackingServer = CloseableServer & {
+type ConnectionEmitter = {
   on: (event: "connection", listener: (socket: Socket) => void) => void;
 };
 
 const closeServer = (server: CloseableServer): Promise<void> =>
   new Promise((resolve) => server.close(() => resolve()));
 
-// Tracks live sockets so a destroyer can force them down. Without this,
-// server.close()'s callback waits for in-flight SSE requests — which never end
-// on their own — and a single Ctrl+C hangs until the browser disconnects,
-// forcing a second Ctrl+C to hit the force-exit escape hatch.
-const trackConnections = (server: ConnectionTrackingServer): (() => void) => {
+// SSE streams never close on their own, so close()'s drain hangs while one is
+// attached. Track every socket so shutdown can force them down and a single
+// Ctrl+C exits instead of waiting for the browser to disconnect.
+const trackConnections = (server: ConnectionEmitter): (() => void) => {
   const sockets = new Set<Socket>();
   server.on("connection", (socket) => {
     sockets.add(socket);
@@ -66,8 +63,7 @@ const createShutdown = (
       return;
     }
     draining = true;
-    // Tear down live sockets first so close()'s drain resolves promptly; the
-    // SSE poll loops would otherwise keep the callback pending indefinitely.
+    // Destroy sockets before draining; close() hangs on open SSE streams.
     deps.destroyConnections();
     await closeServer(deps.server);
     deps.stopProcesses();
