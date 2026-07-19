@@ -90,8 +90,8 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     return streamSSE(c, async (stream) => {
       // Snapshot content_json to detect in-place edits, not just appends.
       let snapshots = listMessages(ctx.db, id).map((row) => row.content_json);
-      // A tailed session (started from the CLI/desktop) keeps its placeholder
-      // name until goose derives a title; tracking it lets the header follow.
+      // Goose derives a real title for CLI-started sessions mid-run; track the
+      // name so the transcript header can follow the rename.
       let lastName = initial.name;
       let polls = 0;
       while (!stream.aborted && polls < ctx.maxTailPolls) {
@@ -109,11 +109,9 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           return;
         }
 
-        // Push the live rename so the transcript header stops showing the
-        // stale placeholder goose wrote before it derived a real title.
         if (session.name !== lastName) {
           lastName = session.name;
-          const payload = JSON.stringify({ sessionId: id, name: session.name });
+          const payload = JSON.stringify({ name: session.name });
           if (!(await emit(stream, "rename", payload))) return;
         }
 

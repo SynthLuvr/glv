@@ -152,6 +152,14 @@ const applyReplace = (messages: Element | null, data: string): void => {
   else insertMessageInOrder(messages, parsed.index, parsed.html);
 };
 
+const applyRename = (data: string): void => {
+  const parsed: { name?: unknown } = JSON.parse(data);
+  if (typeof parsed.name !== "string") return;
+  const title = document.querySelector("#detail-pane .session-title");
+  if (title !== null)
+    title.textContent = parsed.name === "" ? "(unnamed)" : parsed.name;
+};
+
 type MetaUpdate = {
   updated: string;
   updatedTitle: string;
@@ -287,16 +295,10 @@ const connectTail = (root: Element): void => {
     }
   });
 
-  // Goose renames a tailed session once it derives a title; update the header
-  // so it no longer shows the stale placeholder (e.g. a CLI-started run).
   activeSource.addEventListener("rename", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    const title = document.querySelector("#detail-pane .session-title");
-    if (title === null) return;
     try {
-      const data: { name?: unknown } = JSON.parse(e.data);
-      if (typeof data.name === "string")
-        title.textContent = data.name === "" ? "(unnamed)" : data.name;
+      applyRename(e.data);
     } catch {
       /* ignore malformed rename payloads */
     }

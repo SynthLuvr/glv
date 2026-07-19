@@ -1537,8 +1537,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
 
     const res = await app.request("/sessions/alpha/tail");
 
-    // Let the baseline settle before goose (an external writer) derives a
-    // title and renames the session mid-run.
+    // Let the baseline settle before an external writer renames the session.
     await sleep(40);
 
     renameDb
@@ -1549,10 +1548,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     renameDb.close();
     rmSync(renameDir, { recursive: true, force: true });
 
-    // The transcript header must follow the rename instead of keeping the
-    // stale placeholder a CLI-started session is born with.
     expect(text).toContain("event: rename");
-    expect(text).toContain('"sessionId":"alpha"');
     expect(text).toContain('"name":"Refactor the parser"');
   });
 
