@@ -1,5 +1,3 @@
-import type { DatabaseSync } from "node:sqlite";
-import { getSession } from "../db.js";
 import type { Runner, RunStatus } from "../runner/index.js";
 import { isTerminalStatus } from "../runner/index.js";
 
@@ -26,20 +24,6 @@ const statusDeltas = (
   return result;
 };
 
-// Goose registers a session with a placeholder name and renames it mid-run,
-// so the name can change while the run is still active.
-const activeNames = (
-  db: DatabaseSync,
-  ids: Iterable<string>,
-): Map<string, string> => {
-  const names = new Map<string, string>();
-  for (const id of ids) {
-    const row = getSession(db, id);
-    if (row !== undefined) names.set(id, row.name);
-  }
-  return names;
-};
-
 const nameDeltas = (
   last: Map<string, string>,
   now: Map<string, string>,
@@ -50,10 +34,4 @@ const nameDeltas = (
   return result;
 };
 
-export {
-  activeNames,
-  activeSessionIds,
-  activeStatuses,
-  nameDeltas,
-  statusDeltas,
-};
+export { activeSessionIds, activeStatuses, nameDeltas, statusDeltas };

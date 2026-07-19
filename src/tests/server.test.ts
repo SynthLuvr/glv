@@ -2297,6 +2297,39 @@ describe("GET /events/status (SSE)", () => {
     expect(text).toContain('"sessionId":"alpha"');
     expect(text).toContain('"name":"Alpha Session"');
   });
+
+  it("emits a rename for a session the viewer did not start (CLI session)", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 20,
+      maxStatusPolls: 40,
+    });
+    try {
+      // No prompt is posted, so "alpha" is never added to the runner registry
+      // — it models a session started externally from the goose CLI. The feed
+      // must still push the rename once goose derives a title.
+      const statusPromise = (async () => {
+        const res = await app.request("/events/status");
+        return res.text();
+      })();
+      await sleep(30);
+
+      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(
+        "Refactor the parser",
+        "alpha",
+      );
+
+      const text = await statusPromise;
+      expect(text).toContain("event: rename");
+      expect(text).toContain('"sessionId":"alpha"');
+      expect(text).toContain('"name":"Refactor the parser"');
+    } finally {
+      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(
+        "Alpha Session",
+        "alpha",
+      );
+    }
+  });
 });
 
 describe("session-running indicator (client wiring)", () => {
