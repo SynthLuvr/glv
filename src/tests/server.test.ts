@@ -427,8 +427,7 @@ describe("transcript readability (markdown, thinking, tools)", () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("What is goose?");
     expect(html).toContain("▸ PROMPT");
-    // Prompts render as a plain-text bubble, not parsed markdown — but the
-    // raw text is still offered via the same copy affordance as outputs.
+    // Prompts render as plain text, not parsed markdown, yet stay copyable.
     expect(html).toContain("copy-md-btn");
     expect(html).toContain('data-md="What is goose?"');
     expect(html).not.toContain("<strong>");

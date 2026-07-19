@@ -51,9 +51,6 @@ const icon = (cls: string, children: Child) => (
   </svg>
 );
 
-// Hosts the hover-revealed "Copy as markdown" button. Both rendered prose
-// (output) and plain-text bubbles (prompts) share this so the copy affordance
-// is identical across message kinds.
 const CopyButton = ({ text }: { text: string }) => (
   <button
     type="button"
@@ -70,6 +67,16 @@ const CopyButton = ({ text }: { text: string }) => (
   </button>
 );
 
+// Plain-text bubble (e.g. a prompt) paired with the hover-revealed copy
+// button. Shared with the non-markdown TextBlock branch so prompts and
+// outputs expose the identical copy affordance.
+const CopyableText = ({ text }: { text: string }) => (
+  <div class="markdown-wrap">
+    <p class="message-text">{text}</p>
+    <CopyButton text={text} />
+  </div>
+);
+
 const TextBlock = ({
   text,
   asMarkdown,
@@ -83,10 +90,7 @@ const TextBlock = ({
       <CopyButton text={text} />
     </div>
   ) : (
-    <div class="markdown-wrap">
-      <p class="message-text">{text}</p>
-      <CopyButton text={text} />
-    </div>
+    <CopyableText text={text} />
   );
 
 const ThinkingBlock = ({ text }: { text: string }) => (
@@ -197,7 +201,7 @@ const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 
 export {
-  CopyButton,
+  CopyableText,
   hasContent,
   itemBlock,
   MessageView,

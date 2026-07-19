@@ -23,8 +23,7 @@ describe("renderStreamLine", () => {
     const html = renderStreamLine(line);
     expect(html).toContain("PROMPT");
     expect(html).toContain("What is goose?");
-    // Prompts stay a plain-text bubble (not parsed markdown) but gain the
-    // same "Copy as markdown" affordance outputs already have.
+    // Plain-text bubble (not parsed markdown), but still copyable.
     expect(html).toContain("copy-md-btn");
     expect(html).toContain('data-md="What is goose?"');
     expect(html).not.toContain("<strong>");
