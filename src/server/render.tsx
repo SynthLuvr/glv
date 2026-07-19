@@ -102,13 +102,19 @@ const renderNotFound = (c: Context<AppEnv>, ctx: ServerContext, id: string) =>
 
 const newSessionDetail = (
   ctx: ServerContext,
-  error?: string,
-  source: SourceType = "working_dir",
-  repo?: string,
-  branch?: string,
-  // Optional working directory to pre-fill (e.g. from the worktree chip link);
-  // falls back to the server's cwd when unset.
-  workingDir?: string,
+  {
+    error,
+    source = "working_dir",
+    repo,
+    branch,
+    workingDir,
+  }: {
+    error?: string;
+    source?: SourceType;
+    repo?: string;
+    branch?: string;
+    workingDir?: string;
+  } = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];

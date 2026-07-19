@@ -53,7 +53,7 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, "Clone job not found."),
+        newSessionDetail(ctx, { error: "Clone job not found." }),
         { status: 404 },
       );
 
@@ -76,7 +76,12 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, error, "github", job.repo, job.branch),
+        newSessionDetail(ctx, {
+          error,
+          source: "github",
+          repo: job.repo,
+          branch: job.branch,
+        }),
         { status },
       );
 

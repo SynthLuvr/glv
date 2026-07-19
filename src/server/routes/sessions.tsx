@@ -69,22 +69,13 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   // Registered before the /sessions/:id wildcard so "new" is treated as a
   // literal segment rather than a session id.
   app.get("/sessions/new", (c) => {
-    // A `working_dir` query param (e.g. from the worktree chip) pre-fills the
-    // form instead of defaulting to the server's cwd.
     const workingDir = c.req.query("working_dir") || undefined;
     return render(
       c,
       ctx,
       sessionsAll(),
       undefined,
-      newSessionDetail(
-        ctx,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        workingDir,
-      ),
+      newSessionDetail(ctx, { workingDir }),
     );
   });
 
@@ -100,6 +91,9 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     const branchVal = typeof body.branch === "string" ? body.branch.trim() : "";
     const promptId =
       typeof body.prompt_id === "string" ? body.prompt_id.trim() : "";
+    const workingDir = expandHome(
+      typeof body.working_dir === "string" ? body.working_dir.trim() : "",
+    );
 
     const rejectForm = (
       error: string,
@@ -111,18 +105,13 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        newSessionDetail(
-          ctx,
+        newSessionDetail(ctx, {
           error,
-          src,
-          repoVal || undefined,
-          branchVal || undefined,
-          // Preserve the working directory the user entered so a validation
-          // error (e.g. a blank prompt) doesn't reset the field.
-          expandHome(
-            typeof body.working_dir === "string" ? body.working_dir.trim() : "",
-          ),
-        ),
+          source: src,
+          repo: repoVal || undefined,
+          branch: branchVal || undefined,
+          workingDir,
+        }),
         { status },
       );
 
@@ -201,9 +190,6 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     }
 
     // Working directory flow
-    const workingDir = expandHome(
-      typeof body.working_dir === "string" ? body.working_dir.trim() : "",
-    );
     if (workingDir === "" || !existsSync(workingDir))
       return rejectForm("That working directory does not exist.", 422);
 

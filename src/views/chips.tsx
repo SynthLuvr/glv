@@ -16,8 +16,6 @@ type GitChipProps = {
   label: string;
   mono?: boolean;
   compact?: boolean;
-  // When set the chip renders as a link that swaps the detail pane, letting a
-  // chip act as navigation (the worktree chip pre-fills the New Session form).
   href?: string;
 };
 
@@ -45,9 +43,7 @@ const GitChipInner = ({
 );
 
 // `compact` swaps the kind-specific class for the shared `git-chip-sm` sizing
-// used by the sidebar. `href` turns the chip into an htmx link that swaps the
-// detail pane in place — the worktree chip uses it to start a new session with
-// that working directory pre-filled.
+// used by the sidebar.
 const GitChip = ({
   kind,
   icon,
