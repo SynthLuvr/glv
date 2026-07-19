@@ -315,6 +315,15 @@ describe("web viewer GET /", () => {
     expect(html).toContain('href="/sessions/alpha" hx-get="/sessions/alpha"');
   });
 
+  it("does not force the detail pane to scroll to the top on navigation", async () => {
+    // Scroll position is now remembered per session by stream.js; forcing
+    // scrollTop:top here would override the restored offset.
+    const html = await renderRoot();
+    expect(html).toContain('id="session-list"');
+    expect(html).toContain('hx-swap="innerHTML"');
+    expect(html).not.toContain("scrollTop:top");
+  });
+
   it("adds a selection checkbox to each session card", async () => {
     const html = await renderRoot();
     expect(html).toContain('class="session-check"');

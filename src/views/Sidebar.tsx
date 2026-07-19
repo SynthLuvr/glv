@@ -108,7 +108,7 @@ const SessionList = ({
     id="session-list"
     class="session-list"
     hx-target="#detail-pane"
-    hx-swap="innerHTML scrollTop:top"
+    hx-swap="innerHTML"
     hx-push-url="true"
     hx-swap-oob={oob ? "true" : undefined}
   >

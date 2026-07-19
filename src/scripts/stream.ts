@@ -34,6 +34,86 @@ const nearBottom = (): boolean => {
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
 };
 
+// #detail-pane survives htmx navigations (only its innerHTML is swapped), so
+// revisiting a session would otherwise jump back to the top. Remember each
+// session's scroll offset in localStorage and restore it on return.
+const STORAGE_PREFIX = "glv:scroll:";
+const SAVE_DEBOUNCE_MS = 150;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let scrollMemoryWired = false;
+
+// Scope to #detail-pane: sidebar cards also carry data-session-id (for the
+// running indicator) and precede the pane, so a bare selector would match a
+// card instead of the transcript root.
+const sessionRoot = (): Element | null =>
+  document.querySelector("#detail-pane [data-session-id]");
+
+// localStorage throws in private mode or when disabled; fall back to no memory.
+const safeStorage = (): Storage | null => {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const savedOffset = (id: string | null): number => {
+  const storage = safeStorage();
+  if (storage === null || id === null) return 0;
+  const value = Number.parseInt(storage.getItem(STORAGE_PREFIX + id) ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+const saveScroll = (): void => {
+  const pane = document.getElementById("detail-pane");
+  const id = sessionRoot()?.getAttribute("data-session-id") ?? null;
+  const storage = safeStorage();
+  if (pane === null || id === null || storage === null) return;
+  try {
+    storage.setItem(STORAGE_PREFIX + id, String(Math.round(pane.scrollTop)));
+  } catch {
+    /* quota exceeded — ignore */
+  }
+};
+
+// Save on every scroll (debounced) so a reload or back-button still has the
+// last offset, not only when navigating away.
+const scheduleSave = (): void => {
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveScroll, SAVE_DEBOUNCE_MS);
+};
+
+// Land on the saved offset after a swap. With nothing remembered, default to
+// the bottom for an active run (so live output is visible) and the top
+// otherwise.
+const restoreScroll = (): void => {
+  const root = sessionRoot();
+  const pane = document.getElementById("detail-pane");
+  if (root === null || pane === null) return;
+  const saved = savedOffset(root.getAttribute("data-session-id"));
+  if (saved > 0) {
+    pane.scrollTop = saved;
+    return;
+  }
+  const status = root.getAttribute("data-run-status");
+  if (status === "queued" || status === "running")
+    pane.scrollTop = pane.scrollHeight;
+};
+
+// #detail-pane and <body> both survive innerHTML swaps, so the listeners only
+// need attaching once.
+const wireScrollMemory = (): void => {
+  if (scrollMemoryWired) return;
+  const pane = document.getElementById("detail-pane");
+  if (pane === null) return;
+  pane.addEventListener("scroll", scheduleSave, { passive: true });
+  document.body.addEventListener("htmx:beforeSwap", (e) => {
+    if (!(e instanceof CustomEvent)) return;
+    if (e.detail?.target?.id === "detail-pane") saveScroll();
+  });
+  scrollMemoryWired = true;
+};
+
 // A message that was previously empty (and thus absent from the DOM) may
 // later gain content. Insert it in timestamp order rather than always at the
 // end, so the transcript stays correctly sequenced.
@@ -219,12 +299,13 @@ const connectTail = (root: Element): void => {
 
 const init = (): void => {
   teardown();
-  // Sidebar cards carry data-session-id too (for the running indicator) and
-  // precede #detail-pane, so a bare selector matches a sidebar card rather
-  // than the transcript root.
-  const root = document.querySelector("#detail-pane [data-session-id]");
+  wireScrollMemory();
+  const root = sessionRoot();
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
+  // Restore before connecting so an active run's first streamed line doesn't
+  // fight a stale default position.
+  restoreScroll();
   if (status === "queued" || status === "running") connectRunner(root);
   else connectTail(root);
 };
