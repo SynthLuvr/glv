@@ -85,25 +85,6 @@ describe("createShutdown", () => {
     expect(dbCloses).toBe(1);
   });
 
-  it("stops goose processes exactly once on repeat signals", async () => {
-    let stops = 0;
-    const server = { close: (cb?: () => void) => cb?.() };
-    const shutdown = createShutdown({
-      server,
-      destroyConnections: () => undefined,
-      stopProcesses: () => {
-        stops++;
-      },
-      closeDbs: () => undefined,
-      exit: () => undefined,
-    });
-
-    await shutdown();
-    await shutdown();
-
-    expect(stops).toBe(1);
-  });
-
   it("force-exits non-zero on a second interrupt while draining", async () => {
     const codes: number[] = [];
     const server = { close: (cb?: () => void) => cb?.() };

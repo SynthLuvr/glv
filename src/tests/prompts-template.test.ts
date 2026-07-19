@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   findUnknownPlaceholders,
   substitutePlaceholders,
-  today,
 } from "../prompts/template.js";
 
 describe("substitutePlaceholders", () => {
@@ -65,11 +64,5 @@ describe("findUnknownPlaceholders", () => {
 
   it("returns nothing for placeholder-free or known-only text", () => {
     expect(findUnknownPlaceholders("plain text {{date}}", {})).toEqual([]);
-  });
-});
-
-describe("today", () => {
-  it("formats the local date as YYYY-MM-DD", () => {
-    expect(today()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

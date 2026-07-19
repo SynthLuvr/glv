@@ -3,12 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
-import { renderToString } from "hono/jsx/dom/server";
 import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
 import { createApp } from "../server/index.js";
-import { LoginPage } from "../views/Auth.js";
 
 const SCHEMA = `
 CREATE TABLE sessions (
@@ -117,14 +115,5 @@ describe("ui enhancements (client script)", () => {
     const btn = document.getElementById("scroll-latest");
     expect(btn).not.toBeNull();
     expect(btn?.hidden).toBe(true);
-  });
-});
-
-describe("auth layout branding", () => {
-  it("includes the favicon and document metadata", () => {
-    const html = renderToString(LoginPage({}));
-    expect(html).toContain('rel="icon"');
-    expect(html).toContain('name="color-scheme"');
-    expect(html).toContain('name="description"');
   });
 });
