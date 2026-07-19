@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { GitRunner } from "../git.js";
 import type { ProcessResult, SpawnFn } from "../runner/index.js";
 import {
   createRunner,
@@ -2361,21 +2362,10 @@ describe("PR status endpoint GET /sessions/:id/pr-state", () => {
 describe("git info endpoint GET /sessions/:id/git-info", () => {
   // The runner is keyed on cwd so one fake answers any session.
   const runnerFor =
-    (
-      out: (cwd: string) => string,
-    ): ((
-      args: readonly string[],
-      cwd: string,
-    ) => Promise<{ stdout: string; exitCode: number }>) =>
+    (out: (cwd: string) => string): GitRunner =>
     async (_args, cwd) => ({ stdout: out(cwd), exitCode: 0 });
 
-  const fetchGit = async (
-    id: string,
-    runGit?: (
-      args: readonly string[],
-      cwd: string,
-    ) => Promise<{ stdout: string; exitCode: number }>,
-  ): Promise<string> => {
+  const fetchGit = async (id: string, runGit?: GitRunner): Promise<string> => {
     const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), { runGit });
     return (await app.request(`/sessions/${id}/git-info`)).text();
   };

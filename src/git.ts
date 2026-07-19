@@ -2,13 +2,12 @@ import { execa } from "execa";
 
 type GitResult = { stdout: string; exitCode: number };
 
-// Low-level runner so tests inject a fake without touching the filesystem.
 type GitRunner = (args: readonly string[], cwd: string) => Promise<GitResult>;
 
 const GIT_TIMEOUT_MS = 5000;
 
-// `reject: false` turns a non-zero exit into a result; a missing binary or a
-// non-existent cwd still throws (caught by readGitInfo).
+// `reject: false` makes a non-zero exit a result; a missing binary or bad cwd
+// still throws (caught by readGitInfo).
 const runGit: GitRunner = async (args, cwd) => {
   const result = await execa("git", [...args], {
     cwd,
@@ -29,11 +28,8 @@ type WorktreeBlock = {
   detached: boolean;
 };
 
-// `git worktree list --porcelain` emits blank-line-separated blocks, each
-// opening with `worktree <path>` and carrying `branch refs/heads/<name>`
-// (or a bare `detached` line). A single call yields both the worktree
-// directory and the branch checked out in it — no second transcript scan
-// is needed.
+// `git worktree list --porcelain` emits blank-line-separated blocks opening
+// with `worktree <path>` and a `branch refs/heads/<name>` or `detached` line.
 const parseWorktreeList = (stdout: string): WorktreeBlock[] => {
   const blocks: WorktreeBlock[] = [];
   let path: string | undefined;
@@ -60,8 +56,8 @@ const parseWorktreeList = (stdout: string): WorktreeBlock[] => {
   return blocks;
 };
 
-// The session may run in a subdirectory of a worktree, so match the deepest
-// (most specific) worktree path that contains the working directory.
+// A session may run in a subdirectory of a worktree, so pick the deepest
+// (most specific) enclosing path.
 const findWorktree = (
   blocks: readonly WorktreeBlock[],
   cwd: string,
@@ -72,23 +68,30 @@ const findWorktree = (
   return matches[0];
 };
 
+const resolveGitInfo = async (
+  cwd: string,
+  run: GitRunner,
+): Promise<GitInfo> => {
+  const result = await run(["worktree", "list", "--porcelain"], cwd);
+  if (result.exitCode !== 0) return {};
+  const block = findWorktree(parseWorktreeList(result.stdout), cwd);
+  if (block === undefined) return {};
+  const info: GitInfo = { worktree: block.path };
+  if (!block.detached && block.branch !== undefined && block.branch !== "")
+    info.branch = block.branch;
+  return info;
+};
+
 const readGitInfo = async (
   cwd: string,
   run: GitRunner = runGit,
 ): Promise<GitInfo> => {
   try {
-    const result = await run(["worktree", "list", "--porcelain"], cwd);
-    if (result.exitCode !== 0) return {};
-    const block = findWorktree(parseWorktreeList(result.stdout), cwd);
-    if (block === undefined) return {};
-    const info: GitInfo = { worktree: block.path };
-    if (!block.detached && block.branch !== undefined && block.branch !== "")
-      info.branch = block.branch;
-    return info;
+    return await resolveGitInfo(cwd, run);
   } catch {
     return {};
   }
 };
 
-export type { GitInfo, GitResult, GitRunner, WorktreeBlock };
+export type { GitInfo, GitRunner, WorktreeBlock };
 export { findWorktree, parseWorktreeList, readGitInfo };

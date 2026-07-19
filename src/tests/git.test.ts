@@ -10,10 +10,9 @@ import {
 
 const block = (
   path: string,
-  opts: { branch?: string; detached?: boolean; head?: string } = {},
+  opts: { branch?: string; detached?: boolean } = {},
 ): string => {
   const lines = [`worktree ${path}`];
-  if (opts.head !== undefined) lines.push(`HEAD ${opts.head}`);
   if (opts.detached) lines.push("detached");
   else if (opts.branch !== undefined)
     lines.push(`branch refs/heads/${opts.branch}`);
