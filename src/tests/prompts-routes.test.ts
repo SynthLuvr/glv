@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  bumpUsage,
   createPrompt,
   getPrompt,
   listPrompts,
@@ -245,5 +246,75 @@ describe("run flow with a saved prompt", () => {
       { "HX-Request": "true" },
     );
     expect(getPrompt(promptsDb, prompt.id)?.usageCount).toBe(0);
+  });
+});
+
+describe("prompt library view modes", () => {
+  it("renders both view toggles in the toolbar", async () => {
+    const html = await (await makeApp().request("/prompts")).text();
+    expect(html).toContain("Frequently used");
+    expect(html).toContain("Group by category");
+  });
+
+  it("groups prompts into collapsible category sections", async () => {
+    createPrompt(promptsDb, {
+      title: "GroupedA",
+      body: "b",
+      category: "alpha",
+    });
+    createPrompt(promptsDb, { title: "GroupedB", body: "b", category: "beta" });
+    createPrompt(promptsDb, { title: "GroupedUncat", body: "b" });
+    const html = await (await makeApp().request("/prompts?grouped=1")).text();
+    expect(html).toContain("prompt-group");
+    expect(html).toContain("prompt-group-name");
+    // Categorised sections appear, uncategorised lands in "Ungrouped".
+    expect(html).toContain("alpha");
+    expect(html).toContain("beta");
+    expect(html).toContain("Ungrouped");
+  });
+
+  it("orders by usage when sort=usage", async () => {
+    const hot = createPrompt(promptsDb, { title: "UsageHot", body: "b" });
+    createPrompt(promptsDb, { title: "UsageCold", body: "b" });
+    bumpUsage(promptsDb, hot.id);
+    bumpUsage(promptsDb, hot.id);
+    const html = await (await makeApp().request("/prompts?sort=usage")).text();
+    // The frequently-used prompt must render before the never-used one.
+    expect(html.indexOf("UsageHot")).toBeLessThan(html.indexOf("UsageCold"));
+  });
+
+  it("marks the active toggle state in the rendered toolbar", async () => {
+    const grouped = await (
+      await makeApp().request("/prompts?grouped=1")
+    ).text();
+    expect(grouped).toContain("prompt-toggle active");
+    const usage = await (await makeApp().request("/prompts?sort=usage")).text();
+    expect(usage).toContain("prompt-toggle active");
+  });
+});
+
+describe("manual reordering endpoint", () => {
+  it("persists the posted order via POST /prompts/reorder", async () => {
+    const first = createPrompt(promptsDb, { title: "ReorderFirst", body: "b" });
+    const second = createPrompt(promptsDb, {
+      title: "ReorderSecond",
+      body: "b",
+    });
+    const res = await makeApp().request("/prompts/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `order=${encodeURIComponent([second.id, first.id].join(","))}`,
+    });
+    expect(res.status).toBe(200);
+    // second now sorts ahead of first.
+    expect(getPrompt(promptsDb, second.id)?.sortOrder).toBeLessThan(
+      getPrompt(promptsDb, first.id)?.sortOrder ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("is a 404 when the prompts store is disabled", async () => {
+    const app = createApp(sessionsDb, createRunner(DEFAULT_RUNNER_CONFIG), {});
+    const res = await app.request("/prompts/reorder", { method: "POST" });
+    expect(res.status).toBe(404);
   });
 });

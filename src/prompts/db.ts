@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { defineTable, placeholders } from "../query.js";
+import { defineTable, placeholders, transaction } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
 // in a glv-owned, read-write database (never the goose sessions DB, which is
@@ -26,6 +26,10 @@ type PromptInput = {
   body: string;
   category?: string;
 };
+
+// "order" is the default manual ordering (sort_order then recency);
+// "usage" surfaces frequently-run prompts first for the power-user toggle.
+type PromptSort = "order" | "usage";
 
 const defaultPromptsDbPath = (): string =>
   join(homedir(), ".local", "share", "glv", "prompts.db");
@@ -101,10 +105,16 @@ const normalizeCategory = (category: string | undefined): string | null => {
   return trimmed === "" ? null : trimmed;
 };
 
-const listPrompts = (db: DatabaseSync): SavedPrompt[] =>
+const listPrompts = (
+  db: DatabaseSync,
+  sort: PromptSort = "order",
+): SavedPrompt[] =>
   savedPrompts
     .all(db, {
-      orderBy: "sort_order ASC, last_used_at DESC NULLS LAST",
+      orderBy:
+        sort === "usage"
+          ? "usage_count DESC, last_used_at DESC NULLS LAST"
+          : "sort_order ASC, last_used_at DESC NULLS LAST",
     })
     .map(mapPrompt);
 
@@ -153,6 +163,21 @@ const bumpUsage = (db: DatabaseSync, id: string): void => {
   });
 };
 
+// Persists a full manual ordering in one transaction. Each id receives a
+// monotonically increasing sort_order matching its position in `ids`, so
+// drag-to-reorder stays consistent across reloads.
+const reorderPrompts = (db: DatabaseSync, ids: string[]): void => {
+  transaction(db, () => {
+    ids.forEach((id, index) => {
+      savedPrompts.update(db, {
+        set: "sort_order = ?",
+        where: "id = ?",
+        params: [index, id],
+      });
+    });
+  });
+};
+
 const listCategories = (db: DatabaseSync): string[] => {
   const rows = categories.all(db, {
     where: "category IS NOT NULL",
@@ -161,7 +186,7 @@ const listCategories = (db: DatabaseSync): string[] => {
   return [...new Set(rows.map((row) => row.category))];
 };
 
-export type { PromptInput, SavedPrompt };
+export type { PromptInput, PromptSort, SavedPrompt };
 export {
   bumpUsage,
   createPrompt,
@@ -170,6 +195,7 @@ export {
   listCategories,
   listPrompts,
   openPromptsDb,
+  reorderPrompts,
   resolvePromptsDbPath,
   updatePrompt,
 };

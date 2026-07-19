@@ -1,11 +1,12 @@
 import { type Hono } from "hono";
-import type { PromptInput } from "../../prompts/db.js";
+import type { PromptInput, PromptSort } from "../../prompts/db.js";
 import {
   createPrompt,
   deletePrompt,
   getPrompt,
   listCategories,
   listPrompts,
+  reorderPrompts,
   updatePrompt,
 } from "../../prompts/db.js";
 import {
@@ -35,12 +36,32 @@ const registerPromptRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
   app.get("/prompts", (c) => {
     if (prompts === undefined) return c.notFound();
+    const grouped = c.req.query("grouped") === "1";
+    const sortBy: PromptSort =
+      c.req.query("sort") === "usage" ? "usage" : "order";
     return c.html(
       <PromptLibrary
-        prompts={listPrompts(prompts)}
+        prompts={listPrompts(prompts, sortBy)}
         categories={listCategories(prompts)}
+        grouped={grouped}
+        sortBy={sortBy}
       />,
     );
+  });
+
+  // Persists a manual reordering from drag-and-drop. Accepts a single
+  // comma-separated `order` field of ids; assigns sort_order by position.
+  // Returns an empty 200 — the DOM is already reordered client-side.
+  app.post("/prompts/reorder", async (c) => {
+    if (prompts === undefined) return c.notFound();
+    const body = await c.req.parseBody();
+    const raw = typeof body.order === "string" ? body.order : "";
+    const ids = raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id !== "");
+    if (ids.length > 0) reorderPrompts(prompts, ids);
+    return c.body(null, 200);
   });
 
   // Inline save form, loaded into the save slot on demand.

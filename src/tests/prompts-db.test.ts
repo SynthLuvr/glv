@@ -11,6 +11,7 @@ import {
   listCategories,
   listPrompts,
   openPromptsDb,
+  reorderPrompts,
   resolvePromptsDbPath,
   updatePrompt,
 } from "../prompts/db.js";
@@ -187,6 +188,47 @@ describe("list ordering and categories", () => {
     expect(listCategories(db)).toContain("x");
     // No duplicates and no empties.
     expect(new Set(listCategories(db)).size).toBe(listCategories(db).length);
+  });
+});
+
+describe("manual reordering and usage sort", () => {
+  let db: DatabaseSync;
+  let dir: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "glv-prompts-reorder-"));
+    db = openPromptsDb(join(dir, "prompts.db"));
+  });
+
+  afterAll(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("assigns sort_order by position so the list mirrors the given order", () => {
+    const a = createPrompt(db, { title: "A", body: "a" });
+    const b = createPrompt(db, { title: "B", body: "b" });
+    const c = createPrompt(db, { title: "C", body: "c" });
+    reorderPrompts(db, [c.id, a.id, b.id]);
+    expect(listPrompts(db).map((p) => p.title)).toEqual(["C", "A", "B"]);
+  });
+
+  it("is a no-op for an empty id list", () => {
+    expect(() => reorderPrompts(db, [])).not.toThrow();
+    expect(listPrompts(db).length).toBeGreaterThan(0);
+  });
+
+  it("'usage' sort surfaces the most-run prompt first", () => {
+    const x = createPrompt(db, { title: "X", body: "x" });
+    const y = createPrompt(db, { title: "Y", body: "y" });
+    bumpUsage(db, y.id);
+    bumpUsage(db, y.id);
+    bumpUsage(db, x.id);
+    const byUsage = listPrompts(db, "usage");
+    // Y has the highest count, so it precedes X regardless of sort_order.
+    expect(byUsage.findIndex((p) => p.title === "Y")).toBeLessThan(
+      byUsage.findIndex((p) => p.title === "X"),
+    );
   });
 });
 
