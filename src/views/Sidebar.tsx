@@ -124,6 +124,11 @@ const SessionList = ({
       hx-get="/sessions/sidebar-meta"
       hx-trigger="load"
       hx-swap="none"
+      // #session-list sets hx-push-url="true" so detail-pane swaps update the
+      // address bar; this loader is a child of it, so without an explicit
+      // override the OOB request on load would rewrite the URL to
+      // /sessions/sidebar-meta.
+      hx-push-url="false"
       aria-hidden="true"
     ></div>
     {sessions.map((session) => (
