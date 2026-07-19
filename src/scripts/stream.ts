@@ -34,6 +34,87 @@ const nearBottom = (): boolean => {
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
 };
 
+// ---------- scroll-position memory ----------
+// #detail-pane persists across htmx navigations (only its innerHTML is
+// swapped), so without intervention revisiting a session always jumps back
+// to the top. We remember each session's scroll offset in localStorage and
+// restore it so the reader lands where they left off.
+const STORAGE_PREFIX = "glv:scroll:";
+const SCROLL_SAVE_DEBOUNCE_MS = 150;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let scrollMemoryWired = false;
+
+const activeSessionId = (): string | null => {
+  const root = document.querySelector("#detail-pane [data-session-id]");
+  return root?.getAttribute("data-session-id") ?? null;
+};
+
+const safeStorage = (): Storage | null => {
+  try {
+    return localStorage;
+  } catch {
+    // Private mode / disabled storage — degrade gracefully to no memory.
+    return null;
+  }
+};
+
+const saveScroll = (): void => {
+  const id = activeSessionId();
+  if (id === null) return;
+  const pane = document.getElementById("detail-pane");
+  if (pane === null) return;
+  const storage = safeStorage();
+  if (storage === null) return;
+  try {
+    storage.setItem(STORAGE_PREFIX + id, String(Math.round(pane.scrollTop)));
+  } catch {
+    /* quota exceeded — skip */
+  }
+};
+
+// Persist continuously so a reload or back-button still has the last offset.
+const debouncedSaveScroll = (): void => {
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveScroll, SCROLL_SAVE_DEBOUNCE_MS);
+};
+
+// After a swap, land on the saved offset. With nothing remembered, default
+// to the bottom for an active run (so live output is visible) and the top
+// otherwise. Runs after htmx's swap so the new content is laid out.
+const restoreScroll = (): void => {
+  const root = document.querySelector("#detail-pane [data-session-id]");
+  const pane = document.getElementById("detail-pane");
+  if (root === null || pane === null) return;
+  const id = root.getAttribute("data-session-id");
+  const storage = safeStorage();
+  let saved: number | null = null;
+  if (storage !== null && id !== null) {
+    const raw = storage.getItem(STORAGE_PREFIX + id);
+    if (raw !== null) saved = Number.parseInt(raw, 10);
+  }
+  if (saved !== null && Number.isFinite(saved) && saved > 0) {
+    pane.scrollTop = saved;
+    return;
+  }
+  const status = root.getAttribute("data-run-status");
+  if (status === "queued" || status === "running")
+    pane.scrollTop = pane.scrollHeight;
+};
+
+// Attach the persistent listeners once. #detail-pane and <body> both survive
+// innerHTML swaps, so a single registration covers every navigation.
+const wireScrollMemory = (): void => {
+  if (scrollMemoryWired) return;
+  const pane = document.getElementById("detail-pane");
+  if (pane === null) return;
+  pane.addEventListener("scroll", debouncedSaveScroll, { passive: true });
+  document.body.addEventListener("htmx:beforeSwap", (e) => {
+    if (!(e instanceof CustomEvent)) return;
+    if (e.detail?.target?.id === "detail-pane") saveScroll();
+  });
+  scrollMemoryWired = true;
+};
+
 // A message that was previously empty (and thus absent from the DOM) may
 // later gain content. Insert it in timestamp order rather than always at the
 // end, so the transcript stays correctly sequenced.
@@ -219,12 +300,16 @@ const connectTail = (root: Element): void => {
 
 const init = (): void => {
   teardown();
+  wireScrollMemory();
   // Sidebar cards carry data-session-id too (for the running indicator) and
   // precede #detail-pane, so a bare selector matches a sidebar card rather
   // than the transcript root.
   const root = document.querySelector("#detail-pane [data-session-id]");
   if (root === null) return;
   const status = root.getAttribute("data-run-status");
+  // Restore before connecting so an active run's first streamed line doesn't
+  // fight a stale default position.
+  restoreScroll();
   if (status === "queued" || status === "running") connectRunner(root);
   else connectTail(root);
 };
