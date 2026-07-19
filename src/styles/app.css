@@ -313,17 +313,6 @@ body {
 .session-sub time {
   white-space: nowrap;
 }
-.provider-badge {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  padding: 0 0.35rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  color: var(--color-muted);
-}
-.token-count {
-  color: var(--color-faint);
-}
 .session-dir {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 0.68rem;

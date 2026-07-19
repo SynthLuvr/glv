@@ -271,10 +271,8 @@ describe("web viewer GET /", () => {
   it("surfaces session metadata in the sidebar cards", async () => {
     const html = await renderRoot();
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
     expect(html).toContain("session-item");
-    expect(html).toContain("provider-badge");
+    expect(html).toContain("run-indicator");
   });
 
   it("renders session names as links to the detail route", async () => {
@@ -352,8 +350,6 @@ describe("web viewer GET /sessions/:id", () => {
     const { html } = await renderSession("alpha");
     expect(html).toContain("Alpha Session");
     expect(html).toContain("/tmp/alpha");
-    expect(html).toContain("anthropic");
-    expect(html).toContain("1,234");
   });
 
   it("keeps the sidebar and highlights the selected session", async () => {
@@ -1879,9 +1875,16 @@ describe("M5: POST /sessions", () => {
     });
     const html = await res.text();
     expect(html).toContain('hx-swap-oob="true"');
-    // Scope to this session's sidebar entry; the shared test DB holds other
-    // leftover "session-N" rows from sibling tests.
-    const item = html.slice(html.lastIndexOf(`data-session-id="${id}"`));
+    // Scope to just this session's card. The shared test DB holds other
+    // leftover "session-N" rows from sibling tests, and slicing to the end
+    // of the document would wrongly include their names.
+    const marker = `data-session-id="${id}"`;
+    const start = html.lastIndexOf(marker);
+    const next = html.indexOf(
+      '<div class="session-item"',
+      start + marker.length,
+    );
+    const item = next === -1 ? html.slice(start) : html.slice(start, next);
     expect(item).toContain(">Build the project<");
     expect(item).not.toContain("session-1");
   });
