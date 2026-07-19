@@ -2207,6 +2207,60 @@ describe("GET /events/status (SSE)", () => {
     expect(text).toContain("alpha");
     expect(text).toContain("beta");
   });
+
+  it("emits a rename event when a session name changes mid-run", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 20,
+      maxStatusPolls: 40,
+    });
+    try {
+      // Connect before the run starts so the feed tracks alpha from the off.
+      const statusPromise = (async () => {
+        const res = await app.request("/events/status");
+        return res.text();
+      })();
+      await sleep(30);
+
+      // Start a run that stays alive long enough to be renamed mid-flight.
+      await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+      await sleep(60);
+
+      // goose renames the session mid-run once it has conversational context.
+      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(
+        "Build the project",
+        "alpha",
+      );
+
+      const text = await statusPromise;
+      expect(text).toContain("event: rename");
+      expect(text).toContain('"sessionId":"alpha"');
+      expect(text).toContain('"name":"Build the project"');
+    } finally {
+      // Restore the shared DB so sibling tests still see "Alpha Session".
+      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(
+        "Alpha Session",
+        "alpha",
+      );
+    }
+  });
+
+  it("emits the current name for active sessions on connect", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      statusPollMs: 15,
+      maxStatusPolls: 1,
+    });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
+
+    const res = await app.request("/events/status");
+    const text = await res.text();
+    // A reconnect must reconcile names that drifted during the disconnect,
+    // not just the running indicators.
+    expect(text).toContain("event: rename");
+    expect(text).toContain('"sessionId":"alpha"');
+    expect(text).toContain('"name":"Alpha Session"');
+  });
 });
 
 describe("session-running indicator (client wiring)", () => {

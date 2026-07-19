@@ -53,15 +53,33 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const findSessionItem = (sessionId: string): Element | null =>
+  document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+
 const setStatusIndicator = (sessionId: string, running: boolean): void => {
-  const item = document.querySelector(
-    `.session-item[data-session-id="${sessionId}"]`,
-  );
+  const item = findSessionItem(sessionId);
   if (item === null) return;
   item.toggleAttribute("data-running", running);
   item
     .querySelector(".run-indicator")
     ?.setAttribute("title", running ? "Session is running" : "Session idle");
+};
+
+// Goose derives a session name mid-run; the feed pushes it here so the card
+// updates live. Empty names render as "(unnamed)" to match displayName.
+const setSessionName = (sessionId: string, name: string): void => {
+  const item = findSessionItem(sessionId);
+  if (item === null) return;
+  const node = item.querySelector(".session-name");
+  if (node !== null) node.textContent = name === "" ? "(unnamed)" : name;
+};
+
+const safeParse = (data: string): unknown => {
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
 };
 
 // On (re)connect the server emits a full snapshot of active session ids.
@@ -70,12 +88,7 @@ const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
 const applySync = (data: string): void => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return;
-  }
+  const parsed = safeParse(data);
   if (!isStringArray(parsed)) return;
   const active = new Set(parsed);
   for (const item of document.querySelectorAll<HTMLElement>(
@@ -97,14 +110,25 @@ const isStatusPayload = (value: unknown): value is StatusPayload =>
   typeof value.status === "string";
 
 const onStatusEvent = (data: string): void => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return;
-  }
+  const parsed = safeParse(data);
   if (!isStatusPayload(parsed)) return;
   setStatusIndicator(parsed.sessionId, parsed.status !== "done");
+};
+
+type RenamePayload = { sessionId: string; name: string };
+
+const isRenamePayload = (value: unknown): value is RenamePayload =>
+  typeof value === "object" &&
+  value !== null &&
+  "sessionId" in value &&
+  typeof value.sessionId === "string" &&
+  "name" in value &&
+  typeof value.name === "string";
+
+const onRenameEvent = (data: string): void => {
+  const parsed = safeParse(data);
+  if (!isRenamePayload(parsed)) return;
+  setSessionName(parsed.sessionId, parsed.name);
 };
 
 const STATUS_RECONNECT_BASE_MS = 1000;
@@ -141,6 +165,10 @@ const connectStatusFeed = (): void => {
   statusSource.addEventListener("status", (e) => {
     if (!(e instanceof MessageEvent)) return;
     onStatusEvent(e.data);
+  });
+  statusSource.addEventListener("rename", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    onRenameEvent(e.data);
   });
   // EventSource auto-reconnects on transient failures, so only act on a
   // permanent close.

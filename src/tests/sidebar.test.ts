@@ -41,6 +41,15 @@ class MockEventSource {
   }
 }
 
+// Matches the sidebar's `instanceof MessageEvent` guard for test dispatch.
+class MockMessageEvent {
+  readonly data: string;
+
+  constructor(_type: string, init: { data: string }) {
+    this.data = init.data;
+  }
+}
+
 describe("status feed reconnection", () => {
   beforeEach(() => {
     MockEventSource.instances = [];
@@ -103,5 +112,70 @@ describe("status feed reconnection", () => {
     expect(MockEventSource.instances).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(1000);
     expect(MockEventSource.instances).toHaveLength(3);
+  });
+});
+
+describe("status feed session names", () => {
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    const dom = new JSDOM(
+      `<!DOCTYPE html><html><body>
+        <div class="session-item" data-session-id="alpha">
+          <span class="session-name">CLI session</span>
+        </div>
+      </body></html>`,
+    );
+    vi.stubGlobal("document", dom.window.document);
+    vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("MessageEvent", MockMessageEvent);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("updates the sidebar name when a rename event arrives", async () => {
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "rename",
+      new MockMessageEvent("rename", {
+        data: JSON.stringify({ sessionId: "alpha", name: "Build the project" }),
+      }),
+    );
+    expect(document.querySelector(".session-name")?.textContent).toBe(
+      "Build the project",
+    );
+  });
+
+  it("renders an empty name as (unnamed)", async () => {
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "rename",
+      new MockMessageEvent("rename", {
+        data: JSON.stringify({ sessionId: "alpha", name: "" }),
+      }),
+    );
+    expect(document.querySelector(".session-name")?.textContent).toBe(
+      "(unnamed)",
+    );
+  });
+
+  it("ignores a rename for an unknown session", async () => {
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "rename",
+      new MockMessageEvent("rename", {
+        data: JSON.stringify({ sessionId: "missing", name: "Nope" }),
+      }),
+    );
+    expect(document.querySelector(".session-name")?.textContent).toBe(
+      "CLI session",
+    );
   });
 });
