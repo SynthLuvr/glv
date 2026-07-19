@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import {
@@ -9,38 +10,36 @@ import {
 import { parseMessage } from "../../format/index.js";
 import { type GitRunner, readGitInfo } from "../../git.js";
 import { detectPrUrl } from "../../pr.js";
-import { SidebarBranchChip, SidebarPrChip } from "../../views/Sidebar.js";
+import { BranchChip, PrChip } from "../../views/chips.js";
 import type { AppEnv, ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 
-// Dedupe git lookups by working dir so N sessions in one repo spawn a single
-// `git worktree list` rather than N. Any failure degrades to "no branch".
+// One git lookup per unique working dir, not one per session; a non-repo or
+// any failure just yields no branch.
 const resolveBranches = async (
   sessions: readonly SessionRow[],
   runGit: GitRunner | undefined,
 ): Promise<Map<string, string>> => {
-  const byDir = new Map<string, string[]>();
-  for (const session of sessions) {
-    const ids = byDir.get(session.working_dir) ?? [];
-    ids.push(session.id);
-    byDir.set(session.working_dir, ids);
-  }
-  const result = new Map<string, string>();
-  if (runGit === undefined) return result;
+  if (runGit === undefined) return new Map();
+  const branchByDir = new Map<string, string>();
   await Promise.all(
-    [...byDir.entries()].map(async ([dir, ids]) => {
-      const info = await readGitInfo(dir, runGit);
-      if (info.branch === undefined) return;
-      for (const id of ids) result.set(id, info.branch);
+    [...new Set(sessions.map((s) => s.working_dir))].map(async (dir) => {
+      const { branch } = await readGitInfo(dir, runGit);
+      if (branch !== undefined) branchByDir.set(dir, branch);
     }),
   );
+  const result = new Map<string, string>();
+  for (const session of sessions) {
+    const branch = branchByDir.get(session.working_dir);
+    if (branch !== undefined) result.set(session.id, branch);
+  }
   return result;
 };
 
-// A SQL pre-filter trims to only sessions that mention a pull URL, so the
-// sidebar parses messages for those few rather than every session.
+// A SQL pre-filter trims to sessions that mention a pull URL, so only those
+// few get their messages parsed.
 const resolvePrUrls = (
-  db: ServerContext["db"],
+  db: DatabaseSync,
   sessions: readonly SessionRow[],
 ): Map<string, string> => {
   const candidates = prCandidateIds(
@@ -56,10 +55,10 @@ const resolvePrUrls = (
   return result;
 };
 
-// One lazy request resolves branch + PR for every sidebar session and returns
-// out-of-band swap fragments — one per session — that htmx places into each
-// item's `#sidebar-meta-<id>` slot. A plain (non-htmx) GET returns the same
-// fragment body so the endpoint stays testable without a full shell.
+// Resolves branch + PR for every sidebar session in one lazy request and
+// returns one out-of-band swap fragment per session into each item's
+// `#sidebar-meta-<id>` slot — so a list of any size is one request, not one
+// per item.
 const registerSidebarMetaRoutes = (
   app: Hono<AppEnv>,
   ctx: ServerContext,
@@ -79,9 +78,9 @@ const registerSidebarMetaRoutes = (
               class="session-meta-tags"
               hx-swap-oob="true"
             >
-              {branch !== undefined && <SidebarBranchChip branch={branch} />}
+              {branch !== undefined && <BranchChip branch={branch} compact />}
               {prUrl !== undefined && (
-                <SidebarPrChip id={session.id} url={prUrl} />
+                <PrChip sessionId={session.id} url={prUrl} compact />
               )}
             </span>
           );

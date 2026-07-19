@@ -5,68 +5,7 @@ import {
   shortenHome,
   truncateMiddle,
 } from "../format/index.js";
-import { prLabel } from "../pr.js";
 import { RenameWrap } from "./Rename.js";
-
-// Compact branch + PR indicators for the sidebar. Populated lazily by the
-// batched `/sessions/sidebar-meta` endpoint, which returns one out-of-band
-// swap fragment per session into each item's `#sidebar-meta-<id>` slot — so a
-// list of any size costs one request, not one per item. The PR state badge
-// then reuses the existing per-session pr-state endpoint.
-const BRANCH_ICON =
-  "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
-const PR_ICON =
-  "M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z";
-
-const SidebarBranchChip = ({ branch }: { branch: string }) => (
-  <span class="git-chip git-chip-sm" title={`git branch: ${branch}`}>
-    <svg
-      class="git-icon"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d={BRANCH_ICON} />
-    </svg>
-    <span class="git-chip-label">{truncateMiddle(branch, 24)}</span>
-  </span>
-);
-
-const SidebarPrChip = ({ id, url }: { id: string; url: string }) => {
-  // hono/jsx can't emit `::` attributes directly, so spread it.
-  const errorHandler = {
-    "hx-on::response-error": `this.querySelector('#sb-pr-state-${id}')?.remove()`,
-  };
-  return (
-    <a
-      class="pr-chip pr-chip-sm"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={url}
-      hx-get={`/sessions/${id}/pr-state?url=${encodeURIComponent(url)}`}
-      hx-trigger="load"
-      hx-target={`#sb-pr-state-${id}`}
-      hx-swap="outerHTML"
-      {...errorHandler}
-    >
-      <svg
-        class="pr-icon"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d={PR_ICON} />
-      </svg>
-      <span class="pr-num">{prLabel(url)}</span>
-      <span id={`sb-pr-state-${id}`} class="pr-state pr-state-loading">
-        <span class="pr-dot pr-dot-loading" aria-label="Loading PR status" />
-      </span>
-    </a>
-  );
-};
 
 type SidebarProps = {
   sessions: SessionRow[];
@@ -329,4 +268,4 @@ const Sidebar = ({
   </aside>
 );
 
-export { SessionList, Sidebar, SidebarBranchChip, SidebarPrChip };
+export { SessionList, Sidebar };

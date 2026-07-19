@@ -2,9 +2,10 @@ import { renderToString } from "hono/jsx/dom/server";
 import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format/index.js";
 import { fmtRelative, shortenHome, truncateMiddle } from "../format/index.js";
-import { detectPrUrl, prLabel } from "../pr.js";
+import { detectPrUrl } from "../pr.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import type { RunHandle } from "../runner/index.js";
+import { PrChip } from "./chips.js";
 import { hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
 
@@ -25,97 +26,6 @@ const MetaChip = ({
     <span class="meta-label">{label}</span>
     <span class={`meta-value${mono ? " mono" : ""}`}>{value}</span>
   </div>
-);
-
-// URL renders instantly from offline detection; the colored state is
-// swapped in lazily via htmx. Any failure leaves a plain link.
-const PrChip = ({ sessionId, url }: { sessionId: string; url: string }) => {
-  // hono/jsx can't emit `::` attributes directly, so spread it.
-  const errorHandler = {
-    "hx-on::response-error": "this.querySelector('#pr-state')?.remove()",
-  };
-  return (
-    <a
-      class="pr-chip"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={url}
-      hx-get={`/sessions/${sessionId}/pr-state?url=${encodeURIComponent(url)}`}
-      hx-trigger="load"
-      hx-target="#pr-state"
-      hx-swap="outerHTML"
-      {...errorHandler}
-    >
-      <svg
-        class="pr-icon"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
-      </svg>
-      <span class="pr-num">{prLabel(url)}</span>
-      <span id="pr-state" class="pr-state pr-state-loading">
-        <span
-          class="pr-dot pr-dot-loading"
-          aria-label="Loading PR status"
-        ></span>
-      </span>
-    </a>
-  );
-};
-
-const BRANCH_ICON =
-  "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
-const FOLDER_ICON =
-  "M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z";
-
-const GitChip = ({
-  kind,
-  icon,
-  title,
-  label,
-  mono = false,
-}: {
-  kind: "branch" | "worktree";
-  icon: string;
-  title: string;
-  label: string;
-  mono?: boolean;
-}) => (
-  <span class={`git-chip git-chip-${kind}`} title={title}>
-    <svg
-      class="git-icon"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d={icon} />
-    </svg>
-    <span class={`git-chip-label${mono ? " mono" : ""}`}>{label}</span>
-  </span>
-);
-
-const BranchChip = ({ branch }: { branch: string }) => (
-  <GitChip
-    kind="branch"
-    icon={BRANCH_ICON}
-    title={`git branch: ${branch}`}
-    label={branch}
-  />
-);
-
-const WorktreeChip = ({ worktree }: { worktree: string }) => (
-  <GitChip
-    kind="worktree"
-    icon={FOLDER_ICON}
-    title={`git worktree: ${worktree}`}
-    label={truncateMiddle(shortenHome(worktree), 40)}
-    mono
-  />
 );
 
 const TranscriptHeader = ({
@@ -366,4 +276,4 @@ const Transcript = ({
   );
 };
 
-export { BranchChip, renderPromptCard, Transcript, WorktreeChip };
+export { renderPromptCard, Transcript };
