@@ -1,8 +1,10 @@
+import http from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import {
   closeServer,
   createShutdown,
   registerShutdown,
+  trackConnections,
 } from "../commands/serve.js";
 
 describe("closeServer", () => {
@@ -34,7 +36,7 @@ describe("closeServer", () => {
 });
 
 describe("createShutdown", () => {
-  it("drains requests before stopping processes, closing dbs, and exiting", async () => {
+  it("destroys connections, drains, then stops, closes dbs, and exits", async () => {
     const order: string[] = [];
     const server = {
       close: (cb?: () => void): void => {
@@ -46,6 +48,8 @@ describe("createShutdown", () => {
     };
     const shutdown = createShutdown({
       server,
+      // Live sockets must drop before the drain so SSE streams can't block it.
+      destroyConnections: () => order.push("destroyed"),
       stopProcesses: () => order.push("stopped"),
       closeDbs: () => order.push("dbs-closed"),
       exit: (code) => order.push(`exit:${code ?? 0}`),
@@ -53,8 +57,13 @@ describe("createShutdown", () => {
 
     await shutdown();
 
-    // The drain must complete first so no in-flight response is truncated.
-    expect(order).toEqual(["drained", "stopped", "dbs-closed", "exit:0"]);
+    expect(order).toEqual([
+      "destroyed",
+      "drained",
+      "stopped",
+      "dbs-closed",
+      "exit:0",
+    ]);
   });
 
   it("closes the databases exactly once on repeat signals", async () => {
@@ -62,6 +71,7 @@ describe("createShutdown", () => {
     const server = { close: (cb?: () => void) => cb?.() };
     const shutdown = createShutdown({
       server,
+      destroyConnections: () => undefined,
       stopProcesses: () => undefined,
       closeDbs: () => {
         dbCloses++;
@@ -80,6 +90,7 @@ describe("createShutdown", () => {
     const server = { close: (cb?: () => void) => cb?.() };
     const shutdown = createShutdown({
       server,
+      destroyConnections: () => undefined,
       stopProcesses: () => {
         stops++;
       },
@@ -98,6 +109,7 @@ describe("createShutdown", () => {
     const server = { close: (cb?: () => void) => cb?.() };
     const shutdown = createShutdown({
       server,
+      destroyConnections: () => undefined,
       stopProcesses: () => undefined,
       closeDbs: () => undefined,
       exit: (code) => codes.push(code ?? 0),
@@ -114,6 +126,7 @@ describe("createShutdown", () => {
     const server = { close: (cb?: () => void) => cb?.() };
     const shutdown = createShutdown({
       server,
+      destroyConnections: () => undefined,
       stopProcesses: () => undefined,
       closeDbs: () => undefined,
       exit: (code) => codes.push(code ?? 0),
@@ -122,6 +135,56 @@ describe("createShutdown", () => {
     await shutdown(1);
 
     expect(codes).toEqual([1]);
+  });
+});
+
+describe("trackConnections", () => {
+  it("lets shutdown complete promptly while a connection is held open", async () => {
+    // A handler that never ends the response, mirroring an SSE poll loop.
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write("data: keep-alive\n\n");
+    });
+    const destroyConnections = trackConnections(server);
+
+    try {
+      await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+      const addr = server.address();
+      if (addr === null || typeof addr === "string")
+        throw new Error("server not listening");
+      const { port } = addr;
+
+      // Hold a connection open the way an open browser tab would.
+      const req = http.get(`http://localhost:${port}/`, (res) => {
+        res.on("data", () => undefined);
+        res.on("error", () => undefined);
+      });
+      req.on("error", () => undefined);
+
+      const order: string[] = [];
+      const shutdown = createShutdown({
+        server,
+        destroyConnections,
+        stopProcesses: () => order.push("stopped"),
+        closeDbs: () => order.push("dbs"),
+        exit: () => order.push("exit"),
+      });
+
+      // Without destroying connections, shutdown hangs until the client
+      // gives up — the original "press Ctrl+C twice" bug.
+      const result = await Promise.race([
+        shutdown().then(() => "settled" as const),
+        new Promise<"hang">((resolve) =>
+          setTimeout(() => resolve("hang"), 1000),
+        ),
+      ]);
+
+      req.destroy();
+      expect(result).toBe("settled");
+      expect(order).toEqual(["stopped", "dbs", "exit"]);
+    } finally {
+      server.close();
+    }
   });
 });
 
