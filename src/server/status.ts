@@ -26,10 +26,8 @@ const statusDeltas = (
   return result;
 };
 
-// Reads the current name for each active session from the shared DB. Goose
-// registers a new session with a placeholder name ("CLI session") and renames
-// it mid-run once it has conversational context, so the name can change while
-// the run is still active.
+// Goose registers a session with a placeholder name and renames it mid-run,
+// so the name can change while the run is still active.
 const activeNames = (
   db: DatabaseSync,
   ids: Iterable<string>,
@@ -42,8 +40,6 @@ const activeNames = (
   return names;
 };
 
-// A newly-active session (absent from `last`) is emitted alongside genuine
-// renames so its name reaches the sidebar even on its first poll.
 const nameDeltas = (
   last: Map<string, string>,
   now: Map<string, string>,

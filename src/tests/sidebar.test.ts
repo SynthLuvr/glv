@@ -41,8 +41,7 @@ class MockEventSource {
   }
 }
 
-// Matches the sidebar's `instanceof MessageEvent` guard so data-carrying
-// events (sync/status/rename) can be dispatched in tests.
+// Matches the sidebar's `instanceof MessageEvent` guard for test dispatch.
 class MockMessageEvent {
   readonly data: string;
 

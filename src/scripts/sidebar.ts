@@ -53,10 +53,11 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const findSessionItem = (sessionId: string): Element | null =>
+  document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+
 const setStatusIndicator = (sessionId: string, running: boolean): void => {
-  const item = document.querySelector(
-    `.session-item[data-session-id="${sessionId}"]`,
-  );
+  const item = findSessionItem(sessionId);
   if (item === null) return;
   item.toggleAttribute("data-running", running);
   item
@@ -64,17 +65,21 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
     ?.setAttribute("title", running ? "Session is running" : "Session idle");
 };
 
-// goose renames a session mid-run (replacing the "CLI session" placeholder
-// with a derived name); the status feed pushes the new name here so the
-// sidebar card updates without a full page reload. An empty name renders as
-// "(unnamed)" to match the server-side displayName helper.
+// Goose derives a session name mid-run; the feed pushes it here so the card
+// updates live. Empty names render as "(unnamed)" to match displayName.
 const setSessionName = (sessionId: string, name: string): void => {
-  const item = document.querySelector(
-    `.session-item[data-session-id="${sessionId}"]`,
-  );
+  const item = findSessionItem(sessionId);
   if (item === null) return;
   const node = item.querySelector(".session-name");
   if (node !== null) node.textContent = name === "" ? "(unnamed)" : name;
+};
+
+const safeParse = (data: string): unknown => {
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
 };
 
 // On (re)connect the server emits a full snapshot of active session ids.
@@ -83,12 +88,7 @@ const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
 const applySync = (data: string): void => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return;
-  }
+  const parsed = safeParse(data);
   if (!isStringArray(parsed)) return;
   const active = new Set(parsed);
   for (const item of document.querySelectorAll<HTMLElement>(
@@ -110,12 +110,7 @@ const isStatusPayload = (value: unknown): value is StatusPayload =>
   typeof value.status === "string";
 
 const onStatusEvent = (data: string): void => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return;
-  }
+  const parsed = safeParse(data);
   if (!isStatusPayload(parsed)) return;
   setStatusIndicator(parsed.sessionId, parsed.status !== "done");
 };
@@ -131,12 +126,7 @@ const isRenamePayload = (value: unknown): value is RenamePayload =>
   typeof value.name === "string";
 
 const onRenameEvent = (data: string): void => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return;
-  }
+  const parsed = safeParse(data);
   if (!isRenamePayload(parsed)) return;
   setSessionName(parsed.sessionId, parsed.name);
 };
