@@ -113,28 +113,28 @@
     // "open-save" is handled by htmx; the body pre-fill runs after the swap.
   });
 
-  // Editing the textarea by hand detaches it from any saved prompt, so the
-  // prompt-id is dropped before the next submit.
-  document.addEventListener("input", (e) => {
-    if (e.target instanceof HTMLTextAreaElement && e.target.name === "prompt")
-      setPromptId("");
-  });
-
-  // Client-side title/category filter: no server round-trip for a snappy match.
-  document.addEventListener("input", (e) => {
-    const el = e.target;
-    if (
-      !(el instanceof HTMLInputElement) ||
-      !el.classList.contains("prompt-filter")
-    )
-      return;
-    const query = el.value.toLowerCase();
+  // Client-side title/category filter with no server round-trip.
+  const filterPrompts = (query: string): void => {
     const grid = document.querySelector("[data-prompt-grid]");
     if (grid === null) return;
+    const needle = query.toLowerCase();
     for (const card of grid.querySelectorAll<HTMLElement>(".prompt-card")) {
       const text = (card.textContent ?? "").toLowerCase();
-      card.style.display = text.includes(query) ? "" : "none";
+      card.style.display = text.includes(needle) ? "" : "none";
     }
+  };
+
+  // Typing in the main textarea detaches it from any saved prompt (drop the
+  // prompt-id); typing in the filter narrows the grid client-side.
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el instanceof HTMLTextAreaElement && el.name === "prompt")
+      setPromptId("");
+    else if (
+      el instanceof HTMLInputElement &&
+      el.classList.contains("prompt-filter")
+    )
+      filterPrompts(el.value);
   });
 
   document.addEventListener("htmx:afterRequest", onAfterRequest);

@@ -496,7 +496,6 @@ export {
   PromptCard,
   PromptEditForm,
   PromptLibrary,
-  PromptLibrarySection,
   PromptSaveForm,
   SourceType,
 };

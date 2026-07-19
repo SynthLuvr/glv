@@ -1,5 +1,4 @@
 import { type Hono } from "hono";
-import { Fragment } from "hono/jsx";
 import type { PromptInput } from "../../prompts/db.js";
 import {
   createPrompt,
@@ -19,20 +18,18 @@ import type { AppEnv, ServerContext } from "../context.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
 
-const readInput = (body: Record<string, unknown>): PromptInput => {
-  const title = typeof body.title === "string" ? body.title : "";
-  const promptBody = typeof body.body === "string" ? body.body : "";
-  const category =
-    typeof body.category === "string" ? body.category : undefined;
-  return { title, body: promptBody, category };
-};
+const readInput = (body: Record<string, unknown>): PromptInput => ({
+  title: typeof body.title === "string" ? body.title : "",
+  body: typeof body.body === "string" ? body.body : "",
+  category: typeof body.category === "string" ? body.category : undefined,
+});
 
 const isValid = (input: PromptInput): boolean =>
   input.title.trim() !== "" && input.body.trim() !== "";
 
-// All routes return HTML fragments for htmx to swap, consistent with the rest
-// of the app. The prompts store is optional (tests may omit it); when absent
-// the library is simply inert, so handlers 404 rather than throw.
+// All routes return HTML fragments for htmx to swap. The prompts store is
+// optional (tests may omit it); when absent every handler 404s rather than
+// throw.
 const registerPromptRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const prompts = ctx.prompts;
 
@@ -65,16 +62,14 @@ const registerPromptRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         />,
       );
     createPrompt(prompts, input);
-    // On success the slot target receives no in-place content (cleared) while
-    // the refreshed library swaps in out-of-band.
+    // No in-place content: the save slot is cleared while the refreshed
+    // library swaps in out-of-band.
     return c.html(
-      <Fragment>
-        <PromptLibrary
-          prompts={listPrompts(prompts)}
-          categories={listCategories(prompts)}
-          oob
-        />
-      </Fragment>,
+      <PromptLibrary
+        prompts={listPrompts(prompts)}
+        categories={listCategories(prompts)}
+        oob
+      />,
     );
   });
 

@@ -107,9 +107,9 @@ const newSessionDetail = (
   repo?: string,
   branch?: string,
 ): Child => {
-  const prompts = ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
-  const categories =
-    ctx.prompts !== undefined ? listCategories(ctx.prompts) : [];
+  const db = ctx.prompts;
+  const prompts = db !== undefined ? listPrompts(db) : [];
+  const categories = db !== undefined ? listCategories(db) : [];
   return (
     <NewSessionForm
       workingDir={process.cwd()}

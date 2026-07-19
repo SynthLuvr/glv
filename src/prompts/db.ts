@@ -161,7 +161,7 @@ const listCategories = (db: DatabaseSync): string[] => {
   return [...new Set(rows.map((row) => row.category))];
 };
 
-export type { PromptInput, PromptRow, SavedPrompt };
+export type { PromptInput, SavedPrompt };
 export {
   bumpUsage,
   createPrompt,
