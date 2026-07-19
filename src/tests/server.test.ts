@@ -1526,6 +1526,32 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     expect(text).not.toContain("event: append");
   });
 
+  it("emits a rename when an external writer renames the session", async () => {
+    const renameDir = mkdtempSync(join(tmpdir(), "glv-tail-rename-"));
+    const renameDb = new DatabaseSync(join(renameDir, "sessions.db"));
+    seed(renameDb);
+    const app = createApp(renameDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 8,
+    });
+
+    const res = await app.request("/sessions/alpha/tail");
+
+    // Let the baseline settle before an external writer renames the session.
+    await sleep(40);
+
+    renameDb
+      .prepare("UPDATE sessions SET name = ? WHERE id = ?")
+      .run("Refactor the parser", "alpha");
+
+    const text = await res.text();
+    renameDb.close();
+    rmSync(renameDir, { recursive: true, force: true });
+
+    expect(text).toContain("event: rename");
+    expect(text).toContain('"name":"Refactor the parser"');
+  });
+
   it("streams newly appended messages, skipping the baseline", async () => {
     const tailDir = mkdtempSync(join(tmpdir(), "glv-tail-"));
     const tailDb = new DatabaseSync(join(tailDir, "sessions.db"));

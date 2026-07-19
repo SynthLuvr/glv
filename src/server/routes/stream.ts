@@ -84,12 +84,15 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   // sessions the web app isn't actively running.
   app.get("/sessions/:id/tail", (c) => {
     const id = c.req.param("id");
-    if (getSession(ctx.db, id) === undefined)
-      return c.text("Session not found", 404);
+    const initial = getSession(ctx.db, id);
+    if (initial === undefined) return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
       // Snapshot content_json to detect in-place edits, not just appends.
       let snapshots = listMessages(ctx.db, id).map((row) => row.content_json);
+      // Goose derives a real title for CLI-started sessions mid-run; track the
+      // name so the transcript header can follow the rename.
+      let lastName = initial.name;
       let polls = 0;
       while (!stream.aborted && polls < ctx.maxTailPolls) {
         polls++;
@@ -104,6 +107,12 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         if (session === undefined) {
           await emit(stream, "done", "deleted");
           return;
+        }
+
+        if (session.name !== lastName) {
+          lastName = session.name;
+          const payload = JSON.stringify({ name: session.name });
+          if (!(await emit(stream, "rename", payload))) return;
         }
 
         const rows = listMessages(ctx.db, id);

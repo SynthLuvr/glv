@@ -152,6 +152,14 @@ const applyReplace = (messages: Element | null, data: string): void => {
   else insertMessageInOrder(messages, parsed.index, parsed.html);
 };
 
+const applyRename = (data: string): void => {
+  const parsed: { name?: unknown } = JSON.parse(data);
+  if (typeof parsed.name !== "string") return;
+  const title = document.querySelector("#detail-pane .session-title");
+  if (title !== null)
+    title.textContent = parsed.name === "" ? "(unnamed)" : parsed.name;
+};
+
 type MetaUpdate = {
   updated: string;
   updatedTitle: string;
@@ -284,6 +292,15 @@ const connectTail = (root: Element): void => {
       updateMeta(JSON.parse(e.data));
     } catch {
       /* ignore malformed meta payloads */
+    }
+  });
+
+  activeSource.addEventListener("rename", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    try {
+      applyRename(e.data);
+    } catch {
+      /* ignore malformed rename payloads */
     }
   });
 
