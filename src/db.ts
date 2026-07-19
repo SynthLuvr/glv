@@ -136,6 +136,28 @@ const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   });
 };
 
+// Cheap pre-filter for sidebar PR detection: only sessions whose raw message
+// content references a GitHub pull URL can resolve to a PR, so callers skip
+// parsing messages for the rest. Validates each row (half-written rows drop).
+const PrIdRow = type({ session_id: "string" });
+
+const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
+  if (ids.length === 0) return new Set();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT session_id FROM messages
+         WHERE session_id IN (${placeholders(ids.length)})
+           AND content_json LIKE ?`,
+    )
+    .all(...ids, "%/pull/%");
+  const out = new Set<string>();
+  for (const row of rows) {
+    const record = PrIdRow(row);
+    if (!(record instanceof type.errors)) out.add(record.session_id);
+  }
+  return out;
+};
+
 export type { MessageRow, SessionFilter, SessionRow };
 export {
   archiveSessions,
@@ -143,6 +165,7 @@ export {
   listMessages,
   listSessions,
   openDb,
+  prCandidateIds,
   renameSession,
   resolveDbPath,
   sessionIdsInDir,

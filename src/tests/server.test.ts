@@ -2414,6 +2414,141 @@ describe("git info endpoint GET /sessions/:id/git-info", () => {
   });
 });
 
+describe("sidebar meta endpoint GET /sessions/sidebar-meta", () => {
+  // The runner is keyed on cwd so one fake answers any session.
+  const runnerFor =
+    (out: (cwd: string) => string): GitRunner =>
+    async (_args, cwd) => ({ stdout: out(cwd), exitCode: 0 });
+
+  const fetchMeta = async (runGit?: GitRunner): Promise<string> => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), { runGit });
+    return (await app.request("/sessions/sidebar-meta")).text();
+  };
+
+  it("returns an out-of-band swap span for every visible (user) session", async () => {
+    const body = await fetchMeta();
+    expect(body).toContain('id="sidebar-meta-alpha"');
+    expect(body).toContain('id="sidebar-meta-beta"');
+    expect(body).toContain('id="sidebar-meta-gamma"');
+    // The hidden "silent" session is filtered out by the viewer filter.
+    expect(body).not.toContain('id="sidebar-meta-silent"');
+    expect(body).toContain('hx-swap-oob="true"');
+  });
+
+  it("renders a compact branch chip for git-repo sessions", async () => {
+    const body = await fetchMeta(
+      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/feat/sidebar\n`),
+    );
+    expect(body).toContain("git-chip-sm");
+    expect(body).toContain("feat/sidebar");
+  });
+
+  it("omits chips for a session with no branch and no PR", async () => {
+    const body = await fetchMeta(); // no runGit -> no branch anywhere
+    const alpha = body.match(/id="sidebar-meta-alpha"[\s\S]*?<\/span>/);
+    expect(alpha).not.toBeNull();
+    expect(alpha?.[0]).not.toContain("git-chip");
+    expect(alpha?.[0]).not.toContain("pr-chip");
+  });
+
+  it("dedupes git lookups by working dir (not one call per session)", async () => {
+    const sbDir = mkdtempSync(join(tmpdir(), "glv-sbmeta-"));
+    try {
+      const sbDb = new DatabaseSync(join(sbDir, "sessions.db"));
+      sbDb.exec(SCHEMA);
+      const ins = sbDb.prepare(
+        "INSERT INTO sessions (id, name, session_type, working_dir, updated_at) VALUES (?, ?, ?, ?, ?)",
+      );
+      // Two sessions share /tmp/shared; a third lives elsewhere.
+      ins.run("s1", "S1", "user", "/tmp/shared", "2026-07-13 10:00:00");
+      ins.run("s2", "S2", "user", "/tmp/shared", "2026-07-13 09:00:00");
+      ins.run("s3", "S3", "user", "/tmp/other", "2026-07-13 08:00:00");
+      let calls = 0;
+      const counting: GitRunner = async () => {
+        calls += 1;
+        return { stdout: "worktree /x\ndetached\n", exitCode: 0 };
+      };
+      const app = createApp(sbDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+        runGit: counting,
+      });
+      await app.request("/sessions/sidebar-meta");
+      // /tmp/shared once, /tmp/other once — never once per session.
+      expect(calls).toBe(2);
+      sbDb.close();
+    } finally {
+      rmSync(sbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes a compact PR chip that lazy-loads state for a session with a PR", async () => {
+    const url = "https://github.com/SynthLuvr/lisko/pull/56";
+    const prDir = mkdtempSync(join(tmpdir(), "glv-sbmeta-pr-"));
+    try {
+      const prDb = new DatabaseSync(join(prDir, "sessions.db"));
+      prDb.exec(SCHEMA);
+      prDb
+        .prepare(
+          "INSERT INTO sessions (id, name, session_type, working_dir, " +
+            "updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          "prsess",
+          "PR Session",
+          "user",
+          "/tmp/pr",
+          "2026-07-13 10:00:00",
+          5,
+          null,
+        );
+      // Bare-URL tool result (the `gh pr create` signature) resolves to a chip.
+      prDb
+        .prepare(
+          "INSERT INTO messages (session_id, role, content_json, " +
+            "created_timestamp) VALUES (?, ?, ?, ?)",
+        )
+        .run(
+          "prsess",
+          "user",
+          JSON.stringify([
+            {
+              type: "toolResponse",
+              id: "call_1",
+              toolResult: {
+                status: "success",
+                value: {
+                  content: [{ type: "text", text: url }],
+                  isError: false,
+                },
+              },
+            },
+          ]),
+          1,
+        );
+      const app = createApp(prDb, createRunner(DEFAULT_RUNNER_CONFIG));
+      const body = await (await app.request("/sessions/sidebar-meta")).text();
+      expect(body).toContain("pr-chip-sm");
+      expect(body).toContain(url);
+      expect(body).toContain("#56");
+      expect(body).toContain("/sessions/prsess/pr-state");
+      expect(body).toContain("#sb-pr-state-prsess");
+      expect(body).toContain("pr-state-loading");
+      prDb.close();
+    } finally {
+      rmSync(prDir, { recursive: true, force: true });
+    }
+  });
+
+  it("never propagates a git runner failure to the response", async () => {
+    const failing: GitRunner = async () => {
+      throw new Error("spawn failed");
+    };
+    const body = await fetchMeta(failing);
+    // Still returns spans, just without branch chips.
+    expect(body).toContain('id="sidebar-meta-alpha"');
+    expect(body).not.toContain("git-chip-sm");
+  });
+});
+
 describe("stream client session selector", () => {
   // Sidebar cards carry data-session-id too and precede #detail-pane. Viewing
   // gamma (not the first-listed alpha) exposes the bare-selector collision.
