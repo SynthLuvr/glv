@@ -51,6 +51,32 @@ const icon = (cls: string, children: Child) => (
   </svg>
 );
 
+const CopyButton = ({ text }: { text: string }) => (
+  <button
+    type="button"
+    class="copy-md-btn"
+    data-md={text}
+    title="Copy as markdown"
+    aria-label="Copy as markdown"
+  >
+    {icon("icon-copy", [
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />,
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />,
+    ])}
+    {icon("icon-check", <path d="M20 6 9 17l-5-5" />)}
+  </button>
+);
+
+// Plain-text bubble (e.g. a prompt) paired with the hover-revealed copy
+// button. Shared with the non-markdown TextBlock branch so prompts and
+// outputs expose the identical copy affordance.
+const CopyableText = ({ text }: { text: string }) => (
+  <div class="markdown-wrap">
+    <p class="message-text">{text}</p>
+    <CopyButton text={text} />
+  </div>
+);
+
 const TextBlock = ({
   text,
   asMarkdown,
@@ -61,22 +87,10 @@ const TextBlock = ({
   asMarkdown ? (
     <div class="markdown-wrap">
       <div class="markdown">{raw(renderMarkdown(text))}</div>
-      <button
-        type="button"
-        class="copy-md-btn"
-        data-md={text}
-        title="Copy as markdown"
-        aria-label="Copy as markdown"
-      >
-        {icon("icon-copy", [
-          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />,
-          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />,
-        ])}
-        {icon("icon-check", <path d="M20 6 9 17l-5-5" />)}
-      </button>
+      <CopyButton text={text} />
     </div>
   ) : (
-    <p class="message-text">{text}</p>
+    <CopyableText text={text} />
   );
 
 const ThinkingBlock = ({ text }: { text: string }) => (
@@ -186,4 +200,11 @@ const hasContent = (message: ParsedMessage): boolean =>
 const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 
-export { hasContent, itemBlock, MessageView, renderMessage, tagFor };
+export {
+  CopyableText,
+  hasContent,
+  itemBlock,
+  MessageView,
+  renderMessage,
+  tagFor,
+};

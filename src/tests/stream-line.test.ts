@@ -15,7 +15,7 @@ describe("renderStreamLine", () => {
     expect(html).toContain('data-md="Hello **world**"');
   });
 
-  it("renders a user prompt as plain text", () => {
+  it("renders a user prompt as plain text with a copy-as-markdown button", () => {
     const line = JSON.stringify({
       role: "user",
       content: [{ type: "text", text: "What is goose?" }],
@@ -23,6 +23,10 @@ describe("renderStreamLine", () => {
     const html = renderStreamLine(line);
     expect(html).toContain("PROMPT");
     expect(html).toContain("What is goose?");
+    // Plain-text bubble (not parsed markdown), but still copyable.
+    expect(html).toContain("copy-md-btn");
+    expect(html).toContain('data-md="What is goose?"');
+    expect(html).not.toContain("<strong>");
   });
 
   it("renders thinking blocks", () => {
