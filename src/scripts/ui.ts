@@ -14,24 +14,16 @@ const uiDownIcon =
 // htmx swaps only the detail pane, so the server-set <title> grows stale;
 // re-derive it from the rendered heading on every swap.
 const uiSyncTitle = (): void => {
-  const session = document.querySelector(".session-title")?.textContent?.trim();
-  if (session !== "") {
-    document.title = `${session ?? ""}${UI_TITLE_SUFFIX}`;
-    return;
-  }
-  const heading = document
-    .querySelector(".new-session h2")
-    ?.textContent?.trim();
-  if (heading !== "") {
-    document.title = `${heading ?? ""}${UI_TITLE_SUFFIX}`;
-    return;
-  }
-  const missing = document
-    .querySelector(".placeholder h2")
-    ?.textContent?.trim();
-  if (missing !== "") {
-    document.title = `${missing ?? ""}${UI_TITLE_SUFFIX}`;
-    return;
+  for (const selector of [
+    ".session-title",
+    ".new-session h2",
+    ".placeholder h2",
+  ]) {
+    const heading = document.querySelector(selector)?.textContent?.trim();
+    if (heading) {
+      document.title = `${heading}${UI_TITLE_SUFFIX}`;
+      return;
+    }
   }
   document.title = UI_HOME_TITLE;
 };

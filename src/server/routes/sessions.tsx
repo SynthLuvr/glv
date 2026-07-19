@@ -29,11 +29,7 @@ import {
   rekey,
   stop,
 } from "../../runner/index.js";
-import {
-  CloningView,
-  NotFoundDetail,
-  type SourceType,
-} from "../../views/new-session.js";
+import { CloningView, type SourceType } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { Transcript } from "../../views/transcript.js";
@@ -62,10 +58,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const libraryPrompts = (): SavedPrompt[] =>
     ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
 
-  // Page titles — the app brand is "Goose Log Viewer". Sub-pages use an
-  // em-dash suffix; the home/root uses the bare brand (no dash).
   const NEW_SESSION_TITLE = "New Session — Goose Log Viewer";
-  const NOT_FOUND_TITLE = "Session not found — Goose Log Viewer";
   const sessionTitle = (name: string): string =>
     `${displayName(name)} — Goose Log Viewer`;
 
@@ -272,11 +265,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     const id = c.req.param("id");
     const sessions = sessionsAll();
     const session = getSession(ctx.db, id);
-    if (session === undefined)
-      return render(c, ctx, sessions, undefined, <NotFoundDetail id={id} />, {
-        status: 404,
-        title: NOT_FOUND_TITLE,
-      });
+    if (session === undefined) return renderNotFound(c, ctx, id);
     const messages = listMessages(ctx.db, id).map(parseMessage);
     // Surfaced so a re-render after the stream reflects the run's outcome.
     const run = getHandle(ctx.runner, id);
