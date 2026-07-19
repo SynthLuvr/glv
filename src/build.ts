@@ -18,7 +18,6 @@ const SCRIPT_ENTRIES = [
   join(SRC_DIR, "scripts", "rename.ts"),
   join(SRC_DIR, "scripts", "source-picker.ts"),
   join(SRC_DIR, "scripts", "ui.ts"),
-  join(SRC_DIR, "scripts", "prompts.ts"),
 ];
 
 const ensureDistDir = (): void => {
@@ -38,6 +37,18 @@ const buildScripts = (): void => {
     entryPoints: SCRIPT_ENTRIES,
     outdir: OUTPUT_DIR,
     minify: true,
+    target: ["es2020"],
+  });
+  // Bundled separately: prompts.ts imports the shared template helpers, so it
+  // needs import resolution inlined into a self-contained classic <script>.
+  // Only this entry is bundled — the scripts above keep their top-level
+  // declarations so tests referencing them by name still pass.
+  buildSync({
+    entryPoints: [join(SRC_DIR, "scripts", "prompts.ts")],
+    outfile: join(OUTPUT_DIR, "prompts.js"),
+    bundle: true,
+    minify: true,
+    format: "iife",
     target: ["es2020"],
   });
   // Bundled separately: passkey.ts imports @simplewebauthn/browser, which must

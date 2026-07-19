@@ -3,6 +3,7 @@ import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format/index.js";
 import { fmtRelative, shortenHome, truncateMiddle } from "../format/index.js";
 import { detectPrUrl, prLabel } from "../pr.js";
+import type { SavedPrompt } from "../prompts/db.js";
 import type { RunHandle } from "../runner/index.js";
 import { hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
@@ -197,18 +198,58 @@ const QueuedPrompt = ({ prompt }: { prompt: string }) => (
 const isRunActive = (run: RunHandle | undefined): boolean =>
   run !== undefined && (run.status === "queued" || run.status === "running");
 
+// A compact saved-prompt picker for the in-session follow-up bar. Selecting an
+// item fills the follow-up textarea with template-substituted text (known
+// placeholders only — unknowns stay literal for the user to edit). The
+// working dir is exposed via a data attribute so the client can resolve
+// {{working_dir}} without a round trip.
+const FollowupPicker = ({
+  prompts,
+  workingDir,
+}: {
+  prompts: SavedPrompt[];
+  workingDir: string;
+}) => (
+  <details class="followup-picker" data-working-dir={workingDir}>
+    <summary class="followup-picker-btn" title="Insert a saved prompt">
+      📋
+    </summary>
+    <div class="followup-picker-list">
+      {prompts.length === 0 ? (
+        <p class="followup-picker-empty">No saved prompts.</p>
+      ) : (
+        prompts.map((prompt) => (
+          <button
+            type="button"
+            class="followup-picker-item"
+            data-action="followup-use"
+            data-prompt-body={prompt.body}
+          >
+            {prompt.title}
+          </button>
+        ))
+      )}
+    </div>
+  </details>
+);
+
 const PromptBar = ({
   sessionId,
   run,
+  prompts = [],
+  workingDir = "",
 }: {
   sessionId: string;
   run?: RunHandle;
+  prompts?: SavedPrompt[];
+  workingDir?: string;
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
   return (
     <form
       class="prompt-bar"
+      data-prompt-bar
       hx-post={`/sessions/${sessionId}/prompt`}
       hx-target="#detail-pane"
       hx-swap="innerHTML"
@@ -231,6 +272,7 @@ const PromptBar = ({
         </p>
       )}
       <div class="prompt-input-row">
+        <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
           name="prompt"
           placeholder={busy ? "Queue a follow-up prompt…" : "Ask goose…"}
@@ -267,11 +309,13 @@ const Transcript = ({
   messages,
   run,
   prompt,
+  prompts = [],
 }: {
   session: SessionRow;
   messages: ParsedMessage[];
   run?: RunHandle;
   prompt?: string;
+  prompts?: SavedPrompt[];
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
@@ -312,7 +356,12 @@ const Transcript = ({
           </button>
         </div>
       )}
-      <PromptBar sessionId={session.id} run={run} />
+      <PromptBar
+        sessionId={session.id}
+        run={run}
+        prompts={prompts}
+        workingDir={session.working_dir}
+      />
     </div>
   );
 };

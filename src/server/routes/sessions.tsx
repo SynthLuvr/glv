@@ -18,7 +18,8 @@ import {
   generateCloneJobId,
   parseOwnerRepo,
 } from "../../gh.js";
-import { bumpUsage } from "../../prompts/db.js";
+import type { SavedPrompt } from "../../prompts/db.js";
+import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
   clearPending,
   enqueueNew,
@@ -56,6 +57,10 @@ import {
 
 const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
+  // The saved-prompt library powers the follow-up bar picker; empty when the
+  // prompts store is disabled so the picker shows its "no prompts" message.
+  const libraryPrompts = (): SavedPrompt[] =>
+    ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
 
   app.get("/", (c) =>
     render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
@@ -241,6 +246,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         messages={listMessages(ctx.db, realId).map(parseMessage)}
         run={getHandle(ctx.runner, realId)}
         prompt={prompt}
+        prompts={libraryPrompts()}
       />,
       { refreshSidebar: true },
     );
@@ -265,7 +271,12 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       ctx,
       sessions,
       id,
-      <Transcript session={session} messages={messages} run={run} />,
+      <Transcript
+        session={session}
+        messages={messages}
+        run={run}
+        prompts={libraryPrompts()}
+      />,
       { refreshSidebar: c.req.query("sidebar") === "1" },
     );
   });
@@ -303,7 +314,12 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         ctx,
         sessions,
         id,
-        <Transcript session={updated} messages={messages} run={run} />,
+        <Transcript
+          session={updated}
+          messages={messages}
+          run={run}
+          prompts={libraryPrompts()}
+        />,
       );
     }
     return c.html(
@@ -370,6 +386,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         messages={messages}
         run={run}
         prompt={activePrompt}
+        prompts={libraryPrompts()}
       />,
     );
   });
@@ -392,6 +409,7 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         messages={messages}
         run={run}
         prompt={activeRunPrompt(run)}
+        prompts={libraryPrompts()}
       />,
     );
   });
@@ -407,7 +425,11 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       ctx,
       listSessions(ctx.db, VIEWER_FILTER),
       id,
-      <Transcript session={session} messages={messages} />,
+      <Transcript
+        session={session}
+        messages={messages}
+        prompts={libraryPrompts()}
+      />,
     );
   });
 };
