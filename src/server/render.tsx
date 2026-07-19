@@ -102,17 +102,26 @@ const renderNotFound = (c: Context<AppEnv>, ctx: ServerContext, id: string) =>
 
 const newSessionDetail = (
   ctx: ServerContext,
-  error?: string,
-  source: SourceType = "working_dir",
-  repo?: string,
-  branch?: string,
+  {
+    error,
+    source = "working_dir",
+    repo,
+    branch,
+    workingDir,
+  }: {
+    error?: string;
+    source?: SourceType;
+    repo?: string;
+    branch?: string;
+    workingDir?: string;
+  } = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
   return (
     <NewSessionForm
-      workingDir={process.cwd()}
+      workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
       source={source}

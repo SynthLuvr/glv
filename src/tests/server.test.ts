@@ -1744,6 +1744,17 @@ describe("M5: new session entry points", () => {
     expect(html).toContain("/home/me/repos");
   });
 
+  it("pre-fills the working directory from a ?working_dir= query param", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG));
+    const dir = "/tmp/glv-prefill-target";
+    const res = await app.request(
+      `/sessions/new?working_dir=${encodeURIComponent(dir)}`,
+    );
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain(`value="${dir}"`);
+  });
+
   it("does not shadow the /sessions/:id route (new is a literal)", async () => {
     // /sessions/new must hit the form, not a 404 "session not found".
     const res = await makeApp().request("/sessions/new");
@@ -2060,6 +2071,9 @@ describe("M5: POST /sessions", () => {
     expect(status).toBe(422);
     expect(invocations).toHaveLength(0);
     expect(html).toContain("prompt is required");
+    // The rejected form keeps the directory the user entered rather than
+    // resetting it to the server's cwd.
+    expect(html).toContain(`value="${newDir}"`);
   });
 
   it("rejects a non-existent working directory", async () => {
@@ -2464,6 +2478,21 @@ describe("git info endpoint GET /sessions/:id/git-info", () => {
     expect(body).toContain("feat/git-info");
     expect(body).toContain("git-chip-worktree");
     expect(body).toContain("/tmp/alpha");
+  });
+
+  it("renders the worktree chip as a link that pre-fills New Session", async () => {
+    const body = await fetchGit(
+      "alpha",
+      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/main\n`),
+    );
+    // The worktree chip is an anchor that swaps the detail pane, opening the
+    // new-session form with that working directory pre-filled (URL-encoded).
+    expect(body).toContain('<a class="git-chip git-chip-worktree"');
+    expect(body).toContain('href="/sessions/new?working_dir=%2Ftmp%2Falpha"');
+    expect(body).toContain('hx-get="/sessions/new?working_dir=%2Ftmp%2Falpha"');
+    expect(body).toContain('hx-target="#detail-pane"');
+    // The branch chip stays a non-navigable span.
+    expect(body).toContain('<span class="git-chip git-chip-branch"');
   });
 
   it("renders only the worktree chip for a detached HEAD", async () => {
