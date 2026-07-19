@@ -66,6 +66,41 @@ const PrChip = ({ sessionId, url }: { sessionId: string; url: string }) => {
   );
 };
 
+// Branch + worktree context resolved lazily from local git, shown alongside
+// the PR chip. The branch comes from the worktree block the session runs in,
+// so it never requires re-scanning the transcript.
+const BranchChip = ({ branch }: { branch: string }) => (
+  <span class="git-chip git-chip-branch" title={`git branch: ${branch}`}>
+    <svg
+      class="git-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+    </svg>
+    <span class="git-chip-label">{branch}</span>
+  </span>
+);
+
+const WorktreeChip = ({ worktree }: { worktree: string }) => (
+  <span class="git-chip git-chip-worktree" title={`git worktree: ${worktree}`}>
+    <svg
+      class="git-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z" />
+    </svg>
+    <span class="git-chip-label mono">
+      {truncateMiddle(shortenHome(worktree), 40)}
+    </span>
+  </span>
+);
+
 const TranscriptHeader = ({
   session,
   prUrl,
@@ -107,6 +142,12 @@ const TranscriptHeader = ({
         title={session.updated_at}
       />
       {prUrl !== undefined && <PrChip sessionId={session.id} url={prUrl} />}
+      <span
+        id="git-info"
+        hx-get={`/sessions/${session.id}/git-info`}
+        hx-trigger="load"
+        hx-swap="outerHTML"
+      ></span>
     </div>
   </header>
 );
@@ -260,4 +301,4 @@ const Transcript = ({
   );
 };
 
-export { renderPromptCard, Transcript };
+export { BranchChip, renderPromptCard, Transcript, WorktreeChip };

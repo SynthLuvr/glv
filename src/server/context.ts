@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { AuthService } from "../auth/service.js";
 import type { SessionFilter } from "../db.js";
 import type { CloneJob, GhClient } from "../gh.js";
+import type { GitRunner } from "../git.js";
 import type { CommandRunner } from "../pr.js";
 import type { Runner } from "../runner/index.js";
 
@@ -52,6 +53,8 @@ type ServerOptions = {
   rpIdOverride?: string;
   /** Subprocess runner for `gh pr view`; tests inject a fake. */
   runPrState?: CommandRunner;
+  /** Subprocess runner for local `git` queries; tests inject a fake. */
+  runGit?: GitRunner;
 };
 
 // Everything a route handler needs, threaded in explicitly so route modules
@@ -70,6 +73,7 @@ type ServerContext = {
   readonly statusPollMs: number;
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
+  readonly runGit: GitRunner | undefined;
   readonly cloneJobs: Map<string, CloneJob>;
   readonly cloneJobTtlMs: number;
   readonly cloneJobSweepMs: number;
