@@ -261,6 +261,20 @@ body {
   text-decoration: none;
   color: var(--color-text);
 }
+/* Stretched link: ::before overlays .session-item so any click on the card navigates. */
+.session-link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+/* Raised above the overlay so these controls stay clickable. */
+.session-check-wrap,
+.pr-chip,
+.rename-wrap.is-sidebar .rename-pencil {
+  position: relative;
+  z-index: 1;
+}
 .session-item.selected {
   background: var(--color-accent-soft);
   border-color: var(--color-selected-border);
