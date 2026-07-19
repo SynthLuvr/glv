@@ -5,10 +5,7 @@ import {
 } from "../prompts/template.js";
 
 (() => {
-  // Client behaviour for the saved-prompt library: fill/run cards (with
-  // template substitution), the save-form pre-fill, client-side filtering,
-  // drag-to-reorder, and the in-session follow-up picker. Everything is
-  // scoped inside this IIFE so it never collides with the global `htmx`
+  // Scoped inside this IIFE so it never collides with the global `htmx`
   // ambient declaration (stream.ts) or the top-level helpers in sibling
   // scripts (rename.ts).
   type Htmx = { trigger: (...args: unknown[]) => void };
@@ -70,12 +67,10 @@ import {
   // unknown the user must fill, rather than silently becoming empty.
   const newSessionContext = (): PlaceholderValues => {
     const values: PlaceholderValues = { date: today() };
-    const workingDir = fieldValue("working_dir");
-    if (workingDir !== "") values.working_dir = workingDir;
-    const repo = fieldValue("repo");
-    if (repo !== "") values.repo = repo;
-    const branch = fieldValue("branch");
-    if (branch !== "") values.branch = branch;
+    for (const name of ["working_dir", "repo", "branch"] as const) {
+      const value = fieldValue(name);
+      if (value !== "") values[name] = value;
+    }
     return values;
   };
 
@@ -184,8 +179,6 @@ import {
     submitSessionForm(sessionForm());
   };
 
-  // ---- in-session follow-up bar picker ----
-
   const followupTextarea = (btn: HTMLElement): HTMLTextAreaElement | null => {
     const bar = btn.closest<HTMLElement>("[data-prompt-bar]");
     return (
@@ -217,10 +210,7 @@ import {
     if (picker instanceof HTMLDetailsElement) picker.open = false;
   };
 
-  // ---- drag-to-reorder ----
-
   let dragged: HTMLElement | null = null;
-  let orderSnapshot = "";
 
   const allCardIds = (): string =>
     [
@@ -276,7 +266,6 @@ import {
     }
     dragged = card;
     card.classList.add("dragging");
-    orderSnapshot = allCardIds();
   };
 
   const onDragOver = (e: DragEvent): void => {
@@ -304,11 +293,8 @@ import {
       dragged = null;
     }
     const order = allCardIds();
-    if (order !== "" && order !== orderSnapshot) persistOrder(order);
-    orderSnapshot = "";
+    if (order !== "") persistOrder(order);
   };
-
-  // ---- save slot + filter (unchanged) ----
 
   const closeSaveSlot = (): void => {
     const slot = document.getElementById("prompt-save-slot");
@@ -357,15 +343,15 @@ import {
     for (const group of document.querySelectorAll<HTMLElement>(
       ".prompt-group",
     )) {
-      const hasVisible = [...group.querySelectorAll(".prompt-card")].some(
-        (card) => (card as HTMLElement).style.display !== "none",
-      );
+      const hasVisible = [
+        ...group.querySelectorAll<HTMLElement>(".prompt-card"),
+      ].some((card) => card.style.display !== "none");
       group.style.display = hasVisible ? "" : "none";
     }
   };
 
-  // ---- event wiring (document-level delegation survives OOB swaps) ----
-
+  // Document-level delegation survives the out-of-band library swaps that
+  // saving/editing trigger, mirroring sidebar.ts and rename.ts.
   document.addEventListener("click", (e) => {
     const el = e.target instanceof Element ? e.target : null;
     const btn = el?.closest("[data-action]");

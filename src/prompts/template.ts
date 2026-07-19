@@ -49,9 +49,4 @@ const today = (): string => {
   return `${year}-${month}-${day}`;
 };
 
-export {
-  findUnknownPlaceholders,
-  KNOWN_PLACEHOLDERS,
-  substitutePlaceholders,
-  today,
-};
+export { findUnknownPlaceholders, substitutePlaceholders, today };

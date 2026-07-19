@@ -1,5 +1,5 @@
 import { shortenHome } from "../format/index.js";
-import type { SavedPrompt } from "../prompts/db.js";
+import type { PromptSort, SavedPrompt } from "../prompts/db.js";
 
 type SourceType = "working_dir" | "github";
 
@@ -287,8 +287,6 @@ const groupPrompts = (
       return a.category.localeCompare(b.category);
     });
 };
-
-type PromptSort = "order" | "usage";
 
 // View-mode toggles. Each is an htmx link that re-renders #prompt-library with
 // the flipped query param, reflecting its active state via the `.active` class.
