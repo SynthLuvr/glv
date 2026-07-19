@@ -84,12 +84,15 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   // sessions the web app isn't actively running.
   app.get("/sessions/:id/tail", (c) => {
     const id = c.req.param("id");
-    if (getSession(ctx.db, id) === undefined)
-      return c.text("Session not found", 404);
+    const initial = getSession(ctx.db, id);
+    if (initial === undefined) return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
       // Snapshot content_json to detect in-place edits, not just appends.
       let snapshots = listMessages(ctx.db, id).map((row) => row.content_json);
+      // A tailed session (started from the CLI/desktop) keeps its placeholder
+      // name until goose derives a title; tracking it lets the header follow.
+      let lastName = initial.name;
       let polls = 0;
       while (!stream.aborted && polls < ctx.maxTailPolls) {
         polls++;
@@ -104,6 +107,14 @@ const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         if (session === undefined) {
           await emit(stream, "done", "deleted");
           return;
+        }
+
+        // Push the live rename so the transcript header stops showing the
+        // stale placeholder goose wrote before it derived a real title.
+        if (session.name !== lastName) {
+          lastName = session.name;
+          const payload = JSON.stringify({ sessionId: id, name: session.name });
+          if (!(await emit(stream, "rename", payload))) return;
         }
 
         const rows = listMessages(ctx.db, id);

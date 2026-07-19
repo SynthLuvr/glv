@@ -287,6 +287,21 @@ const connectTail = (root: Element): void => {
     }
   });
 
+  // Goose renames a tailed session once it derives a title; update the header
+  // so it no longer shows the stale placeholder (e.g. a CLI-started run).
+  activeSource.addEventListener("rename", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    const title = document.querySelector("#detail-pane .session-title");
+    if (title === null) return;
+    try {
+      const data: { name?: unknown } = JSON.parse(e.data);
+      if (typeof data.name === "string")
+        title.textContent = data.name === "" ? "(unnamed)" : data.name;
+    } catch {
+      /* ignore malformed rename payloads */
+    }
+  });
+
   // Server closed the stream; teardown so EventSource doesn't reconnect.
   activeSource.addEventListener("done", () => {
     teardown();
