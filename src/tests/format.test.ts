@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ContentItem } from "../format/index.js";
+import type { ContentItem, ParsedMessage } from "../format/index.js";
 import {
+  extractCandidatePaths,
   fmtRelative,
   messageKind,
   parseContent,
@@ -249,5 +250,60 @@ describe("shortenHome", () => {
 
   it("leaves paths unchanged when home is empty", () => {
     expect(shortenHome("/home/me", "")).toBe("/home/me");
+  });
+});
+
+describe("extractCandidatePaths", () => {
+  const toolReq = (name: string, args: Record<string, unknown>): ContentItem =>
+    item({
+      type: "toolRequest",
+      id: "1",
+      toolCall: { status: "success", value: { name, arguments: args } },
+    });
+
+  const msg = (items: ContentItem[]): ParsedMessage => ({
+    role: "assistant",
+    timestamp: "",
+    items,
+  });
+
+  it("pulls cd targets out of shell commands", () => {
+    const paths = extractCandidatePaths([
+      msg([toolReq("shell", { command: "cd /repo && git status" })]),
+    ]);
+    expect(paths).toEqual(["/repo"]);
+  });
+
+  it("reads cwd, path and working_dir args, most-recent-first", () => {
+    const paths = extractCandidatePaths([
+      msg([
+        toolReq("edit", { path: "/repo/src/a.ts" }),
+        toolReq("x", { cwd: "/repo/src" }),
+        toolReq("y", { working_dir: "/repo" }),
+      ]),
+    ]);
+    expect(paths).toEqual(["/repo", "/repo/src", "/repo/src/a.ts"]);
+  });
+
+  it("orders most-recent-first across messages", () => {
+    const paths = extractCandidatePaths([
+      msg([toolReq("shell", { command: "cd /first" })]),
+      msg([toolReq("shell", { command: "cd /second" })]),
+    ]);
+    expect(paths).toEqual(["/second", "/first"]);
+  });
+
+  it("ignores relative paths", () => {
+    const paths = extractCandidatePaths([
+      msg([toolReq("shell", { command: "cd src && make" })]),
+    ]);
+    expect(paths).toEqual([]);
+  });
+
+  it("ignores non-tool items", () => {
+    const paths = extractCandidatePaths([
+      msg([item({ type: "text", text: "x" })]),
+    ]);
+    expect(paths).toEqual([]);
   });
 });

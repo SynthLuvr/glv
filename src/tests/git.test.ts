@@ -4,6 +4,7 @@ import {
   type GitRunner,
   parseWorktreeList,
   readGitInfo,
+  selectWorktreeByPaths,
 } from "../git.js";
 
 // --- porcelain helpers ----------------------------------------------------
@@ -147,5 +148,69 @@ describe("readGitInfo", () => {
       throw new Error("spawn failed");
     };
     expect(await readGitInfo("/repo", failing)).toEqual({});
+  });
+});
+
+describe("selectWorktreeByPaths", () => {
+  const blocks = parseWorktreeList(
+    porcelain([
+      { path: "/main", branch: "main" },
+      { path: "/feat", branch: "feat" },
+    ]),
+  );
+
+  it("returns the worktree enclosing the first matching path", () => {
+    expect(selectWorktreeByPaths(blocks, ["/feat/src/a.ts"])?.path).toBe(
+      "/feat",
+    );
+  });
+
+  it("prefers the most recent matching path", () => {
+    expect(selectWorktreeByPaths(blocks, ["/feat/y", "/main/x"])?.path).toBe(
+      "/feat",
+    );
+  });
+
+  it("skips the launch worktree in favour of a worked-in one", () => {
+    expect(
+      selectWorktreeByPaths(blocks, ["/main/x", "/feat/y"], "/main")?.path,
+    ).toBe("/feat");
+  });
+
+  it("returns undefined when every candidate is the excluded worktree", () => {
+    expect(selectWorktreeByPaths(blocks, ["/main/x"], "/main")).toBeUndefined();
+  });
+
+  it("returns undefined when no candidate matches a worktree", () => {
+    expect(selectWorktreeByPaths(blocks, ["/elsewhere"])).toBeUndefined();
+  });
+});
+
+describe("readGitInfo with candidate paths", () => {
+  it("recovers the worktree a session worked in when launched from another", async () => {
+    const out = porcelain([
+      { path: "/main", branch: "main" },
+      { path: "/feat", branch: "feat/git-info" },
+    ]);
+    expect(
+      await readGitInfo("/main", mockRunner(out), ["/feat/src/x.ts"]),
+    ).toEqual({ branch: "feat/git-info", worktree: "/feat" });
+  });
+
+  it("falls back to the launch worktree when candidates only match it", async () => {
+    const out = porcelain([
+      { path: "/main", branch: "main" },
+      { path: "/feat", branch: "feat/git-info" },
+    ]);
+    expect(
+      await readGitInfo("/main", mockRunner(out), ["/main/src/x.ts"]),
+    ).toEqual({ branch: "main", worktree: "/main" });
+  });
+
+  it("falls back to the launch worktree when no candidate matches", async () => {
+    const out = porcelain([{ path: "/main", branch: "main" }]);
+    expect(
+      await readGitInfo("/main", mockRunner(out), ["/elsewhere/x"]),
+    ).toEqual({ branch: "main", worktree: "/main" });
   });
 });
