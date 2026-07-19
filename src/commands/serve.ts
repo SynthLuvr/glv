@@ -1,8 +1,10 @@
+import type { Socket } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
+import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
 import { createRunner, stopAll } from "../runner/index.js";
 import { createApp } from "../server/index.js";
@@ -11,6 +13,7 @@ type ServeOpts = {
   port: number;
   runner: RunnerConfig;
   authDbPath: string;
+  promptsDbPath: string;
   rpName: string;
   rpIdOverride?: string;
 };
@@ -20,11 +23,32 @@ type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
 };
 
+type ConnectionEmitter = {
+  on: (event: "connection", listener: (socket: Socket) => void) => void;
+};
+
 const closeServer = (server: CloseableServer): Promise<void> =>
   new Promise((resolve) => server.close(() => resolve()));
 
+// SSE streams never close on their own, so close()'s drain hangs while one is
+// attached. Track every socket so shutdown can force them down and a single
+// Ctrl+C exits instead of waiting for the browser to disconnect.
+const trackConnections = (server: ConnectionEmitter): (() => void) => {
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+  });
+  return () => {
+    for (const socket of sockets) socket.destroy();
+  };
+};
+
 type ShutdownDeps = {
   server: CloseableServer;
+  destroyConnections: () => void;
   stopProcesses: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
@@ -41,6 +65,8 @@ const createShutdown = (
       return;
     }
     draining = true;
+    // Destroy sockets before draining; close() hangs on open SSE streams.
+    deps.destroyConnections();
     await closeServer(deps.server);
     deps.stopProcesses();
     deps.closeDbs();
@@ -77,19 +103,23 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached goose processes.
   const runner = createRunner(opts.runner);
   const authDb = openAuthDb(opts.authDbPath);
+  const promptsDb = openPromptsDb(opts.promptsDbPath);
   const auth = makeAuthService(authDb);
   const app = createApp(db, runner, {
     auth,
+    prompts: promptsDb,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) =>
     console.log(`glv web viewer → http://localhost:${info.port}`),
   );
+  const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
     db.close();
     authDb.close();
+    promptsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
@@ -99,6 +129,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
 
   const shutdown = createShutdown({
     server,
+    destroyConnections,
     stopProcesses: () => stopAll(runner),
     closeDbs,
     exit: (code?: number) => process.exit(code),
@@ -106,4 +137,10 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   registerShutdown(shutdown);
 };
 
-export { closeServer, createShutdown, registerShutdown, runServe };
+export {
+  closeServer,
+  createShutdown,
+  registerShutdown,
+  runServe,
+  trackConnections,
+};

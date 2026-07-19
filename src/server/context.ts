@@ -30,6 +30,7 @@ type AssetBundle = {
   readonly rename: string;
   readonly sourcePicker: string;
   readonly ui: string;
+  readonly prompts: string;
   readonly passkey: string;
 };
 
@@ -49,6 +50,7 @@ type ServerOptions = {
   listDirs?: () => string[];
   gh?: GhClient;
   auth?: AuthService;
+  prompts?: DatabaseSync;
   rpName?: string;
   rpIdOverride?: string;
   /** Subprocess runner for `gh pr view`; tests inject a fake. */
@@ -64,6 +66,7 @@ type ServerContext = {
   readonly runner: Runner;
   readonly gh: GhClient;
   readonly auth: AuthService | undefined;
+  readonly prompts: DatabaseSync | undefined;
   readonly rpName: string | undefined;
   readonly rpIdOverride: string | undefined;
   readonly listDirs: () => string[];

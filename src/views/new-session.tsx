@@ -1,4 +1,5 @@
 import { shortenHome } from "../format/index.js";
+import type { SavedPrompt } from "../prompts/db.js";
 
 type SourceType = "working_dir" | "github";
 
@@ -121,6 +122,9 @@ const GitHubBody = ({
   );
 };
 
+// The prompt-id field lets the "Run" action flag which saved prompt a session
+// started from so the run flow can bump its usage stats. It is cleared on any
+// manual edit so a hand-typed start never bumps a stale prompt.
 const NewSessionForm = ({
   workingDir,
   dirs,
@@ -128,6 +132,8 @@ const NewSessionForm = ({
   source = "working_dir",
   repo,
   branch,
+  prompts = [],
+  categories = [],
 }: {
   workingDir: string;
   dirs: string[];
@@ -135,6 +141,8 @@ const NewSessionForm = ({
   source?: SourceType;
   repo?: string;
   branch?: string;
+  prompts?: SavedPrompt[];
+  categories?: string[];
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -151,6 +159,7 @@ const NewSessionForm = ({
     >
       {error !== undefined && <p class="status-hint error">{error}</p>}
       <input type="hidden" name="source" value={source} />
+      <input type="hidden" name="prompt_id" value="" data-prompt-id />
       <SourceToggle source={source} />
       <WorkingDirBody
         workingDir={workingDir}
@@ -174,7 +183,270 @@ const NewSessionForm = ({
         </button>
       </div>
     </form>
+    <PromptLibrarySection prompts={prompts} categories={categories} />
   </div>
+);
+
+const PromptCategoryDatalist = ({ categories }: { categories: string[] }) => (
+  <datalist id="prompt-categories">
+    {categories.map((c) => (
+      <option value={c} />
+    ))}
+  </datalist>
+);
+
+const PromptCard = ({ prompt }: { prompt: SavedPrompt }) => (
+  <article class="prompt-card" id={`prompt-card-${prompt.id}`}>
+    <div class="prompt-card-head">
+      <h4 class="prompt-card-title">{prompt.title}</h4>
+      {prompt.category !== null && (
+        <span class="prompt-tag">🏷 {prompt.category}</span>
+      )}
+    </div>
+    <p class="prompt-card-body">{prompt.body}</p>
+    <div class="prompt-card-actions">
+      <button
+        type="button"
+        class="prompt-card-btn use"
+        data-action="use"
+        data-prompt-body={prompt.body}
+      >
+        Use
+      </button>
+      <button
+        type="button"
+        class="prompt-card-btn run"
+        data-action="run"
+        data-prompt-id={prompt.id}
+        data-prompt-body={prompt.body}
+      >
+        ▶ Run
+      </button>
+      <button
+        type="button"
+        class="prompt-card-btn edit"
+        hx-get={`/prompts/${prompt.id}/edit`}
+        hx-target={`#prompt-card-${prompt.id}`}
+        hx-swap="outerHTML"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        class="prompt-card-btn delete"
+        hx-delete={`/prompts/${prompt.id}`}
+        hx-target={`#prompt-card-${prompt.id}`}
+        hx-swap="outerHTML"
+        hx-confirm="Delete this saved prompt?"
+      >
+        Delete
+      </button>
+    </div>
+  </article>
+);
+
+// Rendered both inline (initial load, GET /prompts) and out-of-band (after a
+// create) so a freshly saved card appears without a full reload. `oob`
+// attaches hx-swap-oob so htmx drops it into #prompt-library from any response.
+const PromptLibrary = ({
+  prompts,
+  categories,
+  oob = false,
+}: {
+  prompts: SavedPrompt[];
+  categories: string[];
+  oob?: boolean;
+}) => (
+  <div
+    id="prompt-library"
+    class="prompt-library"
+    {...(oob ? { "hx-swap-oob": "true" } : {})}
+  >
+    <PromptCategoryDatalist categories={categories} />
+    <input
+      type="search"
+      class="prompt-filter"
+      placeholder="🔍 Filter prompts…"
+      autocomplete="off"
+      data-prompt-filter
+    />
+    <div class="prompt-grid" data-prompt-grid>
+      {prompts.length === 0 ? (
+        <p class="prompt-empty">
+          No saved prompts yet. Use “Save current prompt” to add one.
+        </p>
+      ) : (
+        prompts.map((p) => <PromptCard prompt={p} />)
+      )}
+    </div>
+  </div>
+);
+
+// The save form targets its own slot (innerHTML) so a validation error
+// re-renders in place, while a successful save clears the slot and refreshes
+// the grid out-of-band.
+const PromptSaveForm = ({
+  title = "",
+  body = "",
+  category = "",
+  error,
+}: {
+  title?: string;
+  body?: string;
+  category?: string;
+  error?: string;
+}) => (
+  <form
+    class="prompt-form"
+    data-prompt-form="save"
+    hx-post="/prompts"
+    hx-target="#prompt-save-slot"
+    hx-swap="innerHTML"
+  >
+    {error !== undefined && <p class="status-hint error">{error}</p>}
+    <label class="form-field">
+      <span class="form-label">Title</span>
+      <input
+        type="text"
+        name="title"
+        class="form-input"
+        value={title}
+        placeholder="e.g. Fix failing tests"
+        required
+        maxlength={120}
+        autocomplete="off"
+      />
+    </label>
+    <label class="form-field">
+      <span class="form-label">Body</span>
+      <textarea
+        name="body"
+        class="form-input"
+        rows={4}
+        placeholder="The prompt text goose will receive"
+        required
+      >
+        {body}
+      </textarea>
+    </label>
+    <label class="form-field">
+      <span class="form-label">Category (optional)</span>
+      <input
+        type="text"
+        name="category"
+        class="form-input"
+        list="prompt-categories"
+        value={category}
+        placeholder="tests, review, docs…"
+        autocomplete="off"
+      />
+    </label>
+    <div class="prompt-form-actions">
+      <button type="submit" class="prompt-save-btn">
+        Save
+      </button>
+      <button type="button" class="prompt-cancel-btn" data-action="close-save">
+        Cancel
+      </button>
+    </div>
+  </form>
+);
+
+// Edit form keeps the card's id on its wrapping <article> so the outerHTML
+// swap preserves the anchor whether it renders the form or the card back.
+const PromptEditForm = ({
+  id,
+  title,
+  body,
+  category,
+  error,
+}: {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  error?: string;
+}) => (
+  <article class="prompt-card editing" id={`prompt-card-${id}`}>
+    <form
+      class="prompt-form"
+      hx-put={`/prompts/${id}`}
+      hx-target={`#prompt-card-${id}`}
+      hx-swap="outerHTML"
+    >
+      {error !== undefined && <p class="status-hint error">{error}</p>}
+      <label class="form-field">
+        <span class="form-label">Title</span>
+        <input
+          type="text"
+          name="title"
+          class="form-input"
+          value={title}
+          required
+          maxlength={120}
+          autocomplete="off"
+        />
+      </label>
+      <label class="form-field">
+        <span class="form-label">Body</span>
+        <textarea name="body" class="form-input" rows={4} required>
+          {body}
+        </textarea>
+      </label>
+      <label class="form-field">
+        <span class="form-label">Category (optional)</span>
+        <input
+          type="text"
+          name="category"
+          class="form-input"
+          list="prompt-categories"
+          value={category}
+          autocomplete="off"
+        />
+      </label>
+      <div class="prompt-form-actions">
+        <button type="submit" class="prompt-save-btn">
+          Save
+        </button>
+        <button
+          type="button"
+          class="prompt-cancel-btn"
+          hx-get={`/prompts/${id}/card`}
+          hx-target={`#prompt-card-${id}`}
+          hx-swap="outerHTML"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </article>
+);
+
+const PromptLibrarySection = ({
+  prompts,
+  categories,
+}: {
+  prompts: SavedPrompt[];
+  categories: string[];
+}) => (
+  <section class="prompt-library-section">
+    <div class="prompt-library-head">
+      <h3 class="prompt-library-title">Saved prompts</h3>
+      <button
+        type="button"
+        class="prompt-save-toggle"
+        data-action="open-save"
+        hx-get="/prompts/new"
+        hx-target="#prompt-save-slot"
+        hx-swap="innerHTML"
+      >
+        💾 Save current prompt
+      </button>
+    </div>
+    {/* Swapped in by htmx on demand; empty until the user opens it. */}
+    <div id="prompt-save-slot" class="prompt-save-slot"></div>
+    <PromptLibrary prompts={prompts} categories={categories} />
+  </section>
 );
 
 const CloningView = ({
@@ -217,4 +489,13 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { CloningView, NewSessionForm, NotFoundDetail, SourceType };
+export {
+  CloningView,
+  NewSessionForm,
+  NotFoundDetail,
+  PromptCard,
+  PromptEditForm,
+  PromptLibrary,
+  PromptSaveForm,
+  SourceType,
+};

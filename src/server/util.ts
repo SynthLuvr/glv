@@ -100,6 +100,7 @@ const buildAssetBundle = (): AssetBundle => ({
   rename: readAsset("../../dist/rename.js"),
   sourcePicker: readAsset("../../dist/source-picker.js"),
   ui: readAsset("../../dist/ui.js"),
+  prompts: readAsset("../../dist/prompts.js"),
   passkey: readAsset("../../dist/passkey.js"),
 });
 

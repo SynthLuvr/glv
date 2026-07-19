@@ -18,6 +18,7 @@ import {
   generateCloneJobId,
   parseOwnerRepo,
 } from "../../gh.js";
+import { bumpUsage } from "../../prompts/db.js";
 import {
   clearPending,
   enqueueNew,
@@ -76,6 +77,8 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         : "working_dir";
     const repoVal = typeof body.repo === "string" ? body.repo.trim() : "";
     const branchVal = typeof body.branch === "string" ? body.branch.trim() : "";
+    const promptId =
+      typeof body.prompt_id === "string" ? body.prompt_id.trim() : "";
 
     const rejectForm = (
       error: string,
@@ -147,6 +150,8 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
         job.known = new Set(sessionIdsInDir(ctx.db, clonePath));
         job.runStartedAt = Date.now();
         enqueueNew(ctx.runner, job.tempKey, prompt, clonePath);
+        if (promptId !== "" && ctx.prompts !== undefined)
+          bumpUsage(ctx.prompts, promptId);
         job.status = "done";
       };
 
@@ -220,6 +225,11 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
     if (!result.ok) return rejectForm(result.error, result.status);
     const { realId, session } = result;
+
+    // A "Run" from a saved prompt tags the submit with the prompt id; bump
+    // usage stats only once the run has actually been established.
+    if (promptId !== "" && ctx.prompts !== undefined)
+      bumpUsage(ctx.prompts, promptId);
 
     return render(
       c,

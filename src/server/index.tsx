@@ -19,6 +19,7 @@ import { registerEventsRoutes } from "./routes/events.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerPrRoutes } from "./routes/pr.js";
+import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 import { buildAssetBundle, expandHome, listHomeDirs } from "./util.js";
@@ -33,6 +34,7 @@ const createApp = (
     runner,
     gh: opts.gh ?? createGhClient(),
     auth: opts.auth,
+    prompts: opts.prompts,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
     listDirs: opts.listDirs ?? listHomeDirs,
@@ -75,6 +77,7 @@ const createApp = (
   registerSessionRoutes(app, ctx);
   registerPrRoutes(app, ctx);
   registerGitRoutes(app, ctx);
+  registerPromptRoutes(app, ctx);
   registerStreamRoutes(app, ctx);
   registerEventsRoutes(app, ctx);
 
