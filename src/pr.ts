@@ -12,16 +12,8 @@ const PR_URL_GLOBAL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 // `gh pr create` prints nothing but the new PR's URL on success.
 const BARE_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 
-// `git push` prints a create-PR link on a `remote:` line. Anchoring to
-// `remote:` avoids matching the URL when merely quoted in prose.
-const PULL_NEW_URL_GLOBAL =
-  /^[ \t]*remote:[ \t]*(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/new\/[\w./-]+)/gm;
-
 const findPrUrls = (text: string): string[] =>
   [...text.matchAll(PR_URL_GLOBAL)].map((match) => match[0]);
-
-const findPullNewUrls = (text: string): string[] =>
-  [...text.matchAll(PULL_NEW_URL_GLOBAL)].map((match) => match[1]);
 
 const last = <T>(values: readonly T[]): T | undefined =>
   values.length === 0 ? undefined : values[values.length - 1];
@@ -46,14 +38,12 @@ const prUrlFromJson = (text: string): string | undefined => {
 
 // Ranked by confidence of being "the PR this session created". Higher rank
 // always wins; within a rank the latest mention wins (recency beats
-// frequency, which is gamed by changelogs). `pushLink` is intentionally
-// excluded from the ranking: a `pull/new` link is an invitation, not a PR.
+// frequency, which is gamed by changelogs).
 type PrCandidates = {
   created?: string;
   mcpResult?: string;
   summary?: string;
   mention?: string;
-  pushLink?: string;
 };
 
 const recordMention = (text: string, out: PrCandidates): void => {
@@ -74,11 +64,6 @@ const scanToolResult = (
   const mcpUrl = prUrlFromJson(text);
   if (mcpUrl !== undefined) {
     out.mcpResult = mcpUrl;
-    return;
-  }
-  const pushNew = last(findPullNewUrls(text));
-  if (pushNew !== undefined) {
-    out.pushLink = pushNew;
     return;
   }
   recordMention(text, out);
@@ -122,10 +107,6 @@ const detectPrUrl = (
   const { created, mcpResult, summary, mention } = scanCandidates(messages);
   return created ?? mcpResult ?? summary ?? mention;
 };
-
-const detectCreatePrUrl = (
-  messages: readonly ParsedMessage[],
-): string | undefined => scanCandidates(messages).pushLink;
 
 const prLabel = (url: string): string => {
   const match = /\/pull\/(\d+)/.exec(url);
@@ -186,5 +167,5 @@ const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
   closed: "Closed",
 };
 
-export type { CommandRunner, PrState };
-export { detectCreatePrUrl, detectPrUrl, prLabel, resolvePrState, STATE_LABEL };
+export type { CommandRunner };
+export { detectPrUrl, prLabel, resolvePrState, STATE_LABEL };

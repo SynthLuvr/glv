@@ -209,7 +209,7 @@ const refreshSession = (db: DatabaseSync, token: string): void =>
 const deleteSession = (db: DatabaseSync, token: string): void =>
   sessions.remove(db, { where: "id = ?", params: [token] });
 
-export type { NewCredential, StoredCredential };
+export type { NewCredential };
 export {
   createOwner,
   createSession,
@@ -218,12 +218,9 @@ export {
   isClaimed,
   listCredentials,
   openAuthDb,
-  purgeExpiredSessions,
   refreshSession,
   resolveAuthDbPath,
-  SESSION_MAX_LIFETIME_SECONDS,
   SESSION_TTL_SECONDS,
   updateCounter,
-  userCount,
   validSession,
 };

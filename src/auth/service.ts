@@ -270,4 +270,4 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
 };
 
 export type { AuthService, RpConfig, VerifyResult };
-export { makeAuthService, makeChallengeAuthority };
+export { makeAuthService };

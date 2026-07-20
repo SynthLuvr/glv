@@ -15,7 +15,6 @@ import {
   enqueueOrQueue,
   generateTempKey,
   getHandle,
-  getStatus,
   killProcessGroup,
   makeRunnerConfig,
   newSessionInvocation,
@@ -831,21 +830,20 @@ describe("error handling", () => {
   });
 });
 
-describe("getStatus and getHandle", () => {
-  it("returns the current status for an active session", async () => {
+describe("getHandle", () => {
+  it("returns a handle whose status tracks an active run", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const handle = enqueue(runner, "s1", "hi", "/tmp");
     // With available capacity p-queue starts immediately.
-    expect(["queued", "running"]).toContain(getStatus(runner, "s1"));
+    expect(["queued", "running"]).toContain(getHandle(runner, "s1")?.status);
     await waitForStatus(handle, "completed");
-    expect(getStatus(runner, "s1")).toBe("completed");
+    expect(getHandle(runner, "s1")?.status).toBe("completed");
   });
 
   it("returns undefined for an unknown session", () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    expect(getStatus(runner, "nope")).toBeUndefined();
     expect(getHandle(runner, "nope")).toBeUndefined();
   });
 
@@ -1036,7 +1034,7 @@ describe("terminal handle eviction", () => {
     );
     const handle = enqueue(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(getStatus(runner, "s1")).toBe("completed");
+    expect(getHandle(runner, "s1")?.status).toBe("completed");
   });
 
   it("evicts a running-then-stopped handle after the retention window", async () => {

@@ -41,9 +41,6 @@ const createRunner = (
 const isTerminalStatus = (status: RunStatus): boolean =>
   status === "completed" || status === "stopped" || status === "error";
 
-const getStatus = (runner: Runner, sessionId: string): RunStatus | undefined =>
-  runner.registry.get(sessionId)?.status;
-
 const getHandle = (runner: Runner, sessionId: string): RunHandle | undefined =>
   runner.registry.get(sessionId);
 
@@ -68,7 +65,6 @@ export {
   enqueueOrQueue,
   generateTempKey,
   getHandle,
-  getStatus,
   isTerminalStatus,
   killProcessGroup,
   makeRunnerConfig,

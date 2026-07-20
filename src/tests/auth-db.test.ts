@@ -11,12 +11,9 @@ import {
   isClaimed,
   listCredentials,
   openAuthDb,
-  purgeExpiredSessions,
   refreshSession,
-  SESSION_MAX_LIFETIME_SECONDS,
   SESSION_TTL_SECONDS,
   updateCounter,
-  userCount,
   validSession,
 } from "../auth/db.js";
 
@@ -34,8 +31,7 @@ describe("fresh auth database", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("starts unclaimed with zero users", () => {
-    expect(userCount(db)).toBe(0);
+  it("starts unclaimed", () => {
     expect(isClaimed(db)).toBe(false);
   });
 
@@ -82,8 +78,7 @@ describe("claimed auth database", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("has exactly one user after claiming", () => {
-    expect(userCount(db)).toBe(1);
+  it("is claimed after the owner credential is stored", () => {
     expect(isClaimed(db)).toBe(true);
   });
 
@@ -115,7 +110,7 @@ describe("claimed auth database", () => {
   it("persists the database across reopens", () => {
     db.close();
     db = openAuthDb(join(dir, "auth.db"));
-    expect(userCount(db)).toBe(1);
+    expect(isClaimed(db)).toBe(true);
     expect(getCredential(db, "cred-abc")).toBeDefined();
   });
 });
@@ -204,41 +199,11 @@ describe("expired session purging", () => {
   const sessionExists = (id: string): boolean =>
     db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) !== undefined;
 
-  const totalSessions = (): number => {
-    const row = db.prepare("SELECT COUNT(*) AS n FROM sessions").get();
-    if (
-      typeof row === "object" &&
-      row !== null &&
-      "n" in row &&
-      typeof row.n === "number"
-    )
-      return row.n;
-    return 0;
-  };
-
-  it("purgeExpiredSessions removes only expired rows", () => {
-    const fresh = createSession(db, ownerId);
-    insertExpired("purge-a");
-    expect(sessionExists("purge-a")).toBe(true);
-    purgeExpiredSessions(db);
-    expect(sessionExists("purge-a")).toBe(false);
-    expect(sessionExists(fresh)).toBe(true);
-    expect(validSession(db, fresh)).toBe(true);
-  });
-
   it("createSession opportunistically purges expired rows", () => {
     insertExpired("purge-on-login");
     expect(sessionExists("purge-on-login")).toBe(true);
     createSession(db, ownerId);
     expect(sessionExists("purge-on-login")).toBe(false);
-  });
-
-  it("is a no-op when nothing is expired", () => {
-    const fresh = createSession(db, ownerId);
-    const before = totalSessions();
-    purgeExpiredSessions(db);
-    expect(totalSessions()).toBe(before);
-    expect(sessionExists(fresh)).toBe(true);
   });
 });
 
@@ -288,9 +253,8 @@ describe("session absolute max lifetime", () => {
         "SELECT expires_at = datetime(created_at, ?) AS matches " +
           "FROM sessions WHERE id = ?",
       )
-      .get(`+${SESSION_MAX_LIFETIME_SECONDS} seconds`, token) as
-      | { matches?: number }
-      | undefined;
+      // 7-day absolute cap mirrors SESSION_MAX_LIFETIME_SECONDS in auth/db.ts.
+      .get("+604800 seconds", token) as { matches?: number } | undefined;
     return row?.matches === 1;
   };
 

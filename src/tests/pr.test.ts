@@ -5,12 +5,7 @@ import {
   parseContent,
 } from "../format/index.js";
 import type { CommandRunner } from "../pr.js";
-import {
-  detectCreatePrUrl,
-  detectPrUrl,
-  prLabel,
-  resolvePrState,
-} from "../pr.js";
+import { detectPrUrl, prLabel, resolvePrState } from "../pr.js";
 
 // --- synthetic message builders -------------------------------------------
 // Mirror the goose transcript shapes parsed by `toolResultInfo` / `thinkingText`.
@@ -188,63 +183,6 @@ describe("detectPrUrl", () => {
       ]),
     ];
     expect(detectPrUrl(messages)).toBeUndefined();
-  });
-});
-
-// --- create-pr hint -------------------------------------------------------
-
-describe("detectCreatePrUrl", () => {
-  it("surfaces a `git push` pull/new link as a Create-PR hint", () => {
-    const pushOut =
-      "remote: Create a pull request for 'feat/x' on GitHub by visiting:\n" +
-      `remote:      https://github.com/SynthLuvr/lisko/pull/new/feat/x`;
-    expect(detectCreatePrUrl([msg("user", [toolResult(pushOut)])])).toBe(
-      "https://github.com/SynthLuvr/lisko/pull/new/feat/x",
-    );
-  });
-
-  it("keeps the latest push link when several branches are pushed", () => {
-    const messages = [
-      msg("user", [
-        toolResult(
-          "remote: Create a pull request for 'feat/a' on GitHub by visiting:\n" +
-            "remote:      https://github.com/SynthLuvr/lisko/pull/new/feat/a",
-        ),
-      ]),
-      msg("user", [
-        toolResult(
-          "remote: Create a pull request for 'feat/b' on GitHub by visiting:\n" +
-            "remote:      https://github.com/SynthLuvr/lisko/pull/new/feat/b",
-        ),
-      ]),
-    ];
-    expect(detectCreatePrUrl(messages)).toBe(
-      "https://github.com/SynthLuvr/lisko/pull/new/feat/b",
-    );
-  });
-
-  it("returns undefined when only a real PR is present", () => {
-    expect(
-      detectCreatePrUrl([msg("assistant", [textItem(`PR at ${URL(35)}`)])]),
-    ).toBeUndefined();
-  });
-
-  it("preserves the hint even when a real PR is also detected", () => {
-    const pushOut =
-      "remote: Create a pull request for 'fix/x' on GitHub by visiting:\n" +
-      "remote:      https://github.com/SynthLuvr/goose-log-viewer/pull/new/fix/x";
-    const messages = [
-      msg("user", [toolResult(pushOut)]),
-      msg("user", [
-        toolResult("https://github.com/SynthLuvr/goose-log-viewer/pull/35"),
-      ]),
-    ];
-    expect(detectPrUrl(messages)).toBe(
-      "https://github.com/SynthLuvr/goose-log-viewer/pull/35",
-    );
-    expect(detectCreatePrUrl(messages)).toBe(
-      "https://github.com/SynthLuvr/goose-log-viewer/pull/new/fix/x",
-    );
   });
 });
 

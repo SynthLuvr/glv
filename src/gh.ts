@@ -273,23 +273,5 @@ const createGhClient = (): GhClient => ({
   materialise,
 });
 
-export type {
-  BranchInfo,
-  CloneJob,
-  CloneStatus,
-  GhClient,
-  OwnerRepo,
-  RepoInfo,
-};
-export {
-  CLONE_ROOT,
-  clonePathFor,
-  createGhClient,
-  generateCloneJobId,
-  parseDefaultBranch,
-  parseOwnerRepo,
-  parseRepoList,
-  parseSshUrl,
-  runClone,
-  runUpdate,
-};
+export type { CloneJob, GhClient };
+export { clonePathFor, createGhClient, generateCloneJobId, parseOwnerRepo };
