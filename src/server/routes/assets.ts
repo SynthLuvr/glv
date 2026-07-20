@@ -2,41 +2,37 @@ import { type Hono } from "hono";
 import type { ServerContext } from "../context.js";
 import { serveAsset } from "../util.js";
 
+const JS_TYPE = "application/javascript; charset=utf-8";
+
 const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
   const a = ctx.assets;
-  app.get("/assets/htmx.min.js", (c) =>
-    serveAsset(c, a.htmx, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/app.css", (c) =>
-    serveAsset(c, a.appCss, "text/css; charset=utf-8"),
-  );
-  app.get("/assets/sidebar.js", (c) =>
-    serveAsset(c, a.sidebar, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/stream.js", (c) =>
-    serveAsset(c, a.stream, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/theme.js", (c) =>
-    serveAsset(c, a.theme, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/markdown-copy.js", (c) =>
-    serveAsset(c, a.markdownCopy, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/rename.js", (c) =>
-    serveAsset(c, a.rename, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/source-picker.js", (c) =>
-    serveAsset(c, a.sourcePicker, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/ui.js", (c) =>
-    serveAsset(c, a.ui, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/prompts.js", (c) =>
-    serveAsset(c, a.prompts, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/passkey.js", (c) =>
-    serveAsset(c, a.passkey, "application/javascript; charset=utf-8"),
-  );
+  const routes: { path: string; body: string; contentType: string }[] = [
+    { path: "/assets/htmx.min.js", body: a.htmx, contentType: JS_TYPE },
+    {
+      path: "/assets/app.css",
+      body: a.appCss,
+      contentType: "text/css; charset=utf-8",
+    },
+    { path: "/assets/sidebar.js", body: a.sidebar, contentType: JS_TYPE },
+    { path: "/assets/stream.js", body: a.stream, contentType: JS_TYPE },
+    { path: "/assets/theme.js", body: a.theme, contentType: JS_TYPE },
+    {
+      path: "/assets/markdown-copy.js",
+      body: a.markdownCopy,
+      contentType: JS_TYPE,
+    },
+    { path: "/assets/rename.js", body: a.rename, contentType: JS_TYPE },
+    {
+      path: "/assets/source-picker.js",
+      body: a.sourcePicker,
+      contentType: JS_TYPE,
+    },
+    { path: "/assets/ui.js", body: a.ui, contentType: JS_TYPE },
+    { path: "/assets/prompts.js", body: a.prompts, contentType: JS_TYPE },
+    { path: "/assets/passkey.js", body: a.passkey, contentType: JS_TYPE },
+  ];
+  for (const { path, body, contentType } of routes)
+    app.get(path, (c) => serveAsset(c, body, contentType));
 };
 
 export { registerAssetRoutes };
