@@ -6,7 +6,6 @@ import { getHandle, stop } from "../../runner/index.js";
 import { CloningView } from "../../views/new-session.js";
 import { Transcript } from "../../views/transcript.js";
 import {
-  AppEnv,
   SESSION_TIMEOUT_ERROR,
   ServerContext,
   VIEWER_FILTER,
@@ -14,10 +13,10 @@ import {
 import { newSessionDetail, render } from "../render.js";
 import { errorMessage, establishSession, withCreateLock } from "../util.js";
 
-const ghErrorResponse = (c: Context<AppEnv>, err: unknown) =>
+const ghErrorResponse = (c: Context, err: unknown) =>
   c.json({ ok: false, error: errorMessage(err) }, 502);
 
-const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerGithubRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/github/repos", async (c) => {
     try {
       return c.json({ ok: true, repos: await ctx.gh.listRepos() });

@@ -1,8 +1,8 @@
 import { type Hono } from "hono";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 import { serveAsset } from "../util.js";
 
-const registerAssetRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
   const a = ctx.assets;
   app.get("/assets/htmx.min.js", (c) =>
     serveAsset(c, a.htmx, "application/javascript; charset=utf-8"),

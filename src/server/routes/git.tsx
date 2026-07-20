@@ -4,12 +4,12 @@ import { parseMessage } from "../../format/index.js";
 import { readWorktreeByBranch } from "../../git.js";
 import { detectPrUrl, resolvePrBranch } from "../../pr.js";
 import { BranchChip, WorktreeChip } from "../../views/chips.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 
 // Resolve branch + worktree from the PR the session created and swap in chips
 // via htmx. The branch comes from the PR link (via `gh`); the worktree is the
 // local checkout on that branch. No PR link, or any failure → an empty body.
-const registerGitRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerGitRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/git-info", async (c) => {
     const id = c.req.param("id");
     const session = getSession(ctx.db, id);
