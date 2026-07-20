@@ -12,6 +12,8 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { type } from "arktype";
+import { type Context, type MiddlewareHandler } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import {
   createOwner,
   createSession,
@@ -21,6 +23,7 @@ import {
   listCredentials,
   type NewCredential,
   refreshSession,
+  SESSION_TTL_SECONDS,
   updateCounter,
   validSession,
 } from "./db.js";
@@ -269,5 +272,42 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
   };
 };
 
+const COOKIE_NAME = "glv_session";
+
+// Every static asset is served under a single prefix so the auth gate can
+// whitelist them as a group without naming each file individually.
+const ASSET_PREFIX = "/assets/";
+
+const isPublicPath = (path: string): boolean =>
+  path === "/auth" ||
+  path.startsWith("/auth/") ||
+  path.startsWith(ASSET_PREFIX);
+
+const setSessionCookie = (c: Context, token: string): void => {
+  const url = new URL(c.req.url);
+  setCookie(c, COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "Strict",
+    secure: url.protocol === "https:",
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS,
+  });
+};
+
+const authMiddleware =
+  (auth: AuthService): MiddlewareHandler =>
+  async (c, next) => {
+    if (isPublicPath(c.req.path)) return next();
+    const token = getCookie(c, COOKIE_NAME);
+    if (token !== undefined && auth.isValidSession(token)) {
+      // Sliding window: re-issue the cookie so the browser expiry tracks
+      // the just-refreshed DB session rather than the original login.
+      setSessionCookie(c, token);
+      return next();
+    }
+    const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
+    return c.redirect(dest, 302);
+  };
+
 export type { AuthService, RpConfig, VerifyResult };
-export { makeAuthService };
+export { authMiddleware, COOKIE_NAME, makeAuthService, setSessionCookie };

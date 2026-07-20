@@ -1,7 +1,7 @@
 import { type Context, type Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
-import { COOKIE_NAME, setSessionCookie } from "../../auth/middleware.js";
 import type { RpConfig, VerifyResult } from "../../auth/service.js";
+import { COOKIE_NAME, setSessionCookie } from "../../auth/service.js";
 import { LoginPage, RegisterPage } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
 import { errorMessage } from "../util.js";
