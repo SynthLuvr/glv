@@ -60,10 +60,21 @@ describe("detectPrUrl", () => {
     expect(detectPrUrl(messages)).toBe(URL(35));
   });
 
-  it("ignores a bare URL in an *error* tool result for tier 1", () => {
-    // An error result must not count as a successful creation.
+  it("ignores a bare URL in an *error* tool result entirely", () => {
+    // An error result is not a creation, and tool results never feed the
+    // mention tier — so an error tool result with a URL yields no PR.
     const messages = [msg("user", [toolResult(URL(35), true)])];
-    expect(detectPrUrl(messages)).toBe(URL(35));
+    expect(detectPrUrl(messages)).toBeUndefined();
+  });
+
+  it("ignores a PR URL embedded in source code shown in a tool result (20260720_35)", () => {
+    // The session never created a PR; the only URL is a test-fixture string
+    // constant inside the source file it was editing. Tool results don't feed
+    // the mention tier, so no chip is produced.
+    const source =
+      '  const PR = "https://github.com/SynthLuvr/lisko/pull/35";\n' +
+      "  const seedPrSession = (db: DatabaseSync) => {};\n";
+    expect(detectPrUrl([msg("user", [toolResult(source)])])).toBeUndefined();
   });
 
   it("keeps the *latest* created PR when several are made (tier 1)", () => {

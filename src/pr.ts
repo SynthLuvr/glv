@@ -66,7 +66,11 @@ const scanToolResult = (
     out.mcpResult = mcpUrl;
     return;
   }
-  recordMention(text, out);
+  // Tool results never feed the mention tier: a PR URL that is neither a
+  // creation (bare URL) nor MCP JSON is incidental data — file contents,
+  // diffs, search output — not "the PR this session created". Scanning it
+  // produced false chips for test-fixture URLs embedded in edited source
+  // (e.g. `const PR = ".../pull/35"` inside pr.test.ts).
 };
 
 const scanText = (
