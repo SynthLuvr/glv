@@ -2518,114 +2518,161 @@ describe("PR status endpoint GET /sessions/:id/pr-state", () => {
 });
 
 describe("git info endpoint GET /sessions/:id/git-info", () => {
-  // The runner is keyed on cwd so one fake answers any session.
-  const runnerFor =
-    (out: (cwd: string) => string): GitRunner =>
-    async (_args, cwd) => ({ stdout: out(cwd), exitCode: 0 });
+  // The session header's git chips are derived from the PR the session
+  // created: the branch comes from the PR link (via `gh`), and the worktree
+  // is the local checkout on that branch. Each test seeds a transcript that
+  // mentions a PR URL, then injects the `gh` (runPrState) and `git` (runGit)
+  // answers.
+  const PR = "https://github.com/SynthLuvr/lisko/pull/35";
 
-  const fetchGit = async (id: string, runGit?: GitRunner): Promise<string> => {
-    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), { runGit });
-    return (await app.request(`/sessions/${id}/git-info`)).text();
+  const seedPrSession = (
+    database: DatabaseSync,
+    id: string,
+    workingDir: string,
+  ): void => {
+    database
+      .prepare("INSERT INTO sessions (id, working_dir) VALUES (?, ?)")
+      .run(id, workingDir);
+    database
+      .prepare(
+        "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        id,
+        "user",
+        JSON.stringify([
+          {
+            type: "toolResponse",
+            toolResult: { value: { content: [{ type: "text", text: PR }] } },
+          },
+        ]),
+        1,
+      );
   };
 
-  it("renders branch and worktree chips for a git repo session", async () => {
-    const body = await fetchGit(
-      "alpha",
-      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/feat/git-info\n`),
-    );
+  const setup = (): DatabaseSync => {
+    const dir = mkdtempSync(join(tmpdir(), "glv-gi-"));
+    const database = new DatabaseSync(join(dir, "sessions.db"));
+    database.exec(SCHEMA);
+    return database;
+  };
+
+  const gitApp = (
+    database: DatabaseSync,
+    opts: { branch?: string; porcelain?: string; runGit?: GitRunner },
+  ) => {
+    const runPrState = async () => ({
+      stdout:
+        opts.branch === undefined
+          ? ""
+          : JSON.stringify({ headRefName: opts.branch }),
+    });
+    return createApp(database, createRunner(DEFAULT_RUNNER_CONFIG), {
+      runPrState,
+      runGit:
+        opts.runGit ??
+        (async () => ({ stdout: opts.porcelain ?? "", exitCode: 0 })),
+    });
+  };
+
+  it("renders the branch from the PR link and the matching worktree", async () => {
+    const database = setup();
+    seedPrSession(database, "gi", "/main");
+    const porcelain =
+      "worktree /main\nbranch refs/heads/main\n\nworktree /feat\nbranch refs/heads/feat/x";
+    const body = await (
+      await gitApp(database, { branch: "feat/x", porcelain }).request(
+        "/sessions/gi/git-info",
+      )
+    ).text();
     expect(body).toContain("git-chip-branch");
-    expect(body).toContain("feat/git-info");
+    expect(body).toContain("feat/x");
     expect(body).toContain("git-chip-worktree");
-    expect(body).toContain("/tmp/alpha");
+    expect(body).toContain("/feat");
+    expect(body).not.toContain("/main");
   });
 
   it("renders the worktree chip as a link that pre-fills New Session", async () => {
-    const body = await fetchGit(
-      "alpha",
-      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/main\n`),
-    );
+    const database = setup();
+    seedPrSession(database, "gi", "/feat");
+    const porcelain = "worktree /feat\nbranch refs/heads/feat/x";
+    const body = await (
+      await gitApp(database, { branch: "feat/x", porcelain }).request(
+        "/sessions/gi/git-info",
+      )
+    ).text();
     // The worktree chip is an anchor that swaps the detail pane, opening the
     // new-session form with that working directory pre-filled (URL-encoded).
     expect(body).toContain('<a class="git-chip git-chip-worktree"');
-    expect(body).toContain('href="/sessions/new?working_dir=%2Ftmp%2Falpha"');
-    expect(body).toContain('hx-get="/sessions/new?working_dir=%2Ftmp%2Falpha"');
+    expect(body).toContain('href="/sessions/new?working_dir=%2Ffeat"');
     expect(body).toContain('hx-target="#detail-pane"');
     // The branch chip stays a non-navigable span.
     expect(body).toContain('<span class="git-chip git-chip-branch"');
   });
 
-  it("renders only the worktree chip for a detached HEAD", async () => {
-    const body = await fetchGit(
-      "alpha",
-      runnerFor((cwd) => `worktree ${cwd}\ndetached\n`),
-    );
-    expect(body).toContain("git-chip-worktree");
-    expect(body).not.toContain("git-chip-branch");
+  it("renders only the branch chip when no worktree is on that branch", async () => {
+    const database = setup();
+    seedPrSession(database, "gi", "/main");
+    const body = await (
+      await gitApp(database, {
+        branch: "feat/x",
+        porcelain: "worktree /main\nbranch refs/heads/main",
+      }).request("/sessions/gi/git-info")
+    ).text();
+    expect(body).toContain("feat/x");
+    expect(body).not.toContain("git-chip-worktree");
   });
 
-  it("returns an empty body when the working dir is not a git repo", async () => {
-    const body = await fetchGit("alpha", async () => ({
-      stdout: "fatal: not a git repository",
-      exitCode: 128,
-    }));
+  it("returns an empty body when the session has no PR link", async () => {
+    const database = setup();
+    database
+      .prepare("INSERT INTO sessions (id, working_dir) VALUES (?, ?)")
+      .run("nopr", "/repo");
+    const body = await (
+      await gitApp(database, {
+        branch: "feat/x",
+        porcelain: "worktree /repo\nbranch refs/heads/feat/x",
+      }).request("/sessions/nopr/git-info")
+    ).text();
+    expect(body).toBe("");
+  });
+
+  it("returns an empty body when gh cannot resolve the branch", async () => {
+    const database = setup();
+    seedPrSession(database, "gi", "/feat");
+    const body = await (
+      await gitApp(database, {
+        porcelain: "worktree /feat\nbranch refs/heads/feat/x",
+      }).request("/sessions/gi/git-info")
+    ).text();
     expect(body).toBe("");
   });
 
   it("returns an empty body for a missing session", async () => {
-    const body = await fetchGit(
-      "nope",
-      runnerFor((cwd) => `worktree ${cwd}\nbranch refs/heads/main\n`),
-    );
+    const database = setup();
+    const body = await (
+      await gitApp(database, {
+        branch: "feat/x",
+        porcelain: "worktree /feat\nbranch refs/heads/feat/x",
+      }).request("/sessions/missing/git-info")
+    ).text();
     expect(body).toBe("");
   });
 
-  it("never propagates a runner failure to the page", async () => {
-    const body = await fetchGit("alpha", async () => {
-      throw new Error("git missing");
-    });
-    expect(body).toBe("");
-  });
-
-  it("reports the worktree a session worked in, not its launch dir", async () => {
-    // A session launched from /main that `cd`s into /feat and works there
-    // should surface /feat's branch, not the launch dir's.
-    const wtDir = mkdtempSync(join(tmpdir(), "glv-wt-"));
-    const wtDb = new DatabaseSync(join(wtDir, "sessions.db"));
-    wtDb.exec(SCHEMA);
-    wtDb
-      .prepare("INSERT INTO sessions (id, working_dir) VALUES (?, ?)")
-      .run("wt-sess", "/main");
-    wtDb
-      .prepare(
-        "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
-      )
-      .run(
-        "wt-sess",
-        "assistant",
-        JSON.stringify([
-          {
-            type: "toolRequest",
-            id: "c1",
-            toolCall: {
-              status: "success",
-              value: {
-                name: "shell",
-                arguments: { command: "cd /feat && git status" },
-              },
-            },
-          },
-        ]),
-        1,
-      );
-    const porcelain =
-      "worktree /main\nbranch refs/heads/main\n\nworktree /feat\nbranch refs/heads/feat/x";
-    const app = createApp(wtDb, createRunner(DEFAULT_RUNNER_CONFIG), {
-      runGit: async () => ({ stdout: porcelain, exitCode: 0 }),
-    });
-    const body = await (await app.request("/sessions/wt-sess/git-info")).text();
+  it("still renders the branch when the git runner throws", async () => {
+    const database = setup();
+    seedPrSession(database, "gi", "/feat");
+    const body = await (
+      await gitApp(database, {
+        branch: "feat/x",
+        runGit: async () => {
+          throw new Error("git missing");
+        },
+      }).request("/sessions/gi/git-info")
+    ).text();
+    // gh resolved the branch, so the chip renders; git failed, so no worktree.
     expect(body).toContain("feat/x");
-    expect(body).toContain("/feat");
-    expect(body).not.toContain("/main");
+    expect(body).not.toContain("git-chip-worktree");
   });
 });
 

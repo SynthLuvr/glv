@@ -7,7 +7,8 @@ type GitRunner = (args: readonly string[], cwd: string) => Promise<GitResult>;
 const GIT_TIMEOUT_MS = 5000;
 
 // A non-repo (non-zero exit) or a missing git binary both degrade to an empty
-// GitInfo — the former via exitCode, the latter caught by readGitInfo.
+// GitInfo — the former via the exit-code check, the latter caught by the
+// read* wrappers below.
 const runGit: GitRunner = async (args, cwd) => {
   const { stdout, exitCode } = await execGit(args, {
     cwd,
@@ -55,6 +56,23 @@ const parseWorktreeList = (stdout: string): WorktreeBlock[] => {
   return blocks;
 };
 
+// Lists worktrees via porcelain output; `undefined` means not a git repo.
+const listWorktrees = async (
+  cwd: string,
+  run: GitRunner,
+): Promise<WorktreeBlock[] | undefined> => {
+  const result = await run(["worktree", "list", "--porcelain"], cwd);
+  return result.exitCode === 0 ? parseWorktreeList(result.stdout) : undefined;
+};
+
+// A detached HEAD has no branch name, so it is reported as worktree-only.
+const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
+  const info: GitInfo = { worktree: block.path };
+  if (block.branch !== undefined && block.branch !== "" && !block.detached)
+    info.branch = block.branch;
+  return info;
+};
+
 // A session may run in a subdirectory of a worktree, so pick the deepest
 // (most specific) enclosing path.
 const findWorktree = (
@@ -84,37 +102,50 @@ const selectWorktreeByPaths = (
   return undefined;
 };
 
+// The launch dir's enclosing worktree, or the one a session actually worked in
+// when it `git worktree add`ed a second checkout and did all its work there.
 const resolveGitInfo = async (
   cwd: string,
   run: GitRunner,
   paths: readonly string[] = [],
 ): Promise<GitInfo> => {
-  const result = await run(["worktree", "list", "--porcelain"], cwd);
-  if (result.exitCode !== 0) return {};
-  const blocks = parseWorktreeList(result.stdout);
+  const blocks = await listWorktrees(cwd, run);
+  if (blocks === undefined) return {};
   const launch = findWorktree(blocks, cwd);
-  // A session launched from one worktree (e.g. `main`) may `git worktree add`
-  // a second and do all its work there. Recover that worktree from the paths
-  // the transcript touched, preferring it over the bare launch dir.
   const block = selectWorktreeByPaths(blocks, paths, launch?.path) ?? launch;
-  if (block === undefined) return {};
-  const info: GitInfo = { worktree: block.path };
-  if (!block.detached && block.branch !== undefined && block.branch !== "")
-    info.branch = block.branch;
-  return info;
+  return block === undefined ? {} : gitInfoFromBlock(block);
 };
 
-const readGitInfo = async (
+const findWorktreeByBranch = (
+  blocks: readonly WorktreeBlock[],
+  branch: string,
+): WorktreeBlock | undefined => blocks.find((b) => b.branch === branch);
+
+// The worktree checked out on a known branch (e.g. derived from a PR link).
+const resolveWorktreeByBranch = async (
+  cwd: string,
+  run: GitRunner,
+  branch: string,
+): Promise<GitInfo> => {
+  const blocks = await listWorktrees(cwd, run);
+  if (blocks === undefined) return {};
+  const block = findWorktreeByBranch(blocks, branch);
+  return block === undefined ? {} : gitInfoFromBlock(block);
+};
+
+// Never throws — a missing git binary degrades to an empty GitInfo.
+const readGitInfo = (
   cwd: string,
   run: GitRunner = runGit,
   paths: readonly string[] = [],
-): Promise<GitInfo> => {
-  try {
-    return await resolveGitInfo(cwd, run, paths);
-  } catch {
-    return {};
-  }
-};
+): Promise<GitInfo> => resolveGitInfo(cwd, run, paths).catch(() => ({}));
+
+const readWorktreeByBranch = (
+  cwd: string,
+  run: GitRunner = runGit,
+  branch: string,
+): Promise<GitInfo> =>
+  resolveWorktreeByBranch(cwd, run, branch).catch(() => ({}));
 
 export type { GitRunner };
-export { readGitInfo };
+export { readGitInfo, readWorktreeByBranch };

@@ -122,7 +122,7 @@ type CommandRunner = (args: readonly string[]) => Promise<CommandResult>;
 const GH_TIMEOUT_MS = 8000;
 
 // Reuses the user's `gh` auth. Real failures (missing binary/timeout) still
-// throw and are caught by resolvePrState.
+// throw and are caught by runPrView.
 const runGh = async (args: readonly string[]): Promise<CommandResult> => {
   const { stdout } = await execGh(args, { timeoutMs: GH_TIMEOUT_MS });
   return { stdout };
@@ -144,22 +144,46 @@ const parseGhState = (stdout: string): PrState => {
   return "unknown";
 };
 
+const HeadRefView = type({ "headRefName?": "string" });
+
+const parseGhBranch = (stdout: string): string | undefined => {
+  const parsed = tryParseJson(stdout);
+  if (parsed === null) return undefined;
+  const view = HeadRefView(parsed);
+  if (view instanceof type.errors) return undefined;
+  return view.headRefName || undefined;
+};
+
 // The URL round-trips through a query string — guard before passing to `gh`.
 const isPrUrl = (url: string): boolean =>
   PR_URL.test(url) || /\/pull\/new\/[\w./-]+$/.test(url);
 
+// Fetches one JSON field from `gh pr view`, guarding the URL and never
+// throwing: a non-PR URL shells out nothing, and any failure (missing
+// binary/timeout/unauthed) resolves to empty stdout for the parsers above.
+const runPrView = async (
+  url: string,
+  field: string,
+  run: CommandRunner = runGh,
+): Promise<string> => {
+  if (!isPrUrl(url)) return "";
+  try {
+    return (await run(["pr", "view", url, "--json", field])).stdout;
+  } catch {
+    return "";
+  }
+};
+
 const resolvePrState = async (
   url: string,
   run: CommandRunner = runGh,
-): Promise<PrState> => {
-  if (!isPrUrl(url)) return "unknown";
-  try {
-    const result = await run(["pr", "view", url, "--json", "state"]);
-    return parseGhState(result.stdout);
-  } catch {
-    return "unknown";
-  }
-};
+): Promise<PrState> => parseGhState(await runPrView(url, "state", run));
+
+const resolvePrBranch = async (
+  url: string,
+  run: CommandRunner = runGh,
+): Promise<string | undefined> =>
+  parseGhBranch(await runPrView(url, "headRefName", run));
 
 const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
   open: "Open",
@@ -168,4 +192,4 @@ const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
 };
 
 export type { CommandRunner };
-export { detectPrUrl, prLabel, resolvePrState, STATE_LABEL };
+export { detectPrUrl, prLabel, resolvePrBranch, resolvePrState, STATE_LABEL };
