@@ -2,7 +2,8 @@ import { type Hono } from "hono";
 import { getSession, listMessages } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
 import { readWorktreeByBranch } from "../../git.js";
-import { detectPrUrl, resolvePrBranch } from "../../pr.js";
+import { detectPrUrl } from "../../pr.js";
+import { resolvePrBranch } from "../../pr-state.js";
 import { BranchChip, WorktreeChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 

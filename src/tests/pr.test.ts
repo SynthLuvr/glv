@@ -4,13 +4,9 @@ import {
   type ParsedMessage,
   parseContent,
 } from "../format/index.js";
-import type { CommandRunner } from "../pr.js";
-import {
-  detectPrUrl,
-  prLabel,
-  resolvePrBranch,
-  resolvePrState,
-} from "../pr.js";
+import { detectPrUrl, prLabel } from "../pr.js";
+import type { CommandRunner } from "../pr-state.js";
+import { resolvePrBranch, resolvePrState } from "../pr-state.js";
 
 // --- synthetic message builders -------------------------------------------
 // Mirror the goose transcript shapes parsed by `toolResultInfo` / `thinkingText`.
