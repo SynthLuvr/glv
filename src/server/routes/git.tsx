@@ -3,11 +3,11 @@ import { getSession, listMessages } from "../../db.js";
 import { extractCandidatePaths, parseMessage } from "../../format/index.js";
 import { readGitInfo } from "../../git.js";
 import { BranchChip, WorktreeChip } from "../../views/chips.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 
 // Resolve branch + worktree from local git and swap in chips via htmx. A
 // non-repo, missing session, or any failure → an empty body (nothing renders).
-const registerGitRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerGitRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/git-info", async (c) => {
     const id = c.req.param("id");
     const session = getSession(ctx.db, id);

@@ -6,8 +6,6 @@ import type { GitRunner } from "../git.js";
 import type { CommandRunner } from "../pr.js";
 import type { Runner } from "../runner/index.js";
 
-type AppEnv = { Variables: { runner: Runner } };
-
 const VIEWER_FILTER: SessionFilter = {
   type: "user",
   limit: 100,
@@ -84,5 +82,5 @@ type ServerContext = {
   readonly assets: AssetBundle;
 };
 
-export type { AppEnv, AssetBundle, ServerContext, ServerOptions };
+export type { AssetBundle, ServerContext, ServerOptions };
 export { SESSION_TIMEOUT_ERROR, VIEWER_FILTER };

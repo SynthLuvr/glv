@@ -5,7 +5,7 @@ import { parseMessage } from "../../format/index.js";
 import { getHandle, isTerminalStatus } from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 import {
   emit,
   emitMeta,
@@ -14,7 +14,7 @@ import {
   flushMessages,
 } from "../sse.js";
 
-const registerStreamRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/stream", (c) => {
     const id = c.req.param("id");
     if (getSession(ctx.db, id) === undefined)
