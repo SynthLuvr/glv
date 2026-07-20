@@ -10,9 +10,8 @@ import {
   clearPending,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
-  enqueue,
-  enqueueNew,
   enqueueOrQueue,
+  enqueueRun,
   generateTempKey,
   getHandle,
   killProcessGroup,
@@ -236,7 +235,7 @@ describe("enqueue and run", () => {
     const { spawn } = createMockSpawn(["line1", "line2", "line3"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const received: string[] = [];
-    const handle = enqueue(runner, "s1", "hello", "/tmp", {
+    const handle = enqueueRun(runner, "s1", "hello", "/tmp", {
       onLine: (line) => received.push(line),
     });
     await waitForStatus(handle, "completed");
@@ -248,7 +247,7 @@ describe("enqueue and run", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 10 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const statuses: RunStatus[] = [];
-    const handle = enqueue(runner, "s1", "hi", "/tmp", {
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp", {
       onStatus: (h) => statuses.push(h.status),
     });
     await waitForStatus(handle, "completed");
@@ -258,7 +257,7 @@ describe("enqueue and run", () => {
   it("builds a resume invocation with stdin-piped prompt", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "abc123", "hello goose", "/work");
+    const handle = enqueueRun(runner, "abc123", "hello goose", "/work");
     await waitForStatus(handle, "completed");
     expect(state.invocations).toHaveLength(1);
     const [{ binary, args, opts }] = state.invocations;
@@ -276,7 +275,7 @@ describe("enqueue and run", () => {
   it("spawns goose in the session working directory", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/path/to/project");
+    const handle = enqueueRun(runner, "s1", "hi", "/path/to/project");
     await waitForStatus(handle, "completed");
     expect(state.invocations[0].opts.cwd).toBe("/path/to/project");
   });
@@ -284,7 +283,7 @@ describe("enqueue and run", () => {
   it("returns a live handle whose status updates in place", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 10 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     // p-queue starts immediately, so the handle reflects the transition in place.
     await waitForStatus(handle, "completed");
     expect(handle.status).toBe("completed");
@@ -296,9 +295,9 @@ describe("queue position", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 100 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
 
-    enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
-    const h3 = enqueue(runner, "s3", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
+    const h3 = enqueueRun(runner, "s3", "hi", "/tmp");
 
     // With concurrency 1: s1 is pending, s2 is first in queue, s3 is second.
     expect(h2.queuePosition).toBe(0);
@@ -309,8 +308,8 @@ describe("queue position", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 50 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
 
-    const h1 = enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
 
     expect(h2.queuePosition).toBe(0);
 
@@ -325,10 +324,10 @@ describe("queue position", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 30 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
 
-    enqueue(runner, "s1", "hi", "/tmp");
-    enqueue(runner, "s2", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    enqueueRun(runner, "s2", "hi", "/tmp");
     const positions: number[] = [];
-    const h3 = enqueue(runner, "s3", "hi", "/tmp", {
+    const h3 = enqueueRun(runner, "s3", "hi", "/tmp", {
       onStatus: (h) => {
         if (h.queuePosition !== undefined) positions.push(h.queuePosition);
       },
@@ -348,9 +347,9 @@ describe("queue position", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 50 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
 
-    enqueue(runner, "s1", "hi", "/tmp");
-    enqueue(runner, "s2", "hi", "/tmp");
-    const h3 = enqueue(runner, "s3", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    enqueueRun(runner, "s2", "hi", "/tmp");
+    const h3 = enqueueRun(runner, "s3", "hi", "/tmp");
 
     // s2 and s3 are queued behind the running s1.
     expect(runner.registry.get("s2")?.queuePosition).toBe(0);
@@ -371,7 +370,7 @@ describe("stop", () => {
     });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
 
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "running");
 
     expect(stop(runner, "s1")).toBe(true);
@@ -385,8 +384,8 @@ describe("stop", () => {
     const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
 
-    enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
 
     expect(stop(runner, "s2")).toBe(true);
     expect(h2.status).toBe("stopped");
@@ -402,7 +401,7 @@ describe("stop", () => {
   it("returns false for an already-completed session", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(stop(runner, "s1")).toBe(false);
   });
@@ -421,7 +420,7 @@ const stopDuringSpawn = (
     return result;
   };
   runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
-  return { state: mock.state, handle: enqueue(runner, "s1", "hi", "/tmp") };
+  return { state: mock.state, handle: enqueueRun(runner, "s1", "hi", "/tmp") };
 };
 
 describe("stop race-window guard", () => {
@@ -444,7 +443,7 @@ describe("stop signal escalation", () => {
   it("escalates to SIGTERM when SIGINT is ignored past the grace period", async () => {
     const { spawn, state } = createStubbornSpawn(new Set(["SIGINT"]));
     const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "running");
     stop(runner, "s1");
     await waitForStatus(handle, "stopped");
@@ -457,7 +456,7 @@ describe("stop signal escalation", () => {
       new Set(["SIGINT", "SIGTERM"]),
     );
     const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "running");
     stop(runner, "s1");
     await waitForStatus(handle, "stopped");
@@ -472,7 +471,7 @@ describe("stop signal escalation", () => {
   it("does not escalate when the process exits promptly on SIGINT", async () => {
     const { spawn, state } = createMockSpawn(["a", "b", "c"], { delayMs: 100 });
     const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "running");
     stop(runner, "s1");
     await waitForStatus(handle, "stopped");
@@ -483,8 +482,8 @@ describe("stop signal escalation", () => {
   it("releases the runner slot so a queued run can start after escalation", async () => {
     const { spawn } = createStubbornSpawn(new Set(["SIGINT"]));
     const runner = createRunner(makeRunnerConfig(1, "goose", 30), spawn);
-    const h1 = enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "yo", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "yo", "/tmp");
     await waitForStatus(h1, "running");
     expect(h2.status).toBe("queued");
     stop(runner, "s1");
@@ -499,8 +498,8 @@ describe("stopAll", () => {
   it("stops every running and queued session and returns the count", async () => {
     const { spawn, state } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(makeRunnerConfig(4, "goose"), spawn);
-    const h1 = enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
     await waitForStatus(h1, "running");
     await waitForStatus(h2, "running");
 
@@ -516,8 +515,8 @@ describe("stopAll", () => {
   it("stops a queued session without spawning an extra process", () => {
     const { spawn, state } = createMockSpawn(["x"], { delayMs: 300 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
-    enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
 
     const stopped = stopAll(runner);
 
@@ -536,7 +535,7 @@ describe("stopAll", () => {
   it("does not count already-terminal handles", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const h1 = enqueue(runner, "s1", "hi", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(h1, "completed");
     expect(stopAll(runner)).toBe(0);
   });
@@ -610,7 +609,7 @@ describe("concurrency", () => {
 
     const runner = createRunner(makeRunnerConfig(2, "goose"), spawn);
 
-    for (let i = 0; i < 5; i++) enqueue(runner, `s${i}`, "hi", "/tmp");
+    for (let i = 0; i < 5; i++) enqueueRun(runner, `s${i}`, "hi", "/tmp");
 
     await sleep(500);
     expect(maxActive).toBe(2);
@@ -621,8 +620,8 @@ describe("session exclusivity", () => {
   it("rejects a second enqueue for a session that is already running", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    enqueue(runner, "s1", "hi", "/tmp");
-    expect(() => enqueue(runner, "s1", "hi again", "/tmp")).toThrow(
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    expect(() => enqueueRun(runner, "s1", "hi again", "/tmp")).toThrow(
       /already has an active/,
     );
   });
@@ -630,9 +629,9 @@ describe("session exclusivity", () => {
   it("rejects a second enqueue for a session that is queued", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
-    enqueue(runner, "s1", "hi", "/tmp");
-    enqueue(runner, "s2", "hi", "/tmp");
-    expect(() => enqueue(runner, "s2", "again", "/tmp")).toThrow(
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    enqueueRun(runner, "s2", "hi", "/tmp");
+    expect(() => enqueueRun(runner, "s2", "again", "/tmp")).toThrow(
       /already has an active/,
     );
   });
@@ -640,21 +639,21 @@ describe("session exclusivity", () => {
   it("allows re-enqueue after a session completes", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "first", "/tmp");
     await waitForStatus(h1, "completed");
-    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    const h2 = enqueueRun(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "completed");
   });
 
   it("allows re-enqueue after a session is stopped", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "first", "/tmp");
     await waitForStatus(h1, "running");
     stop(runner, "s1");
     await waitForStatus(h1, "stopped");
 
-    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    const h2 = enqueueRun(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "completed");
   });
 });
@@ -803,7 +802,7 @@ describe("error handling", () => {
   it("reports an error when goose exits non-zero", async () => {
     const { spawn } = createMockSpawn(["x"], { exitCode: 1 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "error");
     expect(handle.error).toBe("goose exited with code 1");
   });
@@ -813,7 +812,7 @@ describe("error handling", () => {
       throw new Error("binary not found");
     };
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "error");
     expect(handle.error).toBe("binary not found");
   });
@@ -823,7 +822,7 @@ describe("error handling", () => {
       exitCode: 42,
     });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "error");
     expect(handle.lines).toEqual(["partial", "output"]);
     expect(handle.error).toBe("goose exited with code 42");
@@ -834,7 +833,7 @@ describe("getHandle", () => {
   it("returns a handle whose status tracks an active run", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     // With available capacity p-queue starts immediately.
     expect(["queued", "running"]).toContain(getHandle(runner, "s1")?.status);
     await waitForStatus(handle, "completed");
@@ -850,7 +849,7 @@ describe("getHandle", () => {
   it("returns a handle with the prompt and session id", async () => {
     const { spawn } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    enqueue(runner, "sess-42", "do the thing", "/work");
+    enqueueRun(runner, "sess-42", "do the thing", "/work");
     const handle = getHandle(runner, "sess-42");
     expect(handle).toBeDefined();
     expect(handle!.sessionId).toBe("sess-42");
@@ -858,11 +857,11 @@ describe("getHandle", () => {
   });
 });
 
-describe("enqueueNew (new-session runs)", () => {
+describe("enqueueRun (new-session runs)", () => {
   it("builds a new-session invocation with no name or --session-id", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueNew(runner, "tmp-1", "hello", "/tmp");
+    const handle = enqueueRun(runner, "tmp-1", "hello", "/tmp", {}, true);
     await waitForStatus(handle, "completed");
     expect(state.invocations).toHaveLength(1);
     const [{ args }] = state.invocations;
@@ -874,7 +873,14 @@ describe("enqueueNew (new-session runs)", () => {
   it("pipes the prompt via stdin, never as an argument", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueNew(runner, "tmp-1", "write a haiku", "/tmp");
+    const handle = enqueueRun(
+      runner,
+      "tmp-1",
+      "write a haiku",
+      "/tmp",
+      {},
+      true,
+    );
     await waitForStatus(handle, "completed");
     expect(state.invocations[0].opts.stdin).toBe("write a haiku");
     expect(state.invocations[0].args).not.toContain("write a haiku");
@@ -884,7 +890,7 @@ describe("enqueueNew (new-session runs)", () => {
   it("spawns goose in the chosen working directory", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueNew(runner, "tmp-1", "hi", "/path/to/work");
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/path/to/work", {}, true);
     await waitForStatus(handle, "completed");
     expect(state.invocations[0].opts.cwd).toBe("/path/to/work");
   });
@@ -892,7 +898,7 @@ describe("enqueueNew (new-session runs)", () => {
   it("registers the run under the temporary key", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    enqueueNew(runner, "tmp-99", "hi", "/tmp");
+    enqueueRun(runner, "tmp-99", "hi", "/tmp", {}, true);
     expect(getHandle(runner, "tmp-99")).toBeDefined();
   });
 
@@ -900,7 +906,7 @@ describe("enqueueNew (new-session runs)", () => {
     const { spawn } = createMockSpawn(["a", "b", "c"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const received: string[] = [];
-    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp", {
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {
       onLine: (line) => received.push(line),
     });
     await waitForStatus(handle, "completed");
@@ -912,7 +918,7 @@ describe("rekey", () => {
   it("moves the handle from the temp key to the real session id", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {}, true);
     await waitForStatus(handle, "running");
 
     expect(rekey(runner, "tmp-1", "real-42")).toBe(true);
@@ -924,7 +930,7 @@ describe("rekey", () => {
   it("keeps the run's accumulated lines across the re-key", async () => {
     const { spawn } = createMockSpawn(["one", "two"], { delayMs: 100 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueNew(runner, "tmp-1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {}, true);
     await waitForStatus(handle, "running");
     await sleep(150);
     rekey(runner, "tmp-1", "real-1");
@@ -940,8 +946,8 @@ describe("rekey", () => {
   it("refuses to clobber a handle already keyed to the target id", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handleA = enqueueNew(runner, "tmp-a", "hi", "/tmp");
-    const handleB = enqueueNew(runner, "tmp-b", "hi", "/tmp");
+    const handleA = enqueueRun(runner, "tmp-a", "hi", "/tmp", {}, true);
+    const handleB = enqueueRun(runner, "tmp-b", "hi", "/tmp", {}, true);
     await waitForStatus(handleA, "running");
     await waitForStatus(handleB, "running");
 
@@ -970,7 +976,7 @@ describe("line buffer cap", () => {
   it("retains only the most recent lines up to maxLines", async () => {
     const { spawn } = createMockSpawn(["l1", "l2", "l3", "l4", "l5"]);
     const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(handle.lines).toEqual(["l3", "l4", "l5"]);
     expect(handle.droppedLines).toBe(2);
@@ -979,7 +985,7 @@ describe("line buffer cap", () => {
   it("keeps every line when output stays under the cap", async () => {
     const { spawn } = createMockSpawn(["l1", "l2"]);
     const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(handle.lines).toEqual(["l1", "l2"]);
     expect(handle.droppedLines).toBe(0);
@@ -989,7 +995,7 @@ describe("line buffer cap", () => {
     const { spawn } = createMockSpawn(["l1", "l2", "l3", "l4", "l5"]);
     const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
     const received: string[] = [];
-    const handle = enqueue(runner, "s1", "hi", "/tmp", {
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp", {
       onLine: (line) => received.push(line),
     });
     await waitForStatus(handle, "completed");
@@ -1017,7 +1023,7 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(2, "goose", 5000, 5000, 20),
       spawn,
     );
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     // Still present immediately after completion (within retention)...
     expect(getHandle(runner, "s1")).toBeDefined();
@@ -1032,7 +1038,7 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(2, "goose", 5000, 5000, 5000),
       spawn,
     );
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
     expect(getHandle(runner, "s1")?.status).toBe("completed");
   });
@@ -1043,7 +1049,7 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(2, "goose", 5000, 5000, 20),
       spawn,
     );
-    const handle = enqueue(runner, "s1", "hi", "/tmp");
+    const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "running");
     stop(runner, "s1");
     await waitForStatus(handle, "stopped");
@@ -1057,8 +1063,8 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(1, "goose", 5000, 5000, 20),
       spawn,
     );
-    enqueue(runner, "s1", "hi", "/tmp");
-    const h2 = enqueue(runner, "s2", "hi", "/tmp");
+    enqueueRun(runner, "s1", "hi", "/tmp");
+    const h2 = enqueueRun(runner, "s2", "hi", "/tmp");
     expect(h2.status).toBe("queued");
     stop(runner, "s2");
     await waitForStatus(h2, "stopped");
@@ -1071,10 +1077,10 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(2, "goose", 5000, 5000, 20),
       spawn,
     );
-    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "first", "/tmp");
     await waitForStatus(h1, "completed");
     await waitFor(() => getHandle(runner, "s1") === undefined);
-    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    const h2 = enqueueRun(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "completed");
     expect(h2.prompt).toBe("second");
   });
@@ -1085,10 +1091,10 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(2, "goose", 5000, 5000, 20000),
       spawn,
     );
-    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "first", "/tmp");
     await waitForStatus(h1, "completed");
     expect(runner.registry.size).toBe(1);
-    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    const h2 = enqueueRun(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "completed");
     expect(runner.registry.size).toBe(1);
     expect(runner.registry.get("s1")).toBe(h2);
@@ -1100,10 +1106,10 @@ describe("terminal handle eviction", () => {
       makeRunnerConfig(1, "goose", 5000, 5000, 30),
       spawn,
     );
-    const h1 = enqueue(runner, "s1", "first", "/tmp");
+    const h1 = enqueueRun(runner, "s1", "first", "/tmp");
     await waitForStatus(h1, "completed");
     // h1's 30ms eviction timer is armed; immediately re-enqueue the slot.
-    const h2 = enqueue(runner, "s1", "second", "/tmp");
+    const h2 = enqueueRun(runner, "s1", "second", "/tmp");
     await waitForStatus(h2, "running");
     // Well past where h1's timer would have fired.
     await sleep(80);
@@ -1118,7 +1124,7 @@ describe("terminal handle eviction", () => {
       spawn,
     );
     for (let i = 0; i < 10; i++) {
-      const h = enqueue(runner, `s${i}`, "hi", "/tmp");
+      const h = enqueueRun(runner, `s${i}`, "hi", "/tmp");
       await waitForStatus(h, "completed");
     }
     // Every terminal handle is eventually reaped; the registry drains.

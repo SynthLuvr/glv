@@ -143,17 +143,18 @@ const enqueueInvocation = (
   return handle;
 };
 
-const enqueue = (
+const enqueueRun = (
   runner: Runner,
-  sessionId: string,
+  key: string,
   prompt: string,
   workingDir: string,
   opts: EnqueueOptions = {},
+  isNew = false,
 ): RunHandle =>
   enqueueInvocation(
     runner,
-    sessionId,
-    resumeInvocation(sessionId, prompt),
+    key,
+    isNew ? newSessionInvocation(prompt) : resumeInvocation(key, prompt),
     workingDir,
     opts,
   );
@@ -172,7 +173,7 @@ const enqueueOrQueue = (
     return { handle: existing, queued: true };
   }
   return {
-    handle: enqueue(runner, sessionId, prompt, workingDir, opts),
+    handle: enqueueRun(runner, sessionId, prompt, workingDir, opts),
     queued: false,
   };
 };
@@ -186,21 +187,6 @@ const clearPending = (runner: Runner, sessionId: string): number => {
   handle.onStatus?.(handle);
   return count;
 };
-
-const enqueueNew = (
-  runner: Runner,
-  tempKey: string,
-  prompt: string,
-  workingDir: string,
-  opts: EnqueueOptions = {},
-): RunHandle =>
-  enqueueInvocation(
-    runner,
-    tempKey,
-    newSessionInvocation(prompt),
-    workingDir,
-    opts,
-  );
 
 // Returns false rather than clobbering so callers can stop the orphaned run.
 const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
@@ -255,9 +241,8 @@ const stopAll = (runner: Runner): number => {
 
 export {
   clearPending,
-  enqueue,
-  enqueueNew,
   enqueueOrQueue,
+  enqueueRun,
   generateTempKey,
   rekey,
   stop,

@@ -1,9 +1,8 @@
 import PQueue from "p-queue";
 import {
   clearPending,
-  enqueue,
-  enqueueNew,
   enqueueOrQueue,
+  enqueueRun,
   generateTempKey,
   rekey,
   stop,
@@ -60,9 +59,8 @@ export {
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   defaultSpawn,
-  enqueue,
-  enqueueNew,
   enqueueOrQueue,
+  enqueueRun,
   generateTempKey,
   getHandle,
   isTerminalStatus,
