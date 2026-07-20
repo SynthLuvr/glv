@@ -77,18 +77,15 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 type ChallengeFlow = "register" | "login";
 
-// The challenge is an opaque, single-use token: the authenticator signs and
-// echoes it back, and the server consumes it on success, so a verified
-// challenge can never be replayed. Each options call mints an independent
-// challenge, so concurrent ceremonies never clobber each other.
+// Single-use WebAuthn challenges held only in process memory. The
+// authenticator signs and returns the challenge; the server consumes it on
+// success, so a verified challenge can never be replayed within its TTL.
 const makeChallengeAuthority = (
   ttlMs = CHALLENGE_TTL_MS,
 ): {
   issue: (flow: ChallengeFlow) => string;
   verify: (token: string, flow: ChallengeFlow) => boolean;
 } => {
-  // Challenges live only in memory: a restart drops in-flight ceremonies, and
-  // one authority can never validate another's tokens.
   const pending = new Map<string, { flow: ChallengeFlow; expiry: number }>();
 
   const sweep = (): void => {
@@ -108,8 +105,6 @@ const makeChallengeAuthority = (
     const record = pending.get(token);
     if (record === undefined) return false;
     if (record.flow !== flow || Date.now() > record.expiry) return false;
-    // Burn on success: a challenge verifies exactly once, so it cannot be
-    // replayed even within its TTL.
     pending.delete(token);
     return true;
   };
