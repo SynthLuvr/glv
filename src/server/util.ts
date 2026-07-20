@@ -91,12 +91,10 @@ type EstablishOutcome =
   | { ok: true; realId: string; session: SessionRow }
   | { ok: false; status: ContentfulStatusCode; error: string };
 
-// Claims a freshly-created session: rekeys the temp run handle onto the real
-// id, then confirms the session row exists. On either failure it stops the run
-// and returns a structured error so the caller can render it. `conflictError`
-// tailors the 409 copy ("directory" vs "repository"). The caller owns the
-// withCreateLock serialization — safe to call inside an existing locked task,
-// since this never acquires the lock itself.
+// Rekeys the temp run handle onto the real id and confirms the session row
+// exists, stopping the run on either failure. `conflictError` localises the
+// 409 copy ("directory" vs "repository"). Safe inside an existing
+// withCreateLock task — this never acquires the lock itself.
 const establishSession = (
   ctx: ServerContext,
   tempKey: string,

@@ -1,7 +1,6 @@
 const tryParseJson = (stdout: string): unknown => {
-  // `gh`/`git` may exit 0 with non-JSON stdout (an update notice, a warning, or
-  // unauthenticated help text); degrade to `null` instead of throwing on a
-  // SyntaxError — callers translate the sentinel into their own fallback.
+  // `gh`/`git` may exit 0 with non-JSON stdout (an update notice or help text);
+  // degrade to `null` rather than throw on a SyntaxError.
   try {
     return JSON.parse(stdout);
   } catch {

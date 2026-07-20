@@ -67,10 +67,8 @@ const parseMessage = (row: MessageRow): ParsedMessage => ({
   items: parseContent(row.content_json),
 });
 
-// One text-extraction strategy for both accessors: pick the `text` field off
-// every item shaped like a text content block. The guard keeps this robust for
-// raw (unvalidated) tool-result content, matching the schema-drift tolerance
-// used by the rest of this file.
+// Runtime guard over raw (unvalidated) tool-result content, so the same
+// text-extraction strategy serves both validated items and raw arrays.
 const isTextItem = (item: unknown): item is { text: string } =>
   item !== null &&
   typeof item === "object" &&
@@ -80,8 +78,6 @@ const isTextItem = (item: unknown): item is { text: string } =>
 const extractTexts = (items: readonly unknown[]): string[] =>
   items.flatMap((item) => (isTextItem(item) ? [item.text] : []));
 
-// contentToText adapts the single strategy to raw tool-result content, which
-// may be a plain string or an arbitrary array.
 const contentToText = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";

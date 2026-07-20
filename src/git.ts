@@ -6,8 +6,8 @@ type GitRunner = (args: readonly string[], cwd: string) => Promise<GitResult>;
 
 const GIT_TIMEOUT_MS = 5000;
 
-// Never throws on a non-zero exit (a non-repo or missing binary degrades to an
-// empty GitInfo); the underlying execa call surfaces real failures via rekey.
+// A non-repo (non-zero exit) or a missing git binary both degrade to an empty
+// GitInfo — the former via exitCode, the latter caught by readGitInfo.
 const runGit: GitRunner = async (args, cwd) => {
   const { stdout, exitCode } = await execGit(args, {
     cwd,
