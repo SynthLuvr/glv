@@ -4,10 +4,15 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type Context } from "hono";
-import { sessionIdsInDir } from "../db.js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { getSession, type SessionRow, sessionIdsInDir } from "../db.js";
 import type { RunHandle } from "../runner/index.js";
-import { isTerminalStatus } from "../runner/index.js";
-import type { AssetBundle } from "./context.js";
+import { isTerminalStatus, rekey, stop } from "../runner/index.js";
+import {
+  type AssetBundle,
+  SESSION_TIMEOUT_ERROR,
+  type ServerContext,
+} from "./context.js";
 
 const isHtmxRequest = (c: Context): boolean =>
   c.req.header("HX-Request") === "true";
@@ -82,6 +87,32 @@ const withCreateLock = <T>(
   return run;
 };
 
+type EstablishOutcome =
+  | { ok: true; realId: string; session: SessionRow }
+  | { ok: false; status: ContentfulStatusCode; error: string };
+
+// Rekeys the temp run handle onto the real id and confirms the session row
+// exists, stopping the run on either failure. `conflictError` localises the
+// 409 copy ("directory" vs "repository"). Safe inside an existing
+// withCreateLock task — this never acquires the lock itself.
+const establishSession = (
+  ctx: ServerContext,
+  tempKey: string,
+  realId: string,
+  conflictError: string,
+): EstablishOutcome => {
+  if (!rekey(ctx.runner, tempKey, realId)) {
+    stop(ctx.runner, tempKey);
+    return { ok: false, status: 409, error: conflictError };
+  }
+  const session = getSession(ctx.db, realId);
+  if (session === undefined) {
+    stop(ctx.runner, realId);
+    return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
+  }
+  return { ok: true, realId, session };
+};
+
 // Resolved relative to this file (src/server/) so dist/ is two levels up.
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
@@ -104,10 +135,12 @@ const buildAssetBundle = (): AssetBundle => ({
   passkey: readAsset("../../dist/passkey.js"),
 });
 
+export type { EstablishOutcome };
 export {
   activeRunPrompt,
   buildAssetBundle,
   errorMessage,
+  establishSession,
   expandHome,
   extractIds,
   isHtmxRequest,

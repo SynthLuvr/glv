@@ -39,11 +39,6 @@ const ToolResponseItem = type({
   },
 });
 
-const TextEntry = type({
-  type: "'text'",
-  text: "string",
-});
-
 type ParsedMessage = {
   role: string;
   timestamp: string;
@@ -72,21 +67,21 @@ const parseMessage = (row: MessageRow): ParsedMessage => ({
   items: parseContent(row.content_json),
 });
 
-const extractTexts = (items: ContentItem[]): string[] =>
-  items.flatMap((item) =>
-    item.type === "text" && item.text !== undefined ? [item.text] : [],
-  );
+// Runtime guard over raw (unvalidated) tool-result content, so the same
+// text-extraction strategy serves both validated items and raw arrays.
+const isTextItem = (item: unknown): item is { text: string } =>
+  item !== null &&
+  typeof item === "object" &&
+  (item as { type?: unknown }).type === "text" &&
+  typeof (item as { text?: unknown }).text === "string";
+
+const extractTexts = (items: readonly unknown[]): string[] =>
+  items.flatMap((item) => (isTextItem(item) ? [item.text] : []));
 
 const contentToText = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const entry of content) {
-    const parsed = TextEntry(entry);
-    if (parsed instanceof type.errors) continue;
-    parts.push(parsed.text);
-  }
-  return parts.join("\n");
+  return extractTexts(content).join("\n");
 };
 
 const thinkingText = (item: ContentItem): string | undefined => {

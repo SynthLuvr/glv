@@ -1,13 +1,8 @@
 import { type Context, type Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import {
-  getSession,
-  listMessages,
-  listSessions,
-  sessionIdsInDir,
-} from "../../db.js";
+import { listMessages, listSessions, sessionIdsInDir } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
-import { getHandle, rekey, stop } from "../../runner/index.js";
+import { getHandle, stop } from "../../runner/index.js";
 import { CloningView } from "../../views/new-session.js";
 import { Transcript } from "../../views/transcript.js";
 import {
@@ -17,7 +12,7 @@ import {
   VIEWER_FILTER,
 } from "../context.js";
 import { newSessionDetail, render } from "../render.js";
-import { errorMessage, withCreateLock } from "../util.js";
+import { errorMessage, establishSession, withCreateLock } from "../util.js";
 
 const ghErrorResponse = (c: Context<AppEnv>, err: unknown) =>
   c.json({ ok: false, error: errorMessage(err) }, 502);
@@ -114,24 +109,16 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
     );
     if (realId === undefined) return waitView(false);
 
-    const claimed = await withCreateLock(ctx.createLocks, job.clonePath, () =>
-      rekey(ctx.runner, tempKey, realId),
-    );
-    if (!claimed) {
-      stop(ctx.runner, tempKey);
-      ctx.cloneJobs.delete(jobId);
-      return failForm(
+    const result = await withCreateLock(ctx.createLocks, job.clonePath, () =>
+      establishSession(
+        ctx,
+        tempKey,
+        realId,
         "Another session is starting in that repository. Please try again.",
-        409,
-      );
-    }
-
+      ),
+    );
     ctx.cloneJobs.delete(jobId);
-    const session = getSession(ctx.db, realId);
-    if (session === undefined) {
-      stop(ctx.runner, realId);
-      return failForm(SESSION_TIMEOUT_ERROR, 502);
-    }
+    if (!result.ok) return failForm(result.error, result.status);
 
     return render(
       c,
@@ -139,7 +126,7 @@ const registerGithubRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
       listSessions(ctx.db, VIEWER_FILTER),
       realId,
       <Transcript
-        session={session}
+        session={result.session}
         messages={listMessages(ctx.db, realId).map(parseMessage)}
         run={getHandle(ctx.runner, realId)}
         prompt={job.prompt}

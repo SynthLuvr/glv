@@ -4,6 +4,7 @@ import { COOKIE_NAME, setSessionCookie } from "../../auth/middleware.js";
 import type { RpConfig, VerifyResult } from "../../auth/service.js";
 import { LoginPage, RegisterPage } from "../../views/Auth.js";
 import type { AppEnv, ServerContext } from "../context.js";
+import { errorMessage } from "../util.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
   const url = new URL(c.req.url);
@@ -25,9 +26,6 @@ const finishAuth = (
   }
   return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
 };
-
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
 
 // Route failures become structured JSON instead of an opaque 500: malformed
 // verify bodies are client input (400), while option generation is server-side
