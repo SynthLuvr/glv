@@ -13,8 +13,8 @@ import {
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
+import { isHtmxRequest } from "./http.js";
 import { activeSessionIds } from "./status.js";
-import { isHtmxRequest } from "./util.js";
 
 const Shell = ({
   sessions,

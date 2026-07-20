@@ -5,6 +5,7 @@ import type { CloneJob, GhClient } from "../gh.js";
 import type { GitRunner } from "../git.js";
 import type { CommandRunner } from "../pr.js";
 import type { Runner } from "../runner/index.js";
+import type { AssetBundle } from "./bundle.js";
 
 const VIEWER_FILTER: SessionFilter = {
   type: "user",
@@ -14,23 +15,6 @@ const VIEWER_FILTER: SessionFilter = {
 
 const SESSION_TIMEOUT_ERROR =
   "goose did not create a session in time. Is the goose binary available?";
-
-// Built once when the app starts (after the serve command builds them) and
-// shared with the asset routes. htmx is resolved from node_modules; the rest
-// live in dist/.
-type AssetBundle = {
-  readonly htmx: string;
-  readonly appCss: string;
-  readonly sidebar: string;
-  readonly stream: string;
-  readonly theme: string;
-  readonly markdownCopy: string;
-  readonly rename: string;
-  readonly sourcePicker: string;
-  readonly ui: string;
-  readonly prompts: string;
-  readonly passkey: string;
-};
 
 type ServerOptions = {
   tailPollMs?: number;

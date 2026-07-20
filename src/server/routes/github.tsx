@@ -10,8 +10,9 @@ import {
   ServerContext,
   VIEWER_FILTER,
 } from "../context.js";
+import { errorMessage } from "../http.js";
 import { newSessionDetail, render } from "../render.js";
-import { errorMessage, establishSession, withCreateLock } from "../util.js";
+import { establishSession, withCreateLock } from "../session.js";
 
 const ghErrorResponse = (c: Context, err: unknown) =>
   c.json({ ok: false, error: errorMessage(err) }, 502);
