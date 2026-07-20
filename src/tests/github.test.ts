@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { GhClient, RepoInfo } from "../gh.js";
+import type { GhClient } from "../gh.js";
 import { clonePathFor, parseOwnerRepo } from "../gh.js";
 import type { ProcessResult, SpawnFn } from "../runner/index.js";
 import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
@@ -36,7 +36,7 @@ CREATE TABLE messages (
 );
 `;
 
-const STUB_REPOS: RepoInfo[] = [
+const STUB_REPOS: Awaited<ReturnType<GhClient["listRepos"]>> = [
   {
     nameWithOwner: "SynthLuvr/goose-log-viewer",
     visibility: "PUBLIC",

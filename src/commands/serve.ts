@@ -137,10 +137,4 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   registerShutdown(shutdown);
 };
 
-export {
-  closeServer,
-  createShutdown,
-  registerShutdown,
-  runServe,
-  trackConnections,
-};
+export { runServe };

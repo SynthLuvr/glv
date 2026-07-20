@@ -126,5 +126,4 @@ const defineTable = <T>(opts: {
   return { all, one, insert, update, remove, count };
 };
 
-export type { InsertOptions, MutateOptions, SelectOptions, SqlValue };
 export { defineTable, placeholders, transaction };

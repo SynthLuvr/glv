@@ -114,6 +114,5 @@ export {
   listHomeDirs,
   pollForSessionId,
   serveAsset,
-  sleep,
   withCreateLock,
 };

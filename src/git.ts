@@ -117,5 +117,5 @@ const readGitInfo = async (
   }
 };
 
-export type { GitInfo, GitRunner, WorktreeBlock };
-export { findWorktree, parseWorktreeList, readGitInfo, selectWorktreeByPaths };
+export type { GitRunner };
+export { readGitInfo };
