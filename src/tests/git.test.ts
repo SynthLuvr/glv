@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type GitRunner, readGitInfo } from "../git.js";
+import { type GitRunner, readGitInfo, readWorktreeByBranch } from "../git.js";
 
 // --- porcelain helpers ----------------------------------------------------
 
@@ -96,5 +96,48 @@ describe("readGitInfo with candidate paths", () => {
     expect(
       await readGitInfo("/main", mockRunner(out), ["/elsewhere/x"]),
     ).toEqual({ branch: "main", worktree: "/main" });
+  });
+});
+
+describe("readWorktreeByBranch", () => {
+  it("returns the worktree checked out on the given branch", async () => {
+    const out = porcelain([
+      { path: "/main", branch: "main" },
+      { path: "/feat", branch: "feat/git-info" },
+    ]);
+    expect(
+      await readWorktreeByBranch("/main", mockRunner(out), "feat/git-info"),
+    ).toEqual({ branch: "feat/git-info", worktree: "/feat" });
+  });
+
+  it("returns an empty object when no worktree is on the branch", async () => {
+    const out = porcelain([{ path: "/main", branch: "main" }]);
+    expect(
+      await readWorktreeByBranch("/main", mockRunner(out), "missing"),
+    ).toEqual({});
+  });
+
+  it("ignores a detached worktree (no branch to match)", async () => {
+    const out = block("/main", { detached: true });
+    expect(
+      await readWorktreeByBranch("/main", mockRunner(out), "main"),
+    ).toEqual({});
+  });
+
+  it("returns an empty object when git fails (not a repo)", async () => {
+    expect(
+      await readWorktreeByBranch(
+        "/nope",
+        mockRunner("fatal: not a repository", 128),
+        "main",
+      ),
+    ).toEqual({});
+  });
+
+  it("never throws when the runner rejects", async () => {
+    const failing: GitRunner = async () => {
+      throw new Error("spawn failed");
+    };
+    expect(await readWorktreeByBranch("/main", failing, "main")).toEqual({});
   });
 });

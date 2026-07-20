@@ -116,5 +116,45 @@ const readGitInfo = async (
   }
 };
 
+// The worktree checked out on `branch` (exact, case-sensitive match). A
+// detached HEAD has no branch, so it never matches.
+const findWorktreeByBranch = (
+  blocks: readonly WorktreeBlock[],
+  branch: string,
+): WorktreeBlock | undefined =>
+  blocks.find((b) => !b.detached && b.branch === branch);
+
+// Pins the worktree to a known branch: the session header derives its branch
+// from the PR link, then reports the local checkout on that branch.
+const resolveWorktreeByBranch = async (
+  cwd: string,
+  run: GitRunner,
+  branch: string,
+): Promise<GitInfo> => {
+  const result = await run(["worktree", "list", "--porcelain"], cwd);
+  if (result.exitCode !== 0) return {};
+  const blocks = parseWorktreeList(result.stdout);
+  const block = findWorktreeByBranch(blocks, branch);
+  if (block === undefined) return {};
+  const info: GitInfo = { worktree: block.path };
+  if (!block.detached && block.branch !== undefined && block.branch !== "")
+    info.branch = block.branch;
+  return info;
+};
+
+// Like readGitInfo, never throws — a non-repo or a missing git binary both
+// degrade to an empty GitInfo.
+const readWorktreeByBranch = async (
+  cwd: string,
+  run: GitRunner = runGit,
+  branch: string,
+): Promise<GitInfo> => {
+  try {
+    return await resolveWorktreeByBranch(cwd, run, branch);
+  } catch {
+    return {};
+  }
+};
+
 export type { GitRunner };
-export { readGitInfo };
+export { readGitInfo, readWorktreeByBranch };

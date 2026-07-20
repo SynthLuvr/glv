@@ -1,27 +1,31 @@
 import { type Hono } from "hono";
 import { getSession, listMessages } from "../../db.js";
-import { extractCandidatePaths, parseMessage } from "../../format/index.js";
-import { readGitInfo } from "../../git.js";
+import { parseMessage } from "../../format/index.js";
+import { readWorktreeByBranch } from "../../git.js";
+import { detectPrUrl, resolvePrBranch } from "../../pr.js";
 import { BranchChip, WorktreeChip } from "../../views/chips.js";
 import type { AppEnv, ServerContext } from "../context.js";
 
-// Resolve branch + worktree from local git and swap in chips via htmx. A
-// non-repo, missing session, or any failure → an empty body (nothing renders).
+// Resolve branch + worktree from the PR the session created and swap in chips
+// via htmx. The branch comes from the PR link (via `gh`); the worktree is the
+// local checkout on that branch. No PR link, or any failure → an empty body.
 const registerGitRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
   app.get("/sessions/:id/git-info", async (c) => {
     const id = c.req.param("id");
     const session = getSession(ctx.db, id);
     if (session === undefined) return c.html("");
-    // Recover the worktree the session actually worked in from its tool calls:
-    // a session launched from `main` that `git worktree add`s and works there
-    // should report that branch, not the launch dir's.
-    const dirs = extractCandidatePaths(
-      listMessages(ctx.db, id).map(parseMessage),
+    const prUrl = detectPrUrl(listMessages(ctx.db, id).map(parseMessage));
+    if (prUrl === undefined) return c.html("");
+    const branch = await resolvePrBranch(prUrl, ctx.runPrState);
+    if (branch === undefined) return c.html("");
+    const info = await readWorktreeByBranch(
+      session.working_dir,
+      ctx.runGit,
+      branch,
     );
-    const info = await readGitInfo(session.working_dir, ctx.runGit, dirs);
     return c.html(
       <>
-        {info.branch !== undefined && <BranchChip branch={info.branch} />}
+        <BranchChip branch={branch} />
         {info.worktree !== undefined && (
           <WorktreeChip worktree={info.worktree} />
         )}

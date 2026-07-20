@@ -161,6 +161,38 @@ const resolvePrState = async (
   }
 };
 
+// `gh pr view --json headRefName` names the branch the PR's head lives on —
+// the source of the session header's branch chip. Judge by the parsed field,
+// not the exit code, mirroring parseGhState.
+const HeadRefView = type({ "headRefName?": "string" });
+
+const parseGhBranch = (stdout: string): string | undefined => {
+  const parsed = tryParseJson(stdout);
+  if (parsed === null) return undefined;
+  const view = HeadRefView(parsed);
+  if (view instanceof type.errors) return undefined;
+  const { headRefName } = view;
+  return typeof headRefName === "string" && headRefName !== ""
+    ? headRefName
+    : undefined;
+};
+
+// Resolves the branch a PR lives on from its URL via `gh`, mirroring
+// resolvePrState: real failures (missing binary/timeout/unauthed) throw and
+// are caught here.
+const resolvePrBranch = async (
+  url: string,
+  run: CommandRunner = runGh,
+): Promise<string | undefined> => {
+  if (!isPrUrl(url)) return undefined;
+  try {
+    const result = await run(["pr", "view", url, "--json", "headRefName"]);
+    return parseGhBranch(result.stdout);
+  } catch {
+    return undefined;
+  }
+};
+
 const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
   open: "Open",
   merged: "Merged",
@@ -168,4 +200,4 @@ const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
 };
 
 export type { CommandRunner };
-export { detectPrUrl, prLabel, resolvePrState, STATE_LABEL };
+export { detectPrUrl, prLabel, resolvePrBranch, resolvePrState, STATE_LABEL };

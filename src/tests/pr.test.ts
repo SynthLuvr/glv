@@ -5,7 +5,12 @@ import {
   parseContent,
 } from "../format/index.js";
 import type { CommandRunner } from "../pr.js";
-import { detectPrUrl, prLabel, resolvePrState } from "../pr.js";
+import {
+  detectPrUrl,
+  prLabel,
+  resolvePrBranch,
+  resolvePrState,
+} from "../pr.js";
 
 // --- synthetic message builders -------------------------------------------
 // Mirror the goose transcript shapes parsed by `toolResultInfo` / `thinkingText`.
@@ -258,5 +263,52 @@ describe("resolvePrState", () => {
     };
     await resolvePrState(URL(7), spy);
     expect(seen).toEqual([`pr view ${URL(7)} --json state`]);
+  });
+});
+
+describe("resolvePrBranch", () => {
+  it("reads headRefName from gh pr view JSON", async () => {
+    expect(
+      await resolvePrBranch(URL(1), mockRunner('{"headRefName":"feat/x"}')),
+    ).toBe("feat/x");
+  });
+
+  it("never shells out for a non-PR URL", async () => {
+    const calls: string[] = [];
+    const spy: CommandRunner = async (args) => {
+      calls.push(args.join(" "));
+      return { stdout: '{"headRefName":"feat/x"}' };
+    };
+    expect(
+      await resolvePrBranch("https://evil.example/x", spy),
+    ).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  it("returns undefined for non-JSON / empty stdout", async () => {
+    expect(await resolvePrBranch(URL(1), mockRunner(""))).toBeUndefined();
+    expect(
+      await resolvePrBranch(URL(1), mockRunner("Could not resolve to a PR")),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for JSON without a headRefName", async () => {
+    expect(
+      await resolvePrBranch(URL(1), mockRunner('{"state":"OPEN"}')),
+    ).toBeUndefined();
+  });
+
+  it("never throws when the runner fails", async () => {
+    expect(await resolvePrBranch(URL(1), throwingRunner())).toBeUndefined();
+  });
+
+  it("passes the expected gh invocation", async () => {
+    const seen: string[] = [];
+    const spy: CommandRunner = async (args) => {
+      seen.push([...args].join(" "));
+      return { stdout: '{"headRefName":"main"}' };
+    };
+    await resolvePrBranch(URL(7), spy);
+    expect(seen).toEqual([`pr view ${URL(7)} --json headRefName`]);
   });
 });
