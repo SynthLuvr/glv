@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { AuthService } from "../auth/service.js";
+import type { Materialiser } from "../clone.js";
 import type { SessionFilter } from "../db.js";
 import type { CloneJob, GhClient } from "../gh.js";
 import type { GitRunner } from "../git.js";
@@ -55,6 +56,7 @@ type ServerOptions = {
   runPrState?: CommandRunner;
   /** Subprocess runner for local `git` queries; tests inject a fake. */
   runGit?: GitRunner;
+  materialise?: Materialiser;
 };
 
 // Everything a route handler needs, threaded in explicitly so route modules
@@ -75,6 +77,7 @@ type ServerContext = {
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
   readonly runGit: GitRunner | undefined;
+  readonly materialise: Materialiser;
   readonly cloneJobs: Map<string, CloneJob>;
   readonly cloneJobTtlMs: number;
   readonly cloneJobSweepMs: number;

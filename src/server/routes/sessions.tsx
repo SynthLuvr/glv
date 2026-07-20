@@ -155,12 +155,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       ctx.cloneJobs.set(jobId, job);
 
       const runCloneJob = async (): Promise<void> => {
-        await ctx.gh.materialise(
-          parsed.owner,
-          parsed.repo,
-          branchVal,
-          clonePath,
-        );
+        await ctx.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
         job.tempKey = generateTempKey();
         job.known = new Set(sessionIdsInDir(ctx.db, clonePath));
         job.runStartedAt = Date.now();

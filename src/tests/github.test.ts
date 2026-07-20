@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Materialiser } from "../clone.js";
 import type { GhClient } from "../gh.js";
 import { clonePathFor, parseOwnerRepo } from "../gh.js";
 import type { ProcessResult, SpawnFn } from "../runner/index.js";
@@ -85,13 +86,7 @@ const postForm = async (
 const extractJobId = (html: string): string | undefined =>
   html.match(/\/github\/clone-status\/(clone_[a-z0-9_]+)/)?.[1];
 
-const createStubGh = (
-  opts: {
-    materialiseDelayMs?: number;
-    materialiseError?: string;
-    listError?: string;
-  } = {},
-): GhClient => ({
+const createStubGh = (opts: { listError?: string } = {}): GhClient => ({
   listRepos: async () => {
     if (opts.listError !== undefined) throw new Error(opts.listError);
     return STUB_REPOS;
@@ -100,13 +95,18 @@ const createStubGh = (
     if (opts.listError !== undefined) throw new Error(opts.listError);
     return { branches: ["main", "develop"], defaultBranch: "main" };
   },
-  materialise: async () => {
+});
+
+const createStubMaterialise =
+  (
+    opts: { materialiseDelayMs?: number; materialiseError?: string } = {},
+  ): Materialiser =>
+  async () => {
     if (opts.materialiseDelayMs !== undefined)
       await sleep(opts.materialiseDelayMs);
     if (opts.materialiseError !== undefined)
       throw new Error(opts.materialiseError);
-  },
-});
+  };
 
 type GithubSpawnState = {
   spawn: SpawnFn;
@@ -200,10 +200,12 @@ const makeApp = (
     pollTimeoutMs?: number;
     cloneJobTtlMs?: number;
     cloneJobSweepMs?: number;
+    materialise?: Materialiser;
   } = {},
 ): ReturnType<typeof createApp> =>
   createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
     gh,
+    materialise: opts.materialise,
     pollTimeoutMs: opts.pollTimeoutMs,
     cloneJobTtlMs: opts.cloneJobTtlMs,
     cloneJobSweepMs: opts.cloneJobSweepMs,
@@ -394,7 +396,9 @@ describe("clonePathFor containment guard", () => {
 
 describe("POST /sessions (github clone flow)", () => {
   it("starts a clone and returns the cloning view immediately", async () => {
-    const app = makeApp(createStubGh({ materialiseDelayMs: 5000 }));
+    const app = makeApp(createStubGh(), undefined, {
+      materialise: createStubMaterialise({ materialiseDelayMs: 5000 }),
+    });
     const { status, html } = await postForm(app, "/sessions", {
       source: "github",
       repo: "SynthLuvr/app1",
@@ -411,7 +415,10 @@ describe("POST /sessions (github clone flow)", () => {
   it("transitions to the transcript when clone and goose succeed", async () => {
     const { spawn, insertedIds } = createGithubSpawn(db, ["line1"]);
     const gh = createStubGh();
-    const app = makeApp(gh, spawn, { pollTimeoutMs: 5000 });
+    const app = makeApp(gh, spawn, {
+      materialise: createStubMaterialise(),
+      pollTimeoutMs: 5000,
+    });
 
     const { html: cloningHtml } = await postForm(app, "/sessions", {
       source: "github",
@@ -469,7 +476,11 @@ describe("POST /sessions (github clone flow)", () => {
 
     const gh = createStubGh();
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const app = createApp(db, runner, { gh, pollTimeoutMs: 5000 });
+    const app = createApp(db, runner, {
+      gh,
+      materialise: createStubMaterialise(),
+      pollTimeoutMs: 5000,
+    });
     const repo = "SynthLuvr/collide-race";
 
     const [c1, c2] = await Promise.all([
@@ -513,10 +524,12 @@ describe("POST /sessions (github clone flow)", () => {
   });
 
   it("shows the error form when the clone fails", async () => {
-    const gh = createStubGh({
-      materialiseError: "repository not found",
+    const gh = createStubGh();
+    const app = makeApp(gh, undefined, {
+      materialise: createStubMaterialise({
+        materialiseError: "repository not found",
+      }),
     });
-    const app = makeApp(gh);
 
     const { html: cloningHtml } = await postForm(app, "/sessions", {
       source: "github",
@@ -561,6 +574,7 @@ describe("clone job retention sweep", () => {
     const { spawn } = createGithubSpawn(db, ["line1"], 5000);
     const gh = createStubGh();
     const app = makeApp(gh, spawn, {
+      materialise: createStubMaterialise(),
       pollTimeoutMs: 5000,
       cloneJobTtlMs: 5,
       cloneJobSweepMs: 10,
