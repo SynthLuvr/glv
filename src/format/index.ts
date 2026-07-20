@@ -4,7 +4,6 @@ export {
   formatTranscript,
   renderTable,
 } from "./cli.js";
-export { fmtRelative } from "./dates.js";
 export { renderMarkdown } from "./markdown.js";
 export type {
   ContentItem,
@@ -22,4 +21,10 @@ export {
   toolCallInfo,
   toolResultInfo,
 } from "./message.js";
-export { fmtTokens, shortenHome, truncate, truncateMiddle } from "./text.js";
+export {
+  fmtRelative,
+  fmtTokens,
+  shortenHome,
+  truncate,
+  truncateMiddle,
+} from "./text.js";
