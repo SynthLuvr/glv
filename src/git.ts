@@ -1,4 +1,4 @@
-import { execa } from "execa";
+import { execGit } from "./shell.js";
 
 type GitResult = { stdout: string; exitCode: number };
 
@@ -6,15 +6,14 @@ type GitRunner = (args: readonly string[], cwd: string) => Promise<GitResult>;
 
 const GIT_TIMEOUT_MS = 5000;
 
-// `reject: false` makes a non-zero exit a result; a missing binary or bad cwd
-// still throws (caught by readGitInfo).
+// Never throws on a non-zero exit (a non-repo or missing binary degrades to an
+// empty GitInfo); the underlying execa call surfaces real failures via rekey.
 const runGit: GitRunner = async (args, cwd) => {
-  const result = await execa("git", [...args], {
+  const { stdout, exitCode } = await execGit(args, {
     cwd,
-    reject: false,
-    timeout: GIT_TIMEOUT_MS,
+    timeoutMs: GIT_TIMEOUT_MS,
   });
-  return { stdout: result.stdout, exitCode: result.exitCode ?? 1 };
+  return { stdout, exitCode };
 };
 
 type GitInfo = {

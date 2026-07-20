@@ -39,11 +39,6 @@ const ToolResponseItem = type({
   },
 });
 
-const TextEntry = type({
-  type: "'text'",
-  text: "string",
-});
-
 type ParsedMessage = {
   role: string;
   timestamp: string;
@@ -72,21 +67,25 @@ const parseMessage = (row: MessageRow): ParsedMessage => ({
   items: parseContent(row.content_json),
 });
 
-const extractTexts = (items: ContentItem[]): string[] =>
-  items.flatMap((item) =>
-    item.type === "text" && item.text !== undefined ? [item.text] : [],
-  );
+// One text-extraction strategy for both accessors: pick the `text` field off
+// every item shaped like a text content block. The guard keeps this robust for
+// raw (unvalidated) tool-result content, matching the schema-drift tolerance
+// used by the rest of this file.
+const isTextItem = (item: unknown): item is { text: string } =>
+  item !== null &&
+  typeof item === "object" &&
+  (item as { type?: unknown }).type === "text" &&
+  typeof (item as { text?: unknown }).text === "string";
 
+const extractTexts = (items: readonly unknown[]): string[] =>
+  items.flatMap((item) => (isTextItem(item) ? [item.text] : []));
+
+// contentToText adapts the single strategy to raw tool-result content, which
+// may be a plain string or an arbitrary array.
 const contentToText = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const entry of content) {
-    const parsed = TextEntry(entry);
-    if (parsed instanceof type.errors) continue;
-    parts.push(parsed.text);
-  }
-  return parts.join("\n");
+  return extractTexts(content).join("\n");
 };
 
 const thinkingText = (item: ContentItem): string | undefined => {

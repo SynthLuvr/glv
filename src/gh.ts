@@ -2,6 +2,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { type } from "arktype";
 import { execa } from "execa";
+import { tryParseJson } from "./parse.js";
+import { execGit } from "./shell.js";
 
 type RepoInfo = {
   nameWithOwner: string;
@@ -87,16 +89,6 @@ const generateCloneJobId = (): string =>
 
 const stderrGist = (stderr: unknown): string =>
   typeof stderr === "string" ? stderr.trim().slice(-300) : "";
-
-// `gh` may exit 0 with non-JSON stdout (an update notice, a warning, or
-// unauthenticated help text); degrade rather than crash on a SyntaxError.
-const tryParseJson = (stdout: string): unknown => {
-  try {
-    return JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-};
 
 // nameWithOwner is required; the rest are optional and defaulted so a
 // malformed or non-repo line is dropped instead of crashing.
@@ -231,9 +223,8 @@ const runGit = async (
   failure: string,
   cwd?: string,
 ): Promise<void> => {
-  const result = await execa("git", args, { cwd, reject: false });
-  if (result.exitCode !== 0)
-    throw new Error(stderrGist(result.stderr) || failure);
+  const { stderr, exitCode } = await execGit(args, { cwd });
+  if (exitCode !== 0) throw new Error(stderrGist(stderr) || failure);
 };
 
 // --single-branch keeps the clone cheap. The URL is passed in (rather than

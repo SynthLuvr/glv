@@ -8,7 +8,6 @@ import {
   listMessages,
   listSessions,
   renameSession,
-  type SessionRow,
   sessionIdsInDir,
 } from "../../db.js";
 import { displayName, parseMessage } from "../../format/index.js";
@@ -26,7 +25,6 @@ import {
   enqueueOrQueue,
   generateTempKey,
   getHandle,
-  rekey,
   stop,
 } from "../../runner/index.js";
 import { CloningView, type SourceType } from "../../views/new-session.js";
@@ -43,7 +41,9 @@ import { newSessionDetail, render, renderNotFound } from "../render.js";
 import { activeSessionIds } from "../status.js";
 import {
   activeRunPrompt,
+  type EstablishOutcome,
   errorMessage,
+  establishSession,
   expandHome,
   extractIds,
   isHtmxRequest,
@@ -197,14 +197,10 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
 
     const tempKey = generateTempKey();
 
-    type EstablishResult =
-      | { ok: true; realId: string; session: SessionRow }
-      | { ok: false; status: ContentfulStatusCode; error: string };
-
     const result = await withCreateLock(
       ctx.createLocks,
       workingDir,
-      async (): Promise<EstablishResult> => {
+      async (): Promise<EstablishOutcome> => {
         const known = new Set(sessionIdsInDir(ctx.db, workingDir));
         enqueueNew(ctx.runner, tempKey, prompt, workingDir);
 
@@ -218,22 +214,12 @@ const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
           stop(ctx.runner, tempKey);
           return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
         }
-
-        if (!rekey(ctx.runner, tempKey, realId)) {
-          stop(ctx.runner, tempKey);
-          return {
-            ok: false,
-            status: 409,
-            error:
-              "Another session is starting in that directory. Please try again.",
-          };
-        }
-        const session = getSession(ctx.db, realId);
-        if (session === undefined) {
-          stop(ctx.runner, realId);
-          return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
-        }
-        return { ok: true, realId, session };
+        return establishSession(
+          ctx,
+          tempKey,
+          realId,
+          "Another session is starting in that directory. Please try again.",
+        );
       },
     );
 
