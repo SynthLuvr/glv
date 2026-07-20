@@ -1,7 +1,8 @@
 import { type } from "arktype";
-import { execa } from "execa";
 import type { ParsedMessage } from "./format/index.js";
 import { thinkingText, toolResultInfo } from "./format/index.js";
+import { tryParseJson } from "./parse.js";
+import { execGh } from "./shell.js";
 
 // Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
 // collides with issues and changelog noise.
@@ -26,12 +27,8 @@ const PrJson = type({
 const prUrlFromJson = (text: string): string | undefined => {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{")) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return undefined;
-  }
+  const parsed = tryParseJson(trimmed);
+  if (parsed === null) return undefined;
   const record = PrJson(parsed);
   if (record instanceof type.errors) return undefined;
   const candidate = record.html_url ?? record.url;
@@ -124,13 +121,10 @@ type CommandRunner = (args: readonly string[]) => Promise<CommandResult>;
 
 const GH_TIMEOUT_MS = 8000;
 
-// Reuses the user's `gh` auth. `reject: false` turns a non-zero exit into a
-// result; a missing binary or timeout still throws (caught by resolvePrState).
+// Reuses the user's `gh` auth. Real failures (missing binary/timeout) still
+// throw and are caught by resolvePrState.
 const runGh = async (args: readonly string[]): Promise<CommandResult> => {
-  const { stdout } = await execa("gh", [...args], {
-    timeout: GH_TIMEOUT_MS,
-    reject: false,
-  });
+  const { stdout } = await execGh(args, { timeoutMs: GH_TIMEOUT_MS });
   return { stdout };
 };
 
@@ -139,12 +133,8 @@ const runGh = async (args: readonly string[]): Promise<CommandResult> => {
 const GhStateView = type({ "state?": "string" });
 
 const parseGhState = (stdout: string): PrState => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return "unknown";
-  }
+  const parsed = tryParseJson(stdout);
+  if (parsed === null) return "unknown";
   const view = GhStateView(parsed);
   if (view instanceof type.errors) return "unknown";
   const { state } = view;
