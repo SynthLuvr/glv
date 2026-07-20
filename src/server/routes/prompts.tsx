@@ -15,7 +15,7 @@ import {
   PromptLibrary,
   PromptSaveForm,
 } from "../../views/new-session.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
 
@@ -31,7 +31,7 @@ const isValid = (input: PromptInput): boolean =>
 // All routes return HTML fragments for htmx to swap. The prompts store is
 // optional (tests may omit it); when absent every handler 404s rather than
 // throw.
-const registerPromptRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   const prompts = ctx.prompts;
 
   app.get("/prompts", (c) => {

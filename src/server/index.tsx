@@ -8,11 +8,7 @@ import {
   CLONE_JOB_TTL_MS,
   sweepCloneJobs,
 } from "./cloneJobs.js";
-import {
-  type AppEnv,
-  type ServerContext,
-  type ServerOptions,
-} from "./context.js";
+import { type ServerContext, type ServerOptions } from "./context.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerEventsRoutes } from "./routes/events.js";
@@ -29,7 +25,7 @@ const createApp = (
   db: DatabaseSync,
   runner: Runner,
   opts: ServerOptions = {},
-): Hono<AppEnv> => {
+): Hono => {
   const ctx: ServerContext = {
     db,
     runner,
@@ -63,14 +59,10 @@ const createApp = (
     timer.unref();
   }
 
-  const app = new Hono<AppEnv>();
+  const app = new Hono();
   // Auth gate sits first: every non-public request must carry a valid
   // session before any other middleware or route runs.
   if (ctx.auth !== undefined) app.use("*", authMiddleware(ctx.auth));
-  app.use("*", async (c, next) => {
-    c.set("runner", ctx.runner);
-    await next();
-  });
 
   registerAssetRoutes(app, ctx);
   registerAuthRoutes(app, ctx);

@@ -3,7 +3,7 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { COOKIE_NAME, setSessionCookie } from "../../auth/middleware.js";
 import type { RpConfig, VerifyResult } from "../../auth/service.js";
 import { LoginPage, RegisterPage } from "../../views/Auth.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 import { errorMessage } from "../util.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
@@ -50,7 +50,7 @@ const verifyAndRespond = async (
   }
 };
 
-const registerAuthRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   const auth = ctx.auth;
   if (auth === undefined) return;
 

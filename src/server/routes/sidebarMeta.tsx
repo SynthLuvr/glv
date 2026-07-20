@@ -11,7 +11,7 @@ import { parseMessage } from "../../format/index.js";
 import { type GitRunner, readGitInfo } from "../../git.js";
 import { detectPrUrl } from "../../pr.js";
 import { BranchChip, PrChip } from "../../views/chips.js";
-import type { AppEnv, ServerContext } from "../context.js";
+import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 
 // One git lookup per unique working dir, not one per session; a non-repo or
@@ -59,10 +59,7 @@ const resolvePrUrls = (
 // returns one out-of-band swap fragment per session into each item's
 // `#sidebar-meta-<id>` slot — so a list of any size is one request, not one
 // per item.
-const registerSidebarMetaRoutes = (
-  app: Hono<AppEnv>,
-  ctx: ServerContext,
-): void => {
+const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/sidebar-meta", async (c) => {
     const sessions = listSessions(ctx.db, VIEWER_FILTER);
     const branches = await resolveBranches(sessions, ctx.runGit);

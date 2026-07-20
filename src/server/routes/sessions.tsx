@@ -32,7 +32,6 @@ import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { Transcript } from "../../views/transcript.js";
 import {
-  AppEnv,
   SESSION_TIMEOUT_ERROR,
   ServerContext,
   VIEWER_FILTER,
@@ -51,7 +50,7 @@ import {
   withCreateLock,
 } from "../util.js";
 
-const registerSessionRoutes = (app: Hono<AppEnv>, ctx: ServerContext): void => {
+const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
   // The saved-prompt library powers the follow-up bar picker; empty when the
   // prompts store is disabled so the picker shows its "no prompts" message.

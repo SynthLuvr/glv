@@ -11,7 +11,7 @@ import {
   type SourceType,
 } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
-import type { AppEnv, ServerContext } from "./context.js";
+import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { activeSessionIds } from "./status.js";
 import { isHtmxRequest } from "./util.js";
@@ -49,7 +49,7 @@ const Shell = ({
 // selection survives. Mutations additionally refresh the sidebar
 // out-of-band.
 const render = (
-  c: Context<AppEnv>,
+  c: Context,
   ctx: ServerContext,
   sessions: SessionRow[],
   selectedId: string | undefined,
@@ -95,7 +95,7 @@ const render = (
       );
 };
 
-const renderNotFound = (c: Context<AppEnv>, ctx: ServerContext, id: string) =>
+const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
   render(
     c,
     ctx,
