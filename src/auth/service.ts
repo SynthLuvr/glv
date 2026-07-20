@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type AuthenticationResponseJSON,
@@ -77,59 +77,36 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 type ChallengeFlow = "register" | "login";
 
-// The token is itself the WebAuthn challenge: the authenticator signs and
-// echoes it back, so the server re-verifies it statelessly. Each options call
-// mints an independent token, so concurrent ceremonies never clobber each other.
+// Single-use WebAuthn challenges held only in process memory. The
+// authenticator signs and returns the challenge; the server consumes it on
+// success, so a verified challenge can never be replayed within its TTL.
 const makeChallengeAuthority = (
   ttlMs = CHALLENGE_TTL_MS,
 ): {
   issue: (flow: ChallengeFlow) => string;
   verify: (token: string, flow: ChallengeFlow) => boolean;
 } => {
-  // Per-process secret: a restart invalidates any in-flight ceremony.
-  const secret = randomBytes(32);
+  const pending = new Map<string, { flow: ChallengeFlow; expiry: number }>();
 
-  const sign = (data: string): string =>
-    createHmac("sha256", secret).update(data, "utf8").digest("hex");
-
-  const sameSig = (a: string, b: string): boolean => {
-    const ba = Buffer.from(a, "hex");
-    const bb = Buffer.from(b, "hex");
-    return ba.length === bb.length && timingSafeEqual(ba, bb);
+  const sweep = (): void => {
+    const now = Date.now();
+    for (const [key, record] of pending)
+      if (record.expiry <= now) pending.delete(key);
   };
 
   const issue = (flow: ChallengeFlow): string => {
-    const body = JSON.stringify({
-      nonce: randomBytes(16).toString("base64url"),
-      expiry: Date.now() + ttlMs,
-      flow,
-    });
-    return Buffer.from(JSON.stringify({ body, sig: sign(body) })).toString(
-      "base64url",
-    );
+    sweep();
+    const challenge = randomBytes(32).toString("base64url");
+    pending.set(challenge, { flow, expiry: Date.now() + ttlMs });
+    return challenge;
   };
 
   const verify = (token: string, flow: ChallengeFlow): boolean => {
-    let outer: { body?: unknown; sig?: unknown };
-    try {
-      outer = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-    } catch {
-      return false;
-    }
-    const { body, sig } = outer;
-    if (typeof body !== "string" || typeof sig !== "string") return false;
-    if (!sameSig(sign(body), sig)) return false;
-    let payload: { expiry?: unknown; flow?: unknown };
-    try {
-      payload = JSON.parse(body);
-    } catch {
-      return false;
-    }
-    return (
-      payload.flow === flow &&
-      typeof payload.expiry === "number" &&
-      Date.now() <= payload.expiry
-    );
+    const record = pending.get(token);
+    if (record === undefined) return false;
+    if (record.flow !== flow || Date.now() > record.expiry) return false;
+    pending.delete(token);
+    return true;
   };
 
   return { issue, verify };

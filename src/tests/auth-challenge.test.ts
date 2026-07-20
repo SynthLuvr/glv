@@ -1,25 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeChallengeAuthority } from "../auth/service.js";
 
-type Envelope = { body: string; sig: string };
-
-const isEnvelope = (value: unknown): value is Envelope =>
-  typeof value === "object" &&
-  value !== null &&
-  "body" in value &&
-  typeof value.body === "string" &&
-  "sig" in value &&
-  typeof value.sig === "string";
-
-const decodeEnvelope = (token: string): Envelope => {
-  const parsed: unknown = JSON.parse(
-    Buffer.from(token, "base64url").toString("utf8"),
-  );
-  if (!isEnvelope(parsed))
-    throw new Error(`invalid challenge envelope for token ${token}`);
-  return parsed;
-};
-
 describe("challenge authority", () => {
   it("issues independent challenges that do not clobber each other", () => {
     const ca = makeChallengeAuthority();
@@ -28,6 +9,13 @@ describe("challenge authority", () => {
     expect(a).not.toBe(b);
     expect(ca.verify(a, "register")).toBe(true);
     expect(ca.verify(b, "register")).toBe(true);
+  });
+
+  it("is single-use: a verified challenge cannot be replayed", () => {
+    const ca = makeChallengeAuthority();
+    const token = ca.issue("register");
+    expect(ca.verify(token, "register")).toBe(true);
+    expect(ca.verify(token, "register")).toBe(false);
   });
 
   it("binds a challenge to its ceremony flow", () => {
@@ -46,27 +34,14 @@ describe("challenge authority", () => {
     expect(ca.verify(token, "register")).toBe(false);
   });
 
-  it("rejects a token with a mismatched signature", () => {
-    const ca = makeChallengeAuthority();
-    const a = ca.issue("register");
-    const b = ca.issue("register");
-    const { body: bodyA } = decodeEnvelope(a);
-    const { sig: sigB } = decodeEnvelope(b);
-    // Valid body paired with a different token's valid signature.
-    const tampered = Buffer.from(
-      JSON.stringify({ body: bodyA, sig: sigB }),
-    ).toString("base64url");
-    expect(ca.verify(tampered, "register")).toBe(false);
-  });
-
-  it("rejects a token signed by a different authority", () => {
+  it("rejects a challenge issued by a different authority", () => {
     const caA = makeChallengeAuthority();
     const caB = makeChallengeAuthority();
     const token = caA.issue("register");
     expect(caB.verify(token, "register")).toBe(false);
   });
 
-  it("rejects malformed input", () => {
+  it("rejects malformed or unknown input", () => {
     const ca = makeChallengeAuthority();
     expect(ca.verify("", "register")).toBe(false);
     expect(ca.verify("not-a-valid-token", "register")).toBe(false);
