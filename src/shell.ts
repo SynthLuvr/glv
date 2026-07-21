@@ -46,5 +46,4 @@ const execGhOrThrow = async (
   return result.stdout;
 };
 
-export type { ExecOptions, ExecResult };
 export { execGh, execGhOrThrow, execGit };
