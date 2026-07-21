@@ -2,7 +2,13 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { getSession, type SessionRow, sessionIdsInDir } from "../db.js";
 import type { RunHandle } from "../runner/index.js";
-import { isTerminalStatus, rekey, stop } from "../runner/index.js";
+import {
+  enqueueRun,
+  generateTempKey,
+  isTerminalStatus,
+  rekey,
+  stop,
+} from "../runner/index.js";
 import { SESSION_TIMEOUT_ERROR, type ServerContext } from "./context.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -30,6 +36,13 @@ const withCreateLock = <T>(
   return run;
 };
 
+const findNewSessionId = (
+  db: DatabaseSync,
+  workingDir: string,
+  known: Set<string>,
+): string | undefined =>
+  sessionIdsInDir(db, workingDir).find((id) => !known.has(id));
+
 const pollForSessionId = async (
   db: DatabaseSync,
   workingDir: string,
@@ -39,11 +52,26 @@ const pollForSessionId = async (
 ): Promise<string | undefined> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const found = sessionIdsInDir(db, workingDir).find((id) => !known.has(id));
+    const found = findNewSessionId(db, workingDir, known);
     if (found !== undefined) return found;
     await sleep(intervalMs);
   }
   return undefined;
+};
+
+// `known` must be captured before enqueueing; otherwise a fast run could
+// write its session before the snapshot and hide it from findNewSessionId.
+const prepareNewSession = (
+  ctx: ServerContext,
+  workingDir: string,
+  prompt: string,
+): { tempKey: string; known: Set<string> } => {
+  const tempKey = generateTempKey();
+  const known = new Set(sessionIdsInDir(ctx.db, workingDir));
+  enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
+    isNewSession: true,
+  });
+  return { tempKey, known };
 };
 
 type EstablishOutcome =
@@ -73,4 +101,11 @@ const establishSession = (
 };
 
 export type { EstablishOutcome };
-export { activeRunPrompt, establishSession, pollForSessionId, withCreateLock };
+export {
+  activeRunPrompt,
+  establishSession,
+  findNewSessionId,
+  pollForSessionId,
+  prepareNewSession,
+  withCreateLock,
+};

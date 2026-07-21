@@ -1,6 +1,6 @@
 import { type Context, type Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { listMessages, listSessions, sessionIdsInDir } from "../../db.js";
+import { listMessages, listSessions } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
 import { getHandle, stop } from "../../runner/index.js";
 import { CloningView } from "../../views/new-session.js";
@@ -12,7 +12,11 @@ import {
 } from "../context.js";
 import { errorMessage } from "../http.js";
 import { newSessionDetail, render } from "../render.js";
-import { establishSession, withCreateLock } from "../session.js";
+import {
+  establishSession,
+  findNewSessionId,
+  withCreateLock,
+} from "../session.js";
 
 const ghErrorResponse = (c: Context, err: unknown) =>
   c.json({ ok: false, error: errorMessage(err) }, 502);
@@ -104,9 +108,7 @@ const registerGithubRoutes = (app: Hono, ctx: ServerContext): void => {
 
     const known = job.known;
     const tempKey = job.tempKey;
-    const realId = sessionIdsInDir(ctx.db, job.clonePath).find(
-      (id) => !known.has(id),
-    );
+    const realId = findNewSessionId(ctx.db, job.clonePath, known);
     if (realId === undefined) return waitView(false);
 
     const result = await withCreateLock(ctx.createLocks, job.clonePath, () =>
