@@ -1,7 +1,7 @@
 import { isAbsolute, join, relative } from "node:path";
 import { type } from "arktype";
-import { execa } from "execa";
 import { tryParseJson } from "./parse.js";
+import { execGhOrThrow } from "./shell.js";
 
 type RepoInfo = {
   nameWithOwner: string;
@@ -126,7 +126,7 @@ const REPO_LIST_JQ =
   " isFork: .fork, updatedAt: .updated_at, description: .description}";
 
 const listRepos = async (): Promise<RepoInfo[]> => {
-  const { stdout } = await execa("gh", [
+  const stdout = await execGhOrThrow([
     "api",
     "user/repos?type=owner&per_page=100",
     "--paginate",
@@ -152,23 +152,23 @@ const listBranches = async (
   owner: string,
   repo: string,
 ): Promise<BranchInfo> => {
-  const viewResult = await execa("gh", [
+  const viewStdout = await execGhOrThrow([
     "repo",
     "view",
     `${owner}/${repo}`,
     "--json",
     "defaultBranchRef",
   ]);
-  const defaultBranch = parseDefaultBranch(viewResult.stdout);
+  const defaultBranch = parseDefaultBranch(viewStdout);
 
-  const apiResult = await execa("gh", [
+  const apiStdout = await execGhOrThrow([
     "api",
     `repos/${owner}/${repo}/branches`,
     "--paginate",
     "--jq",
     ".[].name",
   ]);
-  const branches = apiResult.stdout
+  const branches = apiStdout
     .trim()
     .split("\n")
     .filter((name) => name !== "");
