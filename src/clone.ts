@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { type } from "arktype";
-import { execa } from "execa";
 import { tryParseJson } from "./parse.js";
-import { execGit } from "./shell.js";
+import { execGhOrThrow, execGit } from "./shell.js";
 
 type Materialiser = (
   owner: string,
@@ -34,7 +33,7 @@ const parseSshUrl = (stdout: string): string => {
 };
 
 const getSshUrl = async (owner: string, repo: string): Promise<string> => {
-  const { stdout } = await execa("gh", [
+  const stdout = await execGhOrThrow([
     "repo",
     "view",
     `${owner}/${repo}`,
