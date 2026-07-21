@@ -48,17 +48,41 @@ const uiFocusAutofocus = (): void => {
   if (el instanceof HTMLElement && document.activeElement !== el) el.focus();
 };
 
+const uiCopyText = async (text: string): Promise<boolean> => {
+  if (navigator.clipboard !== undefined) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      /* writeText rejected (e.g. permission denied) — try the legacy path */
+    }
+  }
+  // The async Clipboard API is gated behind a secure context (HTTPS or
+  // localhost). When the viewer is reached over plain HTTP on a LAN address
+  // navigator.clipboard is undefined, so fall back to the deprecated
+  // execCommand path so copy buttons keep working everywhere.
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    /* execCommand unavailable — nothing more we can do */
+  }
+  document.body.removeChild(ta);
+  return ok;
+};
+
 const uiCopyWithFeedback = async (
   btn: HTMLElement,
   text: string,
   icons?: { active: string; idle: string },
 ): Promise<void> => {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // clipboard unavailable (non-secure context) — fail silently
-    return;
-  }
+  if (!(await uiCopyText(text))) return;
   btn.classList.add("copied");
   if (icons !== undefined) btn.innerHTML = icons.active;
   window.setTimeout(() => {

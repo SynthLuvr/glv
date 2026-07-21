@@ -56,9 +56,21 @@ const uiScript = async (): Promise<string> =>
     )
   ).text();
 
+type ClipboardLike = {
+  writeText: (text: string) => Promise<void>;
+};
+
 // The compiled ui.js is a classic side-effect script; run it in a JSDOM
 // context (mirroring the rename test) so we can assert on the live DOM.
-const runUi = async (html: string) => {
+// The clipboard mock is injectable so copy-button tests can spy on writes
+// and verify the execCommand fallback when the async API is absent.
+const runUi = async (
+  html: string,
+  opts: {
+    clipboard?: ClipboardLike | undefined;
+    execCommand?: ((cmd: string) => boolean) | undefined;
+  } = {},
+) => {
   const dom = new JSDOM(html);
   const document = dom.window.document;
   vm.runInNewContext(await uiScript(), {
@@ -73,12 +85,24 @@ const runUi = async (html: string) => {
     HTMLPreElement: dom.window.HTMLPreElement,
     MutationObserver: dom.window.MutationObserver,
     requestAnimationFrame: (cb: () => void) => cb(),
-    navigator: { clipboard: { writeText: async () => undefined } },
+    navigator: { clipboard: opts.clipboard },
     setTimeout: dom.window.setTimeout,
   });
+  if (opts.execCommand !== undefined)
+    document.execCommand =
+      opts.execCommand as unknown as typeof document.execCommand;
   document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
   return document;
 };
+
+const COPY_MD_HTML =
+  '<!DOCTYPE html><html><body><main id="detail-pane">' +
+  '<button type="button" class="copy-md-btn" data-md="Hello **world**">' +
+  '<svg class="icon-copy"></svg><svg class="icon-check"></svg>' +
+  "</button></main></body></html>";
+
+const flush = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
 
 describe("ui enhancements (client script)", () => {
   it("wraps <pre> blocks in a copy-enabled container", async () => {
@@ -115,5 +139,41 @@ describe("ui enhancements (client script)", () => {
     const btn = document.getElementById("scroll-latest");
     expect(btn).not.toBeNull();
     expect(btn?.hidden).toBe(true);
+  });
+
+  it("copies markdown to the clipboard when the copy-md button is clicked", async () => {
+    const writes: string[] = [];
+    const document = await runUi(COPY_MD_HTML, {
+      clipboard: {
+        writeText: async (text: string) => {
+          writes.push(text);
+        },
+      },
+    });
+    document.querySelector<HTMLButtonElement>(".copy-md-btn")?.click();
+    await flush();
+    expect(writes).toEqual(["Hello **world**"]);
+    expect(
+      document.querySelector(".copy-md-btn")?.classList.contains("copied"),
+    ).toBe(true);
+  });
+
+  it("falls back to execCommand when the Clipboard API is unavailable", async () => {
+    // navigator.clipboard is undefined over plain HTTP on a non-localhost
+    // origin — the regression that silently broke copy buttons.
+    const copied: string[] = [];
+    const document = await runUi(COPY_MD_HTML, {
+      clipboard: undefined,
+      execCommand: () => {
+        copied.push("ok");
+        return true;
+      },
+    });
+    document.querySelector<HTMLButtonElement>(".copy-md-btn")?.click();
+    await flush();
+    expect(copied).toEqual(["ok"]);
+    expect(
+      document.querySelector(".copy-md-btn")?.classList.contains("copied"),
+    ).toBe(true);
   });
 });
