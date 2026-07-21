@@ -36,9 +36,6 @@ const withCreateLock = <T>(
   return run;
 };
 
-// The single-query new-id primitive shared by both session-creation flows.
-// The working-dir flow calls it in a blocking loop (pollForSessionId); the
-// GitHub flow calls it once per client poll request.
 const findNewSessionId = (
   db: DatabaseSync,
   workingDir: string,
@@ -62,20 +59,13 @@ const pollForSessionId = async (
   return undefined;
 };
 
-type PreparedSession = {
-  tempKey: string;
-  known: Set<string>;
-};
-
-// Snapshot-before-enqueue preamble shared by both flows. Generates a temp key,
-// captures the known session ids in `workingDir`, then enqueues a new-session
-// run. `known` is computed *before* enqueueing so the diff in
-// findNewSessionId isolates exactly this run's new session.
+// `known` must be captured before enqueueing; otherwise a fast run could
+// write its session before the snapshot and hide it from findNewSessionId.
 const prepareNewSession = (
   ctx: ServerContext,
   workingDir: string,
   prompt: string,
-): PreparedSession => {
+): { tempKey: string; known: Set<string> } => {
   const tempKey = generateTempKey();
   const known = new Set(sessionIdsInDir(ctx.db, workingDir));
   enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
@@ -110,7 +100,7 @@ const establishSession = (
   return { ok: true, realId, session };
 };
 
-export type { EstablishOutcome, PreparedSession };
+export type { EstablishOutcome };
 export {
   activeRunPrompt,
   establishSession,
