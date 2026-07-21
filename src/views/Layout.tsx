@@ -19,8 +19,6 @@ const Layout = ({ title, children }: LayoutProps) => (
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
-      <script src="/assets/theme.js" defer></script>
-      <script src="/assets/markdown-copy.js" defer></script>
       <script src="/assets/rename.js" defer></script>
       <script src="/assets/source-picker.js" defer></script>
       <script src="/assets/ui.js" defer></script>

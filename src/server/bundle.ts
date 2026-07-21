@@ -6,8 +6,6 @@ type AssetBundle = {
   readonly appCss: string;
   readonly sidebar: string;
   readonly stream: string;
-  readonly theme: string;
-  readonly markdownCopy: string;
   readonly rename: string;
   readonly sourcePicker: string;
   readonly ui: string;
@@ -28,8 +26,6 @@ const buildAssetBundle = (): AssetBundle => ({
   appCss: readAsset("../../dist/app.css"),
   sidebar: readAsset("../../dist/sidebar.js"),
   stream: readAsset("../../dist/stream.js"),
-  theme: readAsset("../../dist/theme.js"),
-  markdownCopy: readAsset("../../dist/markdown-copy.js"),
   rename: readAsset("../../dist/rename.js"),
   sourcePicker: readAsset("../../dist/source-picker.js"),
   ui: readAsset("../../dist/ui.js"),

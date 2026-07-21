@@ -514,8 +514,8 @@ describe("web viewer static assets", () => {
     expect(body.length).toBeGreaterThan(100);
   });
 
-  it("serves the markdown-copy client script as JavaScript", async () => {
-    const res = await makeApp().request("/assets/markdown-copy.js");
+  it("serves the copy-markdown logic within the ui script", async () => {
+    const res = await makeApp().request("/assets/ui.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
