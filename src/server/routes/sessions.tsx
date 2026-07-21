@@ -21,8 +21,8 @@ import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
   clearPending,
-  enqueueNew,
   enqueueOrQueue,
+  enqueueRun,
   generateTempKey,
   getHandle,
   stop,
@@ -157,7 +157,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         job.tempKey = generateTempKey();
         job.known = new Set(sessionIdsInDir(ctx.db, clonePath));
         job.runStartedAt = Date.now();
-        enqueueNew(ctx.runner, job.tempKey, prompt, clonePath);
+        enqueueRun(ctx.runner, job.tempKey, prompt, clonePath, {
+          isNewSession: true,
+        });
         if (promptId !== "" && ctx.prompts !== undefined)
           bumpUsage(ctx.prompts, promptId);
         job.status = "done";
@@ -194,7 +196,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       workingDir,
       async (): Promise<EstablishOutcome> => {
         const known = new Set(sessionIdsInDir(ctx.db, workingDir));
-        enqueueNew(ctx.runner, tempKey, prompt, workingDir);
+        enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
+          isNewSession: true,
+        });
 
         const realId = await pollForSessionId(
           ctx.db,
