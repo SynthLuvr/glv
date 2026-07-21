@@ -13,7 +13,6 @@ export type {
   ToolResultInfo,
 } from "./message.js";
 export {
-  extractCandidatePaths,
   messageKind,
   parseContent,
   parseMessage,

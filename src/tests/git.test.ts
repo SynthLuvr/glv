@@ -70,35 +70,6 @@ describe("readGitInfo", () => {
   });
 });
 
-describe("readGitInfo with candidate paths", () => {
-  it("recovers the worktree a session worked in when launched from another", async () => {
-    const out = porcelain([
-      { path: "/main", branch: "main" },
-      { path: "/feat", branch: "feat/git-info" },
-    ]);
-    expect(
-      await readGitInfo("/main", mockRunner(out), ["/feat/src/x.ts"]),
-    ).toEqual({ branch: "feat/git-info", worktree: "/feat" });
-  });
-
-  it("falls back to the launch worktree when candidates only match it", async () => {
-    const out = porcelain([
-      { path: "/main", branch: "main" },
-      { path: "/feat", branch: "feat/git-info" },
-    ]);
-    expect(
-      await readGitInfo("/main", mockRunner(out), ["/main/src/x.ts"]),
-    ).toEqual({ branch: "main", worktree: "/main" });
-  });
-
-  it("falls back to the launch worktree when no candidate matches", async () => {
-    const out = porcelain([{ path: "/main", branch: "main" }]);
-    expect(
-      await readGitInfo("/main", mockRunner(out), ["/elsewhere/x"]),
-    ).toEqual({ branch: "main", worktree: "/main" });
-  });
-});
-
 describe("readWorktreeByBranch", () => {
   it("returns the worktree checked out on the given branch", async () => {
     const out = porcelain([

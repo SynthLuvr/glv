@@ -134,57 +134,6 @@ const messageKind = (role: string, items: ContentItem[]): MessageKind => {
   return role === "user" ? "prompt" : "output";
 };
 
-// Matches the target of a `cd <dir>` inside a shell command. Stops at a space
-// or shell metacharacter so chained commands (`cd /x && git status`) yield just
-// the directory.
-const CD_TARGET = /\bcd\s+([^&|;\s]+)/g;
-
-const isStringRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const stringField = (args: unknown, key: string): string | undefined => {
-  if (!isStringRecord(args)) return undefined;
-  const value = args[key];
-  return typeof value === "string" ? value : undefined;
-};
-
-const dirsFromCommand = (command: string): string[] => {
-  const out: string[] = [];
-  for (const match of command.matchAll(CD_TARGET))
-    if (match[1].startsWith("/")) out.push(match[1]);
-  return out;
-};
-
-// Absolute working-directory signals from a tool call: a `cd <path>` in a shell
-// command plus `cwd`/`path`/`working_dir` args. Relative paths are ignored —
-// they can't be matched to a worktree root.
-const dirsFromToolCall = (info: ToolCallInfo): string[] => {
-  const out: string[] = [];
-  for (const key of ["cwd", "path", "working_dir"] as const) {
-    const value = stringField(info.args, key);
-    if (value !== undefined && value.startsWith("/")) out.push(value);
-  }
-  const command = stringField(info.args, "command");
-  if (command !== undefined) out.push(...dirsFromCommand(command));
-  return out;
-};
-
-// Working-directory paths referenced in a transcript, ordered
-// most-recent-first. Lets git discovery recover the branch a session actually
-// worked in when it was launched from a different worktree (e.g. goose run
-// from `main`, then `git worktree add` and work there).
-const extractCandidatePaths = (
-  messages: readonly ParsedMessage[],
-): string[] => {
-  const ordered: string[] = [];
-  for (const message of messages)
-    for (const item of message.items) {
-      const info = toolCallInfo(item);
-      if (info !== undefined) ordered.push(...dirsFromToolCall(info));
-    }
-  return ordered.reverse();
-};
-
 export type {
   ContentItem,
   MessageKind,
@@ -193,7 +142,6 @@ export type {
   ToolResultInfo,
 };
 export {
-  extractCandidatePaths,
   extractTexts,
   messageKind,
   parseContent,
