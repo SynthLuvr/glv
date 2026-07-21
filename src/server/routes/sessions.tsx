@@ -35,7 +35,12 @@ import {
 } from "../context.js";
 import { errorMessage, extractIds, isHtmxRequest } from "../http.js";
 import { expandHome } from "../paths.js";
-import { newSessionDetail, render, renderNotFound } from "../render.js";
+import {
+  newSessionDetail,
+  render,
+  renderNotFound,
+  sidebarEntries,
+} from "../render.js";
 import {
   activeRunPrompt,
   type EstablishOutcome,
@@ -284,7 +289,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (from === "sidebar")
       return c.html(
         <SessionList
-          sessions={sessions}
+          entries={sidebarEntries(ctx, sessions)}
           selectedId={undefined}
           runningIds={activeSessionIds(ctx.runner)}
         />,
@@ -310,7 +315,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       <Fragment>
         <SessionTitleWrap session={updated} />
         <SessionList
-          sessions={sessions}
+          entries={sidebarEntries(ctx, sessions)}
           selectedId={undefined}
           runningIds={activeSessionIds(ctx.runner)}
           oob
@@ -325,7 +330,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const sessions = sessionsAll();
     return c.html(
       <SessionList
-        sessions={sessions}
+        entries={sidebarEntries(ctx, sessions)}
         selectedId={undefined}
         runningIds={activeSessionIds(ctx.runner)}
       />,

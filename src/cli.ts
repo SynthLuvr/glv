@@ -8,6 +8,7 @@ import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { openDb, resolveDbPath } from "./db.js";
+import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
 import { makeRunnerConfig } from "./runner/index.js";
 
@@ -36,12 +37,14 @@ program
   .description("View goose sessions, prompts/outputs, and --no-session logs")
   .option("--db <path>", "goose sessions database path")
   .option("--auth-db <path>", "auth database path")
-  .option("--prompts-db <path>", "saved prompts database path");
+  .option("--prompts-db <path>", "saved prompts database path")
+  .option("--groups-db <path>", "session groups database path");
 
 const GlobalOpts = type({
   "db?": "string",
   "authDb?": "string",
   "promptsDb?": "string",
+  "groupsDb?": "string",
 });
 
 const globalOpts = () => {
@@ -57,6 +60,9 @@ const getAuthDbPath = (): string => resolveAuthDbPath(globalOpts().authDb);
 
 const getPromptsDbPath = (): string =>
   resolvePromptsDbPath(globalOpts().promptsDb);
+
+const getGroupsDbPath = (): string =>
+  resolveGroupsDbPath(globalOpts().groupsDb);
 
 const useDb = (fn: (db: DatabaseSync) => void): void => {
   const db = openDb(getDbPath());
@@ -158,6 +164,7 @@ program
       runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
       authDbPath: getAuthDbPath(),
       promptsDbPath: getPromptsDbPath(),
+      groupsDbPath: getGroupsDbPath(),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
     });

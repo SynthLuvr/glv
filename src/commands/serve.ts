@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
+import { openGroupsDb } from "../groups/db.js";
 import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
 import { createRunner, stopAll } from "../runner/index.js";
@@ -14,6 +15,7 @@ type ServeOpts = {
   runner: RunnerConfig;
   authDbPath: string;
   promptsDbPath: string;
+  groupsDbPath: string;
   rpName: string;
   rpIdOverride?: string;
 };
@@ -104,10 +106,12 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   const runner = createRunner(opts.runner);
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
+  const groupsDb = openGroupsDb(opts.groupsDbPath);
   const auth = makeAuthService(authDb);
   const app = createApp(db, runner, {
     auth,
     prompts: promptsDb,
+    groups: groupsDb,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
@@ -120,6 +124,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
     db.close();
     authDb.close();
     promptsDb.close();
+    groupsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

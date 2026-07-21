@@ -10,6 +10,7 @@ type AssetBundle = {
   readonly sourcePicker: string;
   readonly ui: string;
   readonly prompts: string;
+  readonly groups: string;
   readonly passkey: string;
 };
 
@@ -30,6 +31,7 @@ const buildAssetBundle = (): AssetBundle => ({
   sourcePicker: readAsset("../../dist/source-picker.js"),
   ui: readAsset("../../dist/ui.js"),
   prompts: readAsset("../../dist/prompts.js"),
+  groups: readAsset("../../dist/groups.js"),
   passkey: readAsset("../../dist/passkey.js"),
 });
 

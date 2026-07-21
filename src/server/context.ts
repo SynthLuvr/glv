@@ -34,6 +34,7 @@ type ServerOptions = {
   gh?: GhClient;
   auth?: AuthService;
   prompts?: DatabaseSync;
+  groups?: DatabaseSync;
   rpName?: string;
   rpIdOverride?: string;
   /** Subprocess runner for `gh pr view`; tests inject a fake. */
@@ -52,6 +53,7 @@ type ServerContext = {
   readonly gh: GhClient;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;
+  readonly groups: DatabaseSync | undefined;
   readonly rpName: string | undefined;
   readonly rpIdOverride: string | undefined;
   readonly listDirs: () => string[];
