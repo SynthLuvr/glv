@@ -234,24 +234,9 @@ describe("enqueue and run", () => {
   it("streams output lines as they arrive", async () => {
     const { spawn } = createMockSpawn(["line1", "line2", "line3"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const received: string[] = [];
-    const handle = enqueueRun(runner, "s1", "hello", "/tmp", {
-      onLine: (line) => received.push(line),
-    });
+    const handle = enqueueRun(runner, "s1", "hello", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(received).toEqual(["line1", "line2", "line3"]);
     expect(handle.lines).toEqual(["line1", "line2", "line3"]);
-  });
-
-  it("transitions through queued, running, completed", async () => {
-    const { spawn } = createMockSpawn(["x"], { delayMs: 10 });
-    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const statuses: RunStatus[] = [];
-    const handle = enqueueRun(runner, "s1", "hi", "/tmp", {
-      onStatus: (h) => statuses.push(h.status),
-    });
-    await waitForStatus(handle, "completed");
-    expect(statuses).toEqual(["queued", "running", "completed"]);
   });
 
   it("builds a resume invocation with stdin-piped prompt", async () => {
@@ -318,29 +303,6 @@ describe("queue position", () => {
     expect(h2.queuePosition).toBeUndefined();
 
     await waitForStatus(h2, "completed");
-  });
-
-  it("decrements queue position as earlier runs finish", async () => {
-    const { spawn } = createMockSpawn(["x"], { delayMs: 30 });
-    const runner = createRunner(makeRunnerConfig(1, "goose"), spawn);
-
-    enqueueRun(runner, "s1", "hi", "/tmp");
-    enqueueRun(runner, "s2", "hi", "/tmp");
-    const positions: number[] = [];
-    const h3 = enqueueRun(runner, "s3", "hi", "/tmp", {
-      onStatus: (h) => {
-        if (h.queuePosition !== undefined) positions.push(h.queuePosition);
-      },
-    });
-
-    // h3 starts behind s2, at position 1.
-    expect(h3.queuePosition).toBe(1);
-
-    await waitForStatus(h3, "running");
-    // As s1 and s2 finished, h3's reported position dropped 1 -> 0.
-    expect(positions).toEqual([1, 0]);
-
-    await waitForStatus(h3, "completed");
   });
 
   it("decrements positions when a queued run is stopped", async () => {
@@ -753,18 +715,6 @@ describe("enqueueOrQueue (follow-up prompt queuing)", () => {
     expect(handle.pendingPrompts).toEqual([]);
     expect(state.invocations).toHaveLength(1);
   });
-
-  it("fires onStatus when a prompt is queued", async () => {
-    const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
-    const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const statuses: string[] = [];
-    enqueueOrQueue(runner, "s1", "first", "/tmp", {
-      onStatus: (h) => statuses.push(`${h.status}:${h.pendingPrompts.length}`),
-    });
-    await waitForStatus(getHandle(runner, "s1")!, "running");
-    enqueueOrQueue(runner, "s1", "second", "/tmp");
-    expect(statuses).toContain("running:1");
-  });
 });
 
 describe("clearPending", () => {
@@ -904,13 +854,11 @@ describe("enqueueRun (new-session runs)", () => {
   it("streams output lines as they arrive", async () => {
     const { spawn } = createMockSpawn(["a", "b", "c"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const received: string[] = [];
     const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {
-      onLine: (line) => received.push(line),
       isNewSession: true,
     });
     await waitForStatus(handle, "completed");
-    expect(received).toEqual(["a", "b", "c"]);
+    expect(handle.lines).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -997,17 +945,6 @@ describe("line buffer cap", () => {
     await waitForStatus(handle, "completed");
     expect(handle.lines).toEqual(["l1", "l2"]);
     expect(handle.droppedLines).toBe(0);
-  });
-
-  it("still invokes onLine for every line, even ones later evicted", async () => {
-    const { spawn } = createMockSpawn(["l1", "l2", "l3", "l4", "l5"]);
-    const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
-    const received: string[] = [];
-    const handle = enqueueRun(runner, "s1", "hi", "/tmp", {
-      onLine: (line) => received.push(line),
-    });
-    await waitForStatus(handle, "completed");
-    expect(received).toEqual(["l1", "l2", "l3", "l4", "l5"]);
   });
 
   it("caps lines across chained runs, tracking dropped count", async () => {

@@ -112,8 +112,6 @@ type SpawnFn = (
 ) => SpawnedProcess;
 
 type EnqueueOptions = {
-  onLine?: (line: string) => void;
-  onStatus?: (handle: RunHandle) => void;
   isNewSession?: boolean;
 };
 
@@ -130,8 +128,6 @@ type InternalHandle = Omit<
   readonly workingDir: string;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
-  onLine: ((line: string) => void) | undefined;
-  onStatus: ((handle: RunHandle) => void) | undefined;
   // Retention timer that eventually deletes a terminal handle from the registry.
   evictionTimer: ReturnType<typeof setTimeout> | undefined;
 };
