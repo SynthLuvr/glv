@@ -34,10 +34,8 @@ const execGh = (
   options: ExecOptions = {},
 ): Promise<ExecResult> => runBinary("gh", args, options);
 
-// Throws on a non-zero exit (a genuine `gh` failure) so callers that need
-// hard failure rather than graceful degradation share one path. A missing
-// binary or a timeout still rejects inside `execGh`: `reject:false` only
-// swallows non-zero exits, not spawn failures or timeouts.
+// Throws on a non-zero exit (a genuine `gh` failure) for callers that need
+// hard failure rather than graceful degradation.
 const execGhOrThrow = async (
   args: readonly string[],
   options: ExecOptions = {},
