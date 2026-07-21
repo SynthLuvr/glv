@@ -2,41 +2,28 @@ import { type Hono } from "hono";
 import type { ServerContext } from "../context.js";
 import { serveAsset } from "../util.js";
 
+const contentTypeFor = (path: string): string =>
+  path.endsWith(".css")
+    ? "text/css; charset=utf-8"
+    : "application/javascript; charset=utf-8";
+
 const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
   const a = ctx.assets;
-  app.get("/assets/htmx.min.js", (c) =>
-    serveAsset(c, a.htmx, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/app.css", (c) =>
-    serveAsset(c, a.appCss, "text/css; charset=utf-8"),
-  );
-  app.get("/assets/sidebar.js", (c) =>
-    serveAsset(c, a.sidebar, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/stream.js", (c) =>
-    serveAsset(c, a.stream, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/theme.js", (c) =>
-    serveAsset(c, a.theme, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/markdown-copy.js", (c) =>
-    serveAsset(c, a.markdownCopy, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/rename.js", (c) =>
-    serveAsset(c, a.rename, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/source-picker.js", (c) =>
-    serveAsset(c, a.sourcePicker, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/ui.js", (c) =>
-    serveAsset(c, a.ui, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/prompts.js", (c) =>
-    serveAsset(c, a.prompts, "application/javascript; charset=utf-8"),
-  );
-  app.get("/assets/passkey.js", (c) =>
-    serveAsset(c, a.passkey, "application/javascript; charset=utf-8"),
-  );
+  const routes = [
+    { path: "/assets/htmx.min.js", body: a.htmx },
+    { path: "/assets/app.css", body: a.appCss },
+    { path: "/assets/sidebar.js", body: a.sidebar },
+    { path: "/assets/stream.js", body: a.stream },
+    { path: "/assets/theme.js", body: a.theme },
+    { path: "/assets/markdown-copy.js", body: a.markdownCopy },
+    { path: "/assets/rename.js", body: a.rename },
+    { path: "/assets/source-picker.js", body: a.sourcePicker },
+    { path: "/assets/ui.js", body: a.ui },
+    { path: "/assets/prompts.js", body: a.prompts },
+    { path: "/assets/passkey.js", body: a.passkey },
+  ];
+  for (const { path, body } of routes)
+    app.get(path, (c) => serveAsset(c, body, contentTypeFor(path)));
 };
 
 export { registerAssetRoutes };
