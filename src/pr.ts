@@ -18,18 +18,12 @@ const last = <T>(values: readonly T[]): T | undefined =>
 
 // The code-execution tool wraps an MCP return value in a
 // "Code Executed Successfully: …\n# Return Value\n```json …```" envelope, so
-// the JSON no longer starts at column 0. Recover it from the fenced block
-// when the raw text isn't already a bare object.
+// the JSON may not start at column 0. Recover it from the fenced block.
+const FENCED_JSON = /```json([\s\S]*?)```/;
 const extractJson = (text: string): string | undefined => {
   const trimmed = text.trim();
   if (trimmed.startsWith("{")) return trimmed;
-  const open = trimmed.indexOf("```json");
-  if (open < 0) return undefined;
-  const start = open + "```json".length;
-  const close = trimmed.indexOf("```", start);
-  if (close < 0) return undefined;
-  const body = trimmed.slice(start, close).trim();
-  return body === "" ? undefined : body;
+  return FENCED_JSON.exec(trimmed)?.[1].trim() || undefined;
 };
 
 // Walk a parsed JSON value for a `github.com/…/pull/N` URL. Search and
