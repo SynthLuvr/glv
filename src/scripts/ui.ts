@@ -48,11 +48,6 @@ const uiFocusAutofocus = (): void => {
   if (el instanceof HTMLElement && document.activeElement !== el) el.focus();
 };
 
-// Shared clipboard handler for the in-code-block copy button and the
-// transcript copy-markdown button: write the text, flash a "copied" state,
-// and (when an icon pair is given) swap the button's innerHTML to a check
-// icon while active. Fails silently on non-secure contexts where the
-// clipboard API is unavailable.
 const uiCopyWithFeedback = async (
   btn: HTMLElement,
   text: string,
@@ -61,6 +56,7 @@ const uiCopyWithFeedback = async (
   try {
     await navigator.clipboard.writeText(text);
   } catch {
+    // clipboard unavailable (non-secure context) — fail silently
     return;
   }
   btn.classList.add("copied");
@@ -94,28 +90,24 @@ const uiEnhanceCodeBlocks = (root: ParentNode): void => {
 };
 
 // Document-level delegation covers server-rendered buttons, htmx swaps, and
-// SSE-appended stream lines without per-button listeners. One handler serves
-// both the in-code-block copy button and the transcript copy-markdown button.
+// SSE-appended stream lines without per-button listeners.
 document.addEventListener("click", (e) => {
-  const el = e.target instanceof Element ? e.target : null;
-  const codeBtn = el?.closest(".copy-code-btn");
-  if (codeBtn instanceof HTMLElement) {
-    e.preventDefault();
-    const wrap = codeBtn.closest(".code-block");
+  if (!(e.target instanceof Element)) return;
+  const btn = e.target.closest(".copy-code-btn, .copy-md-btn");
+  if (!(btn instanceof HTMLElement)) return;
+  e.preventDefault();
+  if (btn.classList.contains("copy-code-btn")) {
+    const wrap = btn.closest(".code-block");
     const code = wrap?.querySelector("code") ?? wrap?.querySelector("pre");
     if (code === null || code === undefined) return;
-    void uiCopyWithFeedback(codeBtn, code.textContent ?? "", {
+    void uiCopyWithFeedback(btn, code.textContent ?? "", {
       active: uiCheckIcon,
       idle: uiCopyIcon,
     });
     return;
   }
-  const mdBtn = el?.closest(".copy-md-btn");
-  if (mdBtn instanceof HTMLElement) {
-    e.preventDefault();
-    const md = mdBtn.dataset.md;
-    if (md !== undefined) void uiCopyWithFeedback(mdBtn, md);
-  }
+  const md = btn.dataset.md;
+  if (md !== undefined) void uiCopyWithFeedback(btn, md);
 });
 
 document.addEventListener("input", (e) => {
@@ -126,8 +118,7 @@ document.addEventListener("input", (e) => {
     uiGrow(e.target);
 });
 
-// Persist the chosen theme, complementing the inline bootstrap in Layout.tsx
-// that applies the saved theme before first paint.
+// Persists the toggle; Layout.tsx applies the saved theme before first paint.
 const uiApplyTheme = (isDark: boolean): void => {
   document.documentElement.classList.toggle("dark", isDark);
   try {
