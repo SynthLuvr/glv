@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { defineTable, placeholders, transaction } from "../query.js";
+import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
 // in a glv-owned, read-write database (never the goose sessions DB, which is
@@ -74,17 +74,9 @@ const PromptRow = type(promptShape);
 
 type PromptRow = typeof PromptRow.infer;
 
-const savedPrompts = defineTable({
-  table: "saved_prompts",
-  columns: Object.keys(promptShape),
-  schema: PromptRow,
-});
+const PROMPT_COLS = Object.keys(promptShape).join(", ");
 
-const categories = defineTable({
-  table: "saved_prompts",
-  columns: ["category"],
-  schema: type({ category: "string" }),
-});
+const CategoryRow = type({ category: "string" });
 
 const mapPrompt = (row: PromptRow): SavedPrompt => ({
   id: row.id,
@@ -108,29 +100,33 @@ const normalizeCategory = (category: string | undefined): string | null => {
 const listPrompts = (
   db: DatabaseSync,
   sort: PromptSort = "order",
-): SavedPrompt[] =>
-  savedPrompts
-    .all(db, {
-      orderBy:
-        sort === "usage"
-          ? "usage_count DESC, last_used_at DESC NULLS LAST"
-          : "sort_order ASC, last_used_at DESC NULLS LAST",
-    })
-    .map(mapPrompt);
+): SavedPrompt[] => {
+  const orderBy =
+    sort === "usage"
+      ? "usage_count DESC, last_used_at DESC NULLS LAST"
+      : "sort_order ASC, last_used_at DESC NULLS LAST";
+  return validateAll(
+    PromptRow,
+    db
+      .prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts ORDER BY ${orderBy}`)
+      .all(),
+  ).map(mapPrompt);
+};
 
 const getPrompt = (db: DatabaseSync, id: string): SavedPrompt | undefined => {
-  const row = savedPrompts.one(db, { where: "id = ?", params: [id] });
+  const row = validate(
+    PromptRow,
+    db.prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts WHERE id = ?`).get(id),
+  );
   return row === undefined ? undefined : mapPrompt(row);
 };
 
 const createPrompt = (db: DatabaseSync, input: PromptInput): SavedPrompt => {
   const id = randomUUID();
   const category = normalizeCategory(input.category);
-  savedPrompts.insert(db, {
-    columns: ["id", "title", "body", "category"],
-    values: placeholders(4),
-    params: [id, input.title.trim(), input.body, category],
-  });
+  db.prepare(
+    "INSERT INTO saved_prompts (id, title, body, category) VALUES (?, ?, ?, ?)",
+  ).run(id, input.title.trim(), input.body, category);
   const created = getPrompt(db, id);
   if (created === undefined)
     throw new Error("failed to read back saved prompt");
@@ -143,24 +139,24 @@ const updatePrompt = (
   input: PromptInput,
 ): void => {
   const category = normalizeCategory(input.category);
-  savedPrompts.update(db, {
-    set: "title = ?, body = ?, category = ?, updated_at = datetime('now')",
-    where: "id = ?",
-    params: [input.title.trim(), input.body, category, id],
-  });
+  db.prepare(
+    `UPDATE saved_prompts
+       SET title = ?, body = ?, category = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+  ).run(input.title.trim(), input.body, category, id);
 };
 
 const deletePrompt = (db: DatabaseSync, id: string): void => {
-  savedPrompts.remove(db, { where: "id = ?", params: [id] });
+  db.prepare("DELETE FROM saved_prompts WHERE id = ?").run(id);
 };
 
 // Bumped by the run flow only, so edits never touch usage stats.
 const bumpUsage = (db: DatabaseSync, id: string): void => {
-  savedPrompts.update(db, {
-    set: "usage_count = usage_count + 1, last_used_at = datetime('now')",
-    where: "id = ?",
-    params: [id],
-  });
+  db.prepare(
+    `UPDATE saved_prompts
+       SET usage_count = usage_count + 1, last_used_at = datetime('now')
+       WHERE id = ?`,
+  ).run(id);
 };
 
 // Persists a full manual ordering in one transaction. Each id receives a
@@ -168,21 +164,26 @@ const bumpUsage = (db: DatabaseSync, id: string): void => {
 // drag-to-reorder stays consistent across reloads.
 const reorderPrompts = (db: DatabaseSync, ids: string[]): void => {
   transaction(db, () => {
+    const stmt = db.prepare(
+      "UPDATE saved_prompts SET sort_order = ? WHERE id = ?",
+    );
     ids.forEach((id, index) => {
-      savedPrompts.update(db, {
-        set: "sort_order = ?",
-        where: "id = ?",
-        params: [index, id],
-      });
+      stmt.run(index, id);
     });
   });
 };
 
 const listCategories = (db: DatabaseSync): string[] => {
-  const rows = categories.all(db, {
-    where: "category IS NOT NULL",
-    orderBy: "category",
-  });
+  const rows = validateAll(
+    CategoryRow,
+    db
+      .prepare(
+        `SELECT category FROM saved_prompts
+           WHERE category IS NOT NULL
+           ORDER BY category`,
+      )
+      .all(),
+  );
   return [...new Set(rows.map((row) => row.category))];
 };
 

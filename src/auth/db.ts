@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { defineTable, placeholders, transaction } from "../query";
+import { placeholders, transaction, validate, validateAll } from "../query";
 
 const SESSION_TTL_SECONDS = 86400;
 
@@ -93,23 +93,7 @@ const CredentialRow = type(credentialShape);
 
 type CredentialRow = typeof CredentialRow.infer;
 
-const credentials = defineTable({
-  table: "credentials",
-  columns: Object.keys(credentialShape),
-  schema: CredentialRow,
-});
-
-const users = defineTable({
-  table: "users",
-  columns: ["id"],
-  schema: type({ id: "string" }),
-});
-
-const sessions = defineTable({
-  table: "sessions",
-  columns: ["id"],
-  schema: type({ id: "string" }),
-});
+const CREDENTIAL_COLS = Object.keys(credentialShape).join(", ");
 
 const mapCredential = (row: CredentialRow): StoredCredential => ({
   id: row.id,
@@ -119,95 +103,106 @@ const mapCredential = (row: CredentialRow): StoredCredential => ({
   transports: parseTransports(row.transports),
 });
 
-const userCount = (db: DatabaseSync): number => users.count(db);
+const userCount = (db: DatabaseSync): number => {
+  const row = db.prepare("SELECT COUNT(*) AS n FROM users").get();
+  return typeof row?.n === "number" ? row.n : 0;
+};
 
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
-  credentials.all(db).map(mapCredential);
+  validateAll(
+    CredentialRow,
+    db.prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials`).all(),
+  ).map(mapCredential);
 
 const getCredential = (
   db: DatabaseSync,
   id: string,
 ): StoredCredential | undefined => {
-  const row = credentials.one(db, { where: "id = ?", params: [id] });
-  if (row === undefined) return undefined;
-  return mapCredential(row);
+  const row = validate(
+    CredentialRow,
+    db
+      .prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials WHERE id = ?`)
+      .get(id),
+  );
+  return row === undefined ? undefined : mapCredential(row);
 };
 
 const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
   const userId = randomUUID();
   transaction(db, () => {
-    users.insert(db, {
-      columns: ["id", "username"],
-      values: placeholders(2),
-      params: [userId, "owner"],
-    });
-    credentials.insert(db, {
-      columns: ["id", "user_id", "public_key", "counter", "transports"],
-      values: placeholders(5),
-      params: [
-        credential.id,
-        userId,
-        credential.publicKey,
-        credential.counter,
-        JSON.stringify(credential.transports),
-      ],
-    });
+    db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+      userId,
+      "owner",
+    );
+    db.prepare(
+      `INSERT INTO credentials
+         (id, user_id, public_key, counter, transports)
+         VALUES (${placeholders(5)})`,
+    ).run(
+      credential.id,
+      userId,
+      credential.publicKey,
+      credential.counter,
+      JSON.stringify(credential.transports),
+    );
   });
   return userId;
 };
 
-const updateCounter = (db: DatabaseSync, id: string, counter: number): void =>
-  credentials.update(db, {
-    set: "counter = ?",
-    where: "id = ?",
-    params: [counter, id],
-  });
+const updateCounter = (db: DatabaseSync, id: string, counter: number): void => {
+  db.prepare("UPDATE credentials SET counter = ? WHERE id = ?").run(
+    counter,
+    id,
+  );
+};
 
 const newToken = (): string => randomBytes(32).toString("base64url");
 
 // Sessions are only removed on explicit logout, so purge expired rows here
 // to keep the table from growing without bound.
-const purgeExpiredSessions = (db: DatabaseSync): void =>
-  sessions.remove(db, { where: "expires_at <= datetime('now')" });
+const purgeExpiredSessions = (db: DatabaseSync): void => {
+  db.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run();
+};
 
 const createSession = (db: DatabaseSync, userId: string): string => {
   purgeExpiredSessions(db);
   const token = newToken();
-  sessions.insert(db, {
-    columns: ["id", "user_id", "expires_at"],
-    values: "?, ?, datetime('now', '+1 day')",
-    params: [token, userId],
-  });
+  db.prepare(
+    `INSERT INTO sessions (id, user_id, expires_at)
+       VALUES (?, ?, datetime('now', '+1 day'))`,
+  ).run(token, userId);
   return token;
 };
 
 const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
   if (token === undefined || token === "") return false;
-  return (
-    sessions.count(db, {
-      where:
-        "id = ? AND expires_at > datetime('now') " +
-        "AND datetime(created_at, ?) > datetime('now')",
-      params: [token, `+${SESSION_MAX_LIFETIME_SECONDS} seconds`],
-    }) > 0
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sessions
+         WHERE id = ? AND expires_at > datetime('now')
+           AND datetime(created_at, ?) > datetime('now')`,
+    )
+    .get(token, `+${SESSION_MAX_LIFETIME_SECONDS} seconds`);
+  return typeof row?.n === "number" && row.n > 0;
+};
+
+const refreshSession = (db: DatabaseSync, token: string): void => {
+  db.prepare(
+    `UPDATE sessions
+       SET expires_at = min(datetime('now', ?), datetime(created_at, ?))
+       WHERE id = ?`,
+  ).run(
+    `+${SESSION_TTL_SECONDS} seconds`,
+    `+${SESSION_MAX_LIFETIME_SECONDS} seconds`,
+    token,
   );
 };
 
-const refreshSession = (db: DatabaseSync, token: string): void =>
-  sessions.update(db, {
-    set: "expires_at = min(datetime('now', ?), datetime(created_at, ?))",
-    where: "id = ?",
-    params: [
-      `+${SESSION_TTL_SECONDS} seconds`,
-      `+${SESSION_MAX_LIFETIME_SECONDS} seconds`,
-      token,
-    ],
-  });
-
-const deleteSession = (db: DatabaseSync, token: string): void =>
-  sessions.remove(db, { where: "id = ?", params: [token] });
+const deleteSession = (db: DatabaseSync, token: string): void => {
+  db.prepare("DELETE FROM sessions WHERE id = ?").run(token);
+};
 
 export type { NewCredential };
 export {
