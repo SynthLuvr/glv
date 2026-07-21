@@ -66,5 +66,5 @@ type ServerContext = {
   readonly assets: AssetBundle;
 };
 
-export type { AssetBundle, ServerContext, ServerOptions };
+export type { ServerContext, ServerOptions };
 export { SESSION_TIMEOUT_ERROR, VIEWER_FILTER };
