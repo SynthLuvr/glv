@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { transaction } from "../query.js";
+import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
 // in a glv-owned, read-write database (never the goose sessions DB, which is
@@ -105,21 +105,20 @@ const listPrompts = (
     sort === "usage"
       ? "usage_count DESC, last_used_at DESC NULLS LAST"
       : "sort_order ASC, last_used_at DESC NULLS LAST";
-  return db
-    .prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts ORDER BY ${orderBy}`)
-    .all()
-    .map((row) => PromptRow(row))
-    .filter((r): r is PromptRow => !(r instanceof type.errors))
-    .map(mapPrompt);
+  return validateAll(
+    PromptRow,
+    db
+      .prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts ORDER BY ${orderBy}`)
+      .all(),
+  ).map(mapPrompt);
 };
 
 const getPrompt = (db: DatabaseSync, id: string): SavedPrompt | undefined => {
-  const row = db
-    .prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts WHERE id = ?`)
-    .get(id);
-  if (row === undefined) return undefined;
-  const parsed = PromptRow(row);
-  return parsed instanceof type.errors ? undefined : mapPrompt(parsed);
+  const row = validate(
+    PromptRow,
+    db.prepare(`SELECT ${PROMPT_COLS} FROM saved_prompts WHERE id = ?`).get(id),
+  );
+  return row === undefined ? undefined : mapPrompt(row);
 };
 
 const createPrompt = (db: DatabaseSync, input: PromptInput): SavedPrompt => {
@@ -175,15 +174,16 @@ const reorderPrompts = (db: DatabaseSync, ids: string[]): void => {
 };
 
 const listCategories = (db: DatabaseSync): string[] => {
-  const rows = db
-    .prepare(
-      `SELECT category FROM saved_prompts
-         WHERE category IS NOT NULL
-         ORDER BY category`,
-    )
-    .all()
-    .map((row) => CategoryRow(row))
-    .filter((r): r is { category: string } => !(r instanceof type.errors));
+  const rows = validateAll(
+    CategoryRow,
+    db
+      .prepare(
+        `SELECT category FROM saved_prompts
+           WHERE category IS NOT NULL
+           ORDER BY category`,
+      )
+      .all(),
+  );
   return [...new Set(rows.map((row) => row.category))];
 };
 

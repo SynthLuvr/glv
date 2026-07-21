@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { placeholders, transaction } from "../query";
+import { placeholders, transaction, validate, validateAll } from "../query";
 
 const SESSION_TTL_SECONDS = 86400;
 
@@ -111,24 +111,22 @@ const userCount = (db: DatabaseSync): number => {
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
-  db
-    .prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials`)
-    .all()
-    .map((row) => CredentialRow(row))
-    .filter((r): r is CredentialRow => !(r instanceof type.errors))
-    .map(mapCredential);
+  validateAll(
+    CredentialRow,
+    db.prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials`).all(),
+  ).map(mapCredential);
 
 const getCredential = (
   db: DatabaseSync,
   id: string,
 ): StoredCredential | undefined => {
-  const row = db
-    .prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials WHERE id = ?`)
-    .get(id);
-  if (row === undefined) return undefined;
-  const parsed = CredentialRow(row);
-  if (parsed instanceof type.errors) return undefined;
-  return mapCredential(parsed);
+  const row = validate(
+    CredentialRow,
+    db
+      .prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials WHERE id = ?`)
+      .get(id),
+  );
+  return row === undefined ? undefined : mapCredential(row);
 };
 
 const createOwner = (db: DatabaseSync, credential: NewCredential): string => {

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { placeholders } from "./query";
+import { placeholders, validate, validateAll } from "./query";
 
 const sessionShape = {
   id: "string",
@@ -80,32 +80,26 @@ const listSessions = (
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
   parts.push("ORDER BY updated_at DESC", "LIMIT ?");
   params.push(filter.limit);
-  return db
-    .prepare(parts.join(" "))
-    .all(...params)
-    .map((row) => SessionRow(row))
-    .filter((r): r is SessionRow => !(r instanceof type.errors));
+  return validateAll(SessionRow, db.prepare(parts.join(" ")).all(...params));
 };
 
-const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
-  const row = db
-    .prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`)
-    .get(id);
-  if (row === undefined) return undefined;
-  const parsed = SessionRow(row);
-  return parsed instanceof type.errors ? undefined : parsed;
-};
+const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
+  validate(
+    SessionRow,
+    db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(id),
+  );
 
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
-  db
-    .prepare(
-      `SELECT ${MESSAGE_COLS} FROM messages
-         WHERE session_id = ?
-         ORDER BY created_timestamp ASC`,
-    )
-    .all(sessionId)
-    .map((row) => MessageRow(row))
-    .filter((r): r is MessageRow => !(r instanceof type.errors));
+  validateAll(
+    MessageRow,
+    db
+      .prepare(
+        `SELECT ${MESSAGE_COLS} FROM messages
+           WHERE session_id = ?
+           ORDER BY created_timestamp ASC`,
+      )
+      .all(sessionId),
+  );
 
 const IdRow = type({ id: "string" });
 
@@ -113,12 +107,10 @@ const IdRow = type({ id: "string" });
 // pre-existing ones in the same working dir. Selects only `id` with a lenient
 // schema so a half-written row still matches.
 const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] =>
-  db
-    .prepare("SELECT id FROM sessions WHERE working_dir = ?")
-    .all(workingDir)
-    .map((row) => IdRow(row))
-    .filter((r): r is { id: string } => !(r instanceof type.errors))
-    .map((row) => row.id);
+  validateAll(
+    IdRow,
+    db.prepare("SELECT id FROM sessions WHERE working_dir = ?").all(workingDir),
+  ).map((row) => row.id);
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
@@ -143,19 +135,17 @@ const PrIdRow = type({ session_id: "string" });
 
 const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
   if (ids.length === 0) return new Set();
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT session_id FROM messages
-         WHERE session_id IN (${placeholders(ids.length)})
-           AND content_json LIKE ?`,
-    )
-    .all(...ids, "%/pull/%");
-  const out = new Set<string>();
-  for (const row of rows) {
-    const record = PrIdRow(row);
-    if (!(record instanceof type.errors)) out.add(record.session_id);
-  }
-  return out;
+  const rows = validateAll(
+    PrIdRow,
+    db
+      .prepare(
+        `SELECT DISTINCT session_id FROM messages
+           WHERE session_id IN (${placeholders(ids.length)})
+             AND content_json LIKE ?`,
+      )
+      .all(...ids, "%/pull/%"),
+  );
+  return new Set(rows.map((row) => row.session_id));
 };
 
 export type { MessageRow, SessionFilter, SessionRow };
