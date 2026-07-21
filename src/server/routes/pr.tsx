@@ -1,5 +1,5 @@
 import { type Hono } from "hono";
-import { resolvePrState, STATE_LABEL } from "../../pr.js";
+import { resolvePrState, STATE_LABEL } from "../../pr-state.js";
 import type { ServerContext } from "../context.js";
 
 // Resolve live PR state via `gh` and return a colored badge for htmx to

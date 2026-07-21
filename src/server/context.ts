@@ -4,7 +4,7 @@ import type { Materialiser } from "../clone.js";
 import type { SessionFilter } from "../db.js";
 import type { CloneJob, GhClient } from "../gh.js";
 import type { GitRunner } from "../git.js";
-import type { CommandRunner } from "../pr.js";
+import type { CommandRunner } from "../pr-state.js";
 import type { Runner } from "../runner/index.js";
 import type { AssetBundle } from "./bundle.js";
 
