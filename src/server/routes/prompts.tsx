@@ -14,7 +14,7 @@ import {
   PromptEditForm,
   PromptLibrary,
   PromptSaveForm,
-} from "../../views/new-session.js";
+} from "../../views/prompt-library.js";
 import type { ServerContext } from "../context.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";

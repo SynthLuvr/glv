@@ -1,10 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { placeholders, transaction, validate, validateAll } from "../query";
+import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
 
@@ -13,11 +11,8 @@ const SESSION_TTL_SECONDS = 86400;
 // as it keeps seeing activity.
 const SESSION_MAX_LIFETIME_SECONDS = 604800; // 7 days
 
-const defaultAuthDbPath = (): string =>
-  join(homedir(), ".local", "share", "glv", "auth.db");
-
 const resolveAuthDbPath = (override?: string): string =>
-  override ?? process.env.GLV_AUTH_DB ?? defaultAuthDbPath();
+  resolveDataPath(override, "GLV_AUTH_DB", "glv", "auth.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -42,7 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 `;
 
 const openAuthDb = (dbPath: string): DatabaseSync => {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  ensureDbDir(dbPath);
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
   return db;

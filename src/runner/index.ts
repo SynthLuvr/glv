@@ -1,4 +1,3 @@
-import PQueue from "p-queue";
 import {
   clearPending,
   enqueueOrQueue,
@@ -8,11 +7,11 @@ import {
   stop,
   stopAll,
 } from "./queue.js";
+import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
 import { defaultSpawn, killProcessGroup } from "./spawn.js";
 import type {
   EnqueueOptions,
   GooseInvocation,
-  InternalHandle,
   ProcessResult,
   RunHandle,
   Runner,
@@ -27,21 +26,6 @@ import {
   newSessionInvocation,
   resumeInvocation,
 } from "./types.js";
-
-const createRunner = (
-  config: RunnerConfig = DEFAULT_RUNNER_CONFIG,
-  spawn: SpawnFn = defaultSpawn,
-): Runner => {
-  const queue = new PQueue({ concurrency: config.maxConcurrent });
-  const registry = new Map<string, InternalHandle>();
-  return { config, queue, registry, spawn };
-};
-
-const isTerminalStatus = (status: RunStatus): boolean =>
-  status === "completed" || status === "stopped" || status === "error";
-
-const getHandle = (runner: Runner, sessionId: string): RunHandle | undefined =>
-  runner.registry.get(sessionId);
 
 export type {
   EnqueueOptions,
