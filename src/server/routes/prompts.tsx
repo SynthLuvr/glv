@@ -28,14 +28,14 @@ const readInput = (body: Record<string, unknown>): PromptInput => ({
 const isValid = (input: PromptInput): boolean =>
   input.title.trim() !== "" && input.body.trim() !== "";
 
-// All routes return HTML fragments for htmx to swap. The prompts store is
-// optional (tests may omit it); when absent every handler 404s rather than
-// throw.
+// The prompts store is optional (tests may omit it); when absent no routes
+// are registered, so requests fall through to a 404.
 const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   const prompts = ctx.prompts;
 
+  if (prompts === undefined) return;
+
   app.get("/prompts", (c) => {
-    if (prompts === undefined) return c.notFound();
     const grouped = c.req.query("grouped") === "1";
     const sortBy: PromptSort =
       c.req.query("sort") === "usage" ? "usage" : "order";
@@ -53,7 +53,6 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   // comma-separated `order` field of ids; assigns sort_order by position.
   // Returns an empty 200 — the DOM is already reordered client-side.
   app.post("/prompts/reorder", async (c) => {
-    if (prompts === undefined) return c.notFound();
     const body = await c.req.parseBody();
     const raw = typeof body.order === "string" ? body.order : "";
     const ids = raw
@@ -65,13 +64,9 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   // Inline save form, loaded into the save slot on demand.
-  app.get("/prompts/new", (c) => {
-    if (prompts === undefined) return c.notFound();
-    return c.html(<PromptSaveForm />);
-  });
+  app.get("/prompts/new", (c) => c.html(<PromptSaveForm />));
 
   app.post("/prompts", async (c) => {
-    if (prompts === undefined) return c.notFound();
     const input = readInput(await c.req.parseBody());
     if (!isValid(input))
       return c.html(
@@ -95,14 +90,12 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.get("/prompts/:id/card", (c) => {
-    if (prompts === undefined) return c.notFound();
     const prompt = getPrompt(prompts, c.req.param("id"));
     if (prompt === undefined) return c.notFound();
     return c.html(<PromptCard prompt={prompt} />);
   });
 
   app.get("/prompts/:id/edit", (c) => {
-    if (prompts === undefined) return c.notFound();
     const prompt = getPrompt(prompts, c.req.param("id"));
     if (prompt === undefined) return c.notFound();
     return c.html(
@@ -116,7 +109,6 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.put("/prompts/:id", async (c) => {
-    if (prompts === undefined) return c.notFound();
     const id = c.req.param("id");
     const input = readInput(await c.req.parseBody());
     const existing = getPrompt(prompts, id);
@@ -139,7 +131,6 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
 
   // Empty body + outerHTML swap removes the card from the DOM.
   app.delete("/prompts/:id", (c) => {
-    if (prompts === undefined) return c.notFound();
     deletePrompt(prompts, c.req.param("id"));
     return c.body(null, 200);
   });
