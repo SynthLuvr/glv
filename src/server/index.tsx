@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { authMiddleware } from "../auth/middleware.js";
+import { materialise } from "../clone.js";
 import { createGhClient } from "../gh.js";
 import { type Runner, stop } from "../runner/index.js";
 import {
@@ -42,6 +43,7 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     runGit: opts.runGit,
+    materialise: opts.materialise ?? materialise,
     cloneJobs: new Map(),
     cloneJobTtlMs: opts.cloneJobTtlMs ?? CLONE_JOB_TTL_MS,
     cloneJobSweepMs: opts.cloneJobSweepMs ?? CLONE_JOB_SWEEP_MS,
