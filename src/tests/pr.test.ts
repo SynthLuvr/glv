@@ -89,6 +89,23 @@ describe("detectPrUrl", () => {
     );
   });
 
+  it("extracts only the URL, not surrounding prose, from a JSON string value (20260721_57)", () => {
+    // A structured result whose `summary` is a human-readable blob naming the
+    // PR inline (`url:` on its own line) — the chip must link the bare URL,
+    // not the whole summary (which leaked 243 chars of prose into the badge).
+    const summary =
+      "PR #56 [OPEN] base=main head=fix/strengthen-coverage-gate " +
+      "+98/-16 in 3 files\n" +
+      "files: scripts/calibrate_bands.py, src/jobsearch/match/scorer.py, " +
+      "src/jobsearch/tests/test_scorer.py\n" +
+      "url: https://github.com/SynthLuvr/jobsearch/pull/56\n" +
+      "CLEAN:cleaned";
+    const json = JSON.stringify({ summary });
+    expect(detectPrUrl([msg("user", [toolResult(json)])])).toBe(
+      "https://github.com/SynthLuvr/jobsearch/pull/56",
+    );
+  });
+
   it("ignores a PR URL embedded in source code shown in a tool result (20260720_35)", () => {
     // The URL is a string constant in the edited file, not a created PR.
     const source = 'const PR = "https://github.com/SynthLuvr/lisko/pull/35";';

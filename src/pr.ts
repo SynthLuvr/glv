@@ -26,16 +26,26 @@ const extractJson = (text: string): string | undefined => {
   return FENCED_JSON.exec(trimmed)?.[1].trim() || undefined;
 };
 
+// Pull out just the `github.com/…/pull/N` URL from a string, never the
+// surrounding text. A value may be a human-readable blob (e.g. a PR summary
+// with `url:` on its own line) that embeds the URL — returning the whole
+// string would leak prose into the chip (20260721_57).
+const prUrlInString = (text: string): string | undefined =>
+  PR_URL.exec(text)?.[0];
+
 // Walk a parsed JSON value for a `github.com/…/pull/N` URL. Search and
 // collection payloads nest the PR under `items`, so a flat top-level check
 // misses them. `html_url` is preferred: it is GitHub's canonical web link,
 // whereas `url` is an API endpoint (and may point at `/issues/` for a PR).
 const findPrUrlInValue = (value: unknown): string | undefined => {
-  if (typeof value === "string") return PR_URL.test(value) ? value : undefined;
+  if (typeof value === "string") return prUrlInString(value);
   if (value === null || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   const htmlUrl = record.html_url;
-  if (typeof htmlUrl === "string" && PR_URL.test(htmlUrl)) return htmlUrl;
+  if (typeof htmlUrl === "string") {
+    const found = prUrlInString(htmlUrl);
+    if (found !== undefined) return found;
+  }
   for (const child of Object.values(record)) {
     const found = findPrUrlInValue(child);
     if (found !== undefined) return found;
