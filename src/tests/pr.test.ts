@@ -63,6 +63,32 @@ describe("detectPrUrl", () => {
     expect(detectPrUrl(messages)).toBeUndefined();
   });
 
+  it("extracts a PR URL from a nested search result wrapped by code-exec (20260721_9)", () => {
+    // `Github.searchPullRequests` returns `{ items: [{ html_url }] }`, and the
+    // code-execution tool wraps it in a "Code Executed Successfully" envelope
+    // with a fenced JSON block — neither a bare object nor a flat top-level
+    // `html_url`. The `user.html_url` (a profile, not a PR) must not win.
+    const wrapped =
+      "Code Executed Successfully: true\n\n# Return Value\n```json\n" +
+      JSON.stringify({
+        total_count: 1,
+        incomplete_results: false,
+        items: [
+          {
+            number: 108,
+            state: "open",
+            html_url: "https://github.com/SynthLuvr/goose-log-viewer/pull/108",
+            url: "https://api.github.com/repos/SynthLuvr/goose-log-viewer/issues/108",
+            user: { html_url: "https://github.com/SynthLuvr" },
+          },
+        ],
+      }) +
+      "\n```";
+    expect(detectPrUrl([msg("user", [toolResult(wrapped)])])).toBe(
+      "https://github.com/SynthLuvr/goose-log-viewer/pull/108",
+    );
+  });
+
   it("ignores a PR URL embedded in source code shown in a tool result (20260720_35)", () => {
     // The URL is a string constant in the edited file, not a created PR.
     const source = 'const PR = "https://github.com/SynthLuvr/lisko/pull/35";';
