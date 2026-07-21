@@ -179,3 +179,69 @@ describe("status feed session names", () => {
     );
   });
 });
+
+describe("meta refresh on run completion", () => {
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    const dom = new JSDOM(
+      `<!DOCTYPE html><html><body>
+        <div id="session-list">
+          <div class="session-item" data-session-id="alpha"></div>
+        </div>
+      </body></html>`,
+    );
+    vi.stubGlobal("document", dom.window.document);
+    vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("MessageEvent", MockMessageEvent);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("re-fetches a session's meta once its run completes", async () => {
+    const ajax = vi.fn();
+    vi.stubGlobal("htmx", { ajax });
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "status",
+      new MockMessageEvent("status", {
+        data: JSON.stringify({ sessionId: "alpha", status: "done" }),
+      }),
+    );
+    expect(ajax).toHaveBeenCalledWith("GET", "/sessions/alpha/sidebar-meta", {
+      target: "#session-list",
+      swap: "none",
+    });
+  });
+
+  it("leaves the meta untouched while a session is still running", async () => {
+    const ajax = vi.fn();
+    vi.stubGlobal("htmx", { ajax });
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "status",
+      new MockMessageEvent("status", {
+        data: JSON.stringify({ sessionId: "alpha", status: "running" }),
+      }),
+    );
+    expect(ajax).not.toHaveBeenCalled();
+  });
+
+  it("skips sessions not present in the sidebar", async () => {
+    const ajax = vi.fn();
+    vi.stubGlobal("htmx", { ajax });
+    await import(SIDEBAR_MODULE);
+    const feed = MockEventSource.instances[0];
+    feed.dispatch(
+      "status",
+      new MockMessageEvent("status", {
+        data: JSON.stringify({ sessionId: "missing", status: "done" }),
+      }),
+    );
+    expect(ajax).not.toHaveBeenCalled();
+  });
+});

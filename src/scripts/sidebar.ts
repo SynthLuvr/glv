@@ -74,6 +74,40 @@ const setSessionName = (sessionId: string, name: string): void => {
   if (node !== null) node.textContent = name === "" ? "(unnamed)" : name;
 };
 
+type HtmxAjax = {
+  ajax: (
+    verb: string,
+    path: string,
+    options: { target: string; swap: string },
+  ) => void;
+};
+
+// htmx is read off the global rather than redeclared, so this classic
+// <script> stays self-contained and doesn't collide with stream.ts's ambient
+// global htmx.
+const isHtmxAjax = (value: unknown): value is HtmxAjax =>
+  typeof value === "object" &&
+  value !== null &&
+  "ajax" in value &&
+  typeof value.ajax === "function";
+
+// The PR badge is withheld while a session runs (detection on a half-written
+// transcript can latch onto the wrong URL), so once a run completes the
+// sidebar re-fetches that session's meta to reveal it.
+const refreshMeta = (sessionId: string): void => {
+  if (findSessionItem(sessionId) === null) return;
+  const g: unknown = globalThis;
+  const htmx =
+    typeof g === "object" && g !== null && "htmx" in g && isHtmxAjax(g.htmx)
+      ? g.htmx
+      : undefined;
+  if (htmx === undefined) return;
+  htmx.ajax("GET", `/sessions/${sessionId}/sidebar-meta`, {
+    target: "#session-list",
+    swap: "none",
+  });
+};
+
 const safeParse = (data: string): unknown => {
   try {
     return JSON.parse(data);
@@ -112,7 +146,11 @@ const isStatusPayload = (value: unknown): value is StatusPayload =>
 const onStatusEvent = (data: string): void => {
   const parsed = safeParse(data);
   if (!isStatusPayload(parsed)) return;
-  setStatusIndicator(parsed.sessionId, parsed.status !== "done");
+  const running = parsed.status !== "done";
+  setStatusIndicator(parsed.sessionId, running);
+  // A just-finished run may now safely resolve a PR badge that was withheld
+  // while it was running.
+  if (!running) refreshMeta(parsed.sessionId);
 };
 
 type RenamePayload = { sessionId: string; name: string };
