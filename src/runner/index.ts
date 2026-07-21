@@ -8,16 +8,13 @@ import {
   stopAll,
 } from "./queue.js";
 import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
-import { defaultSpawn, killProcessGroup } from "./spawn.js";
+import { killProcessGroup } from "./spawn.js";
 import type {
-  EnqueueOptions,
-  GooseInvocation,
   ProcessResult,
   RunHandle,
   Runner,
   RunnerConfig,
   RunStatus,
-  SpawnedProcess,
   SpawnFn,
 } from "./types.js";
 import {
@@ -28,21 +25,17 @@ import {
 } from "./types.js";
 
 export type {
-  EnqueueOptions,
-  GooseInvocation,
   ProcessResult,
   RunHandle,
   Runner,
   RunnerConfig,
   RunStatus,
-  SpawnedProcess,
   SpawnFn,
 };
 export {
   clearPending,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
-  defaultSpawn,
   enqueueOrQueue,
   enqueueRun,
   generateTempKey,
