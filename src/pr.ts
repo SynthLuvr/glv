@@ -66,7 +66,8 @@ const scanToolResult = (
     out.mcpResult = mcpUrl;
     return;
   }
-  recordMention(text, out);
+  // Incidental tool output (diffs, file listings) isn't a session-created
+  // PR — scanning it for mentions caused false chips.
 };
 
 const scanText = (

@@ -4,7 +4,7 @@ import type { RpConfig, VerifyResult } from "../../auth/service.js";
 import { COOKIE_NAME, setSessionCookie } from "../../auth/service.js";
 import { LoginPage, RegisterPage } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
-import { errorMessage } from "../util.js";
+import { errorMessage } from "../http.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
   const url = new URL(c.req.url);
