@@ -85,35 +85,15 @@ const findWorktree = (
   return matches[0];
 };
 
-// Walks candidate paths (most-recent-first) and returns the worktree enclosing
-// the first match. `excludePath` (the launch worktree) is skipped so a session
-// that worked in a different worktree is reported instead of its launch dir.
-const selectWorktreeByPaths = (
-  blocks: readonly WorktreeBlock[],
-  paths: readonly string[],
-  excludePath?: string,
-): WorktreeBlock | undefined => {
-  for (const path of paths) {
-    const block = findWorktree(blocks, path);
-    if (block === undefined) continue;
-    if (excludePath !== undefined && block.path === excludePath) continue;
-    return block;
-  }
-  return undefined;
-};
-
-// The launch dir's enclosing worktree, or the one a session actually worked in
-// when it `git worktree add`ed a second checkout and did all its work there.
+// The launch dir's enclosing worktree.
 const resolveGitInfo = async (
   cwd: string,
   run: GitRunner,
-  paths: readonly string[] = [],
 ): Promise<GitInfo> => {
   const blocks = await listWorktrees(cwd, run);
   if (blocks === undefined) return {};
   const launch = findWorktree(blocks, cwd);
-  const block = selectWorktreeByPaths(blocks, paths, launch?.path) ?? launch;
-  return block === undefined ? {} : gitInfoFromBlock(block);
+  return launch === undefined ? {} : gitInfoFromBlock(launch);
 };
 
 const findWorktreeByBranch = (
@@ -134,11 +114,8 @@ const resolveWorktreeByBranch = async (
 };
 
 // Never throws — a missing git binary degrades to an empty GitInfo.
-const readGitInfo = (
-  cwd: string,
-  run: GitRunner = runGit,
-  paths: readonly string[] = [],
-): Promise<GitInfo> => resolveGitInfo(cwd, run, paths).catch(() => ({}));
+const readGitInfo = (cwd: string, run: GitRunner = runGit): Promise<GitInfo> =>
+  resolveGitInfo(cwd, run).catch(() => ({}));
 
 const readWorktreeByBranch = (
   cwd: string,
