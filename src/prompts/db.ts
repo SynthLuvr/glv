@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { ensureDbDir, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
@@ -31,11 +29,8 @@ type PromptInput = {
 // "usage" surfaces frequently-run prompts first for the power-user toggle.
 type PromptSort = "order" | "usage";
 
-const defaultPromptsDbPath = (): string =>
-  join(homedir(), ".local", "share", "glv", "prompts.db");
-
 const resolvePromptsDbPath = (override?: string): string =>
-  override ?? process.env.GLV_PROMPTS_DB ?? defaultPromptsDbPath();
+  resolveDataPath(override, "GLV_PROMPTS_DB", "glv", "prompts.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS saved_prompts (
@@ -52,7 +47,7 @@ CREATE TABLE IF NOT EXISTS saved_prompts (
 `;
 
 const openPromptsDb = (dbPath: string): DatabaseSync => {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  ensureDbDir(dbPath);
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
   return db;

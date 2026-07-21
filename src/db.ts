@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { resolveDataPath } from "./db-path";
 import { placeholders, validate, validateAll } from "./query";
 
 const sessionShape = {
@@ -45,11 +44,14 @@ type SessionFilter = {
   includeArchived: boolean;
 };
 
-const defaultDbPath = (): string =>
-  join(homedir(), ".local", "share", "goose", "sessions", "sessions.db");
-
 const resolveDbPath = (override?: string): string =>
-  override ?? process.env.GOOSE_SESSIONS_DB ?? defaultDbPath();
+  resolveDataPath(
+    override,
+    "GOOSE_SESSIONS_DB",
+    "goose",
+    "sessions",
+    "sessions.db",
+  );
 
 const openDb = (
   dbPath: string,
