@@ -68,12 +68,8 @@ describe("detectPrUrl", () => {
   });
 
   it("ignores a PR URL embedded in source code shown in a tool result (20260720_35)", () => {
-    // The session never created a PR; the only URL is a test-fixture string
-    // constant inside the source file it was editing. Tool results don't feed
-    // the mention tier, so no chip is produced.
-    const source =
-      '  const PR = "https://github.com/SynthLuvr/lisko/pull/35";\n' +
-      "  const seedPrSession = (db: DatabaseSync) => {};\n";
+    // The URL is a string constant in the edited file, not a created PR.
+    const source = 'const PR = "https://github.com/SynthLuvr/lisko/pull/35";';
     expect(detectPrUrl([msg("user", [toolResult(source)])])).toBeUndefined();
   });
 
