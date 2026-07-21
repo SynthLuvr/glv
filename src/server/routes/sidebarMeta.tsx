@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import {
+  getSession,
   listMessages,
   listSessions,
   prCandidateIds,
@@ -13,6 +14,7 @@ import { detectPrUrl } from "../../pr.js";
 import { BranchChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
+import { activeSessionIds } from "../status.js";
 
 // One git lookup per unique working dir, not one per session; a non-repo or
 // any failure just yields no branch.
@@ -55,32 +57,53 @@ const resolvePrUrls = (
   return result;
 };
 
-// Resolves branch + PR for every sidebar session in one lazy request and
-// returns one out-of-band swap fragment per session into each item's
-// `#sidebar-meta-<id>` slot — so a list of any size is one request, not one
-// per item.
+const renderMeta = (
+  session: SessionRow,
+  branch: string | undefined,
+  prUrl: string | undefined,
+) => (
+  <span
+    id={`sidebar-meta-${session.id}`}
+    class="session-meta-tags"
+    hx-swap-oob="true"
+  >
+    {branch !== undefined && <BranchChip branch={branch} compact />}
+    {prUrl !== undefined && (
+      <PrChip sessionId={session.id} url={prUrl} compact />
+    )}
+  </span>
+);
+
+// One lazy request resolves branch + PR for all sidebar sessions and swaps
+// each item's `#sidebar-meta-<id>` slot out-of-band. The per-session route
+// refreshes a single slot after a run completes. PR badges are withheld
+// while running since detection over a partial transcript can latch onto
+// the wrong URL.
 const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
+  app.get("/sessions/:id/sidebar-meta", async (c) => {
+    const id = c.req.param("id");
+    const session = getSession(ctx.db, id);
+    if (session === undefined) return c.notFound();
+    const branches = await resolveBranches([session], ctx.runGit);
+    const prUrl = activeSessionIds(ctx.runner).has(id)
+      ? undefined
+      : resolvePrUrls(ctx.db, [session]).get(id);
+    return c.html(renderMeta(session, branches.get(id), prUrl));
+  });
+
   app.get("/sessions/sidebar-meta", async (c) => {
     const sessions = listSessions(ctx.db, VIEWER_FILTER);
+    const runningIds = activeSessionIds(ctx.runner);
     const branches = await resolveBranches(sessions, ctx.runGit);
     const prUrls = resolvePrUrls(ctx.db, sessions);
     return c.html(
       <Fragment>
         {sessions.map((session) => {
           const branch = branches.get(session.id);
-          const prUrl = prUrls.get(session.id);
-          return (
-            <span
-              id={`sidebar-meta-${session.id}`}
-              class="session-meta-tags"
-              hx-swap-oob="true"
-            >
-              {branch !== undefined && <BranchChip branch={branch} compact />}
-              {prUrl !== undefined && (
-                <PrChip sessionId={session.id} url={prUrl} compact />
-              )}
-            </span>
-          );
+          const prUrl = runningIds.has(session.id)
+            ? undefined
+            : prUrls.get(session.id);
+          return renderMeta(session, branch, prUrl);
         })}
       </Fragment>,
     );

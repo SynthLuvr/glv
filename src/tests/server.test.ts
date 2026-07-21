@@ -2800,6 +2800,93 @@ describe("sidebar meta endpoint GET /sessions/sidebar-meta", () => {
     }
   });
 
+  // Seeds a session whose transcript holds a `gh pr create` result, so PR
+  // detection would normally surface a chip — unless the run is in progress.
+  const seedPrRunDir = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "glv-sbmeta-run-"));
+    const runDb = new DatabaseSync(join(dir, "sessions.db"));
+    runDb.exec(SCHEMA);
+    insertSessions(runDb, [
+      {
+        id: "prsess",
+        name: "PR Session",
+        type: "user",
+        dir: "/tmp/pr",
+        updated: "2026-07-13 10:00:00",
+        tokens: 5,
+        provider: null,
+      },
+    ]);
+    insertMessages(runDb, [
+      {
+        sessionId: "prsess",
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "toolResponse",
+            id: "call_1",
+            toolResult: {
+              status: "success",
+              value: {
+                content: [{ type: "text", text: PR_URL }],
+                isError: false,
+              },
+            },
+          },
+        ]),
+        ts: 1,
+      },
+    ]);
+    runDb.close();
+    return dir;
+  };
+
+  it("withholds the PR badge from the sidebar while a session is running", async () => {
+    const dir = seedPrRunDir();
+    const runDb = new DatabaseSync(join(dir, "sessions.db"));
+    try {
+      // delayMs keeps the run active across the assertions below.
+      const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+      const app = createApp(runDb, createRunner(DEFAULT_RUNNER_CONFIG, spawn));
+      await postForm(app, "/sessions/prsess/prompt", { prompt: "go" });
+
+      const bulk = await (await app.request("/sessions/sidebar-meta")).text();
+      // Detection over a half-written transcript can be wrong, so the badge
+      // stays hidden until the run indicator clears.
+      expect(bulk).not.toContain("pr-chip");
+      const single = await (
+        await app.request("/sessions/prsess/sidebar-meta")
+      ).text();
+      expect(single).not.toContain("pr-chip");
+    } finally {
+      runDb.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reveals the PR badge in the sidebar once a session completes", async () => {
+    const dir = seedPrRunDir();
+    const runDb = new DatabaseSync(join(dir, "sessions.db"));
+    try {
+      const { spawn } = createMockSpawn(["x"]);
+      const app = createApp(runDb, createRunner(DEFAULT_RUNNER_CONFIG, spawn));
+      await postForm(app, "/sessions/prsess/prompt", { prompt: "go" });
+      await sleep(150); // run reaches a terminal status
+
+      const bulk = await (await app.request("/sessions/sidebar-meta")).text();
+      expect(bulk).toContain("pr-chip");
+      expect(bulk).toContain(PR_URL);
+      const single = await (
+        await app.request("/sessions/prsess/sidebar-meta")
+      ).text();
+      expect(single).toContain("pr-chip");
+      expect(single).toContain(PR_URL);
+    } finally {
+      runDb.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("never propagates a git runner failure to the response", async () => {
     const failing: GitRunner = async () => {
       throw new Error("spawn failed");
