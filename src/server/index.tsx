@@ -4,12 +4,14 @@ import { authMiddleware } from "../auth/middleware.js";
 import { materialise } from "../clone.js";
 import { createGhClient } from "../gh.js";
 import { type Runner, stop } from "../runner/index.js";
+import { buildAssetBundle } from "./bundle.js";
 import {
   CLONE_JOB_SWEEP_MS,
   CLONE_JOB_TTL_MS,
   sweepCloneJobs,
 } from "./cloneJobs.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
+import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerEventsRoutes } from "./routes/events.js";
@@ -20,7 +22,6 @@ import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
-import { buildAssetBundle, expandHome, listHomeDirs } from "./util.js";
 
 const createApp = (
   db: DatabaseSync,

@@ -36,19 +36,17 @@ import {
   ServerContext,
   VIEWER_FILTER,
 } from "../context.js";
+import { errorMessage, extractIds, isHtmxRequest } from "../http.js";
+import { expandHome } from "../paths.js";
 import { newSessionDetail, render, renderNotFound } from "../render.js";
-import { activeSessionIds } from "../status.js";
 import {
   activeRunPrompt,
   type EstablishOutcome,
-  errorMessage,
   establishSession,
-  expandHome,
-  extractIds,
-  isHtmxRequest,
   pollForSessionId,
   withCreateLock,
-} from "../util.js";
+} from "../session.js";
+import { activeSessionIds } from "../status.js";
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
