@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { defineTable, placeholders } from "./query";
+import { placeholders } from "./query";
 
 const sessionShape = {
   id: "string",
@@ -22,6 +22,8 @@ const SessionRow = type(sessionShape);
 
 type SessionRow = typeof SessionRow.infer;
 
+const SESSION_COLS = Object.keys(sessionShape).join(", ");
+
 const messageShape = {
   message_id: "string | null",
   session_id: "string",
@@ -35,29 +37,13 @@ const MessageRow = type(messageShape);
 
 type MessageRow = typeof MessageRow.infer;
 
+const MESSAGE_COLS = Object.keys(messageShape).join(", ");
+
 type SessionFilter = {
   type: string;
   limit: number;
   includeArchived: boolean;
 };
-
-const sessions = defineTable({
-  table: "sessions",
-  columns: Object.keys(sessionShape),
-  schema: SessionRow,
-});
-
-const messages = defineTable({
-  table: "messages",
-  columns: Object.keys(messageShape),
-  schema: MessageRow,
-});
-
-const sessionIds = defineTable({
-  table: "sessions",
-  columns: ["id"],
-  schema: type({ id: "string" }),
-});
 
 const defaultDbPath = (): string =>
   join(homedir(), ".local", "share", "goose", "sessions", "sessions.db");
@@ -90,50 +76,64 @@ const listSessions = (
     params.push(filter.type);
   }
   if (!filter.includeArchived) clauses.push("archived_at IS NULL");
-  const where = clauses.length === 0 ? undefined : clauses.join(" AND ");
-  return sessions.all(db, {
-    where,
-    params,
-    orderBy: "updated_at DESC",
-    limit: filter.limit,
-  });
+  const parts = [`SELECT ${SESSION_COLS} FROM sessions`];
+  if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
+  parts.push("ORDER BY updated_at DESC", "LIMIT ?");
+  params.push(filter.limit);
+  return db
+    .prepare(parts.join(" "))
+    .all(...params)
+    .map((row) => SessionRow(row))
+    .filter((r): r is SessionRow => !(r instanceof type.errors));
 };
 
-const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
-  sessions.one(db, { where: "id = ?", params: [id] });
+const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
+  const row = db
+    .prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`)
+    .get(id);
+  if (row === undefined) return undefined;
+  const parsed = SessionRow(row);
+  return parsed instanceof type.errors ? undefined : parsed;
+};
 
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
-  messages.all(db, {
-    where: "session_id = ?",
-    params: [sessionId],
-    orderBy: "created_timestamp ASC",
-  });
+  db
+    .prepare(
+      `SELECT ${MESSAGE_COLS} FROM messages
+         WHERE session_id = ?
+         ORDER BY created_timestamp ASC`,
+    )
+    .all(sessionId)
+    .map((row) => MessageRow(row))
+    .filter((r): r is MessageRow => !(r instanceof type.errors));
+
+const IdRow = type({ id: "string" });
 
 // Lets the new-session poll distinguish a freshly created session from
 // pre-existing ones in the same working dir. Selects only `id` with a lenient
 // schema so a half-written row still matches.
 const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] =>
-  sessionIds
-    .all(db, { where: "working_dir = ?", params: [workingDir] })
+  db
+    .prepare("SELECT id FROM sessions WHERE working_dir = ?")
+    .all(workingDir)
+    .map((row) => IdRow(row))
+    .filter((r): r is { id: string } => !(r instanceof type.errors))
     .map((row) => row.id);
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
-  sessions.update(db, {
-    set: "archived_at = CURRENT_TIMESTAMP",
-    where: `id IN (${placeholders(ids.length)}) AND archived_at IS NULL`,
-    params: ids,
-  });
+  db.prepare(
+    `UPDATE sessions SET archived_at = CURRENT_TIMESTAMP
+       WHERE id IN (${placeholders(ids.length)}) AND archived_at IS NULL`,
+  ).run(...ids);
 };
 
 // A blank name clears the user-set flag.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
-  sessions.update(db, {
-    set: "name = ?, user_set_name = ?",
-    where: "id = ?",
-    params: [name, name === "" ? 0 : 1, id],
-  });
+  db.prepare(
+    "UPDATE sessions SET name = ?, user_set_name = ? WHERE id = ?",
+  ).run(name, name === "" ? 0 : 1, id);
 };
 
 // Cheap pre-filter for sidebar PR detection: only sessions whose raw message
