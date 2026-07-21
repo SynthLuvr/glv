@@ -56,6 +56,7 @@ type ServerOptions = {
   runPrState?: CommandRunner;
   /** Subprocess runner for local `git` queries; tests inject a fake. */
   runGit?: GitRunner;
+  /** Clones or updates a repo checkout; tests inject a fake. */
   materialise?: Materialiser;
 };
 
