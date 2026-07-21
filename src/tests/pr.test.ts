@@ -90,9 +90,8 @@ describe("detectPrUrl", () => {
   });
 
   it("extracts only the URL, not surrounding prose, from a JSON string value (20260721_57)", () => {
-    // A structured result whose `summary` is a human-readable blob naming the
-    // PR inline (`url:` on its own line) — the chip must link the bare URL,
-    // not the whole summary (which leaked 243 chars of prose into the badge).
+    // `summary` embeds the URL in a human-readable blob — the chip must link
+    // the bare URL, not the whole blob (20260721_57).
     const summary =
       "PR #56 [OPEN] base=main head=fix/strengthen-coverage-gate " +
       "+98/-16 in 3 files\n" +

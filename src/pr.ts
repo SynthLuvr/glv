@@ -26,10 +26,8 @@ const extractJson = (text: string): string | undefined => {
   return FENCED_JSON.exec(trimmed)?.[1].trim() || undefined;
 };
 
-// Pull out just the `github.com/…/pull/N` URL from a string, never the
-// surrounding text. A value may be a human-readable blob (e.g. a PR summary
-// with `url:` on its own line) that embeds the URL — returning the whole
-// string would leak prose into the chip (20260721_57).
+// A value may embed the URL inside a human-readable blob; return only the
+// bare URL so prose doesn't leak into the chip (20260721_57).
 const prUrlInString = (text: string): string | undefined =>
   PR_URL.exec(text)?.[0];
 
