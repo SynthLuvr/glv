@@ -114,6 +114,7 @@ type SpawnFn = (
 type EnqueueOptions = {
   onLine?: (line: string) => void;
   onStatus?: (handle: RunHandle) => void;
+  isNewSession?: boolean;
 };
 
 type InternalHandle = Omit<

@@ -861,7 +861,9 @@ describe("enqueueRun (new-session runs)", () => {
   it("builds a new-session invocation with no name or --session-id", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueRun(runner, "tmp-1", "hello", "/tmp", {}, true);
+    const handle = enqueueRun(runner, "tmp-1", "hello", "/tmp", {
+      isNewSession: true,
+    });
     await waitForStatus(handle, "completed");
     expect(state.invocations).toHaveLength(1);
     const [{ args }] = state.invocations;
@@ -873,14 +875,9 @@ describe("enqueueRun (new-session runs)", () => {
   it("pipes the prompt via stdin, never as an argument", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueRun(
-      runner,
-      "tmp-1",
-      "write a haiku",
-      "/tmp",
-      {},
-      true,
-    );
+    const handle = enqueueRun(runner, "tmp-1", "write a haiku", "/tmp", {
+      isNewSession: true,
+    });
     await waitForStatus(handle, "completed");
     expect(state.invocations[0].opts.stdin).toBe("write a haiku");
     expect(state.invocations[0].args).not.toContain("write a haiku");
@@ -890,7 +887,9 @@ describe("enqueueRun (new-session runs)", () => {
   it("spawns goose in the chosen working directory", async () => {
     const { spawn, state } = createMockSpawn(["x"]);
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueRun(runner, "tmp-1", "hi", "/path/to/work", {}, true);
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/path/to/work", {
+      isNewSession: true,
+    });
     await waitForStatus(handle, "completed");
     expect(state.invocations[0].opts.cwd).toBe("/path/to/work");
   });
@@ -898,7 +897,7 @@ describe("enqueueRun (new-session runs)", () => {
   it("registers the run under the temporary key", () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    enqueueRun(runner, "tmp-99", "hi", "/tmp", {}, true);
+    enqueueRun(runner, "tmp-99", "hi", "/tmp", { isNewSession: true });
     expect(getHandle(runner, "tmp-99")).toBeDefined();
   });
 
@@ -908,6 +907,7 @@ describe("enqueueRun (new-session runs)", () => {
     const received: string[] = [];
     const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {
       onLine: (line) => received.push(line),
+      isNewSession: true,
     });
     await waitForStatus(handle, "completed");
     expect(received).toEqual(["a", "b", "c"]);
@@ -918,7 +918,9 @@ describe("rekey", () => {
   it("moves the handle from the temp key to the real session id", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {}, true);
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {
+      isNewSession: true,
+    });
     await waitForStatus(handle, "running");
 
     expect(rekey(runner, "tmp-1", "real-42")).toBe(true);
@@ -930,7 +932,9 @@ describe("rekey", () => {
   it("keeps the run's accumulated lines across the re-key", async () => {
     const { spawn } = createMockSpawn(["one", "two"], { delayMs: 100 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {}, true);
+    const handle = enqueueRun(runner, "tmp-1", "hi", "/tmp", {
+      isNewSession: true,
+    });
     await waitForStatus(handle, "running");
     await sleep(150);
     rekey(runner, "tmp-1", "real-1");
@@ -946,8 +950,12 @@ describe("rekey", () => {
   it("refuses to clobber a handle already keyed to the target id", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 200 });
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
-    const handleA = enqueueRun(runner, "tmp-a", "hi", "/tmp", {}, true);
-    const handleB = enqueueRun(runner, "tmp-b", "hi", "/tmp", {}, true);
+    const handleA = enqueueRun(runner, "tmp-a", "hi", "/tmp", {
+      isNewSession: true,
+    });
+    const handleB = enqueueRun(runner, "tmp-b", "hi", "/tmp", {
+      isNewSession: true,
+    });
     await waitForStatus(handleA, "running");
     await waitForStatus(handleB, "running");
 

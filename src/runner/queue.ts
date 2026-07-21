@@ -149,12 +149,13 @@ const enqueueRun = (
   prompt: string,
   workingDir: string,
   opts: EnqueueOptions = {},
-  isNew = false,
 ): RunHandle =>
   enqueueInvocation(
     runner,
     key,
-    isNew ? newSessionInvocation(prompt) : resumeInvocation(key, prompt),
+    opts.isNewSession
+      ? newSessionInvocation(prompt)
+      : resumeInvocation(key, prompt),
     workingDir,
     opts,
   );

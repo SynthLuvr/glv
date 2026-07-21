@@ -164,7 +164,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         job.tempKey = generateTempKey();
         job.known = new Set(sessionIdsInDir(ctx.db, clonePath));
         job.runStartedAt = Date.now();
-        enqueueRun(ctx.runner, job.tempKey, prompt, clonePath, {}, true);
+        enqueueRun(ctx.runner, job.tempKey, prompt, clonePath, {
+          isNewSession: true,
+        });
         if (promptId !== "" && ctx.prompts !== undefined)
           bumpUsage(ctx.prompts, promptId);
         job.status = "done";
@@ -201,7 +203,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       workingDir,
       async (): Promise<EstablishOutcome> => {
         const known = new Set(sessionIdsInDir(ctx.db, workingDir));
-        enqueueRun(ctx.runner, tempKey, prompt, workingDir, {}, true);
+        enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
+          isNewSession: true,
+        });
 
         const realId = await pollForSessionId(
           ctx.db,
