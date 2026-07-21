@@ -136,7 +136,6 @@ const runProcess = async (
       handle.lines.splice(0, excess);
       handle.droppedLines += excess;
     }
-    handle.onLine?.(line);
   }
 
   const result = await awaitExit(proc, handle, runner.config.stopGraceMs);

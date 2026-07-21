@@ -20,10 +20,7 @@ const refreshQueuePositions = (runner: Runner): void => {
   let position = 0;
   for (const handle of runner.registry.values()) {
     if (handle.status !== "queued") continue;
-    if (handle.queuePosition !== position) {
-      handle.queuePosition = position;
-      handle.onStatus?.(handle);
-    }
+    if (handle.queuePosition !== position) handle.queuePosition = position;
     position++;
   }
 };
@@ -90,7 +87,6 @@ const enqueueInvocation = (
   key: string,
   invocation: GooseInvocation,
   workingDir: string,
-  opts: EnqueueOptions = {},
 ): RunHandle => {
   const existing = runner.registry.get(key);
   if (existing !== undefined && isActiveStatus(existing.status))
@@ -108,8 +104,6 @@ const enqueueInvocation = (
     error: undefined,
     cancelled: false,
     process: undefined,
-    onLine: opts.onLine,
-    onStatus: opts.onStatus,
     droppedLines: 0,
     evictionTimer: undefined,
   };
@@ -123,7 +117,6 @@ const enqueueInvocation = (
       if (handle.cancelled) return;
       handle.status = "running";
       handle.queuePosition = undefined;
-      handle.onStatus?.(handle);
       refreshQueuePositions(runner);
 
       try {
@@ -134,9 +127,7 @@ const enqueueInvocation = (
       handle.process = undefined;
 
       currentInvocation = advanceChain(handle);
-      if (currentInvocation !== undefined) handle.onStatus?.(handle);
     }
-    handle.onStatus?.(handle);
     scheduleEviction(runner, handle);
   });
 
@@ -157,7 +148,6 @@ const enqueueRun = (
       ? newSessionInvocation(prompt)
       : resumeInvocation(key, prompt),
     workingDir,
-    opts,
   );
 
 const enqueueOrQueue = (
@@ -170,7 +160,6 @@ const enqueueOrQueue = (
   const existing = runner.registry.get(sessionId);
   if (existing !== undefined && isActiveStatus(existing.status)) {
     existing.pendingPrompts.push(prompt);
-    existing.onStatus?.(existing);
     return { handle: existing, queued: true };
   }
   return {
@@ -185,7 +174,6 @@ const clearPending = (runner: Runner, sessionId: string): number => {
   const count = handle.pendingPrompts.length;
   if (count === 0) return 0;
   handle.pendingPrompts = [];
-  handle.onStatus?.(handle);
   return count;
 };
 
@@ -213,7 +201,6 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     handle.status = "stopped";
     handle.pendingPrompts = [];
     handle.queuePosition = undefined;
-    handle.onStatus?.(handle);
     refreshQueuePositions(runner);
     scheduleEviction(runner, handle);
     return true;
