@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
-import { authMiddleware } from "../auth/middleware.js";
+import { authMiddleware } from "../auth/service.js";
 import { materialise } from "../clone.js";
 import { createGhClient } from "../gh.js";
 import { type Runner, stop } from "../runner/index.js";
