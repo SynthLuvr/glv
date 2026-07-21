@@ -82,26 +82,20 @@ type HtmxAjax = {
   ) => void;
 };
 
-// htmx is read off the global rather than redeclared, so this classic
-// <script> stays self-contained and doesn't collide with stream.ts's ambient
-// global htmx.
+// htmx is read off the global rather than redeclared so this classic
+// <script> stays self-contained.
 const isHtmxAjax = (value: unknown): value is HtmxAjax =>
   typeof value === "object" &&
   value !== null &&
   "ajax" in value &&
   typeof value.ajax === "function";
 
-// The PR badge is withheld while a session runs (detection on a half-written
-// transcript can latch onto the wrong URL), so once a run completes the
-// sidebar re-fetches that session's meta to reveal it.
+// A completing run may have resolved a PR badge that was withheld while
+// running; re-fetch the session's meta to reveal it.
 const refreshMeta = (sessionId: string): void => {
   if (findSessionItem(sessionId) === null) return;
-  const g: unknown = globalThis;
-  const htmx =
-    typeof g === "object" && g !== null && "htmx" in g && isHtmxAjax(g.htmx)
-      ? g.htmx
-      : undefined;
-  if (htmx === undefined) return;
+  const { htmx } = globalThis as { htmx?: unknown };
+  if (!isHtmxAjax(htmx)) return;
   htmx.ajax("GET", `/sessions/${sessionId}/sidebar-meta`, {
     target: "#session-list",
     swap: "none",
@@ -148,8 +142,6 @@ const onStatusEvent = (data: string): void => {
   if (!isStatusPayload(parsed)) return;
   const running = parsed.status !== "done";
   setStatusIndicator(parsed.sessionId, running);
-  // A just-finished run may now safely resolve a PR badge that was withheld
-  // while it was running.
   if (!running) refreshMeta(parsed.sessionId);
 };
 

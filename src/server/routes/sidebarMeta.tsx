@@ -57,10 +57,6 @@ const resolvePrUrls = (
   return result;
 };
 
-// Renders the chips (branch + PR) for one sidebar session into its
-// out-of-band `#sidebar-meta-<id>` swap slot. The PR badge is withheld while a
-// session is still running: detection runs over a half-written transcript and
-// can latch onto the wrong URL, so it only resolves once the run is complete.
 const renderMeta = (
   session: SessionRow,
   branch: string | undefined,
@@ -78,11 +74,11 @@ const renderMeta = (
   </span>
 );
 
-// Resolves branch + PR for every sidebar session in one lazy request and
-// returns one out-of-band swap fragment per session into each item's
-// `#sidebar-meta-<id>` slot — so a list of any size is one request, not one
-// per item. A per-session variant lets a just-completed run refresh only its
-// own slot, revealing a PR badge that was withheld while it was running.
+// One lazy request resolves branch + PR for all sidebar sessions and swaps
+// each item's `#sidebar-meta-<id>` slot out-of-band. The per-session route
+// refreshes a single slot after a run completes. PR badges are withheld
+// while running since detection over a partial transcript can latch onto
+// the wrong URL.
 const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/sidebar-meta", async (c) => {
     const id = c.req.param("id");

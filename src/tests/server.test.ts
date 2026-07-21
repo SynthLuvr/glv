@@ -2806,29 +2806,22 @@ describe("sidebar meta endpoint GET /sessions/sidebar-meta", () => {
     const dir = mkdtempSync(join(tmpdir(), "glv-sbmeta-run-"));
     const runDb = new DatabaseSync(join(dir, "sessions.db"));
     runDb.exec(SCHEMA);
-    runDb
-      .prepare(
-        "INSERT INTO sessions (id, name, session_type, working_dir, " +
-          "updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      )
-      .run(
-        "prsess",
-        "PR Session",
-        "user",
-        "/tmp/pr",
-        "2026-07-13 10:00:00",
-        5,
-        null,
-      );
-    runDb
-      .prepare(
-        "INSERT INTO messages (session_id, role, content_json, " +
-          "created_timestamp) VALUES (?, ?, ?, ?)",
-      )
-      .run(
-        "prsess",
-        "user",
-        JSON.stringify([
+    insertSessions(runDb, [
+      {
+        id: "prsess",
+        name: "PR Session",
+        type: "user",
+        dir: "/tmp/pr",
+        updated: "2026-07-13 10:00:00",
+        tokens: 5,
+        provider: null,
+      },
+    ]);
+    insertMessages(runDb, [
+      {
+        sessionId: "prsess",
+        role: "user",
+        content: JSON.stringify([
           {
             type: "toolResponse",
             id: "call_1",
@@ -2841,8 +2834,9 @@ describe("sidebar meta endpoint GET /sessions/sidebar-meta", () => {
             },
           },
         ]),
-        1,
-      );
+        ts: 1,
+      },
+    ]);
     runDb.close();
     return dir;
   };
