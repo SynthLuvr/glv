@@ -3,6 +3,7 @@ const UI_HOME_TITLE = "Goose Log Viewer";
 const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
 const UI_COPIED_MS = 1500;
+const UI_THEME_KEY = "glv-theme";
 
 const uiCopyIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
@@ -47,18 +48,22 @@ const uiFocusAutofocus = (): void => {
   if (el instanceof HTMLElement && document.activeElement !== el) el.focus();
 };
 
-const uiCopyCode = async (btn: HTMLElement, text: string): Promise<void> => {
+const uiCopyWithFeedback = async (
+  btn: HTMLElement,
+  text: string,
+  icons?: { active: string; idle: string },
+): Promise<void> => {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    // clipboard API unavailable (e.g. non-secure context) — fail silently
+    // clipboard unavailable (non-secure context) — fail silently
     return;
   }
   btn.classList.add("copied");
-  btn.innerHTML = uiCheckIcon;
+  if (icons !== undefined) btn.innerHTML = icons.active;
   window.setTimeout(() => {
     btn.classList.remove("copied");
-    btn.innerHTML = uiCopyIcon;
+    if (icons !== undefined) btn.innerHTML = icons.idle;
   }, UI_COPIED_MS);
 };
 
@@ -84,17 +89,25 @@ const uiEnhanceCodeBlocks = (root: ParentNode): void => {
     uiEnhancePre(pre);
 };
 
-// Document-level delegation covers server-rendered blocks, htmx swaps, and
+// Document-level delegation covers server-rendered buttons, htmx swaps, and
 // SSE-appended stream lines without per-button listeners.
 document.addEventListener("click", (e) => {
-  const btn =
-    e.target instanceof Element ? e.target.closest(".copy-code-btn") : null;
+  if (!(e.target instanceof Element)) return;
+  const btn = e.target.closest(".copy-code-btn, .copy-md-btn");
   if (!(btn instanceof HTMLElement)) return;
   e.preventDefault();
-  const wrap = btn.closest(".code-block");
-  const code = wrap?.querySelector("code") ?? wrap?.querySelector("pre");
-  if (code === null || code === undefined) return;
-  void uiCopyCode(btn, code.textContent ?? "");
+  if (btn.classList.contains("copy-code-btn")) {
+    const wrap = btn.closest(".code-block");
+    const code = wrap?.querySelector("code") ?? wrap?.querySelector("pre");
+    if (code === null || code === undefined) return;
+    void uiCopyWithFeedback(btn, code.textContent ?? "", {
+      active: uiCheckIcon,
+      idle: uiCopyIcon,
+    });
+    return;
+  }
+  const md = btn.dataset.md;
+  if (md !== undefined) void uiCopyWithFeedback(btn, md);
 });
 
 document.addEventListener("input", (e) => {
@@ -104,6 +117,20 @@ document.addEventListener("input", (e) => {
   )
     uiGrow(e.target);
 });
+
+// Persists the toggle; Layout.tsx applies the saved theme before first paint.
+const uiApplyTheme = (isDark: boolean): void => {
+  document.documentElement.classList.toggle("dark", isDark);
+  try {
+    localStorage.setItem(UI_THEME_KEY, isDark ? "dark" : "light");
+  } catch {
+    /* localStorage unavailable (e.g. private mode) — session only */
+  }
+};
+
+const uiToggleTheme = (): void => {
+  uiApplyTheme(!document.documentElement.classList.contains("dark"));
+};
 
 // Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
 // is position:fixed and lives outside the scroll container.
@@ -165,6 +192,9 @@ const uiInit = (): void => {
   uiEnhanceCodeBlocks(document.body);
   uiUpdateScrollButton();
   uiObserve();
+  document
+    .querySelector(".theme-toggle")
+    ?.addEventListener("click", uiToggleTheme);
 };
 
 document.addEventListener("DOMContentLoaded", uiInit);

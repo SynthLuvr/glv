@@ -13,8 +13,6 @@ const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
 const SCRIPT_ENTRIES = [
   join(SRC_DIR, "scripts", "sidebar.ts"),
   join(SRC_DIR, "scripts", "stream.ts"),
-  join(SRC_DIR, "scripts", "theme.ts"),
-  join(SRC_DIR, "scripts", "markdown-copy.ts"),
   join(SRC_DIR, "scripts", "rename.ts"),
   join(SRC_DIR, "scripts", "source-picker.ts"),
   join(SRC_DIR, "scripts", "ui.ts"),
