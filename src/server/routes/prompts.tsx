@@ -28,9 +28,8 @@ const readInput = (body: Record<string, unknown>): PromptInput => ({
 const isValid = (input: PromptInput): boolean =>
   input.title.trim() !== "" && input.body.trim() !== "";
 
-// All routes return HTML fragments for htmx to swap. The prompts store is
-// optional (tests may omit it); when absent every handler 404s rather than
-// throw.
+// The prompts store is optional (tests may omit it); when absent no routes
+// are registered, so requests fall through to a 404.
 const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   const prompts = ctx.prompts;
 
