@@ -8,7 +8,6 @@ import {
   listMessages,
   listSessions,
   renameSession,
-  sessionIdsInDir,
 } from "../../db.js";
 import { displayName, parseMessage } from "../../format/index.js";
 import {
@@ -22,8 +21,6 @@ import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
   clearPending,
   enqueueOrQueue,
-  enqueueRun,
-  generateTempKey,
   getHandle,
   stop,
 } from "../../runner/index.js";
@@ -44,6 +41,7 @@ import {
   type EstablishOutcome,
   establishSession,
   pollForSessionId,
+  prepareNewSession,
   withCreateLock,
 } from "../session.js";
 import { activeSessionIds } from "../status.js";
@@ -154,12 +152,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
       const runCloneJob = async (): Promise<void> => {
         await ctx.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
-        job.tempKey = generateTempKey();
-        job.known = new Set(sessionIdsInDir(ctx.db, clonePath));
+        const { tempKey, known } = prepareNewSession(ctx, clonePath, prompt);
+        job.tempKey = tempKey;
+        job.known = known;
         job.runStartedAt = Date.now();
-        enqueueRun(ctx.runner, job.tempKey, prompt, clonePath, {
-          isNewSession: true,
-        });
         if (promptId !== "" && ctx.prompts !== undefined)
           bumpUsage(ctx.prompts, promptId);
         job.status = "done";
@@ -189,16 +185,11 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (workingDir === "" || !existsSync(workingDir))
       return rejectForm("That working directory does not exist.", 422);
 
-    const tempKey = generateTempKey();
-
     const result = await withCreateLock(
       ctx.createLocks,
       workingDir,
       async (): Promise<EstablishOutcome> => {
-        const known = new Set(sessionIdsInDir(ctx.db, workingDir));
-        enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
-          isNewSession: true,
-        });
+        const { tempKey, known } = prepareNewSession(ctx, workingDir, prompt);
 
         const realId = await pollForSessionId(
           ctx.db,
