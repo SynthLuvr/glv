@@ -1,4 +1,3 @@
-import type { Child } from "hono/jsx";
 import type { SessionRow } from "../db.js";
 import {
   displayName,
@@ -7,7 +6,7 @@ import {
   truncateMiddle,
 } from "../format/index.js";
 import type { ListEntry } from "../groups/model.js";
-import { RenameWrap } from "./Rename.js";
+import { icon, RenameWrap } from "./Rename.js";
 
 type SidebarProps = {
   sessions: SessionRow[];
@@ -15,21 +14,6 @@ type SidebarProps = {
   selectedId: string | undefined;
   runningIds: Set<string>;
 };
-
-const svgIcon = (children: Child): Child => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    {children}
-  </svg>
-);
 
 const SessionGroupMenu = ({
   session,
@@ -44,7 +28,7 @@ const SessionGroupMenu = ({
       aria-label={`Group actions for ${displayName(session.name)}`}
       title="Group actions"
     >
-      {svgIcon([
+      {icon([
         <circle cx="12" cy="5" r="1.4" />,
         <circle cx="12" cy="12" r="1.4" />,
         <circle cx="12" cy="19" r="1.4" />,
@@ -152,7 +136,7 @@ const GroupRenameWrap = ({
         aria-label={`Rename ${name}`}
         title="Rename group"
       >
-        {svgIcon([
+        {icon([
           <path d="M12 20h9" />,
           <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />,
         ])}
@@ -178,7 +162,7 @@ const GroupRenameWrap = ({
         aria-label="Save name"
         title="Save"
       >
-        {svgIcon(<path d="M20 6 9 17l-5-5" />)}
+        {icon(<path d="M20 6 9 17l-5-5" />)}
       </button>
       <button
         type="button"
@@ -187,7 +171,7 @@ const GroupRenameWrap = ({
         aria-label="Cancel rename"
         title="Cancel"
       >
-        {svgIcon([<path d="M18 6 6 18" />, <path d="m6 6 12 12" />])}
+        {icon([<path d="M18 6 6 18" />, <path d="m6 6 12 12" />])}
       </button>
     </form>
   </div>
@@ -213,7 +197,7 @@ const GroupHeader = ({
       aria-expanded="true"
       title="Collapse / expand"
     >
-      {svgIcon(<polyline points="6 9 12 15 18 9" />)}
+      {icon(<polyline points="6 9 12 15 18 9" />)}
     </button>
     <GroupRenameWrap groupId={groupId} name={groupName} target={target} />
     <span class="group-count" title={`${memberCount} sessions`}>

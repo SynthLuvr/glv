@@ -13,7 +13,6 @@ import {
   listGroups,
   openGroupsDb,
   pruneBelowThreshold,
-  pruneEmptyGroups,
   removeMember,
   renameGroup,
   resolveGroupsDbPath,
@@ -202,12 +201,6 @@ describe("dissolve and prune", () => {
     expect(getGroup(db, g.id)).toBeUndefined();
     expect(groupIdOf(db, "x")).toBeUndefined();
     expect(groupIdOf(db, "y")).toBeUndefined();
-  });
-
-  it("pruneEmptyGroups removes groups with zero members", () => {
-    const g = createGroup(db);
-    pruneEmptyGroups(db);
-    expect(getGroup(db, g.id)).toBeUndefined();
   });
 
   it("pruneBelowThreshold dissolves groups with 1 visible member", () => {

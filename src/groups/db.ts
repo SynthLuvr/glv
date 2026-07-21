@@ -4,12 +4,10 @@ import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
-// Viewer-owned sidecar that records manual session grouping.  Deliberately
-// separate from goose's sessions.db (which glv opens read-only) so goose
-// schema migrations never touch this data, and so archive/restore works:
-// archiving a session hides it from the sidebar but never deletes its group
-// membership here — un-archiving restores visibility and the group reappears
-// if ≥ 2 members are visible again.
+// Viewer-owned sidecar, kept separate from goose's read-only sessions.db so
+// schema migrations never touch this data.  Archiving a session hides it from
+// the sidebar but keeps its membership here, so un-archiving restores the group
+// once ≥ 2 members are visible again.
 
 type SessionGroup = {
   id: string;
@@ -104,7 +102,6 @@ const renameGroup = (db: DatabaseSync, id: string, rawName: string): void => {
   );
 };
 
-// Deletes a group and its members in one transaction.
 const deleteGroup = (db: DatabaseSync, id: string): void => {
   transaction(db, () => {
     db.prepare("DELETE FROM group_members WHERE group_id = ?").run(id);
@@ -112,8 +109,8 @@ const deleteGroup = (db: DatabaseSync, id: string): void => {
   });
 };
 
-// Ensures single-group membership: removes the session from any existing
-// group, then adds it to the target.  Idempotent if already a member.
+// A session belongs to at most one group: re-adding it elsewhere first removes
+// it from its current group.  Idempotent when already a member.
 const addMember = (
   db: DatabaseSync,
   groupId: string,
@@ -127,12 +124,10 @@ const addMember = (
   });
 };
 
-// Removes a session from whatever group it belongs to.
 const removeMember = (db: DatabaseSync, sessionId: string): void => {
   db.prepare("DELETE FROM group_members WHERE session_id = ?").run(sessionId);
 };
 
-// Returns the group id a session belongs to, or undefined when ungrouped.
 const groupIdOf = (db: DatabaseSync, sessionId: string): string | undefined => {
   const row = validate(
     type({ group_id: "string" }),
@@ -143,8 +138,6 @@ const groupIdOf = (db: DatabaseSync, sessionId: string): string | undefined => {
   return row?.group_id;
 };
 
-// Every group with its member session ids, in creation order.  The member ids
-// preserve insertion order so callers can reorder by recency externally.
 const listGroups = (db: DatabaseSync): GroupWithMembers[] => {
   const groups = validateAll(
     GroupRow,
@@ -169,12 +162,11 @@ const listGroups = (db: DatabaseSync): GroupWithMembers[] => {
   }));
 };
 
-// Dissolves any group whose visible (non-archived) membership has fallen to
-// one or zero — the governing rule applied at the data layer after an explicit
-// drag-out.  `visibleSessionIds` is the set of session ids currently shown in
-// the sidebar (goose DB, non-archived).  Groups that drop below the threshold
-// via archiving are NOT dissolved here — their membership is retained so an
-// un-archive restores the group; they simply stop rendering.
+// Dissolves any group whose visible membership has fallen to ≤ 1, the rule
+// enforced after an explicit drag-out.  `visibleSessionIds` are the sessions
+// currently shown in the sidebar.  Groups shrunk only by archiving keep their
+// membership (so an un-archive restores them); they simply stop rendering, as
+// the model layer hides groups with < 2 visible members.
 const pruneBelowThreshold = (
   db: DatabaseSync,
   visibleSessionIds: Set<string>,
@@ -187,16 +179,6 @@ const pruneBelowThreshold = (
   }
 };
 
-// Cleans up groups that have no members (e.g. after all members were dragged
-// out).  Called after membership mutations.
-const pruneEmptyGroups = (db: DatabaseSync): void => {
-  db.exec(
-    `DELETE FROM session_groups
-       WHERE id NOT IN (SELECT DISTINCT group_id FROM group_members)`,
-  );
-};
-
-// Removes all groups and memberships — used by tests.
 const clearGroups = (db: DatabaseSync): void => {
   transaction(db, () => {
     db.exec("DELETE FROM group_members");
@@ -215,7 +197,6 @@ export {
   listGroups,
   openGroupsDb,
   pruneBelowThreshold,
-  pruneEmptyGroups,
   removeMember,
   renameGroup,
   resolveGroupsDbPath,

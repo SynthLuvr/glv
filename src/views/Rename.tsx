@@ -95,4 +95,4 @@ const SessionTitleWrap = ({ session }: { session: SessionRow }) => (
   </div>
 );
 
-export { RenameWrap, SessionTitleWrap };
+export { icon, RenameWrap, SessionTitleWrap };

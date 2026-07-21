@@ -1,11 +1,8 @@
 import type { SessionRow } from "../db.js";
 import type { GroupWithMembers } from "./db.js";
 
-// A discriminated entry for the sidebar list.  Either a standalone session or
-// a collapsible group with its visible members.  The governing rule lives
-// here: a group only appears as an entry when it has ≥ 2 visible (i.e.
-// present-in-the-sidebar, non-archived) members.
-
+// A sidebar entry is either a standalone session or a collapsible group.  A
+// group only becomes an entry once it has ≥ 2 visible members.
 type ListEntry =
   | { kind: "session"; session: SessionRow }
   | {
@@ -18,10 +15,12 @@ type ListEntry =
 
 const DEFAULT_GROUP_NAME = "New group";
 
-// Sessions that are members of a group but not currently visible (archived,
-// filtered out) are invisible.  Only groups with ≥ 2 visible members render;
-// members of non-rendering groups fall through as flat session entries so
-// they are indistinguishable from ungrouped sessions.
+type ActiveGroup = {
+  groupId: string;
+  name: string;
+  members: SessionRow[];
+};
+
 const buildEntries = (
   sessions: SessionRow[],
   groups: readonly GroupWithMembers[] | undefined,
@@ -29,48 +28,40 @@ const buildEntries = (
   if (groups === undefined || groups.length === 0)
     return sessions.map((session) => ({ kind: "session", session }));
 
-  // Resolve each group to its visible members (those present in the session
-  // list) and keep only groups with ≥ 2 visible members.
-  const activeGroups = new Map<
-    string,
-    { name: string; members: SessionRow[] }
-  >();
-  const sessionToGroup = new Map<string, string>();
+  // Link each visible member to its group, keeping only groups with ≥ 2 visible
+  // members.  `sessions` is recency-ordered, so a group's member list is too.
+  const sessionGroup = new Map<string, ActiveGroup>();
   for (const group of groups) {
-    const memberSet = new Set(group.memberIds);
-    // sessions is already recency-ordered (updated_at DESC), so filtering
-    // preserves that order for the group's member list.
-    const visible = sessions.filter((s) => memberSet.has(s.id));
-    if (visible.length < 2) continue;
-    activeGroups.set(group.id, {
+    const memberIds = new Set(group.memberIds);
+    const members = sessions.filter((s) => memberIds.has(s.id));
+    if (members.length < 2) continue;
+    const active = {
+      groupId: group.id,
       name: group.name ?? DEFAULT_GROUP_NAME,
-      members: visible,
-    });
-    for (const s of visible) sessionToGroup.set(s.id, group.id);
+      members,
+    };
+    for (const m of members) sessionGroup.set(m.id, active);
   }
 
-  // Walk sessions in recency order (they already are).  Emit a group entry
-  // the first time we encounter one of its members; skip subsequent members.
+  // Emit a group the first time one of its members appears (in recency order);
+  // later members are skipped.  Ungrouped sessions fall through as flat entries.
   const emitted = new Set<string>();
   const entries: ListEntry[] = [];
   for (const session of sessions) {
     if (emitted.has(session.id)) continue;
-    const groupId = sessionToGroup.get(session.id);
-    if (groupId !== undefined) {
-      const group = activeGroups.get(groupId);
-      if (group !== undefined) {
-        entries.push({
-          kind: "group",
-          groupId,
-          groupName: group.name,
-          memberCount: group.members.length,
-          members: group.members,
-        });
-        for (const m of group.members) emitted.add(m.id);
-        continue;
-      }
+    const group = sessionGroup.get(session.id);
+    if (group === undefined) {
+      entries.push({ kind: "session", session });
+      continue;
     }
-    entries.push({ kind: "session", session });
+    entries.push({
+      kind: "group",
+      groupId: group.groupId,
+      groupName: group.name,
+      memberCount: group.members.length,
+      members: group.members,
+    });
+    for (const m of group.members) emitted.add(m.id);
   }
   return entries;
 };

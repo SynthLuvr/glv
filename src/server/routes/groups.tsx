@@ -17,8 +17,8 @@ import { VIEWER_FILTER } from "../context.js";
 import { sidebarEntries } from "../render.js";
 import { activeSessionIds } from "../status.js";
 
-// Small inline form loaded into the session menu when "Move to group…" is
-// clicked.  Lists every existing group plus a "New group" starter.
+// Inline picker loaded into a session's group-menu slot; an empty groupId
+// means "New group".
 const GroupPicker = ({
   sessionId,
   groups,
@@ -53,8 +53,8 @@ const GroupPicker = ({
   </form>
 );
 
-// The groups sidecar is optional (tests may omit it); when absent no routes
-// are registered, so requests fall through to a 404.
+// The groups sidecar is optional; when absent no routes register, so requests
+// fall through to a 404.
 const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
   const groups = ctx.groups;
   if (groups === undefined) return;
@@ -70,13 +70,12 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  // Set of session ids currently visible in the sidebar (non-archived user
-  // sessions) — the threshold the governing rule uses.
+  // Session ids currently shown in the sidebar — the threshold the prune rule
+  // checks against.
   const visibleIds = (): Set<string> =>
     new Set(listSessions(ctx.db, VIEWER_FILTER).map((s) => s.id));
 
-  // Joins the session to an existing group, or creates a fresh one when
-  // groupId is empty (the "New group" menu option).
+  // Join an existing group, or create one when groupId is empty.
   app.post("/sessions/:id/group", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.parseBody();
@@ -93,9 +92,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     return renderList(c);
   });
 
-  // Removes a session from its group.  If the group's visible membership
-  // falls to ≤ 1 the group is dissolved entirely (survivor returns to the
-  // flat list, indistinguishable from ungrouped).
+  // Remove a session; the group dissolves if it drops to ≤ 1 visible member.
   app.post("/sessions/:id/ungroup", (c) => {
     const id = c.req.param("id");
     removeMember(groups, id);
@@ -103,9 +100,8 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     return renderList(c);
   });
 
-  // Groups the dragged session with another.  If the target is already in a
-  // group the dragged session joins it; otherwise a new group is created for
-  // both.
+  // Group two sessions.  If the target is already grouped the dragged session
+  // joins it, otherwise a new group is created for both.
   app.post("/sessions/:id/group-with", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.parseBody();
@@ -128,7 +124,6 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     return renderList(c);
   });
 
-  // Returns the inline picker loaded into the session's group-menu slot.
   app.get("/sessions/:id/group-picker", (c) => {
     const id = c.req.param("id");
     return c.html(<GroupPicker sessionId={id} groups={listGroups(groups)} />);
