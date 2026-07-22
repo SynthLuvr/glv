@@ -130,6 +130,11 @@ const PrChip = ({
       hx-trigger="load"
       hx-target={`#${stateId}`}
       hx-swap="outerHTML"
+      // hx-push-url is inherited from #session-list (set to "true" so sidebar
+      // clicks update the address bar). Without this override, the lazy
+      // load-triggered badge request overwrites the URL to …/pr-state?url=…,
+      // so a page refresh navigates to the raw badge HTML.
+      hx-push-url="false"
       {...errorHandler}
     >
       <svg
