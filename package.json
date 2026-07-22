@@ -37,6 +37,7 @@
     "@types/node": "^26.1.1",
     "convert-to-arrow": "^1.1.4",
     "esbuild": "^0.28.1",
+    "mock-a-bin": "github:levibostian/mock-a-bin",
     "npm-run-all2": "^9.0.2",
     "oxlint": "^1.74.0",
     "oxlint-tsgolint": "^0.25.0",
