@@ -2451,8 +2451,7 @@ describe("PR chip rendering", () => {
     expect(html).toContain("/sessions/prsess/pr-state");
     expect(html).toContain("pr-state-loading");
     expect(html).toContain("pr-dot-loading");
-    // The load-triggered badge request must never push its URL to the
-    // address bar; otherwise a refresh navigates to raw badge HTML.
+    // the lazy badge request must not push its URL into the address bar
     expect(html).toContain('hx-push-url="false"');
   });
 });
@@ -2797,8 +2796,7 @@ describe("sidebar meta endpoint GET /sessions/sidebar-meta", () => {
       expect(body).toContain("/sessions/prsess/pr-state");
       expect(body).toContain("#sb-pr-state-prsess");
       expect(body).toContain("pr-state-loading");
-      // Compact sidebar chips inherit #session-list's hx-push-url="true";
-      // the badge request must override it so the URL bar is untouched.
+      // overrides #session-list's inherited hx-push-url="true"
       expect(body).toContain('hx-push-url="false"');
       prDb.close();
     } finally {
