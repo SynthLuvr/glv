@@ -79,8 +79,20 @@ const TranscriptHeader = ({
   </header>
 );
 
-const SubmittedPrompt = ({ prompt }: { prompt: string }) => (
-  <article class="message prompt submitted-prompt">
+// `active` tags the single server-rendered prompt card shown above
+// #live-output so the live stream can remove it once it takes over prompt
+// display — preventing a duplicate once the stream replays started prompts.
+const SubmittedPrompt = ({
+  prompt,
+  active = false,
+}: {
+  prompt: string;
+  active?: boolean;
+}) => (
+  <article
+    class="message prompt submitted-prompt"
+    data-active-prompt={active || undefined}
+  >
     <div class="message-head">
       <span class="tag prompt">▸ PROMPT</span>
     </div>
@@ -239,16 +251,20 @@ const Transcript = ({
       data-run-status={run?.status}
     >
       <TranscriptHeader session={session} prUrl={prUrl} />
-      {isEmpty ? (
-        <p class="empty">This session has no messages.</p>
-      ) : (
-        <div id="messages">
-          {visible.map((entry) => (
-            <MessageView message={entry.message} index={entry.index} />
-          ))}
-        </div>
+      {/* #messages is always present so the live-tail stream can append to it
+        even for sessions that start with no renderable messages. The empty
+        placeholder is a sibling the client clears once content arrives. */}
+      <div id="messages">
+        {visible.map((entry) => (
+          <MessageView message={entry.message} index={entry.index} />
+        ))}
+      </div>
+      {isEmpty && (
+        <p id="no-messages" class="empty">
+          This session has no messages.
+        </p>
       )}
-      {prompt !== undefined && <SubmittedPrompt prompt={prompt} />}
+      {prompt !== undefined && <SubmittedPrompt prompt={prompt} active />}
       {isRunActive(run) && <div id="live-output" class="live-output"></div>}
       {run !== undefined && run.pendingPrompts.length > 0 && (
         <div id="queued-prompts" class="queued-prompts">

@@ -36,15 +36,27 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
       // Surface mid-run transitions (e.g. queued → running) so the client
       // isn't left on a stale status until the terminal re-render.
       let lastStatus = handle.status;
+      // queuePosition and pendingCount can shift independently of the status
+      // string (positions rewrite when a queued peer stops; a chained prompt
+      // advancing decrements the pending count while staying "running"), so
+      // re-emit whenever any of the three tracked fields changes.
+      let lastQueuePosition = handle.queuePosition;
+      let lastPendingCount = handle.pendingPrompts.length;
       // Emit a prompt card for each chained run as it starts — including any
       // that already started before this connection (replayed on first pass).
       let lastStartedCount = 0;
       let sent = 0;
       while (!isTerminalStatus(handle.status)) {
         if (stream.aborted) return;
-        if (handle.status !== lastStatus) {
+        if (
+          handle.status !== lastStatus ||
+          handle.queuePosition !== lastQueuePosition ||
+          handle.pendingPrompts.length !== lastPendingCount
+        ) {
           if (!(await emitStatus(stream, handle))) return;
           lastStatus = handle.status;
+          lastQueuePosition = handle.queuePosition;
+          lastPendingCount = handle.pendingPrompts.length;
         }
         while (lastStartedCount < handle.startedPrompts.length) {
           if (
@@ -88,8 +100,25 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     if (initial === undefined) return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
+      // Reconcile on every connection: emit the full current message set as a
+      // single "sync" event so an EventSource auto-reconnect never silently
+      // drops messages written during the disconnect gap. The client clears
+      // #messages before applying the sync, making this idempotent.
+      const baselineRows = listMessages(ctx.db, id);
+      if (
+        !(await emit(
+          stream,
+          "sync",
+          JSON.stringify(
+            baselineRows
+              .map((row, index) => renderMessage(parseMessage(row), index))
+              .filter((html) => html !== ""),
+          ),
+        ))
+      )
+        return;
       // Snapshot content_json to detect in-place edits, not just appends.
-      let snapshots = listMessages(ctx.db, id).map((row) => row.content_json);
+      let snapshots = baselineRows.map((row) => row.content_json);
       // Goose derives a real title for CLI-started sessions mid-run; track the
       // name so the transcript header can follow the rename.
       let lastName = initial.name;
@@ -143,6 +172,10 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         if (!changed) continue;
         if (!(await emitMeta(stream, session))) return;
       }
+      // A bounded poll loop exhausting its limit must signal completion so the
+      // client tears down its EventSource instead of auto-reconnecting into a
+      // fresh poll loop on every cycle (a reconnect storm).
+      await emit(stream, "done", "idle");
     });
   });
 };
