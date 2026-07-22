@@ -70,7 +70,7 @@ importers:
         specifier: ^0.28.1
         version: 0.28.1
       mock-a-bin:
-        specifier: github:levibostian/mock-a-bin
+        specifier: github:levibostian/mock-a-bin#1.1.0
         version: https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78
       npm-run-all2:
         specifier: ^9.0.2
