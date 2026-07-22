@@ -26,12 +26,14 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "pnpm build:assets && vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",
     "@ast-grep/cli-linux-x64-gnu": "^0.44.1",
     "@biomejs/biome": "^2.5.4",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/cli": "^4.3.3",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^26.1.1",
