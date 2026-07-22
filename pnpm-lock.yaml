@@ -69,6 +69,9 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      mock-a-bin:
+        specifier: github:levibostian/mock-a-bin#1.1.0
+        version: https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78
       npm-run-all2:
         specifier: ^9.0.2
         version: 9.0.2
@@ -1438,6 +1441,10 @@ packages:
   minimatch@10.2.5:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
+
+  mock-a-bin@https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78:
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78}
+    version: 0.0.0
 
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
@@ -2871,6 +2878,8 @@ snapshots:
   minimatch@10.2.5:
     dependencies:
       brace-expansion: 5.0.7
+
+  mock-a-bin@https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78: {}
 
   mri@1.2.0: {}
 
