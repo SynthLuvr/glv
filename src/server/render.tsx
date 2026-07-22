@@ -3,6 +3,9 @@ import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { SessionRow } from "../db.js";
 import { listSessions } from "../db.js";
+import { listGroups } from "../groups/db.js";
+import type { ListEntry } from "../groups/model.js";
+import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import { Layout } from "../views/Layout.js";
 import {
@@ -16,8 +19,21 @@ import { VIEWER_FILTER } from "./context.js";
 import { isHtmxRequest } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
+// Folds the goose session list and the viewer-owned group memberships into a
+// single ordered entry list.  When the groups sidecar is absent the list is
+// purely flat — identical to today's experience.
+const sidebarEntries = (
+  ctx: ServerContext,
+  sessions: SessionRow[],
+): ListEntry[] => {
+  if (ctx.groups === undefined)
+    return sessions.map((session) => ({ kind: "session", session }));
+  return buildEntries(sessions, listGroups(ctx.groups));
+};
+
 const Shell = ({
   sessions,
+  entries,
   selectedId,
   runningIds,
   logout = false,
@@ -25,6 +41,7 @@ const Shell = ({
   title,
 }: PropsWithChildren<{
   sessions: SessionRow[];
+  entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
   logout?: boolean;
@@ -34,6 +51,7 @@ const Shell = ({
     <div class="app">
       <Sidebar
         sessions={sessions}
+        entries={entries}
         selectedId={selectedId}
         runningIds={runningIds}
         logout={logout}
@@ -64,6 +82,7 @@ const render = (
     title?: string;
   } = {},
 ) => {
+  const entries = sidebarEntries(ctx, sessions);
   const runningIds = activeSessionIds(ctx.runner);
   const showLogout = ctx.auth !== undefined;
   return isHtmxRequest(c)
@@ -72,7 +91,7 @@ const render = (
           {detail}
           {refreshSidebar && (
             <SessionList
-              sessions={sessions}
+              entries={entries}
               selectedId={undefined}
               runningIds={runningIds}
               oob
@@ -84,6 +103,7 @@ const render = (
     : c.html(
         <Shell
           sessions={sessions}
+          entries={entries}
           selectedId={selectedId}
           runningIds={runningIds}
           logout={showLogout}
@@ -138,4 +158,4 @@ const newSessionDetail = (
   );
 };
 
-export { newSessionDetail, render, renderNotFound };
+export { newSessionDetail, render, renderNotFound, sidebarEntries };

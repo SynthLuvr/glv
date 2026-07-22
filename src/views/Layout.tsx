@@ -23,6 +23,7 @@ const Layout = ({ title, children }: LayoutProps) => (
       <script src="/assets/source-picker.js" defer></script>
       <script src="/assets/ui.js" defer></script>
       <script src="/assets/prompts.js" defer></script>
+      <script src="/assets/groups.js" defer></script>
     </head>
     <body>{children}</body>
   </html>

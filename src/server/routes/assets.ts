@@ -18,6 +18,7 @@ const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
     { path: "/assets/source-picker.js", body: a.sourcePicker },
     { path: "/assets/ui.js", body: a.ui },
     { path: "/assets/prompts.js", body: a.prompts },
+    { path: "/assets/groups.js", body: a.groups },
     { path: "/assets/passkey.js", body: a.passkey },
   ];
   for (const { path, body } of routes)

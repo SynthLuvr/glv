@@ -5,29 +5,79 @@ import {
   shortenHome,
   truncateMiddle,
 } from "../format/index.js";
-import { RenameWrap } from "./Rename.js";
+import type { ListEntry } from "../groups/model.js";
+import { icon, RenameWrap } from "./Rename.js";
 
 type SidebarProps = {
   sessions: SessionRow[];
+  entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
 };
+
+const SessionGroupMenu = ({
+  session,
+  inGroup,
+}: {
+  session: SessionRow;
+  inGroup: boolean;
+}) => (
+  <details class="session-group-menu">
+    <summary
+      class="session-group-menu-trigger"
+      aria-label={`Group actions for ${displayName(session.name)}`}
+      title="Group actions"
+    >
+      {icon([
+        <circle cx="12" cy="5" r="1.4" />,
+        <circle cx="12" cy="12" r="1.4" />,
+        <circle cx="12" cy="19" r="1.4" />,
+      ])}
+    </summary>
+    <div class="session-group-menu-popover">
+      <button
+        type="button"
+        class="session-group-menu-item"
+        hx-get={`/sessions/${session.id}/group-picker`}
+        hx-target={`#group-menu-slot-${session.id}`}
+        hx-swap="innerHTML"
+      >
+        Move to group…
+      </button>
+      {inGroup && (
+        <button
+          type="button"
+          class="session-group-menu-item"
+          hx-post={`/sessions/${session.id}/ungroup`}
+          hx-target="#session-list"
+          hx-swap="outerHTML"
+        >
+          Remove from group
+        </button>
+      )}
+    </div>
+    <div id={`group-menu-slot-${session.id}`} class="session-group-menu-slot" />
+  </details>
+);
 
 const SessionItem = ({
   session,
   selected,
   running,
+  inGroup = false,
 }: {
   session: SessionRow;
   selected: boolean;
   running: boolean;
+  inGroup?: boolean;
 }) => {
   const href = `/sessions/${session.id}`;
   return (
     <div
-      class={`session-item${selected ? " selected" : ""}`}
+      class={`session-item${selected ? " selected" : ""}${inGroup ? " in-group" : ""}`}
       data-session-id={session.id}
       data-running={running ? "" : undefined}
+      draggable="true"
     >
       <label class="session-check-wrap" title="Select for bulk actions">
         <input
@@ -61,10 +111,129 @@ const SessionItem = ({
           class="session-meta-tags"
         ></span>
       </div>
+      <SessionGroupMenu session={session} inGroup={inGroup} />
       <RenameWrap session={session} context="sidebar" target="#session-list" />
     </div>
   );
 };
+
+const GroupRenameWrap = ({
+  groupId,
+  name,
+  target,
+}: {
+  groupId: string;
+  name: string;
+  target: string;
+}) => (
+  <div class="rename-wrap is-sidebar group-rename-wrap">
+    <span class="rename-view">
+      <span class="group-name">{name}</span>
+      <button
+        type="button"
+        class="rename-pencil"
+        data-action="rename"
+        aria-label={`Rename ${name}`}
+        title="Rename group"
+      >
+        {icon([
+          <path d="M12 20h9" />,
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />,
+        ])}
+      </button>
+    </span>
+    <form
+      class="rename-form"
+      hx-post={`/groups/${groupId}/rename`}
+      hx-target={target}
+      hx-swap="outerHTML"
+    >
+      <input
+        class="rename-input"
+        name="name"
+        value={name}
+        data-original-name={name}
+        autocomplete="off"
+        aria-label="Group name"
+      />
+      <button
+        type="submit"
+        class="rename-confirm"
+        aria-label="Save name"
+        title="Save"
+      >
+        {icon(<path d="M20 6 9 17l-5-5" />)}
+      </button>
+      <button
+        type="button"
+        class="rename-cancel"
+        data-action="cancel-rename"
+        aria-label="Cancel rename"
+        title="Cancel"
+      >
+        {icon([<path d="M18 6 6 18" />, <path d="m6 6 12 12" />])}
+      </button>
+    </form>
+  </div>
+);
+
+const GroupHeader = ({
+  groupId,
+  groupName,
+  memberCount,
+  target,
+}: {
+  groupId: string;
+  groupName: string;
+  memberCount: number;
+  target: string;
+}) => (
+  <div class="group-header" data-group-id={groupId}>
+    <button
+      type="button"
+      class="group-toggle"
+      data-action="toggle-group"
+      data-group-id={groupId}
+      aria-expanded="true"
+      title="Collapse / expand"
+    >
+      {icon(<polyline points="6 9 12 15 18 9" />)}
+    </button>
+    <GroupRenameWrap groupId={groupId} name={groupName} target={target} />
+    <span class="group-count" title={`${memberCount} sessions`}>
+      {memberCount}
+    </span>
+  </div>
+);
+
+const GroupEntry = ({
+  entry,
+  selectedId,
+  runningIds,
+}: {
+  entry: Extract<ListEntry, { kind: "group" }>;
+  selectedId: string | undefined;
+  runningIds: Set<string>;
+}) => (
+  <div class="session-group" data-group-id={entry.groupId}>
+    <GroupHeader
+      groupId={entry.groupId}
+      groupName={entry.groupName}
+      memberCount={entry.memberCount}
+      target="#session-list"
+    />
+    <div class="group-members">
+      {entry.members.map((session) => (
+        <SessionItem
+          session={session}
+          selected={session.id === selectedId}
+          running={runningIds.has(session.id)}
+          inGroup
+        />
+      ))}
+    </div>
+  </div>
+);
 
 const BulkActionBar = () => (
   <div id="bulk-bar" class="bulk-bar" hidden={true}>
@@ -105,11 +274,16 @@ const BulkActionBar = () => (
 // Rendered as `<div id="session-list">` so it can be swapped out-of-band by
 // htmx (re-rendered with the new selection) without reloading the page.
 const SessionList = ({
-  sessions,
+  entries,
   selectedId,
   runningIds,
   oob = false,
-}: SidebarProps & { oob?: boolean }) => (
+}: {
+  entries: ListEntry[];
+  selectedId: string | undefined;
+  runningIds: Set<string>;
+  oob?: boolean;
+}) => (
   <div
     id="session-list"
     class="session-list"
@@ -124,20 +298,24 @@ const SessionList = ({
       hx-get="/sessions/sidebar-meta"
       hx-trigger="load"
       hx-swap="none"
-      // #session-list sets hx-push-url="true" so detail-pane swaps update the
-      // address bar; this loader is a child of it, so without an explicit
-      // override the OOB request on load would rewrite the URL to
-      // /sessions/sidebar-meta.
       hx-push-url="false"
       aria-hidden="true"
     ></div>
-    {sessions.map((session) => (
-      <SessionItem
-        session={session}
-        selected={session.id === selectedId}
-        running={runningIds.has(session.id)}
-      />
-    ))}
+    {entries.map((entry) =>
+      entry.kind === "session" ? (
+        <SessionItem
+          session={entry.session}
+          selected={entry.session.id === selectedId}
+          running={runningIds.has(entry.session.id)}
+        />
+      ) : (
+        <GroupEntry
+          entry={entry}
+          selectedId={selectedId}
+          runningIds={runningIds}
+        />
+      ),
+    )}
   </div>
 );
 
@@ -237,6 +415,7 @@ const LogoutButton = () => (
 
 const Sidebar = ({
   sessions,
+  entries,
   selectedId,
   runningIds,
   logout = false,
@@ -264,12 +443,13 @@ const Sidebar = ({
       </p>
     ) : (
       <SessionList
-        sessions={sessions}
+        entries={entries}
         selectedId={selectedId}
         runningIds={runningIds}
       />
     )}
     <script src="/assets/sidebar.js" defer></script>
+    <script src="/assets/groups.js" defer></script>
   </aside>
 );
 

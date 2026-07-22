@@ -17,6 +17,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerGithubRoutes } from "./routes/github.js";
+import { registerGroupRoutes } from "./routes/groups.js";
 import { registerPrRoutes } from "./routes/pr.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -34,6 +35,7 @@ const createApp = (
     gh: opts.gh ?? createGhClient(),
     auth: opts.auth,
     prompts: opts.prompts,
+    groups: opts.groups,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
     listDirs: opts.listDirs ?? listHomeDirs,
@@ -72,6 +74,7 @@ const createApp = (
   registerGithubRoutes(app, ctx);
   registerSidebarMetaRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
+  registerGroupRoutes(app, ctx);
   registerPrRoutes(app, ctx);
   registerGitRoutes(app, ctx);
   registerPromptRoutes(app, ctx);
