@@ -63,9 +63,8 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
         if (!(await emitNames(nameDeltas(lastNames, currentNames)))) return;
         lastNames = currentNames;
       }
-      // A bounded poll loop exhausting its limit must signal completion so the
-      // client tears down its EventSource instead of auto-reconnecting into a
-      // fresh poll loop on every cycle (a reconnect storm).
+      // Signal completion so the client tears down instead of auto-reconnecting
+      // into a fresh poll loop (a reconnect storm).
       await emit(stream, "done", "closed");
     }),
   );

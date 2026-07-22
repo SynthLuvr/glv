@@ -100,23 +100,13 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     if (initial === undefined) return c.text("Session not found", 404);
 
     return streamSSE(c, async (stream) => {
-      // Reconcile on every connection: emit the full current message set as a
-      // single "sync" event so an EventSource auto-reconnect never silently
-      // drops messages written during the disconnect gap. The client clears
-      // #messages before applying the sync, making this idempotent.
+      // Emit the full message set as a "sync" so a reconnect never drops
+      // messages written during the disconnect gap; the client clears first.
       const baselineRows = listMessages(ctx.db, id);
-      if (
-        !(await emit(
-          stream,
-          "sync",
-          JSON.stringify(
-            baselineRows
-              .map((row, index) => renderMessage(parseMessage(row), index))
-              .filter((html) => html !== ""),
-          ),
-        ))
-      )
-        return;
+      const baselineHtml = baselineRows
+        .map((row, index) => renderMessage(parseMessage(row), index))
+        .filter((html) => html !== "");
+      if (!(await emit(stream, "sync", JSON.stringify(baselineHtml)))) return;
       // Snapshot content_json to detect in-place edits, not just appends.
       let snapshots = baselineRows.map((row) => row.content_json);
       // Goose derives a real title for CLI-started sessions mid-run; track the
@@ -172,9 +162,8 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         if (!changed) continue;
         if (!(await emitMeta(stream, session))) return;
       }
-      // A bounded poll loop exhausting its limit must signal completion so the
-      // client tears down its EventSource instead of auto-reconnecting into a
-      // fresh poll loop on every cycle (a reconnect storm).
+      // Signal completion so the client tears down instead of auto-reconnecting
+      // into a fresh poll loop (a reconnect storm).
       await emit(stream, "done", "idle");
     });
   });

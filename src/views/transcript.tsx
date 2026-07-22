@@ -79,9 +79,8 @@ const TranscriptHeader = ({
   </header>
 );
 
-// `active` tags the single server-rendered prompt card shown above
-// #live-output so the live stream can remove it once it takes over prompt
-// display — preventing a duplicate once the stream replays started prompts.
+// Tags the server-rendered prompt card so the live stream can remove it once
+// it replays started prompts, preventing a duplicate.
 const SubmittedPrompt = ({
   prompt,
   active = false,
@@ -251,9 +250,8 @@ const Transcript = ({
       data-run-status={run?.status}
     >
       <TranscriptHeader session={session} prUrl={prUrl} />
-      {/* #messages is always present so the live-tail stream can append to it
-        even for sessions that start with no renderable messages. The empty
-        placeholder is a sibling the client clears once content arrives. */}
+      {/* Always present so the tail stream can append; the empty placeholder
+        is a sibling the client clears once content arrives. */}
       <div id="messages">
         {visible.map((entry) => (
           <MessageView message={entry.message} index={entry.index} />

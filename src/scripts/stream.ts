@@ -8,8 +8,7 @@ declare const htmx: {
 
 let activeSource: EventSource | null = null;
 
-// A follow-up prompt the user was typing when a run completed; preserved
-// across the run-completion detail-pane swap so it isn't silently destroyed.
+// A follow-up draft typed mid-run; preserved across the done-triggered re-render.
 let pendingDraft: string | undefined;
 
 const teardown = (): void => {
@@ -136,8 +135,8 @@ const insertMessageInOrder = (
   container.insertAdjacentHTML("beforeend", html);
 };
 
-// The "no messages" placeholder is a sibling of #messages; clear it once the
-// tail stream delivers real content so it doesn't linger above new messages.
+// #no-messages is a sibling of #messages, so it survives appends; remove it
+// once real content arrives.
 const removeEmptyState = (): void => {
   document.getElementById("no-messages")?.remove();
 };
@@ -163,6 +162,17 @@ const applyReplace = (messages: Element | null, data: string): void => {
     insertMessageInOrder(messages, parsed.index, parsed.html);
     removeEmptyState();
   }
+};
+
+const applyMessageSync = (messages: Element, data: string): void => {
+  const entries: unknown = JSON.parse(data);
+  if (!Array.isArray(entries)) return;
+  messages.innerHTML = "";
+  for (const html of entries)
+    if (typeof html === "string")
+      messages.insertAdjacentHTML("beforeend", html);
+  if (messages.querySelector(".message") !== null) removeEmptyState();
+  if (nearBottom()) scrollToBottom();
 };
 
 const applyRename = (data: string): void => {
@@ -193,6 +203,7 @@ type StreamStatus = {
   status: string;
   queuePosition?: number;
   pendingCount?: number;
+  startedCount?: number;
   error?: string | null;
 };
 
@@ -213,8 +224,7 @@ const updateStatusHint = (data: StreamStatus): void => {
     hint.className = "status-hint error";
     hint.textContent = data.error;
   } else if (data.status === "completed" || data.status === "stopped") {
-    // A terminal status clears the "Running…" hint immediately rather than
-    // leaving it stale until the done-triggered re-render lands.
+    // Clear immediately so the hint doesn't stay stale until the re-render.
     hint.className = "status-hint";
     hint.textContent = "";
   }
@@ -229,12 +239,23 @@ const dismissQueuedCard = (): void => {
     container.remove();
 };
 
+const captureDraft = (): void => {
+  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null && textarea.value !== "") pendingDraft = textarea.value;
+};
+
+const restoreDraft = (): void => {
+  if (pendingDraft === undefined) return;
+  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null) textarea.value = pendingDraft;
+  pendingDraft = undefined;
+};
+
 const connectRunner = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const output = root.querySelector("#live-output");
-  // Number of prompts that had already started when this connection opened;
-  // the first that many "prompt" events are replays (for labelling output)
-  // and must not dismiss a queued-prompt card.
+  // Prompts that started before connecting; the first that many "prompt"
+  // events are replays and must not dismiss a queued-prompt card.
   let baselineStarted = 0;
   let promptCount = 0;
   let statusInitialized = false;
@@ -244,8 +265,8 @@ const connectRunner = (root: Element): void => {
   // Server replays all accumulated lines on reconnect; clear to avoid duplicates.
   activeSource.addEventListener("open", () => {
     if (output !== null) output.innerHTML = "";
-    // The server-rendered active prompt card duplicates the stream's replay of
-    // started prompts inside #live-output; drop it so the prompt isn't shown twice.
+    // Remove the server-rendered prompt card — the stream replays started
+    // prompts into #live-output, so leaving it would duplicate the prompt.
     document.querySelector("[data-active-prompt]")?.remove();
   });
 
@@ -269,8 +290,7 @@ const connectRunner = (root: Element): void => {
     if (html === "" || output === null) return;
     output.insertAdjacentHTML("beforeend", html);
     promptCount++;
-    // Only a genuine queued→running transition dismisses a queued card;
-    // replays of prompts already started before connecting must not.
+    // Only a genuine queued→running transition (not a replay) dismisses a card.
     if (promptCount > baselineStarted) dismissQueuedCard();
     if (nearBottom()) scrollToBottom();
   });
@@ -286,12 +306,7 @@ const connectRunner = (root: Element): void => {
 
   activeSource.addEventListener("done", () => {
     teardown();
-    // Preserve any unsent follow-up text across the full-pane re-render so a
-    // run completing mid-typing doesn't silently destroy the user's draft.
-    const textarea =
-      document.querySelector<HTMLTextAreaElement>(".prompt-input");
-    if (textarea !== null && textarea.value !== "")
-      pendingDraft = textarea.value;
+    captureDraft();
     if (typeof htmx !== "undefined")
       htmx.ajax("GET", `/sessions/${sessionId}?sidebar=1`, {
         target: "#detail-pane",
@@ -308,21 +323,13 @@ const connectTail = (root: Element): void => {
 
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
-  // The server emits the full current message set on every (re)connect so
-  // messages written during a disconnect gap are never lost. Clear and
-  // re-render to make this idempotent across reconnects.
+  // Reconcile the full message set on (re)connect so messages written during
+  // a disconnect gap aren't lost; clearing first makes this idempotent.
   activeSource.addEventListener("sync", (e) => {
     if (!(e instanceof MessageEvent)) return;
     if (messages === null) return;
     try {
-      const entries: unknown = JSON.parse(e.data);
-      if (!Array.isArray(entries)) return;
-      messages.innerHTML = "";
-      for (const html of entries)
-        if (typeof html === "string")
-          messages.insertAdjacentHTML("beforeend", html);
-      if (messages.querySelector(".message") !== null) removeEmptyState();
-      if (nearBottom()) scrollToBottom();
+      applyMessageSync(messages, e.data);
     } catch {
       /* ignore malformed sync payloads */
     }
@@ -387,14 +394,7 @@ const init = (): void => {
   restoreScroll();
   if (status === "queued" || status === "running") connectRunner(root);
   else connectTail(root);
-  // Restore a follow-up draft clobbered by the run-completion detail-pane swap
-  // (the "done" handler captured it before triggering the re-render).
-  if (pendingDraft !== undefined) {
-    const textarea =
-      document.querySelector<HTMLTextAreaElement>(".prompt-input");
-    if (textarea !== null) textarea.value = pendingDraft;
-    pendingDraft = undefined;
-  }
+  restoreDraft();
 };
 
 document.addEventListener("DOMContentLoaded", init);
