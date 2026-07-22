@@ -130,6 +130,9 @@ const PrChip = ({
       hx-trigger="load"
       hx-target={`#${stateId}`}
       hx-swap="outerHTML"
+      // Override #session-list's inherited hx-push-url="true"; the lazy
+      // badge request must not pollute the URL bar on refresh.
+      hx-push-url="false"
       {...errorHandler}
     >
       <svg
