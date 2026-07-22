@@ -921,6 +921,14 @@ describe("prompt bar in transcript", () => {
     expect(html).toContain("This session has no messages.");
     expect(html).toContain('class="prompt-bar"');
   });
+
+  it("always renders a #messages container so the tail stream can append", async () => {
+    const { html } = await renderSession("beta");
+    // beta has no messages: #messages must still exist (empty) so the live-tail
+    // stream has a target to append into, rather than silently dropping events.
+    expect(html).toContain('id="messages"');
+    expect(html).toContain('id="no-messages"');
+  });
 });
 
 describe("POST /sessions/:id/prompt", () => {
@@ -935,6 +943,17 @@ describe("POST /sessions/:id/prompt", () => {
     expect(html).toContain("queue-btn");
     expect(html).toContain("Stop");
     expect(html).not.toContain(">Send<");
+  });
+
+  it("tags the active prompt card so the stream can reconcile duplicates", async () => {
+    const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
+    const app = makeApp(spawn);
+    const { html } = await postForm(app, "/sessions/alpha/prompt", {
+      prompt: "hello goose",
+    });
+    // The server-rendered active prompt carries a marker the live stream removes
+    // once it takes over prompt display — preventing a duplicate on connect.
+    expect(html).toContain("data-active-prompt");
   });
 
   it("pipes the prompt via stdin to goose in the session working dir", async () => {
@@ -1216,6 +1235,36 @@ describe("GET /sessions/:id/stream (SSE)", () => {
     expect(firstA).toBeGreaterThanOrEqual(0);
     expect(firstB).toBeGreaterThan(firstA);
     expect(secondA).toBeGreaterThan(firstB);
+  });
+
+  it("includes startedCount in status events for replay reconciliation", async () => {
+    const { spawn } = createMockSpawn(["line1"], { delayMs: 50 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    // startedCount lets the client tell replayed prompt cards apart from new
+    // transitions, so only the latter dismiss a queued-prompt card.
+    expect(text).toContain("startedCount");
+  });
+
+  it("re-emits status when pendingCount changes during a chained run", async () => {
+    const { spawn } = createMockSpawn(["a"], { delayMs: 150 });
+    const app = makeApp(spawn);
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
+    await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
+
+    const res = await app.request("/sessions/alpha/stream");
+    const text = await res.text();
+
+    // The second prompt starts chained: pendingCount drops 1 → 0 while status
+    // stays "running". The status must be re-emitted on the count change so the
+    // hint doesn't stay stale at "1 prompt queued next". (startedCount reaches
+    // 1 — only chained prompts are tracked, not the original.)
+    expect(text).toContain('"pendingCount":0,"startedCount":1');
   });
 });
 
@@ -1588,8 +1637,14 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     expect(text).toContain("event: append");
     expect(text).toContain("tail-update");
     expect(text).toContain("OUTPUT");
-    // baseline rows are already in the DOM and must not be re-sent
-    expect(text).not.toContain("What is goose?");
+    // The full baseline is reconciled once via a "sync" event on connect (so a
+    // reconnect never drops messages written in the gap)…
+    expect(text).toContain("event: sync");
+    expect(text).toContain("What is goose?");
+    // …but only the newly appended row is sent as an "append" delta — the four
+    // baseline rows must not also fire as redundant append events.
+    expect(text.match(/event: append/g)).toHaveLength(1);
+    expect(text).toContain("tail-update");
   });
 
   it("re-emits a message whose content was updated in place", async () => {
@@ -1694,6 +1749,31 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     // on an empty result set forever.
     expect(text).toContain("event: done");
     expect(text).toContain("deleted");
+  });
+
+  it("emits a sync event with the full baseline on connect", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 1,
+    });
+    const res = await app.request("/sessions/alpha/tail");
+    const text = await res.text();
+    // Reconciliation on every connect so an auto-reconnect never drops
+    // messages written during the disconnect gap.
+    expect(text).toContain("event: sync");
+    expect(text).toContain("What is goose?");
+  });
+
+  it("emits a done event when the bounded poll loop exhausts", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      tailPollMs: 15,
+      maxTailPolls: 2,
+    });
+    const res = await app.request("/sessions/alpha/tail");
+    const text = await res.text();
+    // A finite poll bound must signal completion so the client tears down its
+    // EventSource instead of auto-reconnecting into a fresh poll loop.
+    expect(text).toContain("event: done");
   });
 });
 
@@ -2355,6 +2435,18 @@ describe("GET /events/status (SSE)", () => {
         "alpha",
       );
     }
+  });
+
+  it("emits a done event when the bounded poll loop exhausts", async () => {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
+      statusPollMs: 15,
+      maxStatusPolls: 2,
+    });
+    const res = await app.request("/events/status");
+    const text = await res.text();
+    // A finite poll bound must signal completion so the sidebar client closes
+    // its EventSource and reconnects with backoff, not a tight reconnect storm.
+    expect(text).toContain("event: done");
   });
 });
 

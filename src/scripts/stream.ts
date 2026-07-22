@@ -8,6 +8,9 @@ declare const htmx: {
 
 let activeSource: EventSource | null = null;
 
+// A follow-up draft typed mid-run; preserved across the done-triggered re-render.
+let pendingDraft: string | undefined;
+
 const teardown = (): void => {
   if (activeSource !== null) {
     activeSource.close();
@@ -132,6 +135,12 @@ const insertMessageInOrder = (
   container.insertAdjacentHTML("beforeend", html);
 };
 
+// #no-messages is a sibling of #messages, so it survives appends; remove it
+// once real content arrives.
+const removeEmptyState = (): void => {
+  document.getElementById("no-messages")?.remove();
+};
+
 type ReplacePayload = { index: number; html: string };
 
 const isReplacePayload = (value: unknown): value is ReplacePayload =>
@@ -149,7 +158,21 @@ const applyReplace = (messages: Element | null, data: string): void => {
   if (parsed.html === "") return;
   const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
   if (existing !== null) existing.outerHTML = parsed.html;
-  else insertMessageInOrder(messages, parsed.index, parsed.html);
+  else {
+    insertMessageInOrder(messages, parsed.index, parsed.html);
+    removeEmptyState();
+  }
+};
+
+const applyMessageSync = (messages: Element, data: string): void => {
+  const entries: unknown = JSON.parse(data);
+  if (!Array.isArray(entries)) return;
+  messages.innerHTML = "";
+  for (const html of entries)
+    if (typeof html === "string")
+      messages.insertAdjacentHTML("beforeend", html);
+  if (messages.querySelector(".message") !== null) removeEmptyState();
+  if (nearBottom()) scrollToBottom();
 };
 
 const applyRename = (data: string): void => {
@@ -180,6 +203,7 @@ type StreamStatus = {
   status: string;
   queuePosition?: number;
   pendingCount?: number;
+  startedCount?: number;
   error?: string | null;
 };
 
@@ -199,6 +223,10 @@ const updateStatusHint = (data: StreamStatus): void => {
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;
+  } else if (data.status === "completed" || data.status === "stopped") {
+    // Clear immediately so the hint doesn't stay stale until the re-render.
+    hint.className = "status-hint";
+    hint.textContent = "";
   }
 };
 
@@ -211,21 +239,46 @@ const dismissQueuedCard = (): void => {
     container.remove();
 };
 
+const captureDraft = (): void => {
+  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null && textarea.value !== "") pendingDraft = textarea.value;
+};
+
+const restoreDraft = (): void => {
+  if (pendingDraft === undefined) return;
+  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null) textarea.value = pendingDraft;
+  pendingDraft = undefined;
+};
+
 const connectRunner = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const output = root.querySelector("#live-output");
+  // Prompts that started before connecting; the first that many "prompt"
+  // events are replays and must not dismiss a queued-prompt card.
+  let baselineStarted = 0;
+  let promptCount = 0;
+  let statusInitialized = false;
 
   activeSource = new EventSource(`/sessions/${sessionId}/stream`);
 
   // Server replays all accumulated lines on reconnect; clear to avoid duplicates.
   activeSource.addEventListener("open", () => {
     if (output !== null) output.innerHTML = "";
+    // Remove the server-rendered prompt card — the stream replays started
+    // prompts into #live-output, so leaving it would duplicate the prompt.
+    document.querySelector("[data-active-prompt]")?.remove();
   });
 
   activeSource.addEventListener("status", (e) => {
     if (!(e instanceof MessageEvent)) return;
     try {
-      updateStatusHint(JSON.parse(e.data));
+      const data = JSON.parse(e.data);
+      updateStatusHint(data);
+      if (!statusInitialized) {
+        baselineStarted = data.startedCount ?? 0;
+        statusInitialized = true;
+      }
     } catch {
       /* ignore malformed status payloads */
     }
@@ -236,8 +289,10 @@ const connectRunner = (root: Element): void => {
     const html = e.data;
     if (html === "" || output === null) return;
     output.insertAdjacentHTML("beforeend", html);
-    dismissQueuedCard();
-    scrollToBottom();
+    promptCount++;
+    // Only a genuine queued→running transition (not a replay) dismisses a card.
+    if (promptCount > baselineStarted) dismissQueuedCard();
+    if (nearBottom()) scrollToBottom();
   });
 
   activeSource.addEventListener("line", (e) => {
@@ -245,12 +300,13 @@ const connectRunner = (root: Element): void => {
     const line = e.data;
     if (line !== "" && output !== null) {
       output.insertAdjacentHTML("beforeend", line);
-      scrollToBottom();
+      if (nearBottom()) scrollToBottom();
     }
   });
 
   activeSource.addEventListener("done", () => {
     teardown();
+    captureDraft();
     if (typeof htmx !== "undefined")
       htmx.ajax("GET", `/sessions/${sessionId}?sidebar=1`, {
         target: "#detail-pane",
@@ -267,10 +323,23 @@ const connectTail = (root: Element): void => {
 
   activeSource = new EventSource(`/sessions/${sessionId}/tail`);
 
+  // Reconcile the full message set on (re)connect so messages written during
+  // a disconnect gap aren't lost; clearing first makes this idempotent.
+  activeSource.addEventListener("sync", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    if (messages === null) return;
+    try {
+      applyMessageSync(messages, e.data);
+    } catch {
+      /* ignore malformed sync payloads */
+    }
+  });
+
   activeSource.addEventListener("append", (e) => {
     if (!(e instanceof MessageEvent)) return;
     const html = e.data;
     if (html !== "" && messages !== null) {
+      removeEmptyState();
       messages.insertAdjacentHTML("beforeend", html);
       if (nearBottom()) scrollToBottom();
     }
@@ -325,6 +394,7 @@ const init = (): void => {
   restoreScroll();
   if (status === "queued" || status === "running") connectRunner(root);
   else connectTail(root);
+  restoreDraft();
 };
 
 document.addEventListener("DOMContentLoaded", init);

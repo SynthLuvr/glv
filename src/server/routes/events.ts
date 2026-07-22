@@ -63,6 +63,9 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
         if (!(await emitNames(nameDeltas(lastNames, currentNames)))) return;
         lastNames = currentNames;
       }
+      // Signal completion so the client tears down instead of auto-reconnecting
+      // into a fresh poll loop (a reconnect storm).
+      await emit(stream, "done", "closed");
     }),
   );
 };

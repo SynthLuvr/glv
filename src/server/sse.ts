@@ -55,6 +55,8 @@ const flushMessages = async (
   return true;
 };
 
+// Lets the client distinguish replayed (pre-connect) prompt events from
+// genuine queued→running transitions, so only the latter dismiss a card.
 const emitStatus = async (
   stream: SSEStreamingApi,
   handle: RunHandle,
@@ -66,6 +68,7 @@ const emitStatus = async (
       status: handle.status,
       queuePosition: handle.queuePosition,
       pendingCount: handle.pendingPrompts.length,
+      startedCount: handle.startedPrompts.length,
     }),
   );
 

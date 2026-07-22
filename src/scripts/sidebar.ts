@@ -200,6 +200,15 @@ const connectStatusFeed = (): void => {
     if (!(e instanceof MessageEvent)) return;
     onRenameEvent(e.data);
   });
+  // The poll loop emits "done" when it exhausts; close the EventSource and
+  // reconnect with backoff instead of spinning into a reconnect storm.
+  statusSource.addEventListener("done", () => {
+    if (statusSource !== null) {
+      statusSource.close();
+      statusSource = null;
+    }
+    scheduleReconnect();
+  });
   // EventSource auto-reconnects on transient failures, so only act on a
   // permanent close.
   statusSource.addEventListener("error", () => {
