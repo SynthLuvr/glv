@@ -1,169 +1,278 @@
 import { type Hono } from "hono";
-import { streamSSE } from "hono/streaming";
+import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { getSession, listMessages } from "../../db.js";
-import { parseMessage } from "../../format/index.js";
+import { type ParsedMessage, parseMessage } from "../../format/index.js";
 import { getHandle, isTerminalStatus } from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
-import {
-  emit,
-  emitMeta,
-  emitStatus,
-  flushLines,
-  flushMessages,
-} from "../sse.js";
+import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
+
+type MessageDelta = { index: number; html: string };
+
+// Mutable state threaded across poll iterations: snapshots detect in-place
+// message edits; the rest track deltas so only changes are emitted.
+type PollState = {
+  snapshots: string[];
+  msgCursor: number;
+  lastName: string;
+  lastUpdated: string;
+  previewCleared: boolean;
+  lastStatus: string | undefined;
+  lastQueuePosition: number | undefined;
+  lastPendingCount: number | undefined;
+  lastStartedCount: number;
+  sentLineOffset: number;
+  flushedTerminal: boolean;
+};
+
+// Resume cursor: Last-Event-ID (auto-sent by EventSource on reconnect) takes
+// precedence over the ?cursor= query from the initial connect.
+const resumeCursor = (headerId: string, query?: string): number => {
+  if (/^\d+$/.test(headerId)) return Number(headerId);
+  if (query !== undefined && /^\d+$/.test(query)) return Number(query);
+  return 0;
+};
+
+const renderCatchup = (
+  messages: ParsedMessage[],
+  cursor: number,
+): MessageDelta[] => {
+  const deltas: MessageDelta[] = [];
+  for (let i = cursor; i < messages.length; i++) {
+    const html = renderMessage(messages[i], i);
+    if (html !== "") deltas.push({ index: i, html });
+  }
+  return deltas;
+};
+
+// Emits DB deltas — new messages, in-place edits, renames, and the meta chip.
+// Returns false once the stream should stop (client gone or session deleted);
+// the deleted case signals the client to close its EventSource.
+const pollDb = async (
+  stream: SSEStreamingApi,
+  ctx: ServerContext,
+  id: string,
+  state: PollState,
+): Promise<boolean> => {
+  const session = getSession(ctx.db, id);
+  if (session === undefined) {
+    await emit(
+      stream,
+      "status",
+      JSON.stringify({ status: "deleted" }),
+      state.msgCursor,
+    );
+    return false;
+  }
+
+  const rows = listMessages(ctx.db, id);
+  const messages = rows.map(parseMessage);
+  let metaChanged = false;
+  state.previewCleared = false;
+
+  // New rows supersede the transient preview: append, then clear it.
+  if (rows.length > state.snapshots.length) {
+    for (let i = state.snapshots.length; i < messages.length; i++) {
+      const html = renderMessage(messages[i], i);
+      if (
+        html !== "" &&
+        !(await emit(
+          stream,
+          "append",
+          JSON.stringify({ index: i, html }),
+          i + 1,
+        ))
+      )
+        return false;
+    }
+    state.msgCursor = rows.length;
+    state.previewCleared = true;
+    if (!(await emit(stream, "preview-clear", "", state.msgCursor)))
+      return false;
+  }
+
+  // In-place content edits.
+  const common = Math.min(state.snapshots.length, rows.length);
+  for (let i = 0; i < common; i++) {
+    if (rows[i].content_json === state.snapshots[i]) continue;
+    const html = renderMessage(messages[i], i);
+    if (
+      html !== "" &&
+      !(await emit(
+        stream,
+        "replace",
+        JSON.stringify({ index: i, html }),
+        state.msgCursor,
+      ))
+    )
+      return false;
+    metaChanged = true;
+  }
+  state.snapshots = rows.map((row) => row.content_json);
+
+  // Goose derives a real title mid-run; follow the rename.
+  if (session.name !== state.lastName) {
+    state.lastName = session.name;
+    if (
+      !(await emit(
+        stream,
+        "rename",
+        JSON.stringify({ name: session.name }),
+        state.msgCursor,
+      ))
+    )
+      return false;
+  }
+
+  if (session.updated_at !== state.lastUpdated) {
+    state.lastUpdated = session.updated_at;
+    metaChanged = true;
+  }
+  if (metaChanged && !(await emitMeta(stream, session, state.msgCursor)))
+    return false;
+
+  return true;
+};
+
+// Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
+// preview lines. Returns false once the stream should stop.
+const pollRunner = async (
+  stream: SSEStreamingApi,
+  ctx: ServerContext,
+  id: string,
+  state: PollState,
+): Promise<boolean> => {
+  const h = getHandle(ctx.runner, id);
+  if (h === undefined) return true;
+
+  // A DB catch-up just cleared the preview; rebase past any buffered lines
+  // that belong to the now-committed message (they'd duplicate #messages).
+  // drain is a snapshot, so we only borrow its nextSeq.
+  if (state.previewCleared)
+    state.sentLineOffset = h.output.drain(state.sentLineOffset).nextSeq;
+
+  if (
+    h.status !== state.lastStatus ||
+    h.queuePosition !== state.lastQueuePosition ||
+    h.pendingPrompts.length !== state.lastPendingCount
+  ) {
+    if (!(await emitStatus(stream, h, state.msgCursor))) return false;
+    state.lastStatus = h.status;
+    state.lastQueuePosition = h.queuePosition;
+    state.lastPendingCount = h.pendingPrompts.length;
+  }
+
+  // Chained prompts starting (genuine transitions only).
+  while (state.lastStartedCount < h.startedPrompts.length) {
+    const cardHtml = renderPromptCard(h.startedPrompts[state.lastStartedCount]);
+    if (!(await emit(stream, "prompt", cardHtml, state.msgCursor)))
+      return false;
+    state.lastStartedCount++;
+  }
+
+  // Flush new preview lines. Active runs flush incrementally; the first
+  // terminal detection does one final flush so lines produced just before
+  // process exit aren't lost.
+  if (!isTerminalStatus(h.status) || !state.flushedTerminal) {
+    const next = await flushPreview(
+      stream,
+      h.output,
+      state.sentLineOffset,
+      state.msgCursor,
+    );
+    if (next === false) return false;
+    state.sentLineOffset = next;
+    if (isTerminalStatus(h.status)) state.flushedTerminal = true;
+  }
+
+  return true;
+};
 
 const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
-  app.get("/sessions/:id/stream", (c) => {
-    const id = c.req.param("id");
-    if (getSession(ctx.db, id) === undefined)
-      return c.text("Session not found", 404);
-
-    return streamSSE(c, async (stream) => {
-      const handle = getHandle(ctx.runner, id);
-
-      // Idle or terminal: flush catch-up output, then close.
-      if (handle === undefined || isTerminalStatus(handle.status)) {
-        if (handle !== undefined)
-          if ((await flushLines(stream, handle.output, 0)) === false) return;
-        await emit(stream, "done", handle?.status ?? "idle");
-        return;
-      }
-
-      if (!(await emitStatus(stream, handle))) return;
-
-      // Surface mid-run transitions (e.g. queued → running) so the client
-      // isn't left on a stale status until the terminal re-render.
-      let lastStatus = handle.status;
-      // queuePosition and pendingCount can shift independently of the status
-      // string (positions rewrite when a queued peer stops; a chained prompt
-      // advancing decrements the pending count while staying "running"), so
-      // re-emit whenever any of the three tracked fields changes.
-      let lastQueuePosition = handle.queuePosition;
-      let lastPendingCount = handle.pendingPrompts.length;
-      // Emit a prompt card for each chained run as it starts — including any
-      // that already started before this connection (replayed on first pass).
-      let lastStartedCount = 0;
-      let sent = 0;
-      while (!isTerminalStatus(handle.status)) {
-        if (stream.aborted) return;
-        if (
-          handle.status !== lastStatus ||
-          handle.queuePosition !== lastQueuePosition ||
-          handle.pendingPrompts.length !== lastPendingCount
-        ) {
-          if (!(await emitStatus(stream, handle))) return;
-          lastStatus = handle.status;
-          lastQueuePosition = handle.queuePosition;
-          lastPendingCount = handle.pendingPrompts.length;
-        }
-        while (lastStartedCount < handle.startedPrompts.length) {
-          if (
-            !(await emit(
-              stream,
-              "prompt",
-              renderPromptCard(handle.startedPrompts[lastStartedCount]),
-            ))
-          )
-            return;
-          lastStartedCount++;
-        }
-        const next = await flushLines(stream, handle.output, sent);
-        if (next === false) return;
-        sent = next;
-        await stream.sleep(50);
-      }
-
-      const tail = await flushLines(stream, handle.output, sent);
-      if (tail === false) return;
-      await emit(
-        stream,
-        "status",
-        JSON.stringify({
-          status: handle.status,
-          error: handle.error ?? null,
-          pendingCount: handle.pendingPrompts.length,
-        }),
-      );
-      await emit(stream, "done", handle.status);
-    });
-  });
-
-  // Polls the shared database for messages appended or updated by any writer
-  // (terminal, desktop, another CLI). Streams only deltas. Used only for
-  // sessions the web app isn't actively running.
-  app.get("/sessions/:id/tail", (c) => {
+  // Unified session event stream. The DB is the source of truth for committed
+  // messages; in-memory NDJSON lines are a transient preview shown below the
+  // transcript while a run is active. The stream never closes itself — it
+  // shifts from active polling (50 ms) to idle polling (tailPollMs) and stays
+  // open until the client disconnects.
+  app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
     const initial = getSession(ctx.db, id);
     if (initial === undefined) return c.text("Session not found", 404);
 
+    const cursor = resumeCursor(
+      c.req.header("last-event-id") ?? "",
+      c.req.query("cursor"),
+    );
+
     return streamSSE(c, async (stream) => {
-      // Emit the full message set as a "sync" so a reconnect never drops
-      // messages written during the disconnect gap; the client clears first.
       const baselineRows = listMessages(ctx.db, id);
-      const baselineHtml = baselineRows
-        .map((row, index) => renderMessage(parseMessage(row), index))
-        .filter((html) => html !== "");
-      if (!(await emit(stream, "sync", JSON.stringify(baselineHtml)))) return;
-      // Snapshot content_json to detect in-place edits, not just appends.
-      let snapshots = baselineRows.map((row) => row.content_json);
-      // Goose derives a real title for CLI-started sessions mid-run; track the
-      // name so the transcript header can follow the rename.
-      let lastName = initial.name;
+      const state: PollState = {
+        snapshots: baselineRows.map((row) => row.content_json),
+        msgCursor: baselineRows.length,
+        lastName: initial.name,
+        lastUpdated: initial.updated_at,
+        previewCleared: false,
+        lastStatus: undefined,
+        lastQueuePosition: undefined,
+        lastPendingCount: undefined,
+        lastStartedCount: 0,
+        sentLineOffset: 0,
+        flushedTerminal: false,
+      };
+
+      const catchup = renderCatchup(baselineRows.map(parseMessage), cursor);
+      if (
+        !(await emit(
+          stream,
+          "messages",
+          JSON.stringify({ entries: catchup, cursor: state.msgCursor }),
+          state.msgCursor,
+        ))
+      )
+        return;
+
+      const handle = getHandle(ctx.runner, id);
+      const active = handle !== undefined && !isTerminalStatus(handle.status);
+
+      if (handle !== undefined) {
+        if (!(await emitStatus(stream, handle, state.msgCursor))) return;
+        state.lastStatus = handle.status;
+        state.lastQueuePosition = handle.queuePosition;
+        state.lastPendingCount = handle.pendingPrompts.length;
+        state.lastStartedCount = handle.startedPrompts.length;
+      } else if (
+        !(await emit(
+          stream,
+          "status",
+          JSON.stringify({ status: "idle" }),
+          state.msgCursor,
+        ))
+      )
+        return;
+
+      if (active && handle !== undefined) {
+        const next = await flushPreview(
+          stream,
+          handle.output,
+          0,
+          state.msgCursor,
+        );
+        if (next === false) return;
+        state.sentLineOffset = next;
+      }
+
       let polls = 0;
       while (!stream.aborted && polls < ctx.maxTailPolls) {
-        polls++;
-        await stream.sleep(ctx.tailPollMs);
+        const probe = getHandle(ctx.runner, id);
+        const probeActive =
+          probe !== undefined && !isTerminalStatus(probe.status);
+        await stream.sleep(probeActive ? 50 : ctx.tailPollMs);
         if (stream.aborted) return;
-
-        // A session deleted mid-connection leaves no terminal signal:
-        // listMessages returns [], deltas flatten to nothing, and the loop
-        // would spin forever. Tear the stream down so the client closes its
-        // EventSource instead of reconnecting against a missing session.
-        const session = getSession(ctx.db, id);
-        if (session === undefined) {
-          await emit(stream, "done", "deleted");
-          return;
-        }
-
-        if (session.name !== lastName) {
-          lastName = session.name;
-          const payload = JSON.stringify({ name: session.name });
-          if (!(await emit(stream, "rename", payload))) return;
-        }
-
-        const rows = listMessages(ctx.db, id);
-        const messages = rows.map(parseMessage);
-        const common = Math.min(snapshots.length, rows.length);
-        let changed = false;
-
-        // Re-render rows whose content changed since the last poll.
-        for (let i = 0; i < common; i++) {
-          if (rows[i].content_json === snapshots[i]) continue;
-          const html = renderMessage(messages[i], i);
-          if (
-            html !== "" &&
-            !(await emit(stream, "replace", JSON.stringify({ index: i, html })))
-          )
-            return;
-          changed = true;
-        }
-
-        if (rows.length > snapshots.length) {
-          if (!(await flushMessages(stream, messages, snapshots.length)))
-            return;
-          changed = true;
-        }
-
-        snapshots = rows.map((row) => row.content_json);
-
-        if (!changed) continue;
-        if (!(await emitMeta(stream, session))) return;
+        polls++;
+        if (!(await pollDb(stream, ctx, id, state))) return;
+        if (!(await pollRunner(stream, ctx, id, state))) return;
       }
-      // Signal completion so the client tears down instead of auto-reconnecting
-      // into a fresh poll loop (a reconnect storm).
-      await emit(stream, "done", "idle");
     });
   });
 };

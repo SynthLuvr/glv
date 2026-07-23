@@ -1109,125 +1109,125 @@ describe("POST /sessions/:id/queue/cancel", () => {
   });
 });
 
-describe("GET /sessions/:id/stream (SSE)", () => {
+describe("GET /sessions/:id/events (SSE)", () => {
+  // Bounded so the otherwise-infinite poll loop drains in tests. The active
+  // interval is 50 ms; idle uses tailPollMs (15 ms here).
+  const eventsApp = (
+    spawn?: SpawnFn,
+    opts: { maxTailPolls?: number; maxConcurrent?: number } = {},
+  ): ReturnType<typeof createApp> =>
+    createApp(
+      db,
+      createRunner(
+        opts.maxConcurrent !== undefined
+          ? makeRunnerConfig(opts.maxConcurrent, "goose")
+          : DEFAULT_RUNNER_CONFIG,
+        spawn,
+      ),
+      { tailPollMs: 15, maxTailPolls: opts.maxTailPolls ?? 30 },
+    );
+
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = makeApp(spawn);
-    const res = await app.request("/sessions/missing/stream");
+    const app = eventsApp(spawn);
+    const res = await app.request("/sessions/missing/events");
     expect(res.status).toBe(404);
   });
 
-  it("sends a done event for an idle session with no run", async () => {
+  it("emits messages catch-up and idle status for an idle session", async () => {
     const { spawn } = createMockSpawn([]);
-    const app = makeApp(spawn);
-    const res = await app.request("/sessions/alpha/stream");
+    const app = eventsApp(spawn, { maxTailPolls: 2 });
+    const res = await app.request("/sessions/alpha/events");
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const text = await res.text();
-    expect(text).toContain("event: done");
-    expect(text).toContain("idle");
+    // DB messages are reconciled on connect…
+    expect(text).toContain("event: messages");
+    expect(text).toContain("What is goose?");
+    // …and the idle status is emitted (no done event — stream stays open).
+    expect(text).toContain('"status":"idle"');
+    expect(text).not.toContain("event: done");
   });
 
-  it("streams output lines live as SSE events", async () => {
+  it("streams NDJSON output as preview events", async () => {
     const { spawn } = createMockSpawn(["delta1", "delta2"], { delayMs: 80 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
-    expect(text).toContain("event: line");
+    expect(text).toContain("event: preview");
     expect(text).toContain("delta1");
     expect(text).toContain("delta2");
-    expect(text).toContain("event: done");
-    expect(text).toContain("complete");
+    // Terminal status appears in a status event, not a done event.
+    expect(text).toContain('"status":"completed"');
+    expect(text).not.toContain("event: done");
   });
 
-  it("catches up via accumulated lines when the run already finished", async () => {
+  it("emits terminal status when connecting after the run finished", async () => {
     const { spawn } = createMockSpawn(["done1", "done2"]);
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
-
-    // Let the fast mock finish before connecting.
     await sleep(150);
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
-    expect(text).toContain("done1");
-    expect(text).toContain("done2");
-    expect(text).toContain("event: done");
-    expect(text).toContain("completed");
+    // DB messages appear via the messages event; terminal status via status.
+    expect(text).toContain('"status":"completed"');
+    expect(text).toContain("event: messages");
+    expect(text).not.toContain("event: done");
   });
 
   it("reports an error status when goose exits non-zero", async () => {
     const { spawn } = createMockSpawn(["partial"], { exitCode: 42 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await sleep(150);
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
-    expect(text).toContain("event: done");
-    expect(text).toContain("data: error");
+    expect(text).toContain('"status":"error"');
+    expect(text).toContain("exited with code 42");
   });
 
   it("emits a running status when a queued run starts", async () => {
-    // Concurrency of one so the second prompt queues behind the first.
     const { spawn } = createMockSpawn(["a", "b"], { delayMs: 300 });
-    const app = createApp(
-      db,
-      createRunner(makeRunnerConfig(1, "goose"), spawn),
-    );
+    const app = eventsApp(spawn, { maxConcurrent: 1 });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/beta/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/beta/stream");
+    const res = await app.request("/sessions/beta/events");
     const text = await res.text();
-
     const queuedAt = text.indexOf('"status":"queued"');
     const runningAt = text.indexOf('"status":"running"');
     expect(queuedAt).toBeGreaterThanOrEqual(0);
     expect(runningAt).toBeGreaterThan(queuedAt);
-    expect(text).toContain("event: done");
   });
 
   it("includes pendingCount in status events", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 50 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
     expect(text).toContain("pendingCount");
     expect(text).toContain('"pendingCount":1');
   });
 
   it("emits prompt events for chained runs", async () => {
     const { spawn } = createMockSpawn(["line1"], { delayMs: 50 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
     expect(text).toContain("event: prompt");
     expect(text).toContain("second");
-    expect(text).toContain("event: done");
   });
 
   it("accumulates lines across chained runs in the stream", async () => {
     const { spawn } = createMockSpawn(["a", "b"], { delayMs: 30 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
     // Each run produces lines a, b — both runs' output should appear.
     const firstA = text.indexOf("a");
     const firstB = text.indexOf("b");
@@ -1237,33 +1237,23 @@ describe("GET /sessions/:id/stream (SSE)", () => {
     expect(secondA).toBeGreaterThan(firstB);
   });
 
-  it("includes startedCount in status events for replay reconciliation", async () => {
+  it("includes startedCount in status events", async () => {
     const { spawn } = createMockSpawn(["line1"], { delayMs: 50 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
-    // startedCount lets the client tell replayed prompt cards apart from new
-    // transitions, so only the latter dismiss a queued-prompt card.
     expect(text).toContain("startedCount");
   });
 
   it("re-emits status when pendingCount changes during a chained run", async () => {
     const { spawn } = createMockSpawn(["a"], { delayMs: 150 });
-    const app = makeApp(spawn);
+    const app = eventsApp(spawn);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "first" });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "second" });
-
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-
-    // The second prompt starts chained: pendingCount drops 1 → 0 while status
-    // stays "running". The status must be re-emitted on the count change so the
-    // hint doesn't stay stale at "1 prompt queued next". (startedCount reaches
-    // 1 — only chained prompts are tracked, not the original.)
     expect(text).toContain('"pendingCount":0,"startedCount":1');
   });
 });
@@ -1328,11 +1318,11 @@ describe("M3: streaming assets & layout", () => {
 describe("M3: transcript streaming attributes", () => {
   it("does not include a live-output container when idle", async () => {
     const { html } = await renderSession("alpha");
-    expect(html).not.toContain('id="live-output"');
+    expect(html).not.toContain('id="live-tail"');
     expect(html).not.toContain("data-run-status");
   });
 
-  it("includes data attributes and live-output when a run is active", async () => {
+  it("includes data attributes and live-tail when a run is active", async () => {
     const { spawn } = createMockSpawn(["x"], { delayMs: 500 });
     const app = makeApp(spawn);
     const { html } = await postForm(app, "/sessions/alpha/prompt", {
@@ -1340,7 +1330,8 @@ describe("M3: transcript streaming attributes", () => {
     });
     expect(html).toContain('data-session-id="alpha"');
     expect(html).toContain('data-run-status="running"');
-    expect(html).toContain('id="live-output"');
+    expect(html).toContain('id="live-tail"');
+    expect(html).toContain("data-cursor=");
   });
 
   it("omits live-output when the run has completed", async () => {
@@ -1351,35 +1342,44 @@ describe("M3: transcript streaming attributes", () => {
 
     const res = await app.request("/sessions/alpha/stop", { method: "POST" });
     const html = await res.text();
-    expect(html).not.toContain('id="live-output"');
+    expect(html).not.toContain('id="live-tail"');
   });
 });
 
 describe("M3: SSE stream renders HTML fragments", () => {
+  const fragApp = (
+    lines: string[],
+    opts: { delayMs?: number } = {},
+  ): ReturnType<typeof createApp> => {
+    const { spawn } = createMockSpawn(lines, opts);
+    return createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      tailPollMs: 15,
+      maxTailPolls: 30,
+    });
+  };
+
   it("renders stream-json lines as HTML in the SSE stream", async () => {
     const jsonLine = JSON.stringify({
       role: "assistant",
       content: [{ type: "text", text: "Live output" }],
     });
-    const { spawn } = createMockSpawn([jsonLine], { delayMs: 80 });
-    const app = makeApp(spawn);
+    const app = fragApp([jsonLine], { delayMs: 80 });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
 
-    expect(text).toContain("event: line");
+    expect(text).toContain("event: preview");
     expect(text).toContain("Live output");
     expect(text).toContain("stream-line");
     expect(text).toContain("OUTPUT");
   });
 
   it("renders non-JSON lines as raw text blocks", async () => {
-    const { spawn } = createMockSpawn(["plain text"], { delayMs: 80 });
-    const app = makeApp(spawn);
+    const app = fragApp(["plain text"], { delayMs: 80 });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
 
     expect(text).toContain("stream-raw");
@@ -1391,16 +1391,15 @@ describe("M3: SSE stream renders HTML fragments", () => {
       type: "session.header",
       session_id: "abc",
     });
-    const { spawn } = createMockSpawn([metaLine]);
-    const app = makeApp(spawn);
+    const app = fragApp([metaLine]);
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await sleep(150);
 
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
 
-    expect(text).not.toContain("event: line");
-    expect(text).toContain("event: done");
+    expect(text).not.toContain("event: preview");
+    expect(text).not.toContain("event: done");
   });
 });
 
@@ -1433,7 +1432,7 @@ describe("M4: error persistence on re-render", () => {
 
     const res = await app.request("/sessions/alpha");
     const html = await res.text();
-    expect(html).not.toContain('id="live-output"');
+    expect(html).not.toContain('id="live-tail"');
     expect(html).toContain("send-btn");
   });
 
@@ -1449,30 +1448,37 @@ describe("M4: error persistence on re-render", () => {
   });
 });
 
-describe("M4: SSE done carries the real terminal status", () => {
-  it("sends 'completed' (not a generic marker) on success", async () => {
+describe("M4: terminal status via status event", () => {
+  it("emits completed status when the run succeeds", async () => {
     const { spawn } = createMockSpawn(["delta1"], { delayMs: 80 });
-    const app = makeApp(spawn);
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      tailPollMs: 15,
+      maxTailPolls: 30,
+    });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
 
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
 
-    expect(text).toContain("event: done");
-    expect(text).toContain("data: completed");
+    // Terminal status appears inside a status event (no done event).
+    expect(text).toContain('"status":"completed"');
+    expect(text).not.toContain("event: done");
   });
 
-  it("sends 'stopped' when a run was stopped", async () => {
+  it("emits stopped status when a run was stopped", async () => {
     const { spawn } = createMockSpawn(["l1", "l2"], { delayMs: 200 });
-    const app = makeApp(spawn);
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+      tailPollMs: 15,
+      maxTailPolls: 30,
+    });
     await postForm(app, "/sessions/alpha/prompt", { prompt: "hello" });
     await app.request("/sessions/alpha/stop", { method: "POST" });
 
-    const res = await app.request("/sessions/alpha/stream");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
 
-    expect(text).toContain("event: done");
-    expect(text).toContain("data: stopped");
+    expect(text).toContain('"status":"stopped"');
+    expect(text).not.toContain("event: done");
   });
 });
 
@@ -1489,13 +1495,15 @@ describe("M4: external runner injection", () => {
   });
 });
 
-describe("M4: stream client reconnect deduplication", () => {
-  it("clears live output on EventSource (re)open to avoid duplicates", async () => {
+describe("M4: stream client cursor-based deduplication", () => {
+  it("uses cursor-based reconciliation instead of clearing on open", async () => {
     const res = await makeApp().request("/assets/stream.js");
     const body = await res.text();
-    // An 'open' listener empties #live-output before catch-up lines arrive.
-    expect(body).toContain('"open"');
-    expect(body).toContain('innerHTML=""');
+    // No 'open' listener that clears the output — the unified design relies
+    // on the cursor (via Last-Event-ID) for delta-only reconnects.
+    expect(body).not.toContain('"open"');
+    expect(body).toContain("/events");
+    expect(body).toContain('"messages"');
   });
 });
 
@@ -1515,7 +1523,7 @@ describe("M5: stream client live-tail wiring", () => {
     const body = await res.text();
     // The tail URL suffix and the SSE event name survive minification as
     // string literals, confirming the client wires the live-tail stream.
-    expect(body).toContain("/tail");
+    expect(body).toContain("/events");
     expect(body).toContain('"append"');
     expect(body).toContain("nearBottom");
   });
@@ -1545,32 +1553,30 @@ describe("M6: stream client live-tail polish wiring", () => {
   });
 });
 
-describe("GET /sessions/:id/tail (SSE)", () => {
+describe("GET /sessions/:id/events (DB tail)", () => {
   it("returns 404 for a non-existent session", async () => {
     const { spawn } = createMockSpawn([]);
     const app = makeApp(spawn);
-    const res = await app.request("/sessions/missing/tail");
+    const res = await app.request("/sessions/missing/events");
     expect(res.status).toBe(404);
   });
 
   it("responds with an event-stream content type", async () => {
-    const { spawn } = createMockSpawn([]);
-    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
       tailPollMs: 15,
       maxTailPolls: 2,
     });
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     await res.text();
   });
 
   it("emits no append events when nothing new is written", async () => {
-    const { spawn } = createMockSpawn([]);
-    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG, spawn), {
+    const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
       tailPollMs: 15,
       maxTailPolls: 3,
     });
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
     expect(text).not.toContain("event: append");
   });
@@ -1584,7 +1590,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
       maxTailPolls: 8,
     });
 
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
 
     // Let the baseline settle before an external writer renames the session.
     await sleep(40);
@@ -1610,7 +1616,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
       maxTailPolls: 8,
     });
 
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     expect(res.headers.get("content-type")).toContain("text/event-stream");
 
     // Give the handler a beat to capture its baseline (alpha ships with 4
@@ -1637,14 +1643,11 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     expect(text).toContain("event: append");
     expect(text).toContain("tail-update");
     expect(text).toContain("OUTPUT");
-    // The full baseline is reconciled once via a "sync" event on connect (so a
-    // reconnect never drops messages written in the gap)…
-    expect(text).toContain("event: sync");
+    // The full baseline is reconciled once via a "messages" event on connect…
+    expect(text).toContain("event: messages");
     expect(text).toContain("What is goose?");
-    // …but only the newly appended row is sent as an "append" delta — the four
-    // baseline rows must not also fire as redundant append events.
+    // …but only the newly appended row is sent as an "append" delta.
     expect(text.match(/event: append/g)).toHaveLength(1);
-    expect(text).toContain("tail-update");
   });
 
   it("re-emits a message whose content was updated in place", async () => {
@@ -1656,7 +1659,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
       maxTailPolls: 8,
     });
 
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
 
     // Let the baseline settle before editing an existing row in place,
     // mimicking a growing assistant turn.
@@ -1694,7 +1697,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
       maxTailPolls: 8,
     });
 
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
 
     await sleep(40);
 
@@ -1724,7 +1727,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     expect(text).toContain("event: meta");
   });
 
-  it("emits a done event and terminates when the session is deleted", async () => {
+  it("emits a deleted status when the session is deleted", async () => {
     const delDir = mkdtempSync(join(tmpdir(), "glv-tail-del-"));
     const delDb = new DatabaseSync(join(delDir, "sessions.db"));
     seed(delDb);
@@ -1733,7 +1736,7 @@ describe("GET /sessions/:id/tail (SSE)", () => {
       maxTailPolls: 8,
     });
 
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     expect(res.headers.get("content-type")).toContain("text/event-stream");
 
     // Let the handler capture its baseline and poll once before the session
@@ -1745,35 +1748,32 @@ describe("GET /sessions/:id/tail (SSE)", () => {
     delDb.close();
     rmSync(delDir, { recursive: true, force: true });
 
-    // The handler must emit a terminal event and close rather than spinning
-    // on an empty result set forever.
-    expect(text).toContain("event: done");
-    expect(text).toContain("deleted");
+    // The handler emits a deleted status and closes.
+    expect(text).toContain('"status":"deleted"');
   });
 
-  it("emits a sync event with the full baseline on connect", async () => {
+  it("emits a messages event with the full baseline on connect", async () => {
     const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
       tailPollMs: 15,
       maxTailPolls: 1,
     });
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
     // Reconciliation on every connect so an auto-reconnect never drops
     // messages written during the disconnect gap.
-    expect(text).toContain("event: sync");
+    expect(text).toContain("event: messages");
     expect(text).toContain("What is goose?");
   });
 
-  it("emits a done event when the bounded poll loop exhausts", async () => {
+  it("terminates without a done event when the bounded poll loop exhausts", async () => {
     const app = createApp(db, createRunner(DEFAULT_RUNNER_CONFIG), {
       tailPollMs: 15,
       maxTailPolls: 2,
     });
-    const res = await app.request("/sessions/alpha/tail");
+    const res = await app.request("/sessions/alpha/events");
     const text = await res.text();
-    // A finite poll bound must signal completion so the client tears down its
-    // EventSource instead of auto-reconnecting into a fresh poll loop.
-    expect(text).toContain("event: done");
+    // The stream simply stops — no done event is emitted.
+    expect(text).not.toContain("event: done");
   });
 });
 
@@ -3028,7 +3028,7 @@ describe("stream client session selector", () => {
       EventSource: FakeEventSource,
     });
     document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
-    expect(connected).toEqual(["/sessions/gamma/tail"]);
+    expect(connected).toEqual(["/sessions/gamma/events?cursor=6"]);
   });
 });
 

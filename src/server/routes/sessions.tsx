@@ -27,7 +27,7 @@ import {
 import { CloningView, type SourceType } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
-import { Transcript } from "../../views/transcript.js";
+import { PromptBar, Transcript } from "../../views/transcript.js";
 import {
   SESSION_TIMEOUT_ERROR,
   ServerContext,
@@ -265,6 +265,23 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         refreshSidebar: c.req.query("sidebar") === "1",
         title: sessionTitle(session.name),
       },
+    );
+  });
+
+  // Targeted prompt-bar fragment swap (status transition only). Lets the
+  // client swap just the form — not the whole transcript — when a run ends.
+  app.get("/sessions/:id/prompt-bar", (c) => {
+    const id = c.req.param("id");
+    const session = getSession(ctx.db, id);
+    if (session === undefined) return renderNotFound(c, ctx, id);
+    const run = getHandle(ctx.runner, id);
+    return c.html(
+      <PromptBar
+        sessionId={id}
+        run={run}
+        prompts={libraryPrompts()}
+        workingDir={session.working_dir}
+      />,
     );
   });
 

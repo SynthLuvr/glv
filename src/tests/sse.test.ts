@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRingBuffer } from "../runner/index.js";
-import { flushLines } from "../server/sse.js";
+import { flushPreview } from "../server/sse.js";
 
 // A goose NDJSON assistant-text line, which renderStreamLine renders to HTML.
 const textLine = (text: string): string =>
@@ -9,7 +9,7 @@ const textLine = (text: string): string =>
     content: [{ type: "text", text }],
   });
 
-type RecordedWrite = { event: string; data: string };
+type RecordedWrite = { event: string; data: string; id?: string };
 
 type FakeStream = {
   aborted: boolean;
@@ -17,7 +17,7 @@ type FakeStream = {
   writeSSE: (msg: RecordedWrite) => Promise<void>;
 };
 
-// Only the members emit()/flushLines() touch are needed; the structural
+// Only the members emit()/flushPreview() touch are needed; the structural
 // SseWriter type makes the fake assignable without asserting the interface.
 const createFakeStream = (): FakeStream => {
   const writes: RecordedWrite[] = [];
@@ -31,18 +31,18 @@ const createFakeStream = (): FakeStream => {
 };
 
 const lineCount = (stream: FakeStream): number =>
-  stream.writes.filter((w) => w.event === "line").length;
+  stream.writes.filter((w) => w.event === "preview").length;
 
 const lineData = (stream: FakeStream): string[] =>
-  stream.writes.filter((w) => w.event === "line").map((w) => w.data);
+  stream.writes.filter((w) => w.event === "preview").map((w) => w.data);
 
-describe("flushLines (ring-buffer drain)", () => {
+describe("flushPreview (ring-buffer drain)", () => {
   it("flushes the entire retained tail when starting from zero", async () => {
     const stream = createFakeStream();
     const buffer = createRingBuffer(100);
     buffer.push(textLine("a"));
     buffer.push(textLine("b"));
-    const next = await flushLines(stream, buffer, 0);
+    const next = await flushPreview(stream, buffer, 0);
     expect(next).toBe(2);
     expect(lineCount(stream)).toBe(2);
   });
@@ -54,7 +54,7 @@ describe("flushLines (ring-buffer drain)", () => {
     buffer.push(textLine("b"));
     buffer.push(textLine("c"));
     buffer.push(textLine("d"));
-    const next = await flushLines(stream, buffer, 3);
+    const next = await flushPreview(stream, buffer, 3);
     expect(lineCount(stream)).toBe(1);
     expect(next).toBe(4);
   });
@@ -65,7 +65,7 @@ describe("flushLines (ring-buffer drain)", () => {
     buffer.push(textLine("a"));
     buffer.push(textLine("b"));
     // Client only saw 1 line, so fromSeq=1 should get b.
-    const next = await flushLines(stream, buffer, 1);
+    const next = await flushPreview(stream, buffer, 1);
     expect(lineCount(stream)).toBe(1);
     expect(next).toBe(2);
   });
@@ -74,7 +74,7 @@ describe("flushLines (ring-buffer drain)", () => {
     const stream = createFakeStream();
     const buffer = createRingBuffer(100);
     buffer.push(textLine("c"));
-    const next = await flushLines(stream, buffer, 1);
+    const next = await flushPreview(stream, buffer, 1);
     expect(lineCount(stream)).toBe(0);
     expect(next).toBe(1);
   });
@@ -85,7 +85,7 @@ describe("flushLines (ring-buffer drain)", () => {
     const buffer = createRingBuffer(100);
     buffer.push(textLine("a"));
     buffer.push(textLine("b"));
-    const next = await flushLines(stream, buffer, 0);
+    const next = await flushPreview(stream, buffer, 0);
     expect(next).toBe(false);
     expect(lineCount(stream)).toBe(0);
   });
@@ -96,11 +96,11 @@ describe("flushLines (ring-buffer drain)", () => {
     buffer.push(textLine("x"));
     buffer.push(textLine("y"));
     buffer.push(textLine("z"));
-    const next = await flushLines(stream, buffer, 0);
+    const next = await flushPreview(stream, buffer, 0);
     expect(next).toBe(3);
     // A second drain from the returned cursor should yield nothing.
     const stream2 = createFakeStream();
-    const next2 = await flushLines(stream2, buffer, next as number);
+    const next2 = await flushPreview(stream2, buffer, next as number);
     expect(lineCount(stream2)).toBe(0);
     expect(next2).toBe(3);
   });
@@ -122,7 +122,7 @@ describe("flushLines (ring-buffer drain)", () => {
       }
     };
 
-    const next = await flushLines(stream, buffer, 0);
+    const next = await flushPreview(stream, buffer, 0);
     expect(next).not.toBe(false);
 
     const emitted = lineData(stream);
@@ -133,7 +133,7 @@ describe("flushLines (ring-buffer drain)", () => {
 
     // Next drain picks up D
     const stream2 = createFakeStream();
-    const next2 = await flushLines(stream2, buffer, next as number);
+    const next2 = await flushPreview(stream2, buffer, next as number);
     expect(lineCount(stream2)).toBe(1);
     expect(next2).toBe(4);
   });

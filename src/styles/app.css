@@ -1690,10 +1690,10 @@ pre::-webkit-scrollbar-thumb {
 }
 
 /* ---------- live streaming output ---------- */
-.live-output {
+.live-tail {
   margin-top: 0.5rem;
 }
-.live-output:empty {
+.live-tail:empty {
   display: none;
 }
 .stream-raw {
