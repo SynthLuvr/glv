@@ -1,7 +1,7 @@
 import type { SSEStreamingApi } from "hono/streaming";
 import type { SessionRow } from "../db.js";
 import { fmtRelative, type ParsedMessage } from "../format/index.js";
-import type { RunHandle } from "../runner/index.js";
+import type { LineBuffer, RunHandle } from "../runner/index.js";
 import { renderMessage } from "../views/message-blocks.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
@@ -27,20 +27,22 @@ const emit = async (
   }
 };
 
-// `from` and `dropped` are absolute line-sequence offsets. The ring buffer
-// drops oldest lines as `dropped` grows, so a live stream's monotonic `from`
-// must be rebased past the dropped prefix before indexing into `lines`.
+// Snapshots the buffer synchronously via `drain(fromSeq)`, then emits each
+// line. The snapshot is a fresh copy taken before any `await` yield point, so
+// a concurrent `push` (which overwrites slots via modular arithmetic) can
+// never mutate the returned array mid-iteration. Returns `nextSeq` (the
+// snapshot boundary) on success, or `false` on abort.
 const flushLines = async (
   stream: SseWriter,
-  lines: string[],
-  dropped: number,
-  from: number,
-): Promise<boolean> => {
-  for (let i = Math.max(from - dropped, 0); i < lines.length; i++) {
-    const html = renderStreamLine(lines[i]);
+  buffer: LineBuffer,
+  fromSeq: number,
+): Promise<number | false> => {
+  const { lines, nextSeq } = buffer.drain(fromSeq);
+  for (const line of lines) {
+    const html = renderStreamLine(line);
     if (html !== "" && !(await emit(stream, "line", html))) return false;
   }
-  return true;
+  return nextSeq;
 };
 
 const flushMessages = async (
