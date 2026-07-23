@@ -282,6 +282,12 @@ body {
 .session-item.selected .session-name {
   color: var(--color-accent);
 }
+.session-item.unread {
+  border-left: 3px solid var(--color-accent);
+}
+.session-item.unread .session-name {
+  font-weight: 700;
+}
 .session-item.htmx-request {
   opacity: 0.5;
 }

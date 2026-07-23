@@ -50,6 +50,11 @@ document.addEventListener("click", (e) => {
       .querySelectorAll(".session-item.selected")
       .forEach((node) => node.classList.remove("selected"));
     item.classList.add("selected");
+    const id = item.getAttribute("data-session-id");
+    if (id !== null) {
+      markRead(id);
+      item.classList.remove("unread");
+    }
   }
 });
 
@@ -127,6 +132,70 @@ const applySync = (data: string): void => {
   }
 };
 
+// Unread when a run finishes in a session that isn't the open one; read on click.
+const UNREAD_KEY = "glv-unread";
+
+// localStorage throws in private mode or when disabled; fall back to no-op.
+const unreadStorage = (): Storage | null => {
+  try {
+    return localStorage ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const loadUnread = (): string[] => {
+  const storage = unreadStorage();
+  if (storage === null) return [];
+  const parsed = safeParse(storage.getItem(UNREAD_KEY) ?? "");
+  return isStringArray(parsed) ? parsed : [];
+};
+
+const unread = new Set<string>(loadUnread());
+
+const saveUnread = (): void => {
+  const storage = unreadStorage();
+  if (storage === null) return;
+  storage.setItem(UNREAD_KEY, JSON.stringify([...unread]));
+};
+
+const markUnread = (sessionId: string): void => {
+  unread.add(sessionId);
+  saveUnread();
+};
+
+const markRead = (sessionId: string): void => {
+  unread.delete(sessionId);
+  saveUnread();
+};
+
+// The currently-open session — mirrors stream.ts's transcript-root selector so
+// the two scripts agree on what "open" means.
+const openSessionId = (): string | null =>
+  document
+    .querySelector("#detail-pane [data-session-id]")
+    ?.getAttribute("data-session-id") ?? null;
+
+const applyUnread = (): void => {
+  const items = document.querySelectorAll<HTMLElement>(
+    ".session-item[data-session-id]",
+  );
+  const present = new Set<string>();
+  for (const item of items) {
+    const id = item.dataset.sessionId;
+    if (id !== undefined) present.add(id);
+  }
+  const stale = [...unread].filter((id) => !present.has(id));
+  if (stale.length > 0) {
+    for (const id of stale) unread.delete(id);
+    saveUnread();
+  }
+  for (const item of items) {
+    const id = item.dataset.sessionId;
+    if (id !== undefined) item.classList.toggle("unread", unread.has(id));
+  }
+};
+
 type StatusPayload = { sessionId: string; status: string };
 
 const isStatusPayload = (value: unknown): value is StatusPayload =>
@@ -142,7 +211,11 @@ const onStatusEvent = (data: string): void => {
   if (!isStatusPayload(parsed)) return;
   const running = parsed.status !== "done";
   setStatusIndicator(parsed.sessionId, running);
-  if (!running) refreshMeta(parsed.sessionId);
+  if (running) return;
+  refreshMeta(parsed.sessionId);
+  if (openSessionId() === parsed.sessionId) return;
+  markUnread(parsed.sessionId);
+  findSessionItem(parsed.sessionId)?.classList.add("unread");
 };
 
 type RenamePayload = { sessionId: string; name: string };
@@ -219,4 +292,12 @@ const connectStatusFeed = (): void => {
 };
 
 updateBulkBar();
+applyUnread();
 connectStatusFeed();
+
+// Archive's OOB re-render of #session-list wipes the .unread classes; re-apply
+// after the swap restores the list.
+document.addEventListener("htmx:afterSwap", (e) => {
+  if (!(e instanceof CustomEvent)) return;
+  if (e.detail?.target?.id === "session-list") applyUnread();
+});
