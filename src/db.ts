@@ -150,9 +150,36 @@ const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
   return new Set(rows.map((row) => row.session_id));
 };
 
+// Returns the name of the session (among `ids`) whose earliest user prompt has
+// the smallest timestamp — the chronologically-first session.  Used to name a
+// freshly created group after its founding session.  Returns `undefined` when
+// none of the sessions have any user messages yet.
+const firstPromptSessionName = (
+  db: DatabaseSync,
+  ids: string[],
+): string | undefined => {
+  if (ids.length === 0) return undefined;
+  const rows = validateAll(
+    type({ session_id: "string", first_prompt: "number" }),
+    db
+      .prepare(
+        `SELECT session_id, MIN(created_timestamp) AS first_prompt
+           FROM messages
+          WHERE session_id IN (${placeholders(ids.length)})
+            AND role = 'user'
+          GROUP BY session_id`,
+      )
+      .all(...ids),
+  );
+  if (rows.length === 0) return undefined;
+  rows.sort((a, b) => a.first_prompt - b.first_prompt);
+  return getSession(db, rows[0].session_id)?.name;
+};
+
 export type { MessageRow, SessionFilter, SessionRow };
 export {
   archiveSessions,
+  firstPromptSessionName,
   getSession,
   listMessages,
   listSessions,

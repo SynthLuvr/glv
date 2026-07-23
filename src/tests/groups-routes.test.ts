@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { firstPromptSessionName } from "../db.js";
 import { clearGroups, listGroups, openGroupsDb } from "../groups/db.js";
 import { createRunner, DEFAULT_RUNNER_CONFIG } from "../runner/index.js";
 import { createApp } from "../server/index.js";
@@ -40,6 +41,16 @@ const insertSession = (db: DatabaseSync, id: string, updated: string): void => {
   ).run(id, id, "/tmp", updated);
 };
 
+const insertPrompt = (
+  db: DatabaseSync,
+  sessionId: string,
+  timestamp: number,
+): void => {
+  db.prepare(
+    "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
+  ).run(sessionId, "user", "[]", timestamp);
+};
+
 let sessionsDb: DatabaseSync;
 let groupsDb: DatabaseSync;
 let dir: string;
@@ -51,6 +62,13 @@ beforeAll(() => {
   insertSession(sessionsDb, "alpha", "2026-07-13 10:00:00");
   insertSession(sessionsDb, "beta", "2026-07-13 09:00:00");
   insertSession(sessionsDb, "gamma", "2026-07-13 08:00:00");
+  insertSession(sessionsDb, "delta", "2026-07-13 07:00:00");
+  insertSession(sessionsDb, "epsilon", "2026-07-13 06:00:00");
+  // Earliest first-prompt timestamps: beta < alpha < gamma; delta & epsilon
+  // have none, so a group of just those two stays nameless.
+  insertPrompt(sessionsDb, "beta", 500);
+  insertPrompt(sessionsDb, "alpha", 1_000);
+  insertPrompt(sessionsDb, "gamma", 2_000);
   groupsDb = openGroupsDb(join(dir, "groups.db"));
 });
 
@@ -90,12 +108,13 @@ describe("group-with creates and joins groups", () => {
       otherId: "beta",
     });
     expect(html).toContain("group-header");
-    expect(html).toContain("New group");
     // Both sessions should be inside the group
     const groups = listGroups(groupsDb);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.memberIds).toContain("alpha");
     expect(groups[0]?.memberIds).toContain("beta");
+    // Named after the session with the earliest first prompt (beta @ 500)
+    expect(groups[0]?.name).toBe("beta");
   });
 
   it("joins an existing group when the target is already grouped", async () => {
@@ -152,16 +171,23 @@ describe("group menu routes", () => {
 
   it("POST /sessions/:id/group creates a new group when groupId is empty", async () => {
     const before = listGroups(groupsDb).length;
-    await postForm(makeApp(), "/sessions/gamma/group", { groupId: "" });
+    await postForm(makeApp(), "/sessions/delta/group", { groupId: "" });
     const after = listGroups(groupsDb).length;
     expect(after).toBe(before + 1);
   });
 
   it("POST /groups/:id/rename updates the name", async () => {
+    clearGroups(groupsDb);
+    // Two prompt-less sessions form a null-named group that still renders
+    // (≥ 2 visible members), so the renamed value shows in the sidebar.
+    await postForm(makeApp(), "/sessions/delta/group-with", {
+      otherId: "epsilon",
+    });
     const groups = listGroups(groupsDb);
-    const target = groups.find((g) => g.name === null);
-    expect(target).toBeTruthy();
-    const { html } = await postForm(makeApp(), `/groups/${target!.id}/rename`, {
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBeNull();
+    const target = groups[0]!;
+    const { html } = await postForm(makeApp(), `/groups/${target.id}/rename`, {
       name: "My Project",
     });
     expect(html).toContain("My Project");
@@ -236,5 +262,56 @@ describe("archive group", () => {
       "/groups/does-not-exist/archive",
     );
     expect(status).toBe(404);
+  });
+});
+
+describe("group default name", () => {
+  it("names a new group after its sole session's first prompt", async () => {
+    clearGroups(groupsDb);
+    await postForm(makeApp(), "/sessions/gamma/group", { groupId: "" });
+    const groups = listGroups(groupsDb);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBe("gamma");
+  });
+
+  it("names a group-with after the session with the earliest prompt", async () => {
+    clearGroups(groupsDb);
+    // alpha @ 1_000, beta @ 500 → earliest is beta
+    await postForm(makeApp(), "/sessions/alpha/group-with", {
+      otherId: "beta",
+    });
+    const groups = listGroups(groupsDb);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBe("beta");
+  });
+
+  it("leaves the name unset when no session has prompts", async () => {
+    clearGroups(groupsDb);
+    await postForm(makeApp(), "/sessions/delta/group", { groupId: "" });
+    const groups = listGroups(groupsDb);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBeNull();
+  });
+});
+
+describe("firstPromptSessionName", () => {
+  it("returns the name of the session with the earliest prompt", () => {
+    expect(firstPromptSessionName(sessionsDb, ["alpha", "beta", "gamma"])).toBe(
+      "beta",
+    );
+  });
+
+  it("ignores sessions that have no prompts", () => {
+    expect(firstPromptSessionName(sessionsDb, ["alpha", "delta"])).toBe(
+      "alpha",
+    );
+  });
+
+  it("returns undefined when none of the sessions have prompts", () => {
+    expect(firstPromptSessionName(sessionsDb, ["delta"])).toBeUndefined();
+  });
+
+  it("returns undefined for an empty id list", () => {
+    expect(firstPromptSessionName(sessionsDb, [])).toBeUndefined();
   });
 });
