@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
+import type { LineBuffer } from "./ring-buffer.js";
 
 type RunnerConfig = {
   maxConcurrent: number;
@@ -82,9 +83,7 @@ type RunHandle = {
   status: RunStatus;
   /** Approximate position in the queue (undefined when running or done). */
   queuePosition: number | undefined;
-  lines: string[];
-  /** Count of NDJSON lines dropped from the front of `lines` (ring buffer). */
-  droppedLines: number;
+  output: LineBuffer;
   error: string | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
   readonly pendingPrompts: readonly string[];

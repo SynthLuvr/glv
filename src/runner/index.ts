@@ -7,6 +7,8 @@ import {
   stop,
   stopAll,
 } from "./queue.js";
+import type { DrainResult, LineBuffer } from "./ring-buffer.js";
+import { createRingBuffer } from "./ring-buffer.js";
 import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
 import { killProcessGroup } from "./spawn.js";
 import type {
@@ -25,6 +27,8 @@ import {
 } from "./types.js";
 
 export type {
+  DrainResult,
+  LineBuffer,
   ProcessResult,
   RunHandle,
   Runner,
@@ -34,6 +38,7 @@ export type {
 };
 export {
   clearPending,
+  createRingBuffer,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
   enqueueOrQueue,
