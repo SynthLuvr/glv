@@ -5,10 +5,8 @@ import {
 import { describe, expect, it } from "vitest";
 import { makeChallengeAuthority } from "../auth/service.js";
 
-// These tests guard the WebAuthn challenge round-trip: the value an
-// authenticator echoes back in clientDataJSON must equal the one the
-// authority stored. SimpleWebAuthn re-encodes STRING challenges, so the
-// authority must hand over raw bytes and key the store by their base64url.
+// Guard the challenge round-trip: the value echoed in clientDataJSON must
+// match the stored one after SimpleWebAuthn encodes the raw bytes.
 describe("challenge authority", () => {
   it("round-trips a login challenge through SimpleWebAuthn options", async () => {
     const authority = makeChallengeAuthority();

@@ -98,11 +98,8 @@ const makeChallengeAuthority = (
   };
 
   const issue = (flow: ChallengeFlow): Uint8Array<ArrayBuffer> => {
-    // SimpleWebAuthn treats a STRING challenge as plain text and re-encodes
-    // it, so a base64url string would come back double-encoded and never
-    // match the value stored here. Hand over the raw bytes and key the store
-    // by their canonical base64url — exactly what ends up in
-    // options.challenge and the authenticator's clientDataJSON.
+    // Return raw bytes — SimpleWebAuthn encodes the challenge itself, so
+    // the store keys on the resulting base64url, not a pre-encoded string.
     sweep();
     const bytes = randomBytes(32);
     pending.set(bytes.toString("base64url"), {
