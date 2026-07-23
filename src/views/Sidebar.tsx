@@ -203,6 +203,22 @@ const GroupHeader = ({
     <span class="group-count" title={`${memberCount} sessions`}>
       {memberCount}
     </span>
+    <button
+      type="button"
+      class="group-archive-btn"
+      hx-post={`/groups/${groupId}/archive`}
+      hx-target="#session-list"
+      hx-swap="outerHTML"
+      hx-confirm={`Archive all ${memberCount} session${memberCount > 1 ? "s" : ""} in this group? They will be hidden from the sidebar.`}
+      title="Archive group"
+      aria-label={`Archive ${groupName}`}
+    >
+      {icon([
+        <polyline points="21 8 21 21 3 21 3 8" />,
+        <rect x="1" y="3" width="22" height="5" />,
+        <line x1="10" y1="12" x2="14" y2="12" />,
+      ])}
+    </button>
   </div>
 );
 

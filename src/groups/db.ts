@@ -138,6 +138,14 @@ const groupIdOf = (db: DatabaseSync, sessionId: string): string | undefined => {
   return row?.group_id;
 };
 
+const memberIdsOf = (db: DatabaseSync, groupId: string): string[] =>
+  validateAll(
+    type({ session_id: "string" }),
+    db
+      .prepare("SELECT session_id FROM group_members WHERE group_id = ?")
+      .all(groupId),
+  ).map((row) => row.session_id);
+
 const listGroups = (db: DatabaseSync): GroupWithMembers[] => {
   const groups = validateAll(
     GroupRow,
@@ -195,6 +203,7 @@ export {
   getGroup,
   groupIdOf,
   listGroups,
+  memberIdsOf,
   openGroupsDb,
   pruneBelowThreshold,
   removeMember,
