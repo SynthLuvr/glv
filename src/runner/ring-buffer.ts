@@ -10,7 +10,7 @@ type LineBuffer = {
 // drain returns a synchronous snapshot so a concurrent push can't mutate the
 // result mid-iteration.
 const createRingBuffer = (capacity: number): LineBuffer => {
-  const slots: (string | undefined)[] = new Array(capacity);
+  const slots: (string | undefined)[] = Array.from({ length: capacity });
   let count = 0; // items currently retained (0..capacity)
   let totalSeq = 0; // items ever pushed (monotonic)
 

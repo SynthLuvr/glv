@@ -17,7 +17,7 @@
     "format:check": "pnpm biome check --write .",
     "format": "npm-run-all format:arrows format:braces format:biome format:check format:md",
     "lint:biome": "pnpm biome check .",
-    "lint:oxlint": "pnpm oxlint .",
+    "lint:oxlint": "pnpm oxlint --deny-warnings .",
     "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md",
     "strip-braces": "pnpm exec sg scan --rule .ast-grep/rules/strip-braces.yml -U",
     "lint:exports": "pnpm exec sg scan --rule .ast-grep/rules/no-inline-export.yml --error=no-inline-export --globs '!**/*.d.ts' .",

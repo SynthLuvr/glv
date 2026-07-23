@@ -68,9 +68,14 @@ const createRecordingSpawn = (): {
       resolveExit = resolve;
     });
 
-    const stdout = (async function* () {
-      while (!local.killed) await new Promise((r) => setTimeout(r, 20));
-    })();
+    const stdout: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          while (!local.killed) await new Promise((r) => setTimeout(r, 20));
+          return { done: true, value: undefined };
+        },
+      }),
+    };
 
     const kill = (signal?: string) => {
       if (local.killed) return;
