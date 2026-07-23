@@ -1,5 +1,9 @@
 import { type Context, type Hono } from "hono";
-import { archiveSessions, listSessions } from "../../db.js";
+import {
+  archiveSessions,
+  firstPromptSessionName,
+  listSessions,
+} from "../../db.js";
 import type { GroupWithMembers } from "../../groups/db.js";
 import {
   addMember,
@@ -86,7 +90,8 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
       addMember(groups, groupId, id);
       pruneBelowThreshold(groups, visibleIds(), new Set([groupId]));
     } else {
-      const group = createGroup(groups);
+      const name = firstPromptSessionName(ctx.db, [id]);
+      const group = createGroup(groups, { name });
       addMember(groups, group.id, id);
       pruneBelowThreshold(groups, visibleIds(), new Set([group.id]));
     }
@@ -109,7 +114,11 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     const otherId = typeof body.otherId === "string" ? body.otherId : "";
     if (otherId !== "" && otherId !== id) {
       const existing = groupIdOf(groups, otherId);
-      const targetId = existing ?? createGroup(groups).id;
+      const targetId =
+        existing ??
+        createGroup(groups, {
+          name: firstPromptSessionName(ctx.db, [id, otherId]),
+        }).id;
       if (existing === undefined) addMember(groups, targetId, otherId);
       addMember(groups, targetId, id);
       pruneBelowThreshold(groups, visibleIds(), new Set([targetId]));

@@ -150,9 +150,34 @@ const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
   return new Set(rows.map((row) => row.session_id));
 };
 
+// Used to name a freshly created group after its founding session — the one
+// whose first user prompt came earliest.  `undefined` when none of the
+// sessions have a user message yet.
+const firstPromptSessionName = (
+  db: DatabaseSync,
+  ids: string[],
+): string | undefined => {
+  if (ids.length === 0) return undefined;
+  const row = validate(
+    type({ session_id: "string" }),
+    db
+      .prepare(
+        `SELECT session_id FROM messages
+           WHERE session_id IN (${placeholders(ids.length)})
+             AND role = 'user'
+           GROUP BY session_id
+           ORDER BY MIN(created_timestamp) ASC
+           LIMIT 1`,
+      )
+      .get(...ids),
+  );
+  return row === undefined ? undefined : getSession(db, row.session_id)?.name;
+};
+
 export type { MessageRow, SessionFilter, SessionRow };
 export {
   archiveSessions,
+  firstPromptSessionName,
   getSession,
   listMessages,
   listSessions,
