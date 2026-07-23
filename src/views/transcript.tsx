@@ -248,6 +248,7 @@ const Transcript = ({
       class="detail-inner"
       data-session-id={session.id}
       data-run-status={run?.status}
+      data-cursor={String(messages.length)}
     >
       <TranscriptHeader session={session} prUrl={prUrl} />
       {/* Always present so the tail stream can append; the empty placeholder
@@ -263,7 +264,7 @@ const Transcript = ({
         </p>
       )}
       {prompt !== undefined && <SubmittedPrompt prompt={prompt} active />}
-      {isRunActive(run) && <div id="live-output" class="live-output"></div>}
+      {isRunActive(run) && <div id="live-tail" class="live-tail"></div>}
       {run !== undefined && run.pendingPrompts.length > 0 && (
         <div id="queued-prompts" class="queued-prompts">
           {run.pendingPrompts.map((p) => (
@@ -290,4 +291,4 @@ const Transcript = ({
   );
 };
 
-export { renderPromptCard, Transcript };
+export { PromptBar, renderPromptCard, Transcript };

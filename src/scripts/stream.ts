@@ -8,20 +8,17 @@ declare const htmx: {
 
 let activeSource: EventSource | null = null;
 
-// A follow-up draft typed mid-run; preserved across the done-triggered re-render.
-let pendingDraft: string | undefined;
+// A follow-up draft captured before a targeted prompt-bar swap so it survives
+// the form replacement (the bar shape changes when a run starts/ends).
+let pendingBarDraft: string | undefined;
+// Tracks the prompt bar's busy/idle mode so only genuine transitions swap.
+let lastBusy: boolean | undefined;
 
 const teardown = (): void => {
   if (activeSource !== null) {
     activeSource.close();
     activeSource = null;
   }
-};
-
-// EventSource auto-reconnects on transient failures; only teardown once the
-// server has truly closed the connection.
-const teardownIfClosed = (): void => {
-  if (activeSource?.readyState === EventSource.CLOSED) teardown();
 };
 
 const scrollToBottom = (): void => {
@@ -117,9 +114,8 @@ const wireScrollMemory = (): void => {
   scrollMemoryWired = true;
 };
 
-// A message that was previously empty (and thus absent from the DOM) may
-// later gain content. Insert it in timestamp order rather than always at the
-// end, so the transcript stays correctly sequenced.
+// Insert a message at the correct index so the transcript stays sequenced
+// even when an empty row (absent from the DOM) later gains content.
 const insertMessageInOrder = (
   container: Element,
   index: number,
@@ -141,38 +137,52 @@ const removeEmptyState = (): void => {
   document.getElementById("no-messages")?.remove();
 };
 
-type ReplacePayload = { index: number; html: string };
+// Append a message, skipping if its index is already present (idempotent on
+// reconnect — the cursor-based catch-up may re-send rows the client has).
+const appendMessage = (
+  messages: Element,
+  index: number,
+  html: string,
+): void => {
+  if (html === "") return;
+  if (messages.querySelector(`[data-msg-index="${index}"]`) !== null) return;
+  insertMessageInOrder(messages, index, html);
+  removeEmptyState();
+};
 
-const isReplacePayload = (value: unknown): value is ReplacePayload =>
-  typeof value === "object" &&
-  value !== null &&
-  "index" in value &&
-  typeof value.index === "number" &&
-  "html" in value &&
-  typeof value.html === "string";
+// Reconcile a catch-up batch from the server (cursor-scoped, so cheap).
+const reconcileMessages = (
+  messages: Element,
+  entries: { index: number; html: string }[],
+): void => {
+  for (const entry of entries) appendMessage(messages, entry.index, entry.html);
+  if (nearBottom()) scrollToBottom();
+};
+
+type ReplacePayload = { index: number; html: string };
 
 const applyReplace = (messages: Element | null, data: string): void => {
   if (messages === null) return;
   const parsed: unknown = JSON.parse(data);
-  if (!isReplacePayload(parsed)) return;
-  if (parsed.html === "") return;
-  const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
-  if (existing !== null) existing.outerHTML = parsed.html;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("index" in parsed) ||
+    typeof (parsed as { index: unknown }).index !== "number" ||
+    !("html" in parsed) ||
+    typeof (parsed as { html: unknown }).html !== "string"
+  )
+    return;
+  const payload = parsed as ReplacePayload;
+  if (payload.html === "") return;
+  const existing = messages.querySelector(
+    `[data-msg-index="${payload.index}"]`,
+  );
+  if (existing !== null) existing.outerHTML = payload.html;
   else {
-    insertMessageInOrder(messages, parsed.index, parsed.html);
+    insertMessageInOrder(messages, payload.index, payload.html);
     removeEmptyState();
   }
-};
-
-const applyMessageSync = (messages: Element, data: string): void => {
-  const entries: unknown = JSON.parse(data);
-  if (!Array.isArray(entries)) return;
-  messages.innerHTML = "";
-  for (const html of entries)
-    if (typeof html === "string")
-      messages.insertAdjacentHTML("beforeend", html);
-  if (messages.querySelector(".message") !== null) removeEmptyState();
-  if (nearBottom()) scrollToBottom();
 };
 
 const applyRename = (data: string): void => {
@@ -203,7 +213,6 @@ type StreamStatus = {
   status: string;
   queuePosition?: number;
   pendingCount?: number;
-  startedCount?: number;
   error?: string | null;
 };
 
@@ -223,8 +232,11 @@ const updateStatusHint = (data: StreamStatus): void => {
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;
-  } else if (data.status === "completed" || data.status === "stopped") {
-    // Clear immediately so the hint doesn't stay stale until the re-render.
+  } else if (
+    data.status === "completed" ||
+    data.status === "stopped" ||
+    data.status === "idle"
+  ) {
     hint.className = "status-hint";
     hint.textContent = "";
   }
@@ -239,109 +251,71 @@ const dismissQueuedCard = (): void => {
     container.remove();
 };
 
-const captureDraft = (): void => {
+// Swap just the prompt bar (Stop/Queue → Send or vice-versa) on a busy/idle
+// transition — never the whole transcript. The draft is captured first and
+// restored after the swap so unsent text survives.
+const updatePromptBar = (sessionId: string, data: StreamStatus): void => {
+  const busy = data.status === "queued" || data.status === "running";
+  if (busy === lastBusy) return;
+  lastBusy = busy;
+  const bar = document.querySelector("[data-prompt-bar]");
+  if (bar === null) return;
   const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
-  if (textarea !== null && textarea.value !== "") pendingDraft = textarea.value;
+  if (textarea !== null && textarea.value !== "")
+    pendingBarDraft = textarea.value;
+  if (typeof htmx !== "undefined")
+    htmx.ajax(
+      "GET",
+      `/sessions/${sessionId}/prompt-bar?status=${data.status}`,
+      { target: "[data-prompt-bar]", swap: "outerHTML" },
+    );
 };
 
-const restoreDraft = (): void => {
-  if (pendingDraft === undefined) return;
+const restoreBarDraft = (): void => {
+  if (pendingBarDraft === undefined) return;
   const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
-  if (textarea !== null) textarea.value = pendingDraft;
-  pendingDraft = undefined;
+  if (textarea !== null) textarea.value = pendingBarDraft;
+  pendingBarDraft = undefined;
 };
 
-const connectRunner = (root: Element): void => {
-  const sessionId = root.getAttribute("data-session-id");
-  const output = root.querySelector("#live-output");
-  // Prompts that started before connecting; the first that many "prompt"
-  // events are replays and must not dismiss a queued-prompt card.
-  let baselineStarted = 0;
-  let promptCount = 0;
-  let statusInitialized = false;
-
-  activeSource = new EventSource(`/sessions/${sessionId}/stream`);
-
-  // Server replays all accumulated lines on reconnect; clear to avoid duplicates.
-  activeSource.addEventListener("open", () => {
-    if (output !== null) output.innerHTML = "";
-    // Remove the server-rendered prompt card — the stream replays started
-    // prompts into #live-output, so leaving it would duplicate the prompt.
-    document.querySelector("[data-active-prompt]")?.remove();
-  });
-
-  activeSource.addEventListener("status", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    try {
-      const data = JSON.parse(e.data);
-      updateStatusHint(data);
-      if (!statusInitialized) {
-        baselineStarted = data.startedCount ?? 0;
-        statusInitialized = true;
-      }
-    } catch {
-      /* ignore malformed status payloads */
-    }
-  });
-
-  activeSource.addEventListener("prompt", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const html = e.data;
-    if (html === "" || output === null) return;
-    output.insertAdjacentHTML("beforeend", html);
-    promptCount++;
-    // Only a genuine queued→running transition (not a replay) dismisses a card.
-    if (promptCount > baselineStarted) dismissQueuedCard();
-    if (nearBottom()) scrollToBottom();
-  });
-
-  activeSource.addEventListener("line", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const line = e.data;
-    if (line !== "" && output !== null) {
-      output.insertAdjacentHTML("beforeend", line);
-      if (nearBottom()) scrollToBottom();
-    }
-  });
-
-  activeSource.addEventListener("done", () => {
-    teardown();
-    captureDraft();
-    if (typeof htmx !== "undefined")
-      htmx.ajax("GET", `/sessions/${sessionId}?sidebar=1`, {
-        target: "#detail-pane",
-        swap: "innerHTML",
-      });
-  });
-
-  activeSource.addEventListener("error", teardownIfClosed);
-};
-
-const connectTail = (root: Element): void => {
+// One unified connect: the DB is the single source of truth for committed
+// messages (#messages), while in-memory NDJSON lines stream as a transient
+// preview (#live-tail) below the transcript. Cursor-based polling means
+// reconnects are delta-only, and EventSource auto-reconnect is embraced — the
+// error handler does nothing because Last-Event-ID ensures correctness.
+const connect = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const messages = document.getElementById("messages");
+  const initialStatus = root.getAttribute("data-run-status");
+  lastBusy = initialStatus === "queued" || initialStatus === "running";
 
-  activeSource = new EventSource(`/sessions/${sessionId}/tail`);
+  activeSource = new EventSource(
+    `/sessions/${sessionId}/events?cursor=${root.getAttribute("data-cursor") ?? 0}`,
+  );
 
-  // Reconcile the full message set on (re)connect so messages written during
-  // a disconnect gap aren't lost; clearing first makes this idempotent.
-  activeSource.addEventListener("sync", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    if (messages === null) return;
+  activeSource.addEventListener("messages", (e) => {
+    if (!(e instanceof MessageEvent) || messages === null) return;
     try {
-      applyMessageSync(messages, e.data);
+      const { entries } = JSON.parse(e.data) as {
+        entries: { index: number; html: string }[];
+      };
+      reconcileMessages(messages, entries);
     } catch {
-      /* ignore malformed sync payloads */
+      /* ignore malformed payload */
     }
   });
 
   activeSource.addEventListener("append", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const html = e.data;
-    if (html !== "" && messages !== null) {
-      removeEmptyState();
-      messages.insertAdjacentHTML("beforeend", html);
+    if (!(e instanceof MessageEvent) || messages === null) return;
+    try {
+      const { index, html } = JSON.parse(e.data) as {
+        index: number;
+        html: string;
+      };
+      appendMessage(messages, index, html);
       if (nearBottom()) scrollToBottom();
+    } catch {
+      /* ignore malformed payload */
     }
   });
 
@@ -351,17 +325,52 @@ const connectTail = (root: Element): void => {
       applyReplace(messages, e.data);
       if (nearBottom()) scrollToBottom();
     } catch {
-      /* ignore malformed replace payloads */
+      /* ignore malformed payload */
     }
   });
 
-  activeSource.addEventListener("meta", (e) => {
+  activeSource.addEventListener("preview", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    const liveTail = document.getElementById("live-tail");
+    if (liveTail === null || e.data === "") return;
+    liveTail.insertAdjacentHTML("beforeend", e.data);
+    if (nearBottom()) scrollToBottom();
+  });
+
+  // DB messages supersede the transient preview — clear it. The active
+  // prompt card (server-rendered on submit) is also removed now that the
+  // committed user-message row covers it.
+  activeSource.addEventListener("preview-clear", () => {
+    const liveTail = document.getElementById("live-tail");
+    if (liveTail !== null) liveTail.innerHTML = "";
+    document.querySelector("[data-active-prompt]")?.remove();
+  });
+
+  activeSource.addEventListener("status", (e) => {
     if (!(e instanceof MessageEvent)) return;
     try {
-      updateMeta(JSON.parse(e.data));
+      const data = JSON.parse(e.data) as StreamStatus;
+      // Session deleted mid-connection: close so EventSource stops retrying.
+      if (data.status === "deleted") {
+        teardown();
+        return;
+      }
+      updateStatusHint(data);
+      updatePromptBar(sessionId ?? "", data);
     } catch {
-      /* ignore malformed meta payloads */
+      /* ignore malformed status payload */
     }
+  });
+
+  // A chained prompt started — append its card to the preview tail and
+  // dismiss the corresponding queued-prompt card.
+  activeSource.addEventListener("prompt", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    const liveTail = document.getElementById("live-tail");
+    if (liveTail !== null && e.data !== "")
+      liveTail.insertAdjacentHTML("beforeend", e.data);
+    dismissQueuedCard();
+    if (nearBottom()) scrollToBottom();
   });
 
   activeSource.addEventListener("rename", (e) => {
@@ -369,17 +378,23 @@ const connectTail = (root: Element): void => {
     try {
       applyRename(e.data);
     } catch {
-      /* ignore malformed rename payloads */
+      /* ignore malformed rename payload */
     }
   });
 
-  // Server closed the stream; teardown so EventSource doesn't reconnect.
-  activeSource.addEventListener("done", () => {
-    teardown();
+  activeSource.addEventListener("meta", (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    try {
+      updateMeta(JSON.parse(e.data) as MetaUpdate);
+    } catch {
+      /* ignore malformed meta payload */
+    }
   });
 
+  // EventSource auto-reconnects on transient failures; Last-Event-ID lets the
+  // server resume from the right cursor. Do nothing — embrace the reconnect.
   activeSource.addEventListener("error", () => {
-    teardownIfClosed();
+    /* EventSource handles reconnection natively */
   });
 };
 
@@ -388,17 +403,17 @@ const init = (): void => {
   wireScrollMemory();
   const root = sessionRoot();
   if (root === null) return;
-  const status = root.getAttribute("data-run-status");
-  // Restore before connecting so an active run's first streamed line doesn't
-  // fight a stale default position.
   restoreScroll();
-  if (status === "queued" || status === "running") connectRunner(root);
-  else connectTail(root);
-  restoreDraft();
+  connect(root);
 };
 
 document.addEventListener("DOMContentLoaded", init);
 document.body.addEventListener("htmx:afterSwap", (e) => {
   if (!(e instanceof CustomEvent)) return;
-  if (e.detail.target?.id === "detail-pane") init();
+  if (e.detail?.target?.id === "detail-pane") {
+    init();
+    return;
+  }
+  // The prompt-bar swap landed — restore any captured draft.
+  if (pendingBarDraft !== undefined) restoreBarDraft();
 });

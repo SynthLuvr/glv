@@ -1,5 +1,5 @@
 import { JSDOM } from "jsdom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // stream.ts is a side-effect-only browser script (no exports, loaded as a
 // classic <script>), so tsc treats it as a non-module and refuses a literal
@@ -9,9 +9,9 @@ const STREAM_MODULE = "../scripts/stream";
 
 type Handler = (event: unknown) => void;
 
-// connectTail/connectRunner construct an EventSource; stub it so no network
-// is attempted and the handlers attach harmlessly. `dispatch` lets tests fire
-// server events into the captured listeners.
+// connect() constructs an EventSource; stub it so no network is attempted and
+// the handlers attach harmlessly. `dispatch` lets tests fire server events
+// into the captured listeners.
 class MockEventSource {
   static instances: MockEventSource[] = [];
 
@@ -53,11 +53,11 @@ const runnerTranscript = (sessionId: string, queued = 0): string => {
       ? `<div id="queued-prompts">${cards}<button class="clear-queue-btn">Clear</button></div>`
       : "";
   return (
-    `<div class="detail-inner" data-session-id="${sessionId}" data-run-status="running">` +
+    `<div class="detail-inner" data-session-id="${sessionId}" data-run-status="running" data-cursor="0">` +
     '<div id="messages"></div>' +
-    '<div id="live-output" class="live-output"></div>' +
+    '<div id="live-tail" class="live-tail"></div>' +
     queue +
-    '<form class="prompt-bar">' +
+    '<form class="prompt-bar" data-prompt-bar>' +
     '<p class="status-hint running" aria-live="polite">Running…</p>' +
     '<textarea name="prompt" class="prompt-input" rows="2"></textarea>' +
     "</form>" +
@@ -120,54 +120,58 @@ const fireSwap = (win: JSDOM["window"], innerHtml: string): void => {
   );
 };
 
-describe("live-stream prompt-card reconciliation", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
+describe("unified event stream", () => {
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
-  it("does not dismiss queued cards for replayed (pre-connect) prompts", async () => {
-    const { win } = setup(runnerTranscript("s1", 2));
+  it("connects to the unified /events endpoint with the cursor", async () => {
+    const { win } = setup(runnerTranscript("s1"));
     await import(STREAM_MODULE);
-    fireSwap(win, runnerTranscript("s1", 2));
+    fireSwap(win, runnerTranscript("s1"));
     const source = MockEventSource.instances[0]!;
-
-    // 1 prompt had already started before connecting (startedCount baseline).
-    source.dispatch(
-      "status",
-      JSON.stringify({ status: "running", pendingCount: 2, startedCount: 1 }),
-    );
-    // The replayed prompt card must NOT dismiss a still-queued card.
-    source.dispatch("prompt", "<article>replay</article>");
-
-    expect(document.querySelectorAll(".queued-prompt")).toHaveLength(2);
-  });
-
-  it("dismisses a queued card only for a genuine new transition", async () => {
-    const { win } = setup(runnerTranscript("s1", 2));
-    await import(STREAM_MODULE);
-    fireSwap(win, runnerTranscript("s1", 2));
-    const source = MockEventSource.instances[0]!;
-
-    source.dispatch(
-      "status",
-      JSON.stringify({ status: "running", pendingCount: 2, startedCount: 1 }),
-    );
-    // First prompt is the replay (startedCount baseline) — no dismiss.
-    source.dispatch("prompt", "<article>replay</article>");
-    // Second prompt is a new queued→running transition — dismiss one card.
-    source.dispatch("prompt", "<article>new</article>");
-
-    expect(document.querySelectorAll(".queued-prompt")).toHaveLength(1);
+    expect(source.url).toBe("/sessions/s1/events?cursor=0");
   });
 });
 
-describe("live-stream scroll behaviour", () => {
+describe("prompt-card dismissal", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("dismisses a queued card for each prompt event", async () => {
+    const { win } = setup(runnerTranscript("s1", 2));
+    await import(STREAM_MODULE);
+    fireSwap(win, runnerTranscript("s1", 2));
+    const source = MockEventSource.instances[0]!;
+
+    // Each prompt event represents a genuine queued→running transition.
+    source.dispatch("prompt", "<article>first</article>");
+    expect(document.querySelectorAll(".queued-prompt")).toHaveLength(1);
+
+    source.dispatch("prompt", "<article>second</article>");
+    expect(document.querySelectorAll(".queued-prompt")).toHaveLength(0);
+  });
+
+  it("appends the prompt card to the live tail", async () => {
+    const { win } = setup(runnerTranscript("s1"));
+    await import(STREAM_MODULE);
+    fireSwap(win, runnerTranscript("s1"));
+    const source = MockEventSource.instances[0]!;
+
+    source.dispatch(
+      "prompt",
+      "<article class='stream-line'>new prompt</article>",
+    );
+    expect(document.getElementById("live-tail")!.innerHTML).toContain(
+      "new prompt",
+    );
+  });
+});
+
+describe("preview scroll behaviour", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.resetModules();
@@ -181,43 +185,117 @@ describe("live-stream scroll behaviour", () => {
     pane.scrollTop = 0;
     const source = MockEventSource.instances[0]!;
 
-    source.dispatch("line", "<div>new line</div>");
+    source.dispatch("preview", "<div>new line</div>");
 
     expect(pane.scrollTop).toBe(0);
   });
 });
 
-describe("run-completion draft preservation", () => {
+describe("messages reconciliation", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
-  it("preserves an unsent follow-up across the done-triggered re-render", async () => {
-    const initial = runnerTranscript("s1");
-    const { win, pane } = setup(initial);
+  it("appends catch-up entries on the messages event", async () => {
+    const { win } = setup(runnerTranscript("s1"));
     await import(STREAM_MODULE);
-    fireSwap(win, initial);
+    fireSwap(win, runnerTranscript("s1"));
+    const source = MockEventSource.instances[0]!;
+
+    const html =
+      '<article class="message output" data-msg-index="0">hello</article>';
+    source.dispatch(
+      "messages",
+      JSON.stringify({ entries: [{ index: 0, html }], cursor: 1 }),
+    );
+
+    expect(document.getElementById("messages")!.innerHTML).toContain("hello");
+  });
+
+  it("skips entries already present (idempotent reconnect)", async () => {
+    const { win } = setup(runnerTranscript("s1"));
+    await import(STREAM_MODULE);
+    fireSwap(win, runnerTranscript("s1"));
+    const source = MockEventSource.instances[0]!;
+
+    const html =
+      '<article class="message output" data-msg-index="0">hello</article>';
+    const payload = JSON.stringify({
+      entries: [{ index: 0, html }],
+      cursor: 1,
+    });
+    source.dispatch("messages", payload);
+    source.dispatch("messages", payload); // reconnect re-send
+
+    expect(
+      document.querySelectorAll("#messages [data-msg-index='0']"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("preview-clear", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("empties the live tail and removes the active prompt card", async () => {
+    const { win } = setup(runnerTranscript("s1"));
+    await import(STREAM_MODULE);
+    fireSwap(
+      win,
+      `<div class="detail-inner" data-session-id="s1" data-run-status="running" data-cursor="0">` +
+        '<div id="messages"></div>' +
+        '<article class="message prompt submitted-prompt" data-active-prompt>my prompt</article>' +
+        '<div id="live-tail" class="live-tail"><div>preview line</div></div>' +
+        '<form class="prompt-bar" data-prompt-bar><textarea class="prompt-input"></textarea></form>' +
+        "</div>",
+    );
+    const source = MockEventSource.instances[0]!;
+
+    source.dispatch("preview-clear", "");
+
+    expect(document.getElementById("live-tail")!.innerHTML).toBe("");
+    expect(document.querySelector("[data-active-prompt]")).toBeNull();
+  });
+});
+
+describe("prompt-bar draft preservation", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("preserves an unsent draft across a prompt-bar status swap", async () => {
+    const { win } = setup(runnerTranscript("s1"));
+    await import(STREAM_MODULE);
+    fireSwap(win, runnerTranscript("s1"));
     const textarea =
       document.querySelector<HTMLTextAreaElement>(".prompt-input")!;
     textarea.value = "my unsent draft";
     const source = MockEventSource.instances[0]!;
 
-    // Run completes: the done handler captures the draft before the swap.
-    source.dispatch("done", "completed");
-    // Simulate the htmx re-render landing: idle transcript with a fresh
-    // (empty) textarea, then the afterSwap that re-runs init().
-    fireSwap(
-      win,
-      '<div class="detail-inner" data-session-id="s1">' +
-        '<div id="messages"></div>' +
-        '<form class="prompt-bar">' +
-        '<textarea name="prompt" class="prompt-input" rows="2"></textarea>' +
-        "</form>" +
-        "</div>",
+    // Run completes: the status transition captures the draft before the
+    // targeted prompt-bar swap.
+    source.dispatch("status", JSON.stringify({ status: "completed" }));
+
+    // Simulate the htmx prompt-bar swap landing (idle form replaces the busy
+    // form), then the afterSwap that restores the captured draft.
+    const bar = document.querySelector("[data-prompt-bar]")!;
+    bar.outerHTML =
+      '<form class="prompt-bar" data-prompt-bar>' +
+      '<textarea name="prompt" class="prompt-input" rows="2"></textarea>' +
+      '<button class="send-btn">Send</button>' +
+      "</form>";
+    document.body.dispatchEvent(
+      new win.CustomEvent("htmx:afterSwap", {
+        detail: { target: { tagName: "FORM" } },
+      }),
     );
 
-    const restored = pane.querySelector<HTMLTextAreaElement>(".prompt-input")!;
+    const restored =
+      document.querySelector<HTMLTextAreaElement>(".prompt-input")!;
     expect(restored.value).toBe("my unsent draft");
   });
 });
