@@ -180,14 +180,11 @@ pnpm test:integration
 ```
 
 These tests mock the `goose` binary with
-[mock-a-bin](https://github.com/levibostian/mock-a-bin) (a Deno-native
-tool) and the browser with [Playwright](https://playwright.dev), so two
-extra prerequisites are required:
+[type-a-bin](https://github.com/SynthLuvr/type-a-bin) and the browser
+with [Playwright](https://playwright.dev), which requires the Playwright
+Chromium browser:
 
-- [Deno](https://deno.com) on your `PATH`
-  (`curl -fsSL https://deno.land/install.sh | sh`).
-- The Playwright Chromium browser
-  (`pnpm exec playwright install chromium`).
+- `pnpm exec playwright install chromium`
 
 ## The CLI
 

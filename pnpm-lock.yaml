@@ -72,9 +72,6 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
-      mock-a-bin:
-        specifier: github:levibostian/mock-a-bin#1.1.0
-        version: https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78
       npm-run-all2:
         specifier: ^9.0.2
         version: 9.0.2
@@ -90,6 +87,9 @@ importers:
       tsx:
         specifier: ^4.23.1
         version: 4.23.1
+      type-a-bin:
+        specifier: github:SynthLuvr/type-a-bin#dist
+        version: git+ssh://git@github.com/SynthLuvr/type-a-bin.git#b861225463e49564513a8d6eb187facb44ac7a91
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1455,10 +1455,6 @@ packages:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
 
-  mock-a-bin@https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78}
-    version: 0.0.0
-
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -1693,6 +1689,11 @@ packages:
   tsyringe@4.10.0:
     resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
     engines: {node: '>= 6.0.0'}
+
+  type-a-bin@git+ssh://git@github.com/SynthLuvr/type-a-bin.git#b861225463e49564513a8d6eb187facb44ac7a91:
+    resolution: {commit: b861225463e49564513a8d6eb187facb44ac7a91, repo: git@github.com:SynthLuvr/type-a-bin.git, type: git}
+    version: 0.0.0
+    engines: {node: '==26'}
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -2909,8 +2910,6 @@ snapshots:
     dependencies:
       brace-expansion: 5.0.7
 
-  mock-a-bin@https://codeload.github.com/levibostian/mock-a-bin/tar.gz/b79801676b9be400ed1932133accd52d8aba8a78: {}
-
   mri@1.2.0: {}
 
   nanoid@3.3.15: {}
@@ -3131,6 +3130,8 @@ snapshots:
   tsyringe@4.10.0:
     dependencies:
       tslib: 1.14.1
+
+  type-a-bin@git+ssh://git@github.com/SynthLuvr/type-a-bin.git#b861225463e49564513a8d6eb187facb44ac7a91: {}
 
   typescript@7.0.2:
     optionalDependencies:
