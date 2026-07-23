@@ -11,14 +11,14 @@ import {
   type BrowserContext,
   chromium,
   expect,
+  type Page,
 } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { afterAll, beforeAll, describe, it } from "vitest";
 
-// The goose sessions database is owned by goose; glv only reads it (and writes
-// to it during serve). Both tables must exist before the server starts so the
-// initial sidebar query does not throw, and so the mock goose can INSERT the
-// new session row it is expected to create.
+// glv only reads the goose sessions database (and writes during serve), so
+// both tables must exist up front: the initial sidebar query needs them, and
+// the mock goose must INSERT the session row it is expected to create.
 const SESSIONS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -71,11 +71,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 const SESSION_NAME = "Integration Test Session";
 const PROMPT_TEXT = "Build the project and report the result.";
 
-// A stand-in for the real goose binary. glv starts a session by spawning
-// `goose run ...` with the prompt on stdin, then polls the sessions database
-// for a *new* row in the working directory. This mock does exactly that: it
-// inserts a fresh session row (working_dir = its own cwd) and emits one NDJSON
-// stream line, then exits 0 — mirroring what real goose does.
+// Stand-in for the real goose binary. glv spawns `goose run` with the prompt on
+// stdin, then polls the sessions database for a new row in the working
+// directory. This mock inserts that row (working_dir = its own cwd), emits one
+// NDJSON stream line, and exits 0 — mirroring real goose.
 const GOOSE_MOCK_SCRIPT = `
 const { DatabaseSync } = require("node:sqlite");
 const dbPath = process.env.GOOSE_SESSIONS_DB;
@@ -108,7 +107,7 @@ const findFreePort = (): Promise<number> =>
         server.close(() => reject(new Error("could not bind a port")));
         return;
       }
-      const port = addr.port;
+      const { port } = addr;
       server.close(() => resolve(port));
     });
   });
@@ -142,16 +141,15 @@ const createDatabases = (scratchDir: string): Databases => {
   const workDir = join(scratchDir, "project");
   mkdirSync(workDir, { recursive: true });
 
-  // WAL mode lets the server poll (read) while the mock goose writes a new
-  // session row without a SQLITE_BUSY collision.
   const sessionsDb = join(scratchDir, "sessions.db");
   const sdb = new DatabaseSync(sessionsDb);
+  // WAL lets the server read while the mock goose writes, without SQLITE_BUSY.
   sdb.exec("PRAGMA journal_mode=WAL");
   sdb.exec(SESSIONS_SCHEMA);
-  // Seed one existing session so the sidebar renders its #session-list
-  // container (the empty state omits it, which would leave the out-of-band
-  // sidebar swap with no target). Its working dir differs from the test
-  // project dir, so it never collides with new-session detection.
+  // The sidebar's #session-list container is only rendered for a non-empty
+  // list; the empty state omits it, leaving the out-of-band swap with no
+  // target. Seed a session in a different working dir so it never collides
+  // with new-session detection.
   sdb
     .prepare(
       "INSERT INTO sessions (id, name, session_type, working_dir, updated_at) " +
@@ -160,9 +158,8 @@ const createDatabases = (scratchDir: string): Databases => {
     .run("seed-session", "Seed Project", join(scratchDir, "other-project"));
   sdb.close();
 
-  // Pre-seed an owner and a valid session so the WebAuthn gate is satisfied
-  // without driving a real passkey flow. The token becomes the glv_session
-  // cookie the browser presents.
+  // Satisfy the WebAuthn gate without a real passkey: the token below becomes
+  // the glv_session cookie the browser presents.
   const authDb = join(scratchDir, "auth.db");
   const adb = new DatabaseSync(authDb);
   adb.exec(AUTH_SCHEMA);
@@ -188,6 +185,34 @@ const createDatabases = (scratchDir: string): Databases => {
   };
 };
 
+const serveArgs = (dbs: Databases, port: number): string[] => [
+  "serve",
+  "-p",
+  String(port),
+  "--db",
+  dbs.sessionsDb,
+  "--auth-db",
+  dbs.authDb,
+  "--prompts-db",
+  dbs.promptsDb,
+  "--groups-db",
+  dbs.groupsDb,
+  "--goose-binary",
+  "goose",
+];
+
+// SIGTERM, then escalate to SIGKILL after 5 s.
+const stopProcess = (proc: ChildProcess): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null) return resolve();
+    const timer = setTimeout(() => proc.kill("SIGKILL"), 5000);
+    proc.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    proc.kill("SIGTERM");
+  });
+
 let scratchDir: string;
 let restoreGoosePath: () => void;
 let serve: ChildProcess;
@@ -199,43 +224,20 @@ let dbs: Databases;
 
 beforeAll(async () => {
   scratchDir = mkdtempSync(join(tmpdir(), "glv-integration-"));
-
   dbs = createDatabases(scratchDir);
 
-  // Install a mock `goose` executable via type-a-bin. It prepends its temp
-  // directory to process.env.PATH, which the glv serve subprocess inherits, so
-  // resolveGooseBinary finds `goose` and the runner spawns our mock.
+  // mockBin prepends its temp dir to PATH, which the glv subprocess inherits,
+  // so resolveGooseBinary finds `goose` and spawns our mock.
   restoreGoosePath = await mockBin("goose", "node", GOOSE_MOCK_SCRIPT);
 
   const port = await findFreePort();
   baseUrl = `http://localhost:${port}`;
 
-  serve = spawn(
-    GLV,
-    [
-      "serve",
-      "-p",
-      String(port),
-      "--db",
-      dbs.sessionsDb,
-      "--auth-db",
-      dbs.authDb,
-      "--prompts-db",
-      dbs.promptsDb,
-      "--groups-db",
-      dbs.groupsDb,
-      "--goose-binary",
-      "goose",
-    ],
-    {
-      cwd: ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        GOOSE_SESSIONS_DB: dbs.sessionsDb,
-      },
-    },
-  );
+  serve = spawn(GLV, serveArgs(dbs, port), {
+    cwd: ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GOOSE_SESSIONS_DB: dbs.sessionsDb },
+  });
   serve.stderr?.on("data", (chunk: Buffer) => {
     serveStderr += chunk.toString();
   });
@@ -260,19 +262,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await context?.close();
   await browser?.close();
-  if (serve !== undefined && serve.exitCode === null) {
-    serve.kill("SIGTERM");
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        serve.kill("SIGKILL");
-        resolve();
-      }, 5000);
-      serve.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
-  }
+  if (serve !== undefined) await stopProcess(serve);
   restoreGoosePath?.();
   if (serveStderr.trim() !== "")
     console.error("glv serve stderr:\n" + serveStderr);
@@ -280,22 +270,27 @@ afterAll(async () => {
     rmSync(scratchDir, { recursive: true, force: true });
 });
 
+const withPage = async (run: (page: Page) => Promise<void>): Promise<void> => {
+  const page = await context.newPage();
+  try {
+    await run(page);
+  } finally {
+    await page.close();
+  }
+};
+
 describe("new session — working directory flow", () => {
   it("loads the New Session page for an authenticated user", async () => {
-    const page = await context.newPage();
-    try {
+    await withPage(async (page) => {
       await page.goto(baseUrl);
       await expect(page.locator("form.new-session-form")).toBeVisible();
       await expect(page.locator('textarea[name="prompt"]')).toBeVisible();
       await expect(page.locator("button.send-btn")).toHaveText("Start session");
-    } finally {
-      await page.close();
-    }
+    });
   });
 
   it("starts a goose session from the form", async () => {
-    const page = await context.newPage();
-    try {
+    await withPage(async (page) => {
       await page.goto(baseUrl);
       await expect(page.locator("form.new-session-form")).toBeVisible();
 
@@ -303,25 +298,21 @@ describe("new session — working directory flow", () => {
       await page.locator('textarea[name="prompt"]').fill(PROMPT_TEXT);
       await page.locator("button.send-btn").click();
 
-      // The transcript view replaces the form once goose has created the
-      // session and glv has re-keyed the run onto the real session id.
+      // The transcript replaces the form once goose creates the session and
+      // glv re-keys the run onto the real session id.
       await page
         .locator("button.archive-btn")
         .waitFor({ state: "visible", timeout: 20000 });
 
-      // The submitted prompt is rendered back as a PROMPT card in the
-      // transcript, confirming the run was established with this input.
       await expect(page.locator("#detail-pane")).toContainText(PROMPT_TEXT);
 
-      // The out-of-band sidebar refresh lists the freshly created session.
+      // The sidebar refreshes out-of-band, so the new session appears without
+      // a full page reload.
       await expect(page.locator("#session-list")).toContainText(SESSION_NAME, {
         timeout: 5000,
       });
 
-      // No validation/run error was rendered back into the detail pane.
       await expect(page.locator(".status-hint.error")).toHaveCount(0);
-    } finally {
-      await page.close();
-    }
+    });
   });
 });
