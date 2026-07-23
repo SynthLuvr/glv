@@ -50,7 +50,6 @@ document.addEventListener("click", (e) => {
       .querySelectorAll(".session-item.selected")
       .forEach((node) => node.classList.remove("selected"));
     item.classList.add("selected");
-    // Opening a session clears its unread state.
     const id = item.getAttribute("data-session-id");
     if (id !== null) {
       markRead(id);
@@ -133,11 +132,7 @@ const applySync = (data: string): void => {
   }
 };
 
-// --- Client-side read / unread --------------------------------------------
-// A session becomes unread the instant a run finishes while it isn't the
-// currently-open one, and read once clicked. State persists in localStorage
-// (mirrors the glv-theme key pattern) so it survives reloads; an in-memory Set
-// is hydrated once on load and mutated through these helpers.
+// Unread when a run finishes in a session that isn't the open one; read on click.
 const UNREAD_KEY = "glv-unread";
 
 // localStorage throws in private mode or when disabled; fall back to no-op.
@@ -156,7 +151,6 @@ const loadUnread = (): string[] => {
   return isStringArray(parsed) ? parsed : [];
 };
 
-// Hydrated once on load; markUnread/markRead mutate it and persist each change.
 const unread = new Set<string>(loadUnread());
 
 const saveUnread = (): void => {
@@ -182,9 +176,6 @@ const openSessionId = (): string | null =>
     .querySelector("#detail-pane [data-session-id]")
     ?.getAttribute("data-session-id") ?? null;
 
-// Re-applies the .unread class from the set and prunes ids no longer present in
-// the DOM. Called on load (server-rendered HTML doesn't know read state) and
-// after htmx swaps of #session-list (archive's OOB re-render wipes classes).
 const applyUnread = (): void => {
   const items = document.querySelectorAll<HTMLElement>(
     ".session-item[data-session-id]",
@@ -194,13 +185,11 @@ const applyUnread = (): void => {
     const id = item.dataset.sessionId;
     if (id !== undefined) present.add(id);
   }
-  let pruned = false;
-  for (const id of [...unread])
-    if (!present.has(id)) {
-      unread.delete(id);
-      pruned = true;
-    }
-  if (pruned) saveUnread();
+  const stale = [...unread].filter((id) => !present.has(id));
+  if (stale.length > 0) {
+    for (const id of stale) unread.delete(id);
+    saveUnread();
+  }
   for (const item of items) {
     const id = item.dataset.sessionId;
     if (id !== undefined) item.classList.toggle("unread", unread.has(id));
@@ -224,7 +213,6 @@ const onStatusEvent = (data: string): void => {
   setStatusIndicator(parsed.sessionId, running);
   if (running) return;
   refreshMeta(parsed.sessionId);
-  // A run finishing while the session isn't open makes its card unread.
   if (openSessionId() === parsed.sessionId) return;
   markUnread(parsed.sessionId);
   findSessionItem(parsed.sessionId)?.classList.add("unread");

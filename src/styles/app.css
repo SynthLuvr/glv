@@ -282,7 +282,6 @@ body {
 .session-item.selected .session-name {
   color: var(--color-accent);
 }
-/* A run that finished while the session wasn't open — bold name + accent edge. */
 .session-item.unread {
   border-left: 3px solid var(--color-accent);
 }
