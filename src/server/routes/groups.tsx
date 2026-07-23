@@ -125,9 +125,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     return renderList(c);
   });
 
-  // Archive every session that belongs to the group at once.  Mirroring single
-  // session archive, membership is retained in the sidecar so an un-archive
-  // can restore the group once its members are visible again.
+  // Membership is retained so an un-archive can restore the group.
   app.post("/groups/:id/archive", (c) => {
     const id = c.req.param("id");
     if (getGroup(groups, id) === undefined) return c.notFound();

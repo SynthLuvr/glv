@@ -218,7 +218,6 @@ describe("archive group", () => {
     // The group vanishes once all its members are hidden
     expect(html).not.toContain("group-header");
 
-    // Both members are now archived in the sessions database
     const archived = sessionsDb
       .prepare(
         "SELECT id FROM sessions WHERE id IN ('alpha', 'gamma') AND archived_at IS NOT NULL",

@@ -138,7 +138,6 @@ const groupIdOf = (db: DatabaseSync, sessionId: string): string | undefined => {
   return row?.group_id;
 };
 
-// Session ids belonging to a single group, in insertion order.
 const memberIdsOf = (db: DatabaseSync, groupId: string): string[] =>
   validateAll(
     type({ session_id: "string" }),
