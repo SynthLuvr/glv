@@ -27,11 +27,8 @@ const emit = async (
   }
 };
 
-// Snapshots the buffer synchronously via `drain(fromSeq)`, then emits each
-// line. The snapshot is a fresh copy taken before any `await` yield point, so
-// a concurrent `push` (which overwrites slots via modular arithmetic) can
-// never mutate the returned array mid-iteration. Returns `nextSeq` (the
-// snapshot boundary) on success, or `false` on abort.
+// drain snapshots before any await, so concurrent pushes can't mutate the
+// emitted lines. Returns nextSeq on success, false on abort.
 const flushLines = async (
   stream: SseWriter,
   buffer: LineBuffer,

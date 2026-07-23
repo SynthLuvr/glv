@@ -50,7 +50,6 @@ describe("createRingBuffer", () => {
     const { lines } = buf.drain(0);
     lines.push("injected");
     lines[0] = "mutated";
-    // The buffer is unaffected by the caller mutating the copy.
     expect(buf.snapshot()).toEqual(["a", "b"]);
   });
 
