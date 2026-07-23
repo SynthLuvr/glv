@@ -8,10 +8,9 @@ declare const htmx: {
 
 let activeSource: EventSource | null = null;
 
-// A follow-up draft captured before a targeted prompt-bar swap so it survives
-// the form replacement (the bar shape changes when a run starts/ends).
+// A follow-up draft captured before a prompt-bar swap so it survives the form
+// replacement (the bar shape changes when a run starts/ends).
 let pendingBarDraft: string | undefined;
-// Tracks the prompt bar's busy/idle mode so only genuine transitions swap.
 let lastBusy: boolean | undefined;
 
 const teardown = (): void => {
@@ -137,6 +136,17 @@ const removeEmptyState = (): void => {
   document.getElementById("no-messages")?.remove();
 };
 
+type MessageEntry = { index: number; html: string };
+
+// Parse JSON without throwing; malformed server payloads are silently skipped.
+const safeJson = <T>(raw: string): T | undefined => {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+};
+
 // Append a message, skipping if its index is already present (idempotent on
 // reconnect — the cursor-based catch-up may re-send rows the client has).
 const appendMessage = (
@@ -150,44 +160,37 @@ const appendMessage = (
   removeEmptyState();
 };
 
-// Reconcile a catch-up batch from the server (cursor-scoped, so cheap).
 const reconcileMessages = (
   messages: Element,
-  entries: { index: number; html: string }[],
+  entries: MessageEntry[],
 ): void => {
   for (const entry of entries) appendMessage(messages, entry.index, entry.html);
   if (nearBottom()) scrollToBottom();
 };
 
-type ReplacePayload = { index: number; html: string };
+const isMessageEntry = (value: unknown): value is MessageEntry =>
+  typeof value === "object" &&
+  value !== null &&
+  "index" in value &&
+  typeof value.index === "number" &&
+  "html" in value &&
+  typeof value.html === "string";
 
 const applyReplace = (messages: Element | null, data: string): void => {
   if (messages === null) return;
-  const parsed: unknown = JSON.parse(data);
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("index" in parsed) ||
-    typeof (parsed as { index: unknown }).index !== "number" ||
-    !("html" in parsed) ||
-    typeof (parsed as { html: unknown }).html !== "string"
-  )
-    return;
-  const payload = parsed as ReplacePayload;
-  if (payload.html === "") return;
-  const existing = messages.querySelector(
-    `[data-msg-index="${payload.index}"]`,
-  );
-  if (existing !== null) existing.outerHTML = payload.html;
+  const parsed = safeJson<unknown>(data);
+  if (!isMessageEntry(parsed) || parsed.html === "") return;
+  const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
+  if (existing !== null) existing.outerHTML = parsed.html;
   else {
-    insertMessageInOrder(messages, payload.index, payload.html);
+    insertMessageInOrder(messages, parsed.index, parsed.html);
     removeEmptyState();
   }
 };
 
 const applyRename = (data: string): void => {
-  const parsed: { name?: unknown } = JSON.parse(data);
-  if (typeof parsed.name !== "string") return;
+  const parsed = safeJson<{ name?: unknown }>(data);
+  if (parsed === undefined || typeof parsed.name !== "string") return;
   const title = document.querySelector("#detail-pane .session-title");
   if (title !== null)
     title.textContent = parsed.name === "" ? "(unnamed)" : parsed.name;
@@ -278,11 +281,22 @@ const restoreBarDraft = (): void => {
   pendingBarDraft = undefined;
 };
 
-// One unified connect: the DB is the single source of truth for committed
-// messages (#messages), while in-memory NDJSON lines stream as a transient
-// preview (#live-tail) below the transcript. Cursor-based polling means
-// reconnects are delta-only, and EventSource auto-reconnect is embraced — the
-// error handler does nothing because Last-Event-ID ensures correctness.
+const handleStatus = (sessionId: string, raw: string): void => {
+  const data = safeJson<StreamStatus>(raw);
+  if (data === undefined) return;
+  // Session deleted mid-connection: close so EventSource stops retrying.
+  if (data.status === "deleted") {
+    teardown();
+    return;
+  }
+  updateStatusHint(data);
+  updatePromptBar(sessionId, data);
+};
+
+// Unified session stream. The DB is the source of truth for committed
+// messages (#messages); in-memory NDJSON lines stream as a transient preview
+// (#live-tail). Cursor-based (Last-Event-ID) reconnects are delta-only, so
+// EventSource auto-reconnect is embraced rather than suppressed.
 const connect = (root: Element): void => {
   const sessionId = root.getAttribute("data-session-id");
   const messages = document.getElementById("messages");
@@ -295,38 +309,22 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("messages", (e) => {
     if (!(e instanceof MessageEvent) || messages === null) return;
-    try {
-      const { entries } = JSON.parse(e.data) as {
-        entries: { index: number; html: string }[];
-      };
-      reconcileMessages(messages, entries);
-    } catch {
-      /* ignore malformed payload */
-    }
+    const data = safeJson<{ entries: MessageEntry[] }>(e.data);
+    if (data !== undefined) reconcileMessages(messages, data.entries);
   });
 
   activeSource.addEventListener("append", (e) => {
     if (!(e instanceof MessageEvent) || messages === null) return;
-    try {
-      const { index, html } = JSON.parse(e.data) as {
-        index: number;
-        html: string;
-      };
-      appendMessage(messages, index, html);
-      if (nearBottom()) scrollToBottom();
-    } catch {
-      /* ignore malformed payload */
-    }
+    const entry = safeJson<MessageEntry>(e.data);
+    if (entry === undefined) return;
+    appendMessage(messages, entry.index, entry.html);
+    if (nearBottom()) scrollToBottom();
   });
 
   activeSource.addEventListener("replace", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    try {
-      applyReplace(messages, e.data);
-      if (nearBottom()) scrollToBottom();
-    } catch {
-      /* ignore malformed payload */
-    }
+    applyReplace(messages, e.data);
+    if (nearBottom()) scrollToBottom();
   });
 
   activeSource.addEventListener("preview", (e) => {
@@ -337,9 +335,9 @@ const connect = (root: Element): void => {
     if (nearBottom()) scrollToBottom();
   });
 
-  // DB messages supersede the transient preview — clear it. The active
-  // prompt card (server-rendered on submit) is also removed now that the
-  // committed user-message row covers it.
+  // DB messages supersede the transient preview — clear it. The active prompt
+  // card (server-rendered on submit) is removed once the committed user row
+  // arrives.
   activeSource.addEventListener("preview-clear", () => {
     const liveTail = document.getElementById("live-tail");
     if (liveTail !== null) liveTail.innerHTML = "";
@@ -348,22 +346,11 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("status", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    try {
-      const data = JSON.parse(e.data) as StreamStatus;
-      // Session deleted mid-connection: close so EventSource stops retrying.
-      if (data.status === "deleted") {
-        teardown();
-        return;
-      }
-      updateStatusHint(data);
-      updatePromptBar(sessionId ?? "", data);
-    } catch {
-      /* ignore malformed status payload */
-    }
+    handleStatus(sessionId ?? "", e.data);
   });
 
-  // A chained prompt started — append its card to the preview tail and
-  // dismiss the corresponding queued-prompt card.
+  // A chained prompt started — append its card to the preview tail and dismiss
+  // the matching queued-prompt card.
   activeSource.addEventListener("prompt", (e) => {
     if (!(e instanceof MessageEvent)) return;
     const liveTail = document.getElementById("live-tail");
@@ -375,26 +362,13 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("rename", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    try {
-      applyRename(e.data);
-    } catch {
-      /* ignore malformed rename payload */
-    }
+    applyRename(e.data);
   });
 
   activeSource.addEventListener("meta", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    try {
-      updateMeta(JSON.parse(e.data) as MetaUpdate);
-    } catch {
-      /* ignore malformed meta payload */
-    }
-  });
-
-  // EventSource auto-reconnects on transient failures; Last-Event-ID lets the
-  // server resume from the right cursor. Do nothing — embrace the reconnect.
-  activeSource.addEventListener("error", () => {
-    /* EventSource handles reconnection natively */
+    const data = safeJson<MetaUpdate>(e.data);
+    if (data !== undefined) updateMeta(data);
   });
 };
 

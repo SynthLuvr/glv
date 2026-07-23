@@ -1,28 +1,201 @@
 import { type Hono } from "hono";
-import { streamSSE } from "hono/streaming";
+import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { getSession, listMessages } from "../../db.js";
-import { parseMessage } from "../../format/index.js";
+import { type ParsedMessage, parseMessage } from "../../format/index.js";
 import { getHandle, isTerminalStatus } from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
 import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
 
+type MessageDelta = { index: number; html: string };
+
+// Mutable state threaded across poll iterations: snapshots detect in-place
+// message edits; the rest track deltas so only changes are emitted.
+type PollState = {
+  snapshots: string[];
+  msgCursor: number;
+  lastName: string;
+  lastUpdated: string;
+  previewCleared: boolean;
+  lastStatus: string | undefined;
+  lastQueuePosition: number | undefined;
+  lastPendingCount: number | undefined;
+  lastStartedCount: number;
+  sentLineOffset: number;
+  flushedTerminal: boolean;
+};
+
 // Resume cursor: Last-Event-ID (auto-sent by EventSource on reconnect) takes
-// precedence over the explicit ?cursor= from the initial connect.
+// precedence over the ?cursor= query from the initial connect.
 const resumeCursor = (headerId: string, query?: string): number => {
   if (/^\d+$/.test(headerId)) return Number(headerId);
   if (query !== undefined && /^\d+$/.test(query)) return Number(query);
   return 0;
 };
 
+const renderCatchup = (
+  messages: ParsedMessage[],
+  cursor: number,
+): MessageDelta[] => {
+  const deltas: MessageDelta[] = [];
+  for (let i = cursor; i < messages.length; i++) {
+    const html = renderMessage(messages[i], i);
+    if (html !== "") deltas.push({ index: i, html });
+  }
+  return deltas;
+};
+
+// Emits DB deltas — new messages, in-place edits, renames, and the meta chip.
+// Returns false once the stream should stop (client gone or session deleted);
+// the deleted case signals the client to close its EventSource.
+const pollDb = async (
+  stream: SSEStreamingApi,
+  ctx: ServerContext,
+  id: string,
+  state: PollState,
+): Promise<boolean> => {
+  const session = getSession(ctx.db, id);
+  if (session === undefined) {
+    await emit(
+      stream,
+      "status",
+      JSON.stringify({ status: "deleted" }),
+      state.msgCursor,
+    );
+    return false;
+  }
+
+  const rows = listMessages(ctx.db, id);
+  const messages = rows.map(parseMessage);
+  let metaChanged = false;
+  state.previewCleared = false;
+
+  // New rows supersede the transient preview: append, then clear it.
+  if (rows.length > state.snapshots.length) {
+    for (let i = state.snapshots.length; i < messages.length; i++) {
+      const html = renderMessage(messages[i], i);
+      if (
+        html !== "" &&
+        !(await emit(
+          stream,
+          "append",
+          JSON.stringify({ index: i, html }),
+          i + 1,
+        ))
+      )
+        return false;
+    }
+    state.msgCursor = rows.length;
+    state.previewCleared = true;
+    if (!(await emit(stream, "preview-clear", "", state.msgCursor)))
+      return false;
+  }
+
+  // In-place content edits.
+  const common = Math.min(state.snapshots.length, rows.length);
+  for (let i = 0; i < common; i++) {
+    if (rows[i].content_json === state.snapshots[i]) continue;
+    const html = renderMessage(messages[i], i);
+    if (
+      html !== "" &&
+      !(await emit(
+        stream,
+        "replace",
+        JSON.stringify({ index: i, html }),
+        state.msgCursor,
+      ))
+    )
+      return false;
+    metaChanged = true;
+  }
+  state.snapshots = rows.map((row) => row.content_json);
+
+  // Goose derives a real title mid-run; follow the rename.
+  if (session.name !== state.lastName) {
+    state.lastName = session.name;
+    if (
+      !(await emit(
+        stream,
+        "rename",
+        JSON.stringify({ name: session.name }),
+        state.msgCursor,
+      ))
+    )
+      return false;
+  }
+
+  if (session.updated_at !== state.lastUpdated) {
+    state.lastUpdated = session.updated_at;
+    metaChanged = true;
+  }
+  if (metaChanged && !(await emitMeta(stream, session, state.msgCursor)))
+    return false;
+
+  return true;
+};
+
+// Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
+// preview lines. Returns false once the stream should stop.
+const pollRunner = async (
+  stream: SSEStreamingApi,
+  ctx: ServerContext,
+  id: string,
+  state: PollState,
+): Promise<boolean> => {
+  const h = getHandle(ctx.runner, id);
+  if (h === undefined) return true;
+
+  // A DB catch-up just cleared the preview; rebase so only new lines emit.
+  if (state.previewCleared)
+    state.sentLineOffset = h.droppedLines + h.lines.length;
+
+  if (
+    h.status !== state.lastStatus ||
+    h.queuePosition !== state.lastQueuePosition ||
+    h.pendingPrompts.length !== state.lastPendingCount
+  ) {
+    if (!(await emitStatus(stream, h, state.msgCursor))) return false;
+    state.lastStatus = h.status;
+    state.lastQueuePosition = h.queuePosition;
+    state.lastPendingCount = h.pendingPrompts.length;
+  }
+
+  // Chained prompts starting (genuine transitions only).
+  while (state.lastStartedCount < h.startedPrompts.length) {
+    const cardHtml = renderPromptCard(h.startedPrompts[state.lastStartedCount]);
+    if (!(await emit(stream, "prompt", cardHtml, state.msgCursor)))
+      return false;
+    state.lastStartedCount++;
+  }
+
+  // Flush new preview lines. Active runs flush incrementally; the first
+  // terminal detection does one final flush so lines produced just before
+  // process exit aren't lost.
+  if (!isTerminalStatus(h.status) || !state.flushedTerminal) {
+    if (
+      !(await flushPreview(
+        stream,
+        h.lines,
+        h.droppedLines,
+        state.sentLineOffset,
+        state.msgCursor,
+      ))
+    )
+      return false;
+    state.sentLineOffset = h.droppedLines + h.lines.length;
+    if (isTerminalStatus(h.status)) state.flushedTerminal = true;
+  }
+
+  return true;
+};
+
 const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
-  // Unified session event stream. Replaces the former /stream (runner-only)
-  // and /tail (DB-only) endpoints. The DB is the single source of truth for
-  // committed messages; in-memory NDJSON lines are a transient preview shown
-  // below the transcript while a run is active. The stream never closes
-  // itself — it transitions from active-polling (50 ms) to idle-polling
-  // (tailPollMs) and stays open until the client disconnects.
+  // Unified session event stream. The DB is the source of truth for committed
+  // messages; in-memory NDJSON lines are a transient preview shown below the
+  // transcript while a run is active. The stream never closes itself — it
+  // shifts from active polling (50 ms) to idle polling (tailPollMs) and stays
+  // open until the client disconnects.
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
     const initial = getSession(ctx.db, id);
@@ -34,59 +207,51 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     );
 
     return streamSSE(c, async (stream) => {
-      // --- Catch-up: reconcile DB messages from the resume cursor ---
       const baselineRows = listMessages(ctx.db, id);
-      const baselineMessages = baselineRows.map(parseMessage);
-      const catchup: { index: number; html: string }[] = [];
-      for (let i = cursor; i < baselineMessages.length; i++) {
-        const html = renderMessage(baselineMessages[i], i);
-        if (html !== "") catchup.push({ index: i, html });
-      }
-      let msgCursor = baselineRows.length;
+      const state: PollState = {
+        snapshots: baselineRows.map((row) => row.content_json),
+        msgCursor: baselineRows.length,
+        lastName: initial.name,
+        lastUpdated: initial.updated_at,
+        previewCleared: false,
+        lastStatus: undefined,
+        lastQueuePosition: undefined,
+        lastPendingCount: undefined,
+        lastStartedCount: 0,
+        sentLineOffset: 0,
+        flushedTerminal: false,
+      };
+
+      const catchup = renderCatchup(baselineRows.map(parseMessage), cursor);
       if (
         !(await emit(
           stream,
           "messages",
-          JSON.stringify({ entries: catchup, cursor: msgCursor }),
-          msgCursor,
+          JSON.stringify({ entries: catchup, cursor: state.msgCursor }),
+          state.msgCursor,
         ))
       )
         return;
 
-      // Snapshot content_json to detect in-place edits, not just appends.
-      let snapshots = baselineRows.map((row) => row.content_json);
-      let lastName = initial.name;
-      let lastUpdated = initial.updated_at;
-
-      // --- Runner state (transient preview + status) ---
       const handle = getHandle(ctx.runner, id);
       const active = handle !== undefined && !isTerminalStatus(handle.status);
 
-      // Initial status so the client lands on the correct state immediately.
       if (handle !== undefined) {
-        if (!(await emitStatus(stream, handle, msgCursor))) return;
+        if (!(await emitStatus(stream, handle, state.msgCursor))) return;
+        state.lastStatus = handle.status;
+        state.lastQueuePosition = handle.queuePosition;
+        state.lastPendingCount = handle.pendingPrompts.length;
+        state.lastStartedCount = handle.startedPrompts.length;
       } else if (
         !(await emit(
           stream,
           "status",
           JSON.stringify({ status: "idle" }),
-          msgCursor,
+          state.msgCursor,
         ))
       )
         return;
 
-      // Delta-tracking fields for the runner poll.
-      let lastStatus = handle?.status;
-      let lastQueuePosition = handle?.queuePosition;
-      let lastPendingCount = handle?.pendingPrompts.length;
-      let lastStartedCount = handle?.startedPrompts.length ?? 0;
-
-      // Preview line offset (ring-buffer-aware absolute sequence number).
-      let sentLineOffset = 0;
-      // Ensures a single final flush of any lines produced just before the
-      // process exited (the last NDJSON line can arrive after the poll that
-      // last saw an active handle).
-      let flushedTerminal = false;
       if (active && handle !== undefined) {
         if (
           !(await flushPreview(
@@ -94,156 +259,23 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
             handle.lines,
             handle.droppedLines,
             0,
-            msgCursor,
+            state.msgCursor,
           ))
         )
           return;
-        sentLineOffset = handle.droppedLines + handle.lines.length;
+        state.sentLineOffset = handle.droppedLines + handle.lines.length;
       }
 
-      // --- Poll loop: runs until the client disconnects ---
       let polls = 0;
       while (!stream.aborted && polls < ctx.maxTailPolls) {
-        // Adapt the interval: fast while a run is active, slow when idle.
         const probe = getHandle(ctx.runner, id);
         const probeActive =
           probe !== undefined && !isTerminalStatus(probe.status);
         await stream.sleep(probeActive ? 50 : ctx.tailPollMs);
         if (stream.aborted) return;
         polls++;
-
-        // A. DB poll — authoritative message state.
-        const session = getSession(ctx.db, id);
-        if (session === undefined) {
-          // Session deleted mid-connection: signal and close.
-          await emit(
-            stream,
-            "status",
-            JSON.stringify({ status: "deleted" }),
-            msgCursor,
-          );
-          return;
-        }
-
-        const rows = listMessages(ctx.db, id);
-        const messages = rows.map(parseMessage);
-        let dbChanged = false;
-        let previewCleared = false;
-
-        // New messages → append; committed DB rows supersede preview lines.
-        if (rows.length > snapshots.length) {
-          for (let i = snapshots.length; i < messages.length; i++) {
-            const html = renderMessage(messages[i], i);
-            if (
-              html !== "" &&
-              !(await emit(
-                stream,
-                "append",
-                JSON.stringify({ index: i, html }),
-                i + 1,
-              ))
-            )
-              return;
-          }
-          msgCursor = rows.length;
-          previewCleared = true;
-          if (!(await emit(stream, "preview-clear", "", msgCursor))) return;
-        }
-
-        // In-place content edits → replace.
-        const common = Math.min(snapshots.length, rows.length);
-        for (let i = 0; i < common; i++) {
-          if (rows[i].content_json === snapshots[i]) continue;
-          const html = renderMessage(messages[i], i);
-          if (
-            html !== "" &&
-            !(await emit(
-              stream,
-              "replace",
-              JSON.stringify({ index: i, html }),
-              msgCursor,
-            ))
-          )
-            return;
-          dbChanged = true;
-        }
-
-        snapshots = rows.map((row) => row.content_json);
-
-        // Session rename (goose derives a title mid-run).
-        if (session.name !== lastName) {
-          lastName = session.name;
-          if (
-            !(await emit(
-              stream,
-              "rename",
-              JSON.stringify({ name: session.name }),
-              msgCursor,
-            ))
-          )
-            return;
-        }
-
-        // Updated-at meta chip.
-        if (session.updated_at !== lastUpdated) {
-          lastUpdated = session.updated_at;
-          dbChanged = true;
-        }
-        if (dbChanged && !(await emitMeta(stream, session, msgCursor))) return;
-
-        // B. Runner poll — transient preview + status deltas.
-        const h = getHandle(ctx.runner, id);
-
-        // After a DB catch-up, reset the preview offset so only genuinely
-        // new lines (produced after the clear) are emitted.
-        if (previewCleared && h !== undefined)
-          sentLineOffset = h.droppedLines + h.lines.length;
-
-        if (h !== undefined) {
-          // Status / queue / pending-count shift.
-          if (
-            h.status !== lastStatus ||
-            h.queuePosition !== lastQueuePosition ||
-            h.pendingPrompts.length !== lastPendingCount
-          ) {
-            if (!(await emitStatus(stream, h, msgCursor))) return;
-            lastStatus = h.status;
-            lastQueuePosition = h.queuePosition;
-            lastPendingCount = h.pendingPrompts.length;
-          }
-
-          // Chained prompts starting → prompt card (genuine transitions only).
-          while (lastStartedCount < h.startedPrompts.length) {
-            const cardHtml = renderPromptCard(
-              h.startedPrompts[lastStartedCount],
-            );
-            if (!(await emit(stream, "prompt", cardHtml, msgCursor))) return;
-            lastStartedCount++;
-          }
-
-          // Flush new NDJSON preview lines. While the run is active this is
-          // incremental; on the first terminal detection we do one final
-          // flush so lines produced in the gap between the last active poll
-          // and process exit aren't lost.
-          if (!isTerminalStatus(h.status) || !flushedTerminal) {
-            if (
-              !(await flushPreview(
-                stream,
-                h.lines,
-                h.droppedLines,
-                sentLineOffset,
-                msgCursor,
-              ))
-            )
-              return;
-            sentLineOffset = h.droppedLines + h.lines.length;
-            if (isTerminalStatus(h.status)) flushedTerminal = true;
-          }
-        }
-        // A run that just transitioned to terminal has already had its
-        // status emitted above; the next iteration drops to idle polling.
-        // No done event, no re-render — the committed DB messages already
-        // reflect the final state.
+        if (!(await pollDb(stream, ctx, id, state))) return;
+        if (!(await pollRunner(stream, ctx, id, state))) return;
       }
     });
   });
