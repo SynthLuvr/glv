@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -71,28 +72,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 const SESSION_NAME = "Integration Test Session";
 const PROMPT_TEXT = "Build the project and report the result.";
 
-// Stand-in for the real goose binary. glv spawns `goose run` with the prompt on
-// stdin, then polls the sessions database for a new row in the working
-// directory. This mock inserts that row (working_dir = its own cwd), emits one
-// NDJSON stream line, and exits 0 — mirroring real goose.
-const GOOSE_MOCK_SCRIPT = `
-const { DatabaseSync } = require("node:sqlite");
-const dbPath = process.env.GOOSE_SESSIONS_DB;
-if (dbPath) {
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
-  const id = "mock-" + process.pid + "-" + Date.now();
-  const sql =
-    "INSERT INTO sessions (id, name, session_type, working_dir, created_at, updated_at) " +
-    "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'))";
-  db.prepare(sql).run(id, ${JSON.stringify(SESSION_NAME)}, process.cwd());
-  db.close();
-}
-console.log(JSON.stringify({ role: "assistant", content: [{ type: "text", text: "mock goose reply" }] }));
-`;
-
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const GLV = join(ROOT, "bin", "glv");
+
+// The mock runs through tsx against this script. Keeping it as a real .ts file
+// means tsx transforms it (the mock binary itself is an extensionless temp
+// file, which tsx cannot parse). glv spawns the mock goose from the temp
+// workDir — which has no node_modules — so tsx is resolved to an absolute
+// loader path here (the type-a-bin example uses the bare `node --import tsx`
+// because its binary runs from the repo root). The DB path and session name
+// are passed through the environment.
+const tsxLoader = createRequire(import.meta.url).resolve("tsx");
+const gooseMockScriptPath = fileURLToPath(
+  new URL("./goose-mock-script.ts", import.meta.url),
+);
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -228,7 +221,9 @@ beforeAll(async () => {
 
   // mockBin prepends its temp dir to PATH, which the glv subprocess inherits,
   // so resolveGooseBinary finds `goose` and spawns our mock.
-  restoreGoosePath = await mockBin("goose", "node", GOOSE_MOCK_SCRIPT);
+  restoreGoosePath = await mockBin("goose", `node --import ${tsxLoader}`, {
+    file: gooseMockScriptPath,
+  });
 
   const port = await findFreePort();
   baseUrl = `http://localhost:${port}`;
@@ -236,7 +231,11 @@ beforeAll(async () => {
   serve = spawn(GLV, serveArgs(dbs, port), {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GOOSE_SESSIONS_DB: dbs.sessionsDb },
+    env: {
+      ...process.env,
+      GOOSE_SESSIONS_DB: dbs.sessionsDb,
+      GOOSE_MOCK_SESSION_NAME: SESSION_NAME,
+    },
   });
   serve.stderr?.on("data", (chunk: Buffer) => {
     serveStderr += chunk.toString();
