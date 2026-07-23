@@ -198,3 +198,44 @@ describe("dissolve on archive", () => {
     expect(retained[0]?.memberIds).toContain("beta");
   });
 });
+
+describe("archive group", () => {
+  it("archives every member session in a group", async () => {
+    clearGroups(groupsDb);
+    // beta is archived by the previous suite; alpha + gamma are both visible
+    await postForm(makeApp(), "/sessions/alpha/group-with", {
+      otherId: "gamma",
+    });
+    const groups = listGroups(groupsDb);
+    expect(groups).toHaveLength(1);
+    const groupId = groups[0]!.id;
+
+    const { status, html } = await postForm(
+      makeApp(),
+      `/groups/${groupId}/archive`,
+    );
+    expect(status).toBe(200);
+    // The group vanishes once all its members are hidden
+    expect(html).not.toContain("group-header");
+
+    // Both members are now archived in the sessions database
+    const archived = sessionsDb
+      .prepare(
+        "SELECT id FROM sessions WHERE id IN ('alpha', 'gamma') AND archived_at IS NOT NULL",
+      )
+      .all();
+    expect(archived).toHaveLength(2);
+
+    // Membership is retained so an un-archive can restore the group
+    const retained = listGroups(groupsDb);
+    expect(retained).toHaveLength(1);
+  });
+
+  it("returns 404 for an unknown group", async () => {
+    const { status } = await postForm(
+      makeApp(),
+      "/groups/does-not-exist/archive",
+    );
+    expect(status).toBe(404);
+  });
+});

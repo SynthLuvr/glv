@@ -396,6 +396,39 @@ body {
   border-radius: 999px;
   flex-shrink: 0;
 }
+.group-archive-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease;
+}
+.group-archive-btn svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.group-header:hover .group-archive-btn {
+  opacity: 0.85;
+}
+.group-archive-btn:hover {
+  opacity: 1;
+  color: var(--color-err);
+  border-color: var(--color-err);
+  background: var(--color-err-soft);
+}
 .group-members {
   display: flex;
   flex-direction: column;

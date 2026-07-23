@@ -1,5 +1,5 @@
 import { type Context, type Hono } from "hono";
-import { listSessions } from "../../db.js";
+import { archiveSessions, listSessions } from "../../db.js";
 import type { GroupWithMembers } from "../../groups/db.js";
 import {
   addMember,
@@ -7,6 +7,7 @@ import {
   getGroup,
   groupIdOf,
   listGroups,
+  memberIdsOf,
   pruneBelowThreshold,
   removeMember,
   renameGroup,
@@ -121,6 +122,16 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     const body = await c.req.parseBody();
     const name = typeof body.name === "string" ? body.name : "";
     renameGroup(groups, id, name);
+    return renderList(c);
+  });
+
+  // Archive every session that belongs to the group at once.  Mirroring single
+  // session archive, membership is retained in the sidecar so an un-archive
+  // can restore the group once its members are visible again.
+  app.post("/groups/:id/archive", (c) => {
+    const id = c.req.param("id");
+    if (getGroup(groups, id) === undefined) return c.notFound();
+    archiveSessions(ctx.db, memberIdsOf(groups, id));
     return renderList(c);
   });
 
