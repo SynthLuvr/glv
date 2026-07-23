@@ -245,3 +245,154 @@ describe("meta refresh on run completion", () => {
     expect(ajax).not.toHaveBeenCalled();
   });
 });
+
+describe("unread sessions", () => {
+  const makeStorage = () => {
+    const store = new Map<string, string>();
+    return {
+      getItem: (key: string): string | null => store.get(key) ?? null,
+      setItem: (key: string, value: string): void => {
+        store.set(key, value);
+      },
+      removeItem: (key: string): void => {
+        store.delete(key);
+      },
+    };
+  };
+
+  let storage: ReturnType<typeof makeStorage>;
+
+  const LIST = `
+    <div id="session-list">
+      <div class="session-item" data-session-id="alpha">
+        <a class="session-link"><span class="session-name">Alpha</span></a>
+      </div>
+      <div class="session-item" data-session-id="beta">
+        <a class="session-link"><span class="session-name">Beta</span></a>
+      </div>
+    </div>`;
+
+  // sidebar.ts now reads localStorage and listens for htmx:afterSwap, neither
+  // of which the existing harness stubs, so this block sets up its own DOM.
+  const setup = (bodyHtml: string): void => {
+    storage = makeStorage();
+    const dom = new JSDOM(
+      `<!DOCTYPE html><html><body>${bodyHtml}</body></html>`,
+    );
+    const win = dom.window;
+    MockEventSource.instances = [];
+    vi.stubGlobal("document", win.document);
+    // sidebar.ts type-guards with `instanceof Element/HTMLElement`, and the
+    // node test env has no DOM globals, so expose jsdom's constructors.
+    vi.stubGlobal("Element", win.Element);
+    vi.stubGlobal("HTMLElement", win.HTMLElement);
+    vi.stubGlobal("HTMLInputElement", win.HTMLInputElement);
+    vi.stubGlobal("CustomEvent", win.CustomEvent);
+    vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("MessageEvent", MockMessageEvent);
+    vi.stubGlobal("localStorage", storage);
+  };
+
+  const dispatchStatus = (sessionId: string, status: string): void =>
+    MockEventSource.instances[0].dispatch(
+      "status",
+      new MockMessageEvent("status", {
+        data: JSON.stringify({ sessionId, status }),
+      }),
+    );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("marks a finishing non-open session as unread", async () => {
+    setup(LIST);
+    await import(SIDEBAR_MODULE);
+    dispatchStatus("alpha", "done");
+    expect(
+      document
+        .querySelector<HTMLElement>(".session-item[data-session-id='alpha']")
+        ?.classList.contains("unread"),
+    ).toBe(true);
+    expect(JSON.parse(storage.getItem("glv-unread") ?? "[]")).toEqual([
+      "alpha",
+    ]);
+  });
+
+  it("leaves the currently-open session unmarked", async () => {
+    setup(
+      `<div id="detail-pane"><div data-session-id="alpha"></div></div>${LIST}`,
+    );
+    await import(SIDEBAR_MODULE);
+    dispatchStatus("alpha", "done");
+    expect(
+      document
+        .querySelector<HTMLElement>(".session-item[data-session-id='alpha']")
+        ?.classList.contains("unread"),
+    ).toBe(false);
+    expect(storage.getItem("glv-unread")).toBeNull();
+  });
+
+  it("clears unread when a session link is clicked", async () => {
+    setup(LIST);
+    await import(SIDEBAR_MODULE);
+    dispatchStatus("alpha", "done");
+    expect(JSON.parse(storage.getItem("glv-unread") ?? "[]")).toEqual([
+      "alpha",
+    ]);
+    document
+      .querySelector<HTMLElement>(
+        ".session-item[data-session-id='alpha'] .session-link",
+      )
+      ?.click();
+    expect(
+      document
+        .querySelector<HTMLElement>(".session-item[data-session-id='alpha']")
+        ?.classList.contains("unread"),
+    ).toBe(false);
+    expect(JSON.parse(storage.getItem("glv-unread") ?? "[]")).toEqual([]);
+  });
+
+  it("restores unread styling from localStorage on load", async () => {
+    setup(LIST);
+    storage.setItem("glv-unread", JSON.stringify(["beta"]));
+    await import(SIDEBAR_MODULE);
+    expect(
+      document
+        .querySelector<HTMLElement>(".session-item[data-session-id='beta']")
+        ?.classList.contains("unread"),
+    ).toBe(true);
+    expect(
+      document
+        .querySelector<HTMLElement>(".session-item[data-session-id='alpha']")
+        ?.classList.contains("unread"),
+    ).toBe(false);
+  });
+
+  it("prunes unread ids no longer present in the DOM", async () => {
+    setup(LIST);
+    storage.setItem("glv-unread", JSON.stringify(["alpha", "gone"]));
+    await import(SIDEBAR_MODULE);
+    expect(JSON.parse(storage.getItem("glv-unread") ?? "[]")).toEqual([
+      "alpha",
+    ]);
+  });
+
+  it("re-applies unread classes after an htmx swap of #session-list", async () => {
+    setup(LIST);
+    storage.setItem("glv-unread", JSON.stringify(["alpha"]));
+    await import(SIDEBAR_MODULE);
+    const item = document.querySelector<HTMLElement>(
+      ".session-item[data-session-id='alpha']",
+    );
+    item?.classList.remove("unread");
+    expect(item?.classList.contains("unread")).toBe(false);
+    document.dispatchEvent(
+      new CustomEvent("htmx:afterSwap", {
+        detail: { target: { id: "session-list" } },
+      }),
+    );
+    expect(item?.classList.contains("unread")).toBe(true);
+  });
+});

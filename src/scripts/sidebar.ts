@@ -50,6 +50,12 @@ document.addEventListener("click", (e) => {
       .querySelectorAll(".session-item.selected")
       .forEach((node) => node.classList.remove("selected"));
     item.classList.add("selected");
+    // Opening a session clears its unread state.
+    const id = item.getAttribute("data-session-id");
+    if (id !== null) {
+      markRead(id);
+      item.classList.remove("unread");
+    }
   }
 });
 
@@ -127,6 +133,80 @@ const applySync = (data: string): void => {
   }
 };
 
+// --- Client-side read / unread --------------------------------------------
+// A session becomes unread the instant a run finishes while it isn't the
+// currently-open one, and read once clicked. State persists in localStorage
+// (mirrors the glv-theme key pattern) so it survives reloads; an in-memory Set
+// is hydrated once on load and mutated through these helpers.
+const UNREAD_KEY = "glv-unread";
+
+// localStorage throws in private mode or when disabled; fall back to no-op.
+const unreadStorage = (): Storage | null => {
+  try {
+    return localStorage ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const loadUnread = (): string[] => {
+  const storage = unreadStorage();
+  if (storage === null) return [];
+  const parsed = safeParse(storage.getItem(UNREAD_KEY) ?? "");
+  return isStringArray(parsed) ? parsed : [];
+};
+
+// Hydrated once on load; markUnread/markRead mutate it and persist each change.
+const unread = new Set<string>(loadUnread());
+
+const saveUnread = (): void => {
+  const storage = unreadStorage();
+  if (storage === null) return;
+  storage.setItem(UNREAD_KEY, JSON.stringify([...unread]));
+};
+
+const markUnread = (sessionId: string): void => {
+  unread.add(sessionId);
+  saveUnread();
+};
+
+const markRead = (sessionId: string): void => {
+  unread.delete(sessionId);
+  saveUnread();
+};
+
+// The currently-open session — mirrors stream.ts's transcript-root selector so
+// the two scripts agree on what "open" means.
+const openSessionId = (): string | null =>
+  document
+    .querySelector("#detail-pane [data-session-id]")
+    ?.getAttribute("data-session-id") ?? null;
+
+// Re-applies the .unread class from the set and prunes ids no longer present in
+// the DOM. Called on load (server-rendered HTML doesn't know read state) and
+// after htmx swaps of #session-list (archive's OOB re-render wipes classes).
+const applyUnread = (): void => {
+  const items = document.querySelectorAll<HTMLElement>(
+    ".session-item[data-session-id]",
+  );
+  const present = new Set<string>();
+  for (const item of items) {
+    const id = item.dataset.sessionId;
+    if (id !== undefined) present.add(id);
+  }
+  let pruned = false;
+  for (const id of [...unread])
+    if (!present.has(id)) {
+      unread.delete(id);
+      pruned = true;
+    }
+  if (pruned) saveUnread();
+  for (const item of items) {
+    const id = item.dataset.sessionId;
+    if (id !== undefined) item.classList.toggle("unread", unread.has(id));
+  }
+};
+
 type StatusPayload = { sessionId: string; status: string };
 
 const isStatusPayload = (value: unknown): value is StatusPayload =>
@@ -142,7 +222,12 @@ const onStatusEvent = (data: string): void => {
   if (!isStatusPayload(parsed)) return;
   const running = parsed.status !== "done";
   setStatusIndicator(parsed.sessionId, running);
-  if (!running) refreshMeta(parsed.sessionId);
+  if (running) return;
+  refreshMeta(parsed.sessionId);
+  // A run finishing while the session isn't open makes its card unread.
+  if (openSessionId() === parsed.sessionId) return;
+  markUnread(parsed.sessionId);
+  findSessionItem(parsed.sessionId)?.classList.add("unread");
 };
 
 type RenamePayload = { sessionId: string; name: string };
@@ -219,4 +304,12 @@ const connectStatusFeed = (): void => {
 };
 
 updateBulkBar();
+applyUnread();
 connectStatusFeed();
+
+// Archive's OOB re-render of #session-list wipes the .unread classes; re-apply
+// after the swap restores the list.
+document.addEventListener("htmx:afterSwap", (e) => {
+  if (!(e instanceof CustomEvent)) return;
+  if (e.detail?.target?.id === "session-list") applyUnread();
+});
