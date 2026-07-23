@@ -183,6 +183,41 @@ describe("claimed app — login flow", () => {
     expect(options.allowCredentials).toHaveLength(1);
   });
 
+  it("accepts a challenge issued by the login options endpoint", async () => {
+    const optsRes = await app.request("/auth/login/options");
+    const { challenge } = await optsRes.json();
+    // Echo the server's challenge back exactly as an authenticator would.
+    // The credential is intentionally unknown, but a valid challenge must get
+    // past the "No login in progress" gate to the credential lookup.
+    const clientDataJSON = Buffer.from(
+      JSON.stringify({
+        type: "webauthn.get",
+        challenge,
+        origin: "http://localhost",
+      }),
+    ).toString("base64url");
+    const res = await app.request("/auth/login/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "no-such-credential",
+        rawId: Buffer.from("no-such-credential").toString("base64url"),
+        response: {
+          clientDataJSON,
+          authenticatorData: "",
+          signature: "",
+          userHandle: null,
+        },
+        type: "public-key",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.verified).toBe(false);
+    // Reaching the credential lookup proves the challenge round-tripped.
+    expect(json.error).toBe("Unknown credential.");
+  });
+
   it("returns a structured 400 on malformed login JSON", async () => {
     const res = await app.request("/auth/login/verify", {
       method: "POST",

@@ -86,7 +86,7 @@ type ChallengeFlow = "register" | "login";
 const makeChallengeAuthority = (
   ttlMs = CHALLENGE_TTL_MS,
 ): {
-  issue: (flow: ChallengeFlow) => string;
+  issue: (flow: ChallengeFlow) => Uint8Array<ArrayBuffer>;
   verify: (token: string, flow: ChallengeFlow) => boolean;
 } => {
   const pending = new Map<string, { flow: ChallengeFlow; expiry: number }>();
@@ -97,11 +97,16 @@ const makeChallengeAuthority = (
       if (record.expiry <= now) pending.delete(key);
   };
 
-  const issue = (flow: ChallengeFlow): string => {
+  const issue = (flow: ChallengeFlow): Uint8Array<ArrayBuffer> => {
+    // Return raw bytes — SimpleWebAuthn encodes the challenge itself, so
+    // the store keys on the resulting base64url, not a pre-encoded string.
     sweep();
-    const challenge = randomBytes(32).toString("base64url");
-    pending.set(challenge, { flow, expiry: Date.now() + ttlMs });
-    return challenge;
+    const bytes = randomBytes(32);
+    pending.set(bytes.toString("base64url"), {
+      flow,
+      expiry: Date.now() + ttlMs,
+    });
+    return Uint8Array.from(bytes);
   };
 
   const verify = (token: string, flow: ChallengeFlow): boolean => {
@@ -310,4 +315,10 @@ const authMiddleware =
   };
 
 export type { AuthService, RpConfig, VerifyResult };
-export { authMiddleware, COOKIE_NAME, makeAuthService, setSessionCookie };
+export {
+  authMiddleware,
+  COOKIE_NAME,
+  makeAuthService,
+  makeChallengeAuthority,
+  setSessionCookie,
+};
