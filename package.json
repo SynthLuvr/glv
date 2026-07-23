@@ -26,8 +26,7 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "pnpm build:assets && vitest run",
-    "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",

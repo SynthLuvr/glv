@@ -169,23 +169,6 @@ compiled to `dist/app.css` by `pnpm build:assets` (see `src/build.ts`).
 Browser client scripts are written as TypeScript in `src/scripts/` and
 compiled to minified `dist/*.js` by the same command.
 
-### Integration tests
-
-End-to-end tests (`*.integration.test.ts`) boot a real `glv serve`
-process on an open port and drive it with a headless browser. They are
-excluded from the default `pnpm test` run.
-
-``` bash
-pnpm test:integration
-```
-
-These tests mock the `goose` binary with
-[type-a-bin](https://github.com/SynthLuvr/type-a-bin) and the browser
-with [Playwright](https://playwright.dev), which requires the Playwright
-Chromium browser:
-
-- `pnpm exec playwright install chromium`
-
 ## The CLI
 
 Everything above is driven by the `glv` command, which also offers a few
