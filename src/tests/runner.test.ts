@@ -236,7 +236,7 @@ describe("enqueue and run", () => {
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const handle = enqueueRun(runner, "s1", "hello", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(handle.lines).toEqual(["line1", "line2", "line3"]);
+    expect(handle.output.snapshot()).toEqual(["line1", "line2", "line3"]);
   });
 
   it("builds a resume invocation with stdin-piped prompt", async () => {
@@ -396,7 +396,7 @@ describe("stop race-window guard", () => {
   it("kills the spawned process without consuming any output", async () => {
     const { state, handle } = stopDuringSpawn(["a", "b", "c"]);
     await waitForStatus(handle, "stopped");
-    expect(handle.lines).toEqual([]);
+    expect(handle.output.snapshot()).toEqual([]);
     expect(state.killCalls).toHaveLength(1);
   });
 });
@@ -660,7 +660,7 @@ describe("enqueueOrQueue (follow-up prompt queuing)", () => {
     await waitForStatus(handle, "running");
     enqueueOrQueue(runner, "s1", "second", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(handle.lines).toEqual(["a", "b", "a", "b"]);
+    expect(handle.output.snapshot()).toEqual(["a", "b", "a", "b"]);
   });
 
   it("tracks started prompts for stream replay", async () => {
@@ -774,7 +774,7 @@ describe("error handling", () => {
     const runner = createRunner(DEFAULT_RUNNER_CONFIG, spawn);
     const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "error");
-    expect(handle.lines).toEqual(["partial", "output"]);
+    expect(handle.output.snapshot()).toEqual(["partial", "output"]);
     expect(handle.error).toBe("goose exited with code 42");
   });
 });
@@ -858,7 +858,7 @@ describe("enqueueRun (new-session runs)", () => {
       isNewSession: true,
     });
     await waitForStatus(handle, "completed");
-    expect(handle.lines).toEqual(["a", "b", "c"]);
+    expect(handle.output.snapshot()).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -886,7 +886,7 @@ describe("rekey", () => {
     await waitForStatus(handle, "running");
     await sleep(150);
     rekey(runner, "tmp-1", "real-1");
-    expect(getHandle(runner, "real-1")?.lines).toContain("one");
+    expect(getHandle(runner, "real-1")?.output.snapshot()).toContain("one");
   });
 
   it("returns false when the temp key is unknown", () => {
@@ -934,8 +934,7 @@ describe("line buffer cap", () => {
     const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
     const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(handle.lines).toEqual(["l3", "l4", "l5"]);
-    expect(handle.droppedLines).toBe(2);
+    expect(handle.output.snapshot()).toEqual(["l3", "l4", "l5"]);
   });
 
   it("keeps every line when output stays under the cap", async () => {
@@ -943,8 +942,7 @@ describe("line buffer cap", () => {
     const runner = createRunner(makeRunnerConfig(2, "goose", 5000, 3), spawn);
     const handle = enqueueRun(runner, "s1", "hi", "/tmp");
     await waitForStatus(handle, "completed");
-    expect(handle.lines).toEqual(["l1", "l2"]);
-    expect(handle.droppedLines).toBe(0);
+    expect(handle.output.snapshot()).toEqual(["l1", "l2"]);
   });
 
   it("caps lines across chained runs, tracking dropped count", async () => {
@@ -956,8 +954,7 @@ describe("line buffer cap", () => {
     enqueueOrQueue(runner, "s1", "third", "/tmp");
     await waitForStatus(handle, "completed");
     // Six lines (a,b x3); only the newest three are retained.
-    expect(handle.lines).toEqual(["b", "a", "b"]);
-    expect(handle.droppedLines).toBe(3);
+    expect(handle.output.snapshot()).toEqual(["b", "a", "b"]);
   });
 });
 

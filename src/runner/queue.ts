@@ -1,3 +1,4 @@
+import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
   EnqueueOptions,
@@ -100,11 +101,10 @@ const enqueueInvocation = (
     workingDir,
     status: "queued",
     queuePosition: undefined,
-    lines: [],
+    output: createRingBuffer(runner.config.maxLines),
     error: undefined,
     cancelled: false,
     process: undefined,
-    droppedLines: 0,
     evictionTimer: undefined,
   };
   clearEviction(existing);

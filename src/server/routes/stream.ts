@@ -146,9 +146,11 @@ const pollRunner = async (
   const h = getHandle(ctx.runner, id);
   if (h === undefined) return true;
 
-  // A DB catch-up just cleared the preview; rebase so only new lines emit.
+  // A DB catch-up just cleared the preview; rebase past any buffered lines
+  // that belong to the now-committed message (they'd duplicate #messages).
+  // drain is a snapshot, so we only borrow its nextSeq.
   if (state.previewCleared)
-    state.sentLineOffset = h.droppedLines + h.lines.length;
+    state.sentLineOffset = h.output.drain(state.sentLineOffset).nextSeq;
 
   if (
     h.status !== state.lastStatus ||
@@ -173,17 +175,14 @@ const pollRunner = async (
   // terminal detection does one final flush so lines produced just before
   // process exit aren't lost.
   if (!isTerminalStatus(h.status) || !state.flushedTerminal) {
-    if (
-      !(await flushPreview(
-        stream,
-        h.lines,
-        h.droppedLines,
-        state.sentLineOffset,
-        state.msgCursor,
-      ))
-    )
-      return false;
-    state.sentLineOffset = h.droppedLines + h.lines.length;
+    const next = await flushPreview(
+      stream,
+      h.output,
+      state.sentLineOffset,
+      state.msgCursor,
+    );
+    if (next === false) return false;
+    state.sentLineOffset = next;
     if (isTerminalStatus(h.status)) state.flushedTerminal = true;
   }
 
@@ -253,17 +252,14 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         return;
 
       if (active && handle !== undefined) {
-        if (
-          !(await flushPreview(
-            stream,
-            handle.lines,
-            handle.droppedLines,
-            0,
-            state.msgCursor,
-          ))
-        )
-          return;
-        state.sentLineOffset = handle.droppedLines + handle.lines.length;
+        const next = await flushPreview(
+          stream,
+          handle.output,
+          0,
+          state.msgCursor,
+        );
+        if (next === false) return;
+        state.sentLineOffset = next;
       }
 
       let polls = 0;
