@@ -343,6 +343,7 @@ body {
   gap: 0.1rem;
 }
 .group-header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -1822,6 +1823,9 @@ pre::-webkit-scrollbar-thumb {
 }
 .session-item:hover .rename-pencil,
 .session-item.selected .rename-pencil {
+  opacity: 0.85;
+}
+.group-header:hover .rename-pencil {
   opacity: 0.85;
 }
 .rename-wrap.is-sidebar .rename-form {
