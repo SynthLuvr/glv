@@ -187,19 +187,10 @@ const pruneBelowThreshold = (
   }
 };
 
-const clearGroups = (db: DatabaseSync): void => {
-  transaction(db, () => {
-    db.exec("DELETE FROM group_members");
-    db.exec("DELETE FROM session_groups");
-  });
-};
-
-export type { GroupInput, GroupWithMembers, SessionGroup };
+export type { GroupWithMembers };
 export {
   addMember,
-  clearGroups,
   createGroup,
-  deleteGroup,
   getGroup,
   groupIdOf,
   listGroups,

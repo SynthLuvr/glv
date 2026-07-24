@@ -60,4 +60,4 @@ const createApp = (
   return app;
 };
 
-export { createApp, expandHome, listHomeDirs };
+export { createApp, expandHome };

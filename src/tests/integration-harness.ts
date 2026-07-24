@@ -459,7 +459,7 @@ const collectSse = async (
       });
   });
 
-export type { IntegrationEnv, MessageSeed, MockConfig, SessionSeed, SseEvent };
+export type { IntegrationEnv, SseEvent };
 export {
   authedFetch,
   collectSse,

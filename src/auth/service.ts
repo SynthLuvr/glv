@@ -433,7 +433,6 @@ export {
   authMiddleware,
   COOKIE_NAME,
   makeAuthService,
-  makeChallengeAuthority,
   resolveRequestUrl,
   setSessionCookie,
 };

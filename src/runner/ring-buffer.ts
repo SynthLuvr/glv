@@ -34,5 +34,5 @@ const createRingBuffer = (capacity: number): LineBuffer => {
   return { push, drain, snapshot };
 };
 
-export type { DrainResult, LineBuffer };
+export type { LineBuffer };
 export { createRingBuffer };

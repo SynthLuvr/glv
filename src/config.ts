@@ -42,11 +42,4 @@ const writeConfig = (config: Record<string, unknown>): void => {
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };
 
-export type { GlvConfig };
-export {
-  CONFIG_KEYS,
-  readConfig,
-  readRawConfig,
-  resolveConfigPath,
-  writeConfig,
-};
+export { CONFIG_KEYS, readConfig, readRawConfig, writeConfig };

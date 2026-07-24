@@ -139,4 +139,4 @@ const runProcess = async (
   if (result.exitCode !== 0) handle.error = describeFailure(result);
 };
 
-export { defaultSpawn, killProcessGroup, runProcess };
+export { defaultSpawn, runProcess };

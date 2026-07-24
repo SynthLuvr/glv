@@ -67,4 +67,4 @@ const buildEntries = (
 };
 
 export type { ListEntry };
-export { buildEntries, DEFAULT_GROUP_NAME };
+export { buildEntries };
