@@ -124,5 +124,5 @@ const readWorktreeByBranch = (
 ): Promise<GitInfo> =>
   resolveWorktreeByBranch(cwd, run, branch).catch(() => ({}));
 
-export type { GitRunner, WorktreeBlock };
-export { parseWorktreeList, readGitInfo, readWorktreeByBranch, runGit };
+export type { GitRunner };
+export { readGitInfo, readWorktreeByBranch };
