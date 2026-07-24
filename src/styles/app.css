@@ -462,6 +462,50 @@ body {
   border-radius: 0.6rem;
 }
 
+/* drag handle — initiates the pointer-event drag (mouse + touch). `touch-action:
+   none` makes a gesture starting on the handle belong to the drag, so it never
+   scrolls the list on touch devices. */
+.session-drag-handle {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1.3rem;
+  margin-top: 0.02rem;
+  color: var(--color-faint);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.session-drag-handle:hover,
+.session-item:hover .session-drag-handle {
+  color: var(--color-muted);
+}
+.session-drag-handle:active {
+  cursor: grabbing;
+}
+.session-drag-handle svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+/* floating clone that tracks the pointer during a drag */
+.session-item.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  border-color: var(--color-accent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
 /* session group menu (accessible non-drag path) */
 .session-group-menu {
   position: relative;
