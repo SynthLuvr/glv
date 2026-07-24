@@ -144,6 +144,10 @@ type MockConfig = {
   lines?: string[];
   /** Name written into a new session row. */
   sessionName?: string;
+  /** Pause (ms) between streamed lines so a tail fills incrementally. */
+  lineDelayMs?: number;
+  /** When set, persist each line to the sessions DB as it is produced. */
+  writeDb?: boolean;
 };
 
 type IntegrationEnv = {
@@ -286,6 +290,8 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
   GOOSE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
   GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
+  GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
+  GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
 });
 
 const startIntegrationEnv = async (
