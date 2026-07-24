@@ -1,8 +1,7 @@
 import { execa } from "execa";
 
-// Reverse tunnel: on the remote host, bind 127.0.0.1:<port> and forward it
-// back to the local viewer on 127.0.0.1:<port>. Both sides use the serve
-// port so a remote hit on the viewer port reaches the local server.
+// ssh -R reverse tunnel: the remote bind forwards back to the local viewer
+// on the same port, so a request to the remote viewer port reaches here.
 const forwardArgs = (port: number, host: string): readonly string[] => [
   "-NT",
   "-o",
@@ -20,8 +19,8 @@ type TunnelHandle = {
   kill: () => void;
 };
 
-// Starts a long-lived `ssh -NT` reverse tunnel. The handle's kill() is
-// idempotent and synchronous so it is safe from a process "exit" handler.
+// kill() is idempotent and synchronous, so it is safe to call from a process
+// "exit" handler.
 const startForwardTunnel = (port: number, host: string): TunnelHandle => {
   const proc = execa("ssh", [...forwardArgs(port, host)], {
     stdio: "inherit",

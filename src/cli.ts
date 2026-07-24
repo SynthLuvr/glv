@@ -138,6 +138,16 @@ const resolveGooseBinary = (value: string): string => {
   return value;
 };
 
+const resolveForwardHost = (forward?: boolean): string | undefined => {
+  if (!forward) return undefined;
+  const { forwardHost } = readConfig();
+  if (forwardHost === undefined)
+    throw new Error(
+      '--forward needs "forwardHost" set in ~/.config/glv/config.json',
+    );
+  return forwardHost;
+};
+
 program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
@@ -165,15 +175,6 @@ program
   )
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
-    let forwardHost: string | undefined;
-    if (opts.forward) {
-      const config = readConfig();
-      if (config.forwardHost === undefined)
-        throw new Error(
-          '--forward needs "forwardHost" set in ~/.config/glv/config.json',
-        );
-      forwardHost = config.forwardHost;
-    }
     runServe(db, {
       port: Number(opts.port),
       runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
@@ -182,7 +183,7 @@ program
       groupsDbPath: getGroupsDbPath(),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
-      forwardHost,
+      forwardHost: resolveForwardHost(opts.forward),
     });
   });
 

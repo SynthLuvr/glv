@@ -4,15 +4,14 @@ import { join } from "node:path";
 import { type } from "arktype";
 import { tryParseJson } from "./parse.js";
 
-// Lives outside the repo (never committed) so per-machine secrets like a
-// forward host stay local to the system that owns them.
 const Config = type({
   "forwardHost?": "string",
 });
 
 type GlvConfig = typeof Config.infer;
 
-// Precedence mirrors the DB-path helpers: env override → XDG default.
+// Lives outside the repo so per-machine secrets (e.g. a forward host) stay
+// uncommitted. Precedence mirrors the DB-path helpers: env override → default.
 const resolveConfigPath = (): string =>
   process.env.GLV_CONFIG ?? join(homedir(), ".config", "glv", "config.json");
 
@@ -29,4 +28,4 @@ const readConfig = (): GlvConfig => {
 };
 
 export type { GlvConfig };
-export { readConfig, resolveConfigPath };
+export { readConfig };
