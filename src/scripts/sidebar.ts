@@ -61,6 +61,15 @@ document.addEventListener("click", (e) => {
 const findSessionItem = (sessionId: string): Element | null =>
   document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
 
+// A group's indicator mirrors whether any of its members is running.
+const setGroupRunning = (group: Element): void => {
+  const header = group.querySelector(".group-header");
+  if (header === null) return;
+  const anyRunning =
+    group.querySelector(".session-item[data-running]") !== null;
+  header.toggleAttribute("data-running", anyRunning);
+};
+
 const setStatusIndicator = (sessionId: string, running: boolean): void => {
   const item = findSessionItem(sessionId);
   if (item === null) return;
@@ -68,6 +77,8 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
   item
     .querySelector(".run-indicator")
     ?.setAttribute("title", running ? "Session is running" : "Session idle");
+  const group = item.closest(".session-group");
+  if (group !== null) setGroupRunning(group);
 };
 
 // Goose derives a session name mid-run; the feed pushes it here so the card
@@ -130,6 +141,8 @@ const applySync = (data: string): void => {
     const id = item.dataset.sessionId;
     if (id !== undefined) setStatusIndicator(id, active.has(id));
   }
+  for (const group of document.querySelectorAll(".session-group"))
+    setGroupRunning(group);
 };
 
 // Unread when a run finishes in a session that isn't the open one; read on click.
