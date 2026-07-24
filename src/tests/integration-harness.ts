@@ -1,22 +1,17 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, type Page } from "@playwright/test";
+import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 
-// Shared scaffolding for the browser integration tests. Each test boots a real
-// `glv serve` subprocess against throwaway databases and drives it with a
-// headless browser; this module centralises the database setup, server
-// spawning, and small async utilities so the test files stay focused on
-// assertions.
-
-// glv reads the goose sessions database (and writes during serve), so both
-// tables must exist up front: the initial sidebar query needs them, and the
-// mock goose must INSERT the session row it is expected to create.
+// Both tables must exist before the server starts: the sidebar queries them
+// and the mock goose inserts into them.
 const SESSIONS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -73,11 +68,8 @@ const INSERT_SESSION_SQL =
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const GLV = join(ROOT, "bin", "glv");
 
-// The mock runs through tsx against this script. Keeping it as a real .ts file
-// means tsx transforms it (the mock binary itself is an extensionless temp
-// file, which tsx cannot parse). glv spawns the mock goose from the temp
-// workDir — which has no node_modules — so tsx is resolved to an absolute
-// loader path here.
+// tsx is resolved to an absolute loader path because the mock goose runs from
+// a temp dir with no node_modules.
 const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
@@ -127,22 +119,14 @@ type Databases = {
   token: string;
 };
 
-type CreateDatabasesOptions = { seed?: SessionSeed };
-
-// Creates throwaway sessions + auth databases under scratchDir. WAL lets a
-// test process (or the mock goose) write while the server reads, without
-// SQLITE_BUSY. The auth row satisfies the WebAuthn gate without a real
-// passkey: the returned token becomes the glv_session cookie.
-const createDatabases = (
-  scratchDir: string,
-  { seed }: CreateDatabasesOptions = {},
-): Databases => {
+// WAL lets a test process (or the mock goose) write while the server reads,
+// without SQLITE_BUSY. The auth row satisfies the WebAuthn gate without a
+// real passkey: the returned token becomes the glv_session cookie.
+const createDatabases = (scratchDir: string): Databases => {
   const sessionsDb = join(scratchDir, "sessions.db");
   const sdb = new DatabaseSync(sessionsDb);
   sdb.exec("PRAGMA journal_mode=WAL");
   sdb.exec(SESSIONS_SCHEMA);
-  if (seed !== undefined)
-    sdb.prepare(INSERT_SESSION_SQL).run(seed.id, seed.name, seed.workingDir);
   sdb.close();
 
   const authDb = join(scratchDir, "auth.db");
@@ -169,9 +153,8 @@ const createDatabases = (
   };
 };
 
-// Inserts sessions straight into the sessions database. The server reads fresh
-// on every request, so the sidebar reflects them on the next page load
-// without a restart.
+// The server reads fresh on every request, so sessions inserted here appear in
+// the sidebar on the next page load without a restart.
 const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
@@ -196,7 +179,6 @@ const serveArgs = (dbs: Databases, port: number): string[] => [
   "goose",
 ];
 
-// SIGTERM, then escalate to SIGKILL after 5 s.
 const stopProcess = (proc: ChildProcess): Promise<void> =>
   new Promise((resolve) => {
     if (proc.exitCode !== null) return resolve();
@@ -208,15 +190,12 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     proc.kill("SIGTERM");
   });
 
-// mockBin prepends its temp dir to PATH, which the glv subprocess inherits, so
-// resolveGooseBinary finds `goose` and spawns the mock.
+// mockBin prepends its temp dir to PATH so the glv subprocess finds `goose`.
 const mockGoose = (): Promise<() => void> =>
   mockBin("goose", `node --import ${tsxLoader}`, {
     file: gooseMockScriptPath,
   });
 
-// Spawns `glv serve` and captures its stderr for post-mortem logging. Returns
-// the handle plus a getter for the accumulated stderr.
 const startServer = (
   dbs: Databases,
   port: number,
@@ -234,6 +213,58 @@ const startServer = (
   return { proc, readStderr: () => stderr };
 };
 
+type IntegrationEnv = {
+  scratchDir: string;
+  baseUrl: string;
+  context: BrowserContext;
+  dbs: Databases;
+  cleanup: () => Promise<void>;
+};
+
+const startIntegrationEnv = async (
+  prefix: string,
+  extraEnv: Record<string, string> = {},
+): Promise<IntegrationEnv> => {
+  const scratchDir = mkdtempSync(join(tmpdir(), prefix));
+  const dbs = createDatabases(scratchDir);
+  const restoreGoosePath = await mockGoose();
+
+  const port = await findFreePort();
+  const baseUrl = `http://localhost:${port}`;
+  const { proc, readStderr } = startServer(dbs, port, {
+    GOOSE_SESSIONS_DB: dbs.sessionsDb,
+    ...extraEnv,
+  });
+
+  await waitForHttp(baseUrl);
+
+  const browser = await chromium.launch();
+  const context = await browser.newContext();
+  await context.addCookies([
+    {
+      name: "glv_session",
+      value: dbs.token,
+      domain: "localhost",
+      path: "/",
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
+  const cleanup = async (): Promise<void> => {
+    await context.close();
+    await browser.close();
+    await stopProcess(proc);
+    restoreGoosePath();
+    const stderr = readStderr();
+    if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
+    rmSync(scratchDir, { recursive: true, force: true });
+  };
+
+  return { scratchDir, baseUrl, context, dbs, cleanup };
+};
+
 const withPage = async (
   context: BrowserContext,
   run: (page: Page) => Promise<void>,
@@ -246,33 +277,5 @@ const withPage = async (
   }
 };
 
-// Presents the auth token as the glv_session cookie the browser needs to pass
-// the WebAuthn session gate.
-const setAuthCookies = (
-  context: BrowserContext,
-  token: string,
-): Promise<void> =>
-  context.addCookies([
-    {
-      name: "glv_session",
-      value: token,
-      domain: "localhost",
-      path: "/",
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
-
-export type { CreateDatabasesOptions, Databases, SessionSeed };
-export {
-  createDatabases,
-  findFreePort,
-  insertSessions,
-  mockGoose,
-  setAuthCookies,
-  startServer,
-  stopProcess,
-  waitForHttp,
-  withPage,
-};
+export type { IntegrationEnv };
+export { insertSessions, startIntegrationEnv, withPage };
