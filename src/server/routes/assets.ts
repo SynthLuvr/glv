@@ -15,7 +15,6 @@ const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
     { path: "/assets/sidebar.js", body: a.sidebar },
     { path: "/assets/stream.js", body: a.stream },
     { path: "/assets/rename.js", body: a.rename },
-    { path: "/assets/source-picker.js", body: a.sourcePicker },
     { path: "/assets/ui.js", body: a.ui },
     { path: "/assets/prompts.js", body: a.prompts },
     { path: "/assets/groups.js", body: a.groups },

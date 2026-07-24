@@ -1635,97 +1635,10 @@ pre::-webkit-scrollbar-thumb {
   text-decoration: underline;
 }
 
-/* ---------- source picker (new session) ---------- */
-.source-toggle {
-  display: flex;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.source-seg {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border: none;
-  background: var(--color-surface-2);
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    color 0.12s ease;
-}
-.source-seg:not(:last-child) {
-  border-right: 1px solid var(--color-border-strong);
-}
-.source-seg:hover {
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-.source-seg.selected {
-  background: var(--color-accent);
-  color: #fff;
-}
-.source-seg.selected:hover {
-  background: var(--color-accent-hover);
-}
-.source-seg:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-}
 .source-body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-.source-hidden {
-  display: none;
-}
-.gh-picker-error {
-  font-size: 0.82rem;
-  color: var(--color-err);
-  margin: 0;
-}
-.gh-picker-error:empty {
-  display: none;
-}
-.clone-preview {
-  font-size: 0.82rem;
-  color: var(--color-muted);
-  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
-  margin: 0;
-}
-
-/* ---------- cloning view ---------- */
-.cloning-view {
-  max-width: 42rem;
-}
-.clone-card {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1.5rem;
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-prompt-border);
-  border-radius: 12px;
-}
-.clone-card .status-hint {
-  margin: 0;
-}
-.clone-spinner {
-  width: 1.25rem;
-  height: 1.25rem;
-  border: 2.5px solid var(--color-accent);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: clone-spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes clone-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* ---------- live streaming output ---------- */

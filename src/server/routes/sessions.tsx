@@ -10,12 +10,6 @@ import {
   renameSession,
 } from "../../db.js";
 import { displayName, parseMessage } from "../../format/index.js";
-import {
-  type CloneJob,
-  clonePathFor,
-  generateCloneJobId,
-  parseOwnerRepo,
-} from "../../gh.js";
 import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
@@ -24,7 +18,6 @@ import {
   getHandle,
   stop,
 } from "../../runner/index.js";
-import { CloningView, type SourceType } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
@@ -33,7 +26,7 @@ import {
   ServerContext,
   VIEWER_FILTER,
 } from "../context.js";
-import { errorMessage, extractIds, isHtmxRequest } from "../http.js";
+import { extractIds, isHtmxRequest } from "../http.js";
 import { expandHome } from "../paths.js";
 import {
   newSessionDetail,
@@ -84,109 +77,25 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const sessions = sessionsAll();
     const body = await c.req.parseBody();
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    const source: SourceType =
-      typeof body.source === "string" && body.source === "github"
-        ? "github"
-        : "working_dir";
-    const repoVal = typeof body.repo === "string" ? body.repo.trim() : "";
-    const branchVal = typeof body.branch === "string" ? body.branch.trim() : "";
     const promptId =
       typeof body.prompt_id === "string" ? body.prompt_id.trim() : "";
     const workingDir = expandHome(
       typeof body.working_dir === "string" ? body.working_dir.trim() : "",
     );
 
-    const rejectForm = (
-      error: string,
-      status: ContentfulStatusCode,
-      src: SourceType = source,
-    ) =>
+    const rejectForm = (error: string, status: ContentfulStatusCode) =>
       render(
         c,
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, {
-          error,
-          source: src,
-          repo: repoVal || undefined,
-          branch: branchVal || undefined,
-          workingDir,
-        }),
+        newSessionDetail(ctx, { error, workingDir }),
         { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
 
-    if (source === "github") {
-      if (repoVal === "" || branchVal === "")
-        return rejectForm(
-          "A repository and branch are required for GitHub mode.",
-          422,
-          "github",
-        );
-
-      let parsed: { owner: string; repo: string };
-      let clonePath: string;
-      try {
-        parsed = parseOwnerRepo(repoVal);
-        clonePath = clonePathFor(parsed.owner, parsed.repo);
-      } catch {
-        return rejectForm(
-          "Invalid repository format. Expected owner/name.",
-          422,
-          "github",
-        );
-      }
-      const jobId = generateCloneJobId();
-      const job: CloneJob = {
-        jobId,
-        createdAt: Date.now(),
-        repo: repoVal,
-        branch: branchVal,
-        clonePath,
-        prompt,
-        status: "cloning",
-        error: undefined,
-        tempKey: undefined,
-        known: undefined,
-        runStartedAt: undefined,
-      };
-      ctx.cloneJobs.set(jobId, job);
-
-      const runCloneJob = async (): Promise<void> => {
-        await ctx.materialise(parsed.owner, parsed.repo, branchVal, clonePath);
-        const { tempKey, known } = prepareNewSession(ctx, clonePath, prompt);
-        job.tempKey = tempKey;
-        job.known = known;
-        job.runStartedAt = Date.now();
-        if (promptId !== "" && ctx.prompts !== undefined)
-          bumpUsage(ctx.prompts, promptId);
-        job.status = "done";
-      };
-
-      void runCloneJob().catch((err: unknown) => {
-        job.status = "error";
-        job.error = errorMessage(err);
-      });
-
-      return render(
-        c,
-        ctx,
-        sessions,
-        undefined,
-        <CloningView
-          repo={repoVal}
-          branch={branchVal}
-          jobId={jobId}
-          cloning={true}
-        />,
-        { title: NEW_SESSION_TITLE },
-      );
-    }
-
-    // Working directory flow
     if (workingDir === "" || !existsSync(workingDir))
       return rejectForm("That working directory does not exist.", 422);
 

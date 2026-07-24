@@ -8,11 +8,7 @@ import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import { Layout } from "../views/Layout.js";
-import {
-  NewSessionForm,
-  NotFoundDetail,
-  type SourceType,
-} from "../views/new-session.js";
+import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
@@ -176,19 +172,7 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
 
 const newSessionDetail = (
   ctx: ServerContext,
-  {
-    error,
-    source = "working_dir",
-    repo,
-    branch,
-    workingDir,
-  }: {
-    error?: string;
-    source?: SourceType;
-    repo?: string;
-    branch?: string;
-    workingDir?: string;
-  } = {},
+  { error, workingDir }: { error?: string; workingDir?: string } = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
@@ -198,9 +182,6 @@ const newSessionDetail = (
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
-      source={source}
-      repo={repo}
-      branch={branch}
       prompts={prompts}
       categories={categories}
     />

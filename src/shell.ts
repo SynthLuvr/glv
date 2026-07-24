@@ -34,16 +34,4 @@ const execGh = (
   options: ExecOptions = {},
 ): Promise<ExecResult> => runBinary("gh", args, options);
 
-// Throws on a non-zero exit (a genuine `gh` failure) for callers that need
-// hard failure rather than graceful degradation.
-const execGhOrThrow = async (
-  args: readonly string[],
-  options: ExecOptions = {},
-): Promise<string> => {
-  const result = await execGh(args, options);
-  if (result.exitCode !== 0)
-    throw new Error(result.stderr.trim() || `gh ${args.join(" ")} failed`);
-  return result.stdout;
-};
-
-export { execGh, execGhOrThrow, execGit };
+export { execGh, execGit };
