@@ -755,6 +755,12 @@ body {
   margin: 0 auto;
   padding: 2.25rem 2.5rem 4rem;
 }
+
+/* The sticky prompt bar's containing block is this wrapper's content box, so a
+   non-zero padding-bottom would lift it off the viewport's bottom edge. */
+.detail-inner:has(.prompt-bar) {
+  padding-bottom: 0;
+}
 .placeholder {
   height: 100%;
   display: flex;
