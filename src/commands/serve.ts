@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
+import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
@@ -18,6 +19,7 @@ type ServeOpts = {
   groupsDbPath: string;
   rpName: string;
   rpIdOverride?: string;
+  forwardHost?: string;
 };
 
 // close() stops accepting connections; in-flight requests drain asynchronously.
@@ -52,6 +54,7 @@ type ShutdownDeps = {
   server: CloseableServer;
   destroyConnections: () => void;
   stopProcesses: () => void;
+  stopTunnel: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
 };
@@ -71,6 +74,7 @@ const createShutdown = (
     deps.destroyConnections();
     await closeServer(deps.server);
     deps.stopProcesses();
+    deps.stopTunnel();
     deps.closeDbs();
     deps.exit(exitCode);
   };
@@ -115,9 +119,13 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  const server = serve({ fetch: app.fetch, port: opts.port }, (info) =>
-    console.log(`glv web viewer → http://localhost:${info.port}`),
-  );
+  // Started once the port is bound so the -R bind targets the real listener.
+  let tunnel: TunnelHandle | undefined;
+  const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
+    console.log(`glv web viewer → http://localhost:${info.port}`);
+    if (opts.forwardHost !== undefined)
+      tunnel = startForwardTunnel(info.port, opts.forwardHost);
+  });
   const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
@@ -128,14 +136,18 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
-  // SIGKILL, so detached goose children are reaped even if the async
-  // shutdown above never started or finished.
-  process.on("exit", () => stopAll(runner));
+  // SIGKILL, so detached goose children (and the ssh tunnel) are reaped even
+  // if the async shutdown above never started or finished.
+  process.on("exit", () => {
+    stopAll(runner);
+    tunnel?.kill();
+  });
 
   const shutdown = createShutdown({
     server,
     destroyConnections,
     stopProcesses: () => stopAll(runner),
+    stopTunnel: () => tunnel?.kill(),
     closeDbs,
     exit: (code?: number) => process.exit(code),
   });

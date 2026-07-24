@@ -168,6 +168,11 @@ describe("glv serve options", () => {
     expect(stdout).toContain("--max-concurrent");
     expect(stdout).toContain("--goose-binary");
   });
+
+  it("documents --forward", () => {
+    const { stdout } = run("serve", "--help");
+    expect(stdout).toContain("--forward");
+  });
 });
 
 describe("glv serve argument validation", () => {

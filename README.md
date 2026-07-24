@@ -110,21 +110,48 @@ is prompted to create a passkey and permanently claims the app.
 Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
+
 - `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
   driven from the viewer (default `6`).
+
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
+
 - `--db <path>` — override the goose sessions database location (or
   `GOOSE_SESSIONS_DB`).
+
 - `--auth-db <path>` — override the auth database location (default
   `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
+
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `Goose Log Viewer`).
+
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).
 
+- `--forward` — open an SSH reverse tunnel so the viewer is reachable on
+  a remote host. When set, `glv` runs
+  `ssh -NT -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:<port>:127.0.0.1:<port> <host>`,
+  binding the serve port on the remote host back to the local viewer.
+  The tunnel host comes from your [local config
+  file](#local-config-file) and is **not** started unless this flag is
+  passed.
+
 The viewer rebuilds its stylesheet and client scripts on every start, so
 it always serves current assets.
+
+### Local config file
+
+Per-machine settings live outside the repo at
+`~/.config/glv/config.json` (override with the `GLV_CONFIG` environment
+variable), so secrets like a forward host never get committed:
+
+``` json
+{ "forwardHost": "91.98.17.2" }
+```
+
+`glv serve --forward` uses `forwardHost` as the SSH tunnel target; the
+flag errors out if the key is missing or the file is malformed.
 
 ## Authentication
 
