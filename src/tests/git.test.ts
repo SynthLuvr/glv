@@ -7,46 +7,44 @@ const fakeRunner =
   (stdout: string, exitCode = 0): GitRunner =>
   async () => ({ stdout, exitCode });
 
+const porcelain = (...lines: string[]): string => lines.join("\n");
+
 describe("readGitInfo", () => {
   it("resolves the branch and worktree for a single worktree", async () => {
-    const porcelain = ["worktree /repo", "branch refs/heads/main", ""].join(
-      "\n",
-    );
-    expect(await readGitInfo("/repo", fakeRunner(porcelain))).toEqual({
+    const worktrees = porcelain("worktree /repo", "branch refs/heads/main");
+    expect(await readGitInfo("/repo", fakeRunner(worktrees))).toEqual({
       branch: "main",
       worktree: "/repo",
     });
   });
 
   it("strips the refs/heads/ prefix from the branch name", async () => {
-    const porcelain = [
+    const worktrees = porcelain(
       "worktree /repo",
       "branch refs/heads/feat/widget",
-      "",
-    ].join("\n");
-    expect(await readGitInfo("/repo", fakeRunner(porcelain))).toEqual({
+    );
+    expect(await readGitInfo("/repo", fakeRunner(worktrees))).toEqual({
       branch: "feat/widget",
       worktree: "/repo",
     });
   });
 
   it("reports no branch for a detached HEAD worktree", async () => {
-    const porcelain = ["worktree /repo", "detached", ""].join("\n");
-    expect(await readGitInfo("/repo", fakeRunner(porcelain))).toEqual({
+    const worktrees = porcelain("worktree /repo", "detached");
+    expect(await readGitInfo("/repo", fakeRunner(worktrees))).toEqual({
       worktree: "/repo",
     });
   });
 
   it("picks the deepest enclosing worktree when multiple exist", async () => {
-    const porcelain = [
+    const worktrees = porcelain(
       "worktree /repo",
       "branch refs/heads/main",
       "",
       "worktree /repo/sub",
       "branch refs/heads/sub-branch",
-      "",
-    ].join("\n");
-    expect(await readGitInfo("/repo/sub", fakeRunner(porcelain))).toEqual({
+    );
+    expect(await readGitInfo("/repo/sub", fakeRunner(worktrees))).toEqual({
       branch: "sub-branch",
       worktree: "/repo/sub",
     });
@@ -66,25 +64,22 @@ describe("readGitInfo", () => {
 
 describe("readWorktreeByBranch", () => {
   it("finds the worktree checked out on the given branch", async () => {
-    const porcelain = [
+    const worktrees = porcelain(
       "worktree /repo",
       "branch refs/heads/main",
       "",
       "worktree /repo/wt",
       "branch refs/heads/feat-x",
-      "",
-    ].join("\n");
+    );
     expect(
-      await readWorktreeByBranch("/repo", fakeRunner(porcelain), "feat-x"),
+      await readWorktreeByBranch("/repo", fakeRunner(worktrees), "feat-x"),
     ).toEqual({ branch: "feat-x", worktree: "/repo/wt" });
   });
 
   it("returns an empty object when the branch has no worktree", async () => {
-    const porcelain = ["worktree /repo", "branch refs/heads/main", ""].join(
-      "\n",
-    );
+    const worktrees = porcelain("worktree /repo", "branch refs/heads/main");
     expect(
-      await readWorktreeByBranch("/repo", fakeRunner(porcelain), "missing"),
+      await readWorktreeByBranch("/repo", fakeRunner(worktrees), "missing"),
     ).toEqual({});
   });
 

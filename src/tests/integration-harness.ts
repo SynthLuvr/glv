@@ -254,16 +254,15 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     proc.kill("SIGTERM");
   });
 
-// mockBin prepends its temp dir to PATH so the glv subprocess finds `goose`.
-const mockGoose = (): Promise<() => void> =>
-  mockBin("goose", `node --import ${tsxLoader}`, {
-    file: gooseMockScriptPath,
-  });
+// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
+const mockScript = (bin: string, file: string): Promise<() => void> =>
+  mockBin(bin, `node --import ${tsxLoader}`, { file });
 
-// Mocked `gh` lets pr-state/git-info tests exercise the real `gh pr view`
-// flow without a GitHub token or network.
-const mockGh = (): Promise<() => void> =>
-  mockBin("gh", `node --import ${tsxLoader}`, { file: ghMockScriptPath });
+const mockGoose = (): Promise<() => void> =>
+  mockScript("goose", gooseMockScriptPath);
+
+// Lets pr-state/git-info tests exercise `gh pr view` without a token or network.
+const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
 
 const startServer = (
   dbs: Databases,
