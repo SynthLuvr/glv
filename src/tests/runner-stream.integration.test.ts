@@ -8,6 +8,7 @@ import {
   type IntegrationEnv,
   insertMessages,
   insertSessions,
+  parseSseData,
   type SseEvent,
   startIntegrationEnv,
 } from "./integration-harness";
@@ -16,16 +17,10 @@ let env: IntegrationEnv;
 let envSlow: IntegrationEnv;
 let envErr: IntegrationEnv;
 
-const parsed = (data: string): Record<string, unknown> => {
-  try {
-    return JSON.parse(data) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
 const hasStatus = (events: SseEvent[], value: string): boolean =>
-  events.some((e) => e.event === "status" && parsed(e.data).status === value);
+  events.some(
+    (e) => e.event === "status" && parseSseData(e.data).status === value,
+  );
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,7 +95,7 @@ describe("events stream — baseline and idle", () => {
     );
     const messages = events.find((e) => e.event === "messages");
     expect(messages).toBeDefined();
-    expect(parsed(messages?.data ?? "").cursor).toBe(1);
+    expect(parseSseData(messages?.data ?? "").cursor).toBe(1);
     expect(hasStatus(events, "idle")).toBe(true);
   });
 });
@@ -172,7 +167,7 @@ describe("events stream — database tail", () => {
     db.close();
     const events = await stream;
     const rename = events.find((e) => e.event === "rename");
-    expect(parsed(rename?.data ?? "").name).toBe("Renamed Tail");
+    expect(parseSseData(rename?.data ?? "").name).toBe("Renamed Tail");
   });
 
   it("emits a deleted status when the session is removed", async () => {

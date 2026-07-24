@@ -132,9 +132,6 @@ type Databases = {
   token: string;
 };
 
-// Drives the mock goose's behaviour. Every option maps to an env var read fresh
-// per invocation, so the same server can model a fast run, a long-running one,
-// a failing one, or multi-line streaming output.
 type MockConfig = {
   /** Delay (ms) before the mock emits output, keeping a run "running". */
   sleepMs?: number;
@@ -287,7 +284,6 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
 const startIntegrationEnv = async (
   prefix: string,
   mock: MockConfig = {},
-  extraEnv: Record<string, string> = {},
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
@@ -298,7 +294,6 @@ const startIntegrationEnv = async (
   const { proc, readStderr } = startServer(dbs, port, {
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
     ...mockEnv(mock),
-    ...extraEnv,
   });
 
   await waitForHttp(baseUrl);
@@ -349,8 +344,6 @@ const withPage = async (
   }
 };
 
-// GETs a route as an authenticated request and returns the response, so tests
-// can assert on status, headers and body without a browser.
 const authedFetch = (
   env: IntegrationEnv,
   path: string,
@@ -368,9 +361,64 @@ const authedFetch = (
 
 type SseEvent = { event: string; data: string; id: string | undefined };
 
-// Consumes a server-sent events endpoint, resolving once `until` returns true
-// over the accumulated events (or after `timeoutMs`). The real server keeps
-// streams open indefinitely, so the reader is always released after resolving.
+const parseSseData = (data: string): Record<string, unknown> => {
+  try {
+    return JSON.parse(data) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
+
+// Parses one SSE line: field lines update `current` in place; an empty line
+// (frame boundary) returns the accumulated event if one is in progress.
+const parseSseLine = (
+  line: string,
+  current: Partial<SseEvent>,
+): SseEvent | undefined => {
+  if (line === "") {
+    if (current.event === undefined) return undefined;
+    return {
+      event: current.event,
+      data: current.data ?? "",
+      id: current.id,
+    };
+  }
+  if (line.startsWith("event:")) current.event = line.slice(6).trim();
+  else if (line.startsWith("data:"))
+    current.data = (current.data ?? "") + line.slice(5).trim();
+  else if (line.startsWith("id:")) current.id = line.slice(3).trim();
+  return undefined;
+};
+
+const readSseStream = async (
+  reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
+  until: (events: SseEvent[]) => boolean,
+  events: SseEvent[],
+): Promise<void> => {
+  const decoder = new TextDecoder();
+  let buf = "";
+  let current: Partial<SseEvent> = {};
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      const line = buf.slice(0, nl).replace(/\r$/, "");
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf("\n");
+      const event = parseSseLine(line, current);
+      if (line === "") {
+        current = {};
+        if (event !== undefined) events.push(event);
+        if (until(events)) return;
+      }
+    }
+  }
+};
+
+// Reads an SSE endpoint until `until` is satisfied or `timeoutMs` elapses.
+// The server keeps streams open indefinitely, so the reader is always released.
 const collectSse = async (
   env: IntegrationEnv,
   path: string,
@@ -379,6 +427,10 @@ const collectSse = async (
 ): Promise<SseEvent[]> =>
   new Promise((resolve, reject) => {
     const events: SseEvent[] = [];
+    let reader:
+      | ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>
+      | undefined;
+
     const timer = setTimeout(() => {
       reader?.cancel().catch(() => undefined);
       reject(
@@ -387,11 +439,6 @@ const collectSse = async (
         ),
       );
     }, timeoutMs);
-    let reader:
-      | ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>
-      | undefined;
-    let buf = "";
-    let current: Partial<SseEvent> = {};
 
     const finish = (): void => {
       clearTimeout(timer);
@@ -403,35 +450,7 @@ const collectSse = async (
       .then(async (res) => {
         if (res.body === null) throw new Error("no response body");
         reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          let nl = buf.indexOf("\n");
-          while (nl >= 0) {
-            const line = buf.slice(0, nl).replace(/\r$/, "");
-            buf = buf.slice(nl + 1);
-            nl = buf.indexOf("\n");
-            if (line === "") {
-              if (current.event !== undefined)
-                events.push({
-                  event: current.event,
-                  data: current.data ?? "",
-                  id: current.id,
-                });
-              current = {};
-              if (until(events)) {
-                finish();
-                return;
-              }
-            } else if (line.startsWith("event:"))
-              current.event = line.slice(6).trim();
-            else if (line.startsWith("data:"))
-              current.data = (current.data ?? "") + line.slice(5).trim();
-            else if (line.startsWith("id:")) current.id = line.slice(3).trim();
-          }
-        }
+        await readSseStream(reader, until, events);
         finish();
       })
       .catch((err) => {
@@ -446,6 +465,7 @@ export {
   collectSse,
   insertMessages,
   insertSessions,
+  parseSseData,
   startIntegrationEnv,
   withPage,
 };

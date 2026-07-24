@@ -7,22 +7,15 @@ import {
   type IntegrationEnv,
   insertMessages,
   insertSessions,
+  parseSseData,
   type SseEvent,
   startIntegrationEnv,
 } from "./integration-harness";
 
 let env: IntegrationEnv;
 
-const parsed = (data: string): Record<string, unknown> => {
-  try {
-    return JSON.parse(data) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
 const statusData = (events: SseEvent[]): Array<Record<string, unknown>> =>
-  events.filter((e) => e.event === "status").map((e) => parsed(e.data));
+  events.filter((e) => e.event === "status").map((e) => parseSseData(e.data));
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,7 +51,7 @@ describe("global status feed", () => {
     expect(JSON.parse(sync?.data ?? "[]")).toEqual([]);
     const names = events
       .filter((e) => e.event === "rename")
-      .map((e) => parsed(e.data).name);
+      .map((e) => parseSseData(e.data).name);
     expect(names).toContain("Status One");
     expect(names).toContain("Status Two");
   });
