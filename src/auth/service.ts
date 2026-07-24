@@ -15,13 +15,20 @@ import { type } from "arktype";
 import { type Context, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import {
+  addCredential,
+  type CredentialSummary,
+  consumeEnrollmentToken,
+  createEnrollmentToken,
   createOwner,
   createSession,
   deleteSession,
+  enrollmentTokenValid,
   getCredential,
   isClaimed,
+  listCredentialSummaries,
   listCredentials,
   type NewCredential,
+  ownerUserId,
   refreshSession,
   SESSION_TTL_SECONDS,
   updateCounter,
@@ -42,10 +49,15 @@ type VerifyResult = {
 
 type AuthService = {
   isClaimed: () => boolean;
+  ownerUserId: () => string | undefined;
   registrationOptions: (
     rp: RpConfig,
   ) => Promise<PublicKeyCredentialCreationOptionsJSON>;
   verifyRegistration: (
+    rp: RpConfig,
+    body: RegistrationResponseJSON,
+  ) => Promise<VerifyResult>;
+  verifyEnrollment: (
     rp: RpConfig,
     body: RegistrationResponseJSON,
   ) => Promise<VerifyResult>;
@@ -56,6 +68,10 @@ type AuthService = {
     rp: RpConfig,
     body: AuthenticationResponseJSON,
   ) => Promise<VerifyResult>;
+  issueEnrollmentToken: () => string | undefined;
+  isEnrollmentTokenValid: (token: string) => boolean;
+  consumeEnrollmentToken: (token: string) => string | undefined;
+  listCredentialSummaries: () => CredentialSummary[];
   isValidSession: (token: string | undefined) => boolean;
   logout: (token: string | undefined) => void;
 };
@@ -77,6 +93,10 @@ const toTransports = (raw: string[]): AuthenticatorTransportFuture[] =>
   });
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+// Enrollment links live longer than a challenge because the owner opens them on
+// a different device/domain minutes after generating them.
+const ENROLLMENT_TTL_SECONDS = 15 * 60;
 
 type ChallengeFlow = "register" | "login";
 
@@ -138,6 +158,12 @@ const challengeFromResponse = (response: unknown): string | undefined => {
   }
 };
 
+type VerifiedCredential = {
+  id: string;
+  publicKey: Uint8Array<ArrayBuffer>;
+  counter: number;
+};
+
 const makeAuthService = (authDb: DatabaseSync): AuthService => {
   const authority = makeChallengeAuthority();
 
@@ -158,10 +184,16 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
       },
     });
 
-  const verifyRegistration = async (
+  // Shared verification for both the initial claim and enrollment: validates
+  // the challenge + signature and returns the verified credential, leaving the
+  // decision of *where* to store it (new owner vs. existing owner) to callers.
+  const verifyRegistrationCore = async (
     rp: RpConfig,
     body: RegistrationResponseJSON,
-  ): Promise<VerifyResult> => {
+  ): Promise<
+    | { verified: true; credential: VerifiedCredential; transports: string[] }
+    | { verified: false; error: string }
+  > => {
     const expectedChallenge = challengeFromResponse(body.response);
     if (
       expectedChallenge === undefined ||
@@ -186,14 +218,52 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     if (!verification.verified || verification.registrationInfo === undefined)
       return { verified: false, error: "Registration could not be verified." };
     const { credential } = verification.registrationInfo;
-    const record: NewCredential = {
-      id: credential.id,
-      publicKey: credential.publicKey,
-      counter: credential.counter,
+    return {
+      verified: true,
+      credential,
       transports: body.response.transports ?? [],
     };
-    const userId = createOwner(authDb, record);
+  };
+
+  const toRecord = (
+    credential: VerifiedCredential,
+    transports: string[],
+  ): NewCredential => ({
+    id: credential.id,
+    publicKey: credential.publicKey,
+    counter: credential.counter,
+    transports,
+  });
+
+  const verifyRegistration = async (
+    rp: RpConfig,
+    body: RegistrationResponseJSON,
+  ): Promise<VerifyResult> => {
+    const result = await verifyRegistrationCore(rp, body);
+    if (!result.verified) return { verified: false, error: result.error };
+    const userId = createOwner(
+      authDb,
+      toRecord(result.credential, result.transports),
+    );
     const token = createSession(authDb, userId);
+    return { verified: true, token };
+  };
+
+  const verifyEnrollment = async (
+    rp: RpConfig,
+    body: RegistrationResponseJSON,
+  ): Promise<VerifyResult> => {
+    const ownerId = ownerUserId(authDb);
+    if (ownerId === undefined)
+      return { verified: false, error: "This app has no owner yet." };
+    const result = await verifyRegistrationCore(rp, body);
+    if (!result.verified) return { verified: false, error: result.error };
+    addCredential(
+      authDb,
+      ownerId,
+      toRecord(result.credential, result.transports),
+    );
+    const token = createSession(authDb, ownerId);
     return { verified: true, token };
   };
 
@@ -201,6 +271,9 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     rp: RpConfig,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> => {
     const creds = listCredentials(authDb);
+    // Every credential is offered regardless of its origin: the authenticator
+    // only signs for the credential whose stored RP-ID hash matches the current
+    // rpID, so credentials minted for other domains are harmlessly ignored.
     return generateAuthenticationOptions({
       rpID: rp.rpID,
       challenge: authority.issue("login"),
@@ -268,10 +341,23 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
 
   return {
     isClaimed: () => isClaimed(authDb),
+    ownerUserId: () => ownerUserId(authDb),
     registrationOptions,
     verifyRegistration,
+    verifyEnrollment,
     loginOptions,
     verifyLogin,
+    issueEnrollmentToken: () => {
+      const id = ownerUserId(authDb);
+      return id === undefined
+        ? undefined
+        : createEnrollmentToken(authDb, id, ENROLLMENT_TTL_SECONDS);
+    },
+    isEnrollmentTokenValid: (token: string) =>
+      enrollmentTokenValid(authDb, token),
+    consumeEnrollmentToken: (token: string) =>
+      consumeEnrollmentToken(authDb, token),
+    listCredentialSummaries: () => listCredentialSummaries(authDb),
     isValidSession,
     logout,
   };
@@ -283,13 +369,37 @@ const COOKIE_NAME = "glv_session";
 // whitelist them as a group without naming each file individually.
 const ASSET_PREFIX = "/assets/";
 
+// Management routes (add/view passkeys) require an existing session, unlike the
+// rest of /auth/* which is the public auth gate itself. Enrollment redemption
+// (/auth/enroll/:token) stays public because it authorizes via a bearer token.
 const isPublicPath = (path: string): boolean =>
   path === "/auth" ||
-  path.startsWith("/auth/") ||
+  (path.startsWith("/auth/") && !path.startsWith("/auth/devices")) ||
   path.startsWith(ASSET_PREFIX);
 
-const setSessionCookie = (c: Context, token: string): void => {
+// Reconstructs the browser-visible URL, honoring the standard reverse-proxy
+// headers. Behind a TLS-terminating proxy the backend hop is plain HTTP, so
+// without this the RP origin would compute as http:// and WebAuthn verification
+// would reject the real https:// assertion. Headers are only trusted when the
+// proxy sends them; the app is passkey-gated, so a spoofed origin cannot forge
+// an assertion (the authenticator still enforces the RP binding).
+const resolveRequestUrl = (c: Context): URL => {
   const url = new URL(c.req.url);
+  const fwdHost = c.req.header("x-forwarded-host");
+  const fwdProto = c.req.header("x-forwarded-proto");
+  if (fwdHost !== undefined && fwdHost !== "") {
+    const first = fwdHost.split(",")[0]?.trim();
+    if (first !== undefined && first !== "") url.host = first;
+  }
+  if (fwdProto !== undefined && fwdProto !== "") {
+    const first = fwdProto.split(",")[0]?.trim();
+    if (first !== undefined && first !== "") url.protocol = `${first}:`;
+  }
+  return url;
+};
+
+const setSessionCookie = (c: Context, token: string): void => {
+  const url = resolveRequestUrl(c);
   setCookie(c, COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "Strict",
@@ -314,11 +424,12 @@ const authMiddleware =
     return c.redirect(dest, 302);
   };
 
-export type { AuthService, RpConfig, VerifyResult };
+export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
 export {
   authMiddleware,
   COOKIE_NAME,
   makeAuthService,
   makeChallengeAuthority,
+  resolveRequestUrl,
   setSessionCookie,
 };

@@ -4,7 +4,7 @@ import {
 } from "@simplewebauthn/browser";
 import { type } from "arktype";
 
-const Action = type("'register' | 'login'");
+const Action = type("'register' | 'login' | 'enroll'");
 
 const VerifyResult = type({
   verified: "boolean",
@@ -24,19 +24,32 @@ const setBusy = (busy: boolean): void => {
   if (btn instanceof HTMLButtonElement) btn.disabled = busy;
 };
 
-const runCeremony = async (action: "register" | "login"): Promise<void> => {
-  const optionsRes = await fetch(`/auth/${action}/options`);
+// Enrollment uses the same ceremony as registration (create a credential), but
+// its options/verify calls are scoped to the enrollment token in the URL, so
+// the server attaches the new passkey to the existing owner instead of a new
+// one.
+const runCeremony = async (
+  action: "register" | "login" | "enroll",
+): Promise<void> => {
+  const button = document.getElementById("passkey-button");
+  const token =
+    button instanceof HTMLElement ? button.dataset.token : undefined;
+  const base =
+    action === "enroll" && token !== undefined
+      ? `/auth/enroll/${token}`
+      : `/auth/${action}`;
+  const optionsRes = await fetch(`${base}/options`);
   if (!optionsRes.ok) {
     showError("Could not start the request. Please reload and try again.");
     return;
   }
   const optionsJSON = await optionsRes.json();
-  const responseJSON =
-    action === "register"
-      ? await startRegistration({ optionsJSON })
-      : await startAuthentication({ optionsJSON });
+  const isRegistration = action === "register" || action === "enroll";
+  const responseJSON = isRegistration
+    ? await startRegistration({ optionsJSON })
+    : await startAuthentication({ optionsJSON });
 
-  const verifyRes = await fetch(`/auth/${action}/verify`, {
+  const verifyRes = await fetch(`${base}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(responseJSON),

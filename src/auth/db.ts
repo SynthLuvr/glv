@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at  TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS enrollment_tokens (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  expires_at  TEXT NOT NULL,
+  used_at     TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 const openAuthDb = (dbPath: string): DatabaseSync => {
@@ -56,6 +63,14 @@ type NewCredential = {
   publicKey: Uint8Array<ArrayBuffer>;
   counter: number;
   transports: string[];
+};
+
+// Lightweight projection for the "manage passkeys" screen — omits the public
+// key blob and surfaces the creation time so each credential is identifiable.
+type CredentialSummary = {
+  id: string;
+  transports: string[];
+  createdAt: string;
 };
 
 const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
@@ -98,6 +113,24 @@ const mapCredential = (row: CredentialRow): StoredCredential => ({
   transports: parseTransports(row.transports),
 });
 
+const credentialSummaryShape = {
+  id: "string",
+  transports: "string | null",
+  created_at: "string",
+} as const;
+
+const CredentialSummaryRow = type(credentialSummaryShape);
+
+type CredentialSummaryRow = typeof CredentialSummaryRow.infer;
+
+const mapCredentialSummary = (
+  row: CredentialSummaryRow,
+): CredentialSummary => ({
+  id: row.id,
+  transports: parseTransports(row.transports),
+  createdAt: row.created_at,
+});
+
 const userCount = (db: DatabaseSync): number => {
   const row = db.prepare("SELECT COUNT(*) AS n FROM users").get();
   return typeof row?.n === "number" ? row.n : 0;
@@ -105,11 +138,32 @@ const userCount = (db: DatabaseSync): number => {
 
 const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 
+// Single-owner model: the first user is the permanent owner. Subsequent
+// passkeys (e.g. for a different domain) attach to this same user.
+const ownerUserId = (db: DatabaseSync): string | undefined => {
+  const row = db
+    .prepare("SELECT id AS id FROM users ORDER BY created_at ASC LIMIT 1")
+    .get();
+  return row !== undefined && typeof (row as { id?: unknown }).id === "string"
+    ? (row as { id: string }).id
+    : undefined;
+};
+
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
   validateAll(
     CredentialRow,
     db.prepare(`SELECT ${CREDENTIAL_COLS} FROM credentials`).all(),
   ).map(mapCredential);
+
+const listCredentialSummaries = (db: DatabaseSync): CredentialSummary[] =>
+  validateAll(
+    CredentialSummaryRow,
+    db
+      .prepare(
+        "SELECT id, transports, created_at FROM credentials ORDER BY created_at DESC",
+      )
+      .all(),
+  ).map(mapCredentialSummary);
 
 const getCredential = (
   db: DatabaseSync,
@@ -144,6 +198,28 @@ const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
     );
   });
   return userId;
+};
+
+// Attaches an additional passkey to an existing owner. Used by the enrollment
+// flow so one account can hold a passkey per domain/device — a passkey created
+// on localhost cannot unlock dev.mynth.ai (or vice versa), so each origin the
+// owner signs in from needs its own credential.
+const addCredential = (
+  db: DatabaseSync,
+  userId: string,
+  credential: NewCredential,
+): void => {
+  db.prepare(
+    `INSERT INTO credentials
+       (id, user_id, public_key, counter, transports)
+       VALUES (${placeholders(5)})`,
+  ).run(
+    credential.id,
+    userId,
+    credential.publicKey,
+    credential.counter,
+    JSON.stringify(credential.transports),
+  );
 };
 
 const updateCounter = (db: DatabaseSync, id: string, counter: number): void => {
@@ -199,15 +275,70 @@ const deleteSession = (db: DatabaseSync, token: string): void => {
   db.prepare("DELETE FROM sessions WHERE id = ?").run(token);
 };
 
-export type { NewCredential };
+// Single-use bearer tokens that authorize adding a passkey on an origin where
+// the owner has no session cookie (sessions are host-scoped, so a cookie set on
+// localhost is invisible to dev.mynth.ai). The owner generates a token while
+// authenticated, then redeems it on the other origin to run the ceremony.
+const createEnrollmentToken = (
+  db: DatabaseSync,
+  userId: string,
+  ttlSeconds: number,
+): string => {
+  const token = newToken();
+  db.prepare(
+    `INSERT INTO enrollment_tokens (id, user_id, expires_at)
+       VALUES (?, ?, datetime('now', ?))`,
+  ).run(token, userId, `+${ttlSeconds} seconds`);
+  return token;
+};
+
+const enrollmentTokenValid = (db: DatabaseSync, token: string): boolean => {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM enrollment_tokens
+         WHERE id = ? AND used_at IS NULL AND expires_at > datetime('now')`,
+    )
+    .get(token);
+  return typeof row?.n === "number" && row.n > 0;
+};
+
+// Atomically claims an unused, unexpired token so a shared link can't enroll
+// twice. Returns the owning user id on success.
+const consumeEnrollmentToken = (
+  db: DatabaseSync,
+  token: string,
+): string | undefined => {
+  const claim = db
+    .prepare(
+      `UPDATE enrollment_tokens SET used_at = datetime('now')
+         WHERE id = ? AND used_at IS NULL AND expires_at > datetime('now')`,
+    )
+    .run(token);
+  if (claim.changes !== 1) return undefined;
+  const row = db
+    .prepare("SELECT user_id AS userId FROM enrollment_tokens WHERE id = ?")
+    .get(token);
+  return row !== undefined &&
+    typeof (row as { userId?: unknown }).userId === "string"
+    ? (row as { userId: string }).userId
+    : undefined;
+};
+
+export type { CredentialSummary, NewCredential };
 export {
+  addCredential,
+  consumeEnrollmentToken,
+  createEnrollmentToken,
   createOwner,
   createSession,
   deleteSession,
+  enrollmentTokenValid,
   getCredential,
   isClaimed,
+  listCredentialSummaries,
   listCredentials,
   openAuthDb,
+  ownerUserId,
   refreshSession,
   resolveAuthDbPath,
   SESSION_TTL_SECONDS,
