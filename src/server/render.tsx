@@ -31,6 +31,64 @@ const sidebarEntries = (
   return buildEntries(sessions, listGroups(ctx.groups));
 };
 
+// On mobile the sidebar no longer stacks above the detail as a cramped top
+// pane. Only one pane is visible at a time and the user flips between them
+// with this tab bar (client ui.js toggles `data-mobile-pane` on .app). The
+// server-side default picks whichever pane holds the user's focus: the detail
+// when a session is open, otherwise the session list so a fresh visitor lands
+// somewhere they can pick something to read.
+const MobilePaneToggle = () => (
+  <nav class="mobile-pane-toggle" aria-label="Switch view">
+    <button
+      type="button"
+      class="mobile-pane-btn"
+      data-pane="sidebar"
+      aria-pressed="false"
+      title="Show sessions"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="8" y1="6" x2="21" y2="6" />
+        <line x1="8" y1="12" x2="21" y2="12" />
+        <line x1="8" y1="18" x2="21" y2="18" />
+        <line x1="3" y1="6" x2="3.01" y2="6" />
+        <line x1="3" y1="12" x2="3.01" y2="12" />
+        <line x1="3" y1="18" x2="3.01" y2="18" />
+      </svg>
+      <span>Sessions</span>
+    </button>
+    <button
+      type="button"
+      class="mobile-pane-btn"
+      data-pane="detail"
+      aria-pressed="false"
+      title="Show detail"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+      <span>Detail</span>
+    </button>
+  </nav>
+);
+
 const Shell = ({
   sessions,
   entries,
@@ -48,7 +106,11 @@ const Shell = ({
   title: string;
 }>) => (
   <Layout title={title}>
-    <div class="app">
+    <div
+      class="app"
+      data-mobile-pane={selectedId !== undefined ? "detail" : "sidebar"}
+    >
+      <MobilePaneToggle />
       <Sidebar
         sessions={sessions}
         entries={entries}

@@ -132,6 +132,38 @@ const uiToggleTheme = (): void => {
   uiApplyTheme(!document.documentElement.classList.contains("dark"));
 };
 
+// Mobile-only: only the sidebar *or* the detail is on screen at once. The tab
+// bar in the shell flips `data-mobile-pane` on `.app`; the CSS hides the other
+// pane. Selecting a session is an htmx swap into #detail-pane, so we also flip
+// to the detail whenever that happens so the user sees what they opened.
+const uiApplyPane = (pane: string): void => {
+  const app = document.querySelector(".app");
+  if (app === null) return;
+  app.setAttribute("data-mobile-pane", pane);
+  for (const btn of document.querySelectorAll<HTMLButtonElement>(
+    ".mobile-pane-btn",
+  ))
+    btn.setAttribute(
+      "aria-pressed",
+      btn.dataset.pane === pane ? "true" : "false",
+    );
+};
+
+const uiInitPaneToggle = (): void => {
+  const bar = document.querySelector(".mobile-pane-toggle");
+  if (bar === null) return;
+  const current =
+    document.querySelector(".app")?.getAttribute("data-mobile-pane") ??
+    "detail";
+  uiApplyPane(current);
+  bar.addEventListener("click", (e) => {
+    const btn = (e.target as Element | null)?.closest(".mobile-pane-btn");
+    if (!(btn instanceof HTMLElement)) return;
+    const pane = btn.dataset.pane;
+    if (pane !== undefined) uiApplyPane(pane);
+  });
+};
+
 // Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
 // is position:fixed and lives outside the scroll container.
 const uiEnsureScrollButton = (): void => {
@@ -192,6 +224,7 @@ const uiInit = (): void => {
   uiEnhanceCodeBlocks(document.body);
   uiUpdateScrollButton();
   uiObserve();
+  uiInitPaneToggle();
   document
     .querySelector(".theme-toggle")
     ?.addEventListener("click", uiToggleTheme);
@@ -207,5 +240,6 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   uiSyncTitle();
   uiAutogrowAll();
   uiFocusAutofocus();
+  uiApplyPane("detail");
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });

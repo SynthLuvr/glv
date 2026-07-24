@@ -116,4 +116,35 @@ describe("ui enhancements (client script)", () => {
     expect(btn).not.toBeNull();
     expect(btn?.hidden).toBe(true);
   });
+
+  it("toggles between the sidebar and detail panes on mobile", async () => {
+    const document = await runUi(
+      '<!DOCTYPE html><html><body><div class="app" data-mobile-pane="detail"><nav class="mobile-pane-toggle"><button type="button" class="mobile-pane-btn" data-pane="sidebar" aria-pressed="false">Sessions</button><button type="button" class="mobile-pane-btn" data-pane="detail" aria-pressed="false">Detail</button></nav><main id="detail-pane"></main></div></body></html>',
+    );
+    const app = document.querySelector(".app");
+    const detailBtn = document.querySelector<HTMLButtonElement>(
+      '.mobile-pane-btn[data-pane="detail"]',
+    );
+    const sidebarBtn = document.querySelector<HTMLButtonElement>(
+      '.mobile-pane-btn[data-pane="sidebar"]',
+    );
+    // Init syncs the active tab to the server-rendered default (detail).
+    expect(app?.getAttribute("data-mobile-pane")).toBe("detail");
+    expect(detailBtn?.getAttribute("aria-pressed")).toBe("true");
+    expect(sidebarBtn?.getAttribute("aria-pressed")).toBe("false");
+    // Tapping "Sessions" flips to the sidebar pane.
+    sidebarBtn?.click();
+    expect(app?.getAttribute("data-mobile-pane")).toBe("sidebar");
+    expect(sidebarBtn?.getAttribute("aria-pressed")).toBe("true");
+    expect(detailBtn?.getAttribute("aria-pressed")).toBe("false");
+    // Opening a session swaps #detail-pane and should surface it again.
+    const win = document.defaultView;
+    if (win === null) throw new Error("no defaultView");
+    document.body.dispatchEvent(
+      new win.CustomEvent("htmx:afterSwap", {
+        detail: { target: document.getElementById("detail-pane") },
+      }),
+    );
+    expect(app?.getAttribute("data-mobile-pane")).toBe("detail");
+  });
 });
