@@ -18,7 +18,7 @@ import { errorMessage } from "../http.js";
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
   const url = resolveRequestUrl(c);
   return {
-    rpName: ctx.rpName ?? "Goose Log Viewer",
+    rpName: ctx.rpName ?? "Guided Live Velocity",
     rpID: ctx.rpIdOverride ?? (url.hostname || "localhost"),
     expectedOrigin: url.origin,
   };

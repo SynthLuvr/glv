@@ -1,11 +1,13 @@
-# goose-log-viewer
+# Guided Live Velocity
 
-A local web app for exploring your
-[goose](https://github.com/block/goose) session history and launching
-new goose runs straight from the browser.
+A self-hosted web app that **increases your development speed with
+agentic coding**. Guided Live Velocity drives the
+[goose](https://github.com/block/goose) agentic engine from a fast
+browser UI: launch guided coding sessions, watch them stream live, and
+turn raw transcripts into navigable, searchable velocity.
 
 goose records every session — prompts, model responses, tool calls, and
-reasoning — in an on-disk SQLite database. **goose-log-viewer** (or
+reasoning — in an on-disk SQLite database. **Guided Live Velocity** (or
 **glv**) turns that database into a fast, self-hosted web UI: browse
 past sessions, watch live runs stream in real time, kick off fresh runs,
 and even launch goose against a GitHub repository — all without leaving
@@ -13,6 +15,10 @@ the browser.
 
 ## Why
 
+- **Ship faster with agentic coding.** Guided Live Velocity puts the
+  goose agentic engine behind one fast UI, so you spend less time
+  juggling terminals and more time shipping guided, live-streamed
+  sessions.
 - **Make your session history navigable.** goose’s transcripts are rich
   (markdown, tool calls, thinking blocks, token usage), but they live in
   a database that is hard to read directly. glv renders them as a clean,
@@ -124,7 +130,7 @@ Options:
   `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
-  passkey prompt (default `Goose Log Viewer`).
+  passkey prompt (default `Guided Live Velocity`).
 
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).

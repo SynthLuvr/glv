@@ -82,7 +82,7 @@ const AuthCard = ({
 };
 
 const RegisterPage = () => (
-  <AuthLayout title="Claim — Goose Log Viewer">
+  <AuthLayout title="Claim — Guided Live Velocity">
     <AuthCard
       heading="Claim this app"
       sub="This viewer has no owner yet. Create a passkey to become its permanent owner — no email, no password. Anyone can claim it first."
@@ -93,7 +93,7 @@ const RegisterPage = () => (
 );
 
 const LoginPage = ({ error }: { error?: string }) => (
-  <AuthLayout title="Log in — Goose Log Viewer">
+  <AuthLayout title="Log in — Guided Live Velocity">
     <AuthCard
       heading="Welcome back"
       sub="Log in with your passkey to continue."
@@ -107,7 +107,7 @@ const LoginPage = ({ error }: { error?: string }) => (
 // Reached via an enrollment link on a new origin: the ceremony creates a fresh
 // passkey bound to this origin's RP ID and attaches it to the existing owner.
 const EnrollPage = ({ token }: { token: string }) => (
-  <AuthLayout title="Add passkey — Goose Log Viewer">
+  <AuthLayout title="Add passkey — Guided Live Velocity">
     <AuthCard
       heading="Add a passkey"
       sub="Create a passkey for this device or domain. It links to your existing account so the same owner can sign in from here too."
@@ -128,7 +128,7 @@ type DevicesPageProps = {
 // on, so to sign in from both localhost and another origin the owner needs one
 // passkey per origin — added here via a single-use enrollment link.
 const DevicesPage = ({ credentials, enrollUrl, token }: DevicesPageProps) => (
-  <AuthLayout title="Passkeys — Goose Log Viewer">
+  <AuthLayout title="Passkeys — Guided Live Velocity">
     <div class="auth-card">
       <h1>Passkeys</h1>
       <p class="auth-sub">
