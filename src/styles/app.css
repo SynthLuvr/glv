@@ -701,6 +701,14 @@ body {
   margin: 0 auto;
   padding: 2.25rem 2.5rem 4rem;
 }
+
+/* The session view's prompt bar is `position: sticky; bottom: 0` and its
+   containing block is this wrapper's content box. A non-zero padding-bottom
+   here lifts the bar off the viewport's bottom edge once the reader scrolls
+   to the very end, so drop it for any pane that owns a sticky prompt bar. */
+.detail-inner:has(.prompt-bar) {
+  padding-bottom: 0;
+}
 .placeholder {
   height: 100%;
   display: flex;
@@ -1729,6 +1737,9 @@ pre::-webkit-scrollbar-thumb {
   }
   .detail-inner {
     padding: 1.5rem 1.25rem 3rem;
+  }
+  .detail-inner:has(.prompt-bar) {
+    padding-bottom: 0;
   }
 }
 
