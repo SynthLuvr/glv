@@ -128,11 +128,10 @@ describe("ui enhancements (client script)", () => {
     const sidebarBtn = document.querySelector<HTMLButtonElement>(
       '.mobile-pane-btn[data-pane="sidebar"]',
     );
-    // Init syncs the active tab to the server-rendered default (detail).
+    // Init syncs the active tab to the server-rendered default.
     expect(app?.getAttribute("data-mobile-pane")).toBe("detail");
     expect(detailBtn?.getAttribute("aria-pressed")).toBe("true");
     expect(sidebarBtn?.getAttribute("aria-pressed")).toBe("false");
-    // Tapping "Sessions" flips to the sidebar pane.
     sidebarBtn?.click();
     expect(app?.getAttribute("data-mobile-pane")).toBe("sidebar");
     expect(sidebarBtn?.getAttribute("aria-pressed")).toBe("true");

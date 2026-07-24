@@ -316,9 +316,6 @@ describe("web viewer GET /", () => {
   });
 
   it("renders a mobile pane toggle and defaults to the session list", async () => {
-    // On the home route (no session selected) the sidebar is the mobile
-    // landing view so a fresh visitor can pick a session; the detail pane is
-    // hidden until one is opened.
     const html = await renderRoot();
     expect(html).toContain('class="mobile-pane-toggle"');
     expect(html).toContain('data-pane="sidebar"');
@@ -380,8 +377,6 @@ describe("web viewer GET /sessions/:id", () => {
   });
 
   it("defaults to the detail pane on mobile when a session is open", async () => {
-    // With a session selected the transcript is the focus, so the sidebar is
-    // collapsed by default on mobile.
     const { html } = await renderSession("alpha");
     expect(html).toContain('data-mobile-pane="detail"');
   });

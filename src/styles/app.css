@@ -1757,9 +1757,6 @@ pre::-webkit-scrollbar-thumb {
 }
 
 /* ---------- responsive ---------- */
-/* Mobile-only tab bar (hidden on desktop) that flips between the sidebar and
-   the detail pane. Only one pane is on screen at a time, controlled by
-   `data-mobile-pane` on `.app`. */
 .mobile-pane-toggle {
   display: none;
 }
@@ -1769,7 +1766,7 @@ pre::-webkit-scrollbar-thumb {
   justify-content: center;
   gap: 0.4rem;
   flex: 1 1 0;
-  padding: 0.5rem 0.5rem;
+  padding: 0.5rem;
   border: 1px solid transparent;
   border-radius: 0.5rem;
   background: transparent;
@@ -1803,8 +1800,6 @@ pre::-webkit-scrollbar-thumb {
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
   }
-  /* Only the active pane stays in the flow; the other is dropped entirely so
-     the visible one gets the full screen. */
   .app[data-mobile-pane="detail"] .sidebar,
   .app[data-mobile-pane="sidebar"] .detail {
     display: none;
