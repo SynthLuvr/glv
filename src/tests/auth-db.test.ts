@@ -35,7 +35,7 @@ describe("fresh auth database", () => {
     expect(isClaimed(db)).toBe(false);
   });
 
-  it("creates all three tables", () => {
+  it("creates all four tables", () => {
     const isNameRow = (v: unknown): v is { name: string } =>
       typeof v === "object" &&
       v !== null &&
@@ -49,6 +49,7 @@ describe("fresh auth database", () => {
       .filter(isNameRow);
     expect(tables.map((t) => t.name)).toEqual([
       "credentials",
+      "enrollment_tokens",
       "sessions",
       "users",
     ]);

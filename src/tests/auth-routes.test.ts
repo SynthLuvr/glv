@@ -295,3 +295,125 @@ describe("claimed app — login flow", () => {
     expect(json.error).toContain("No login in progress");
   });
 });
+
+describe("claimed app — multi-origin enrollment", () => {
+  let authDb: DatabaseSync;
+  let authDir: string;
+  let app: ReturnType<typeof createApp>;
+  let sessionToken: string;
+
+  beforeAll(() => {
+    authDir = mkdtempSync(join(tmpdir(), "glv-auth-enroll-"));
+    const authDbPath = join(authDir, "auth.db");
+    authDb = openAuthDb(authDbPath);
+    const ownerId = createOwner(authDb, {
+      id: "cred-enroll-owner",
+      publicKey: new Uint8Array([1]),
+      counter: 0,
+      transports: ["internal"],
+    });
+    sessionToken = createSession(authDb, ownerId);
+    app = createApp(sessionsDb, createRunner(DEFAULT_RUNNER_CONFIG), {
+      auth: makeAuthService(authDb),
+    });
+  });
+
+  afterAll(() => {
+    authDb.close();
+    rmSync(authDir, { recursive: true, force: true });
+  });
+
+  const authHeaders = (): { Cookie: string } => ({
+    Cookie: `glv_session=${sessionToken}`,
+  });
+
+  // POSTing the devices form mints a single-use enrollment link; the token is
+  // echoed in a machine-readable element so the test can extract it.
+  const issueEnrollToken = async (): Promise<string> => {
+    const res = await app.request("/auth/devices", {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    const match = html.match(/id="enroll-token" value="([^"]+)"/);
+    if (match === null || match[1] === undefined)
+      throw new Error("enrollment token not found in devices page");
+    return match[1];
+  };
+
+  it("redirects unauthenticated /auth/devices to login", async () => {
+    const res = await app.request("/auth/devices");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/auth/login");
+  });
+
+  it("lists passkeys when authenticated", async () => {
+    const res = await app.request("/auth/devices", { headers: authHeaders() });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Passkeys");
+  });
+
+  it("issues an enrollment link with a token", async () => {
+    const token = await issueEnrollToken();
+    expect(token).toBeTruthy();
+  });
+
+  it("serves the enrollment page for a valid token", async () => {
+    const token = await issueEnrollToken();
+    const res = await app.request(`/auth/enroll/${token}`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Add a passkey");
+    expect(html).toContain(token);
+  });
+
+  it("returns registration options for a valid token", async () => {
+    const token = await issueEnrollToken();
+    const res = await app.request(`/auth/enroll/${token}/options`);
+    expect(res.status).toBe(200);
+    const options = await res.json();
+    expect(options.challenge).toBeTruthy();
+    expect(options.rp.name).toBe("Goose Log Viewer");
+  });
+
+  it("redirects an unknown enrollment token to login", async () => {
+    const res = await app.request("/auth/enroll/no-such-token");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/auth/login");
+  });
+
+  it("rejects options for an unknown enrollment token", async () => {
+    const res = await app.request("/auth/enroll/no-such-token/options");
+    expect(res.status).toBe(403);
+  });
+
+  it("does not burn the token on a failed verification", async () => {
+    const token = await issueEnrollToken();
+    const res = await app.request(`/auth/enroll/${token}/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.verified).toBe(false);
+    // A failed ceremony must leave the link redeemable.
+    expect(json.error).toContain("No registration in progress");
+    const retry = await app.request(`/auth/enroll/${token}`);
+    expect(retry.status).toBe(200);
+  });
+
+  it("treats a redeemed token as invalid", async () => {
+    const token = await issueEnrollToken();
+    authDb
+      .prepare(
+        "UPDATE enrollment_tokens SET used_at = datetime('now') WHERE id = ?",
+      )
+      .run(token);
+    const page = await app.request(`/auth/enroll/${token}`);
+    expect(page.status).toBe(302);
+    const options = await app.request(`/auth/enroll/${token}/options`);
+    expect(options.status).toBe(403);
+  });
+});
