@@ -7,6 +7,7 @@ import { resolveAuthDbPath } from "./auth/db.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
+import { readConfig } from "./config.js";
 import { openDb, resolveDbPath } from "./db.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
@@ -28,6 +29,7 @@ type ServeOpts = {
   gooseBinary: string;
   rpName: string;
   rpId?: string;
+  forward?: boolean;
 };
 
 const program = new Command();
@@ -136,6 +138,16 @@ const resolveGooseBinary = (value: string): string => {
   return value;
 };
 
+const resolveForwardHost = (forward?: boolean): string | undefined => {
+  if (!forward) return undefined;
+  const { forwardHost } = readConfig();
+  if (forwardHost === undefined)
+    throw new Error(
+      '--forward needs "forwardHost" set in ~/.config/glv/config.json',
+    );
+  return forwardHost;
+};
+
 program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
@@ -157,6 +169,10 @@ program
     "--rp-id <domain>",
     "WebAuthn relying party ID (defaults to the request host)",
   )
+  .option(
+    "--forward",
+    "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
+  )
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, {
@@ -167,6 +183,7 @@ program
       groupsDbPath: getGroupsDbPath(),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
+      forwardHost: resolveForwardHost(opts.forward),
     });
   });
 
