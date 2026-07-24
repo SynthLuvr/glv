@@ -27,7 +27,8 @@ All three must pass with zero errors.
 
 Every new feature or behavior change **must** ship with an integration
 test that exercises the real code path end-to-end. Pure unit tests are
-not a substitute. If you add an endpoint, a UI flow, or a data change,
+**forbidden** — do not add them. If you add an endpoint, a UI flow, or
+a data change,
 add a test in `src/tests/` (filenames end in `.integration.test.ts`)
 that would fail without your change.
 
