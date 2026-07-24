@@ -51,9 +51,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const libraryPrompts = (): SavedPrompt[] =>
     ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
 
-  const NEW_SESSION_TITLE = "New Session — Goose Log Viewer";
-  const sessionTitle = (name: string): string =>
-    `${displayName(name)} — Goose Log Viewer`;
+  const NEW_SESSION_TITLE = "New Session — GLV";
+  const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
 
   app.get("/", (c) =>
     render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),

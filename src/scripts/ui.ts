@@ -1,5 +1,5 @@
-const UI_TITLE_SUFFIX = " \u2014 Goose Log Viewer";
-const UI_HOME_TITLE = "Goose Log Viewer";
+const UI_TITLE_SUFFIX = " \u2014 GLV";
+const UI_HOME_TITLE = "GLV";
 const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
 const UI_COPIED_MS = 1500;

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Project-relative launcher for the glv (goose-log-viewer) CLI.
+# Project-relative launcher for the glv CLI.
 # Resolves the project root from this script's own location,
 # so it works regardless of where it's invoked from.
 
