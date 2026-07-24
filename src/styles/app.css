@@ -1757,14 +1757,62 @@ pre::-webkit-scrollbar-thumb {
 }
 
 /* ---------- responsive ---------- */
+.mobile-pane-toggle {
+  display: none;
+}
+.mobile-pane-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex: 1 1 0;
+  padding: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.mobile-pane-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+.mobile-pane-btn[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
 @media (max-width: 720px) {
   .app {
     flex-direction: column;
   }
+  .mobile-pane-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    padding: 0.35rem 0.4rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .app[data-mobile-pane="detail"] .sidebar,
+  .app[data-mobile-pane="sidebar"] .detail {
+    display: none;
+  }
+  .app[data-mobile-pane="detail"] .detail,
+  .app[data-mobile-pane="sidebar"] .sidebar {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
   .sidebar {
     width: 100%;
     min-width: 0;
-    max-height: 38vh;
+    max-height: none;
   }
   .detail-inner {
     padding: 1.5rem 1.25rem 3rem;

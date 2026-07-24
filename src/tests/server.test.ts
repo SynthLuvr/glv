@@ -315,6 +315,14 @@ describe("web viewer GET /", () => {
     expect(html).toContain('href="/sessions/alpha" hx-get="/sessions/alpha"');
   });
 
+  it("renders a mobile pane toggle and defaults to the session list", async () => {
+    const html = await renderRoot();
+    expect(html).toContain('class="mobile-pane-toggle"');
+    expect(html).toContain('data-pane="sidebar"');
+    expect(html).toContain('data-pane="detail"');
+    expect(html).toContain('data-mobile-pane="sidebar"');
+  });
+
   it("does not rewrite the URL when the out-of-band sidebar-meta loader fires", async () => {
     // #session-list carries hx-push-url="true" so detail-pane swaps update the
     // address bar. The sidebar-meta OOB loader is a child of #session-list, so
@@ -366,6 +374,11 @@ describe("web viewer GET /sessions/:id", () => {
     expect(html).toContain("What is goose?");
     expect(html).toContain("OUTPUT");
     expect(html).toContain("Goose is an agent");
+  });
+
+  it("defaults to the detail pane on mobile when a session is open", async () => {
+    const { html } = await renderSession("alpha");
+    expect(html).toContain('data-mobile-pane="detail"');
   });
 
   it("shows session metadata in the transcript header", async () => {
