@@ -469,7 +469,7 @@ const Sidebar = ({
 }: SidebarProps & { logout?: boolean }) => (
   <aside class="sidebar">
     <div class="sidebar-head">
-      <h1>Goose Sessions</h1>
+      <h1>Sessions</h1>
       <span class="session-count">{sessions.length}</span>
       <NewSessionButton />
       <ThemeToggle />
