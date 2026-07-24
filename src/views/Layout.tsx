@@ -20,7 +20,6 @@ const Layout = ({ title, children }: LayoutProps) => (
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
       <script src="/assets/rename.js" defer></script>
-      <script src="/assets/source-picker.js" defer></script>
       <script src="/assets/ui.js" defer></script>
       <script src="/assets/prompts.js" defer></script>
       <script src="/assets/groups.js" defer></script>

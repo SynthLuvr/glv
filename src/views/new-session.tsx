@@ -2,51 +2,14 @@ import { shortenHome } from "../format/index.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import { PromptLibrarySection } from "./prompt-library.js";
 
-type SourceType = "working_dir" | "github";
-
-const clonePathPreview = (repo: string): string => {
-  const trimmed = repo.trim();
-  const slash = trimmed.indexOf("/");
-  if (slash <= 0) return "";
-  return `/tmp/glv/${trimmed.slice(0, slash)}/${trimmed.slice(slash + 1)}`;
-};
-
-const SourceToggle = ({ source }: { source: SourceType }) => (
-  <div class="source-toggle" role="tablist" aria-label="Session source">
-    <button
-      type="button"
-      class={`source-seg${source === "working_dir" ? " selected" : ""}`}
-      role="tab"
-      aria-selected={source === "working_dir" ? "true" : "false"}
-      data-source="working_dir"
-    >
-      📁 Working Directory
-    </button>
-    <button
-      type="button"
-      class={`source-seg${source === "github" ? " selected" : ""}`}
-      role="tab"
-      aria-selected={source === "github" ? "true" : "false"}
-      data-source="github"
-    >
-      🐙 GitHub Repository
-    </button>
-  </div>
-);
-
 const WorkingDirBody = ({
   workingDir,
   dirs,
-  hidden,
 }: {
   workingDir: string;
   dirs: string[];
-  hidden: boolean;
 }) => (
-  <div
-    class={`source-body${hidden ? " source-hidden" : ""}`}
-    data-source-body="working_dir"
-  >
+  <div class="source-body" data-source-body="working_dir">
     <label class="form-field">
       <span class="form-label">Working directory</span>
       <input
@@ -67,62 +30,6 @@ const WorkingDirBody = ({
   </div>
 );
 
-const GitHubBody = ({
-  repo,
-  branch,
-  hidden,
-}: {
-  repo?: string;
-  branch?: string;
-  hidden: boolean;
-}) => {
-  const hasRepo = repo !== undefined && repo.trim() !== "";
-  return (
-    <div
-      class={`source-body${hidden ? " source-hidden" : ""}`}
-      data-source-body="github"
-    >
-      <label class="form-field">
-        <span class="form-label">Repository</span>
-        <input
-          type="text"
-          name="repo"
-          list="gh-repos"
-          value={repo ?? ""}
-          class="form-input"
-          placeholder="Search your repositories…"
-          autocomplete="off"
-          spellcheck={false}
-        />
-        <datalist id="gh-repos"></datalist>
-      </label>
-      <p class="gh-picker-error" data-repo-error></p>
-      <label
-        class={`form-field${hasRepo ? "" : " source-hidden"}`}
-        data-branch-field
-      >
-        <span class="form-label">Branch</span>
-        <input
-          type="text"
-          name="branch"
-          list="gh-branches"
-          value={branch ?? ""}
-          class="form-input"
-          placeholder="main"
-          autocomplete="off"
-          spellcheck={false}
-        />
-        <datalist id="gh-branches"></datalist>
-      </label>
-      {hasRepo && (
-        <p class="clone-preview" data-clone-preview>
-          → Will clone to {clonePathPreview(repo!)}
-        </p>
-      )}
-    </div>
-  );
-};
-
 // The prompt-id field lets the "Run" action flag which saved prompt a session
 // started from so the run flow can bump its usage stats. It is cleared on any
 // manual edit so a hand-typed start never bumps a stale prompt.
@@ -130,18 +37,12 @@ const NewSessionForm = ({
   workingDir,
   dirs,
   error,
-  source = "working_dir",
-  repo,
-  branch,
   prompts = [],
   categories = [],
 }: {
   workingDir: string;
   dirs: string[];
   error?: string;
-  source?: SourceType;
-  repo?: string;
-  branch?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
 }) => (
@@ -159,15 +60,8 @@ const NewSessionForm = ({
       hx-disabled-elt="button[type=submit]"
     >
       {error !== undefined && <p class="status-hint error">{error}</p>}
-      <input type="hidden" name="source" value={source} />
       <input type="hidden" name="prompt_id" value="" data-prompt-id />
-      <SourceToggle source={source} />
-      <WorkingDirBody
-        workingDir={workingDir}
-        dirs={dirs}
-        hidden={source !== "working_dir"}
-      />
-      <GitHubBody repo={repo} branch={branch} hidden={source !== "github"} />
+      <WorkingDirBody workingDir={workingDir} dirs={dirs} />
       <label class="form-field">
         <span class="form-label">Prompt</span>
         <textarea
@@ -188,37 +82,6 @@ const NewSessionForm = ({
   </div>
 );
 
-const CloningView = ({
-  repo,
-  branch,
-  jobId,
-  cloning,
-}: {
-  repo: string;
-  branch: string;
-  jobId: string;
-  cloning: boolean;
-}) => (
-  <div
-    class="detail-inner cloning-view"
-    hx-get={`/github/clone-status/${jobId}`}
-    hx-trigger="every 1s"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-  >
-    <div class="clone-card">
-      <span class="clone-spinner" aria-hidden="true"></span>
-      {cloning ? (
-        <p class="status-hint running">
-          Cloning <strong>{repo}</strong> ({branch})…
-        </p>
-      ) : (
-        <p class="status-hint running">Starting session…</p>
-      )}
-    </div>
-  </div>
-);
-
 const NotFoundDetail = ({ id }: { id: string }) => (
   <div class="placeholder">
     <h2>Session not found</h2>
@@ -228,4 +91,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { CloningView, NewSessionForm, NotFoundDetail, SourceType };
+export { NewSessionForm, NotFoundDetail };

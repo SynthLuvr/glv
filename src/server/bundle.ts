@@ -7,7 +7,6 @@ type AssetBundle = {
   readonly sidebar: string;
   readonly stream: string;
   readonly rename: string;
-  readonly sourcePicker: string;
   readonly ui: string;
   readonly prompts: string;
   readonly groups: string;
@@ -28,7 +27,6 @@ const buildAssetBundle = (): AssetBundle => ({
   sidebar: readAsset("../../dist/sidebar.js"),
   stream: readAsset("../../dist/stream.js"),
   rename: readAsset("../../dist/rename.js"),
-  sourcePicker: readAsset("../../dist/source-picker.js"),
   ui: readAsset("../../dist/ui.js"),
   prompts: readAsset("../../dist/prompts.js"),
   groups: readAsset("../../dist/groups.js"),
