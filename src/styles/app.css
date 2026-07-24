@@ -462,9 +462,8 @@ body {
   border-radius: 0.6rem;
 }
 
-/* drag handle — initiates the pointer-event drag (mouse + touch). `touch-action:
-   none` makes a gesture starting on the handle belong to the drag, so it never
-   scrolls the list on touch devices. */
+/* drag handle — `touch-action: none` makes a gesture starting here a drag,
+   never a list scroll, on touch. */
 .session-drag-handle {
   position: relative;
   z-index: 1;
@@ -493,7 +492,6 @@ body {
   height: 0.85rem;
 }
 
-/* floating clone that tracks the pointer during a drag */
 .session-item.drag-ghost {
   position: fixed;
   top: 0;

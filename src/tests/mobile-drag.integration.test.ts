@@ -26,9 +26,8 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
-// Playwright's page.mouse dispatches the same pointerdown / pointermove /
-// pointerup events a real touch produces, so a desktop-chromium run exercises
-// the identical pointer-event drag path that mobile uses.
+// page.mouse fires the same pointer events a touch would, so a desktop run
+// exercises the mobile drag path.
 const dragHandleOnto = async (
   page: Page,
   sourceId: string,

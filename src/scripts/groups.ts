@@ -30,11 +30,9 @@ const postGroupAction = (
 };
 
 // ---- drag to group (pointer events: mouse + touch) ----
-// Native HTML5 drag-and-drop never fires on touch devices, so a unified
-// pointer-event drag layer drives grouping on every input type.  A dedicated
-// drag handle keeps vertical list scrolling usable on touch: the handle
-// carries `touch-action: none`, so a gesture that starts on it belongs to the
-// drag and never scrolls the page.
+// Native HTML5 drag-and-drop never fires on touch, so pointer events drive
+// grouping across every input type. The drag handle (touch-action: none)
+// keeps list scrolling usable: a gesture starting on it drags, not scrolls.
 
 const DRAG_THRESHOLD_PX = 6;
 
@@ -44,34 +42,26 @@ type ActiveDrag = {
   pointerId: number;
   startX: number;
   startY: number;
-  active: boolean;
   ghost: HTMLElement | null;
 };
 
 let activeDrag: ActiveDrag | null = null;
 
-const clearDragClasses = (): void => {
-  document.querySelectorAll(".dragging, .drag-over").forEach((el) => {
-    el.classList.remove("dragging", "drag-over");
-  });
-};
-
 const cleanupDrag = (): void => {
   if (activeDrag === null) return;
   activeDrag.ghost?.remove();
-  clearDragClasses();
+  document.querySelectorAll(".dragging, .drag-over").forEach((el) => {
+    el.classList.remove("dragging", "drag-over");
+  });
   activeDrag = null;
 };
 
-// A floating clone of the source card follows the pointer so the dragged
-// session stays visible under a finger — on touch the finger covers the card
-// itself.
+// On touch the finger hides the source, so a clone tracks the pointer.
 const createGhost = (source: HTMLElement): HTMLElement => {
   const ghost = source.cloneNode(true) as HTMLElement;
   ghost.classList.remove("dragging");
   ghost.classList.add("drag-ghost");
-  const rect = source.getBoundingClientRect();
-  ghost.style.width = `${rect.width}px`;
+  ghost.style.width = `${source.getBoundingClientRect().width}px`;
   return ghost;
 };
 
@@ -81,34 +71,29 @@ const positionGhost = (
   y: number,
 ): void => {
   if (ghost === null) return;
-  // Hover above the pointer so the card stays visible under a finger and
-  // never covers the drop target the pointer is resting on.
+  // Float above the pointer so it never covers the drop target beneath it.
   ghost.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`;
 };
 
 type DropTarget =
-  | { kind: "group"; id: string }
-  | { kind: "session"; id: string }
+  | { el: Element; id: string; kind: "group" }
+  | { el: Element; id: string; kind: "session" }
   | { kind: "list" }
   | null;
 
-// Resolve the element under the pointer to a group header, a session card, or
-// the list itself — the three valid drop targets.  The ghost carries
-// pointer-events: none, so elementFromPoint sees straight through it.
+// The ghost has pointer-events: none, so elementFromPoint sees through it.
 const resolveDropTarget = (x: number, y: number): DropTarget => {
   const base = document.elementFromPoint(x, y);
   if (base === null) return null;
   const groupHeader = base.closest(".group-header");
   if (groupHeader !== null) {
     const id = groupHeader.getAttribute("data-group-id");
-    if (id !== null) return { kind: "group", id };
-    return null;
+    return id === null ? null : { el: groupHeader, id, kind: "group" };
   }
   const sessionItem = base.closest(".session-item");
   if (sessionItem !== null && !sessionItem.classList.contains("dragging")) {
     const id = sessionItem.getAttribute("data-session-id");
-    if (id !== null) return { kind: "session", id };
-    return null;
+    return id === null ? null : { el: sessionItem, id, kind: "session" };
   }
   if (base.closest("#session-list") !== null) return { kind: "list" };
   return null;
@@ -119,12 +104,8 @@ const highlightTarget = (x: number, y: number): void => {
   document
     .querySelectorAll(".drag-over")
     .forEach((n) => n.classList.remove("drag-over"));
-  if (target === null || target.kind === "list") return;
-  const selector =
-    target.kind === "group"
-      ? `.group-header[data-group-id="${target.id}"]`
-      : `.session-item[data-session-id="${target.id}"]`;
-  document.querySelector(selector)?.classList.add("drag-over");
+  if (target !== null && target.kind !== "list")
+    target.el.classList.add("drag-over");
 };
 
 const performDrop = (sourceId: string, x: number, y: number): void => {
@@ -155,18 +136,16 @@ document.addEventListener("pointerdown", (e) => {
     pointerId: e.pointerId,
     startX: e.clientX,
     startY: e.clientY,
-    active: false,
     ghost: null,
   };
 });
 
 document.addEventListener("pointermove", (e) => {
   if (activeDrag === null || e.pointerId !== activeDrag.pointerId) return;
-  if (!activeDrag.active) {
+  if (activeDrag.ghost === null) {
     const dx = e.clientX - activeDrag.startX;
     const dy = e.clientY - activeDrag.startY;
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-    activeDrag.active = true;
     activeDrag.sourceEl.classList.add("dragging");
     const ghost = createGhost(activeDrag.sourceEl);
     activeDrag.ghost = ghost;
@@ -178,7 +157,8 @@ document.addEventListener("pointermove", (e) => {
 
 const finishDrag = (e: PointerEvent): void => {
   if (activeDrag === null || e.pointerId !== activeDrag.pointerId) return;
-  if (activeDrag.active) performDrop(activeDrag.sourceId, e.clientX, e.clientY);
+  if (activeDrag.ghost !== null)
+    performDrop(activeDrag.sourceId, e.clientX, e.clientY);
   cleanupDrag();
 };
 
