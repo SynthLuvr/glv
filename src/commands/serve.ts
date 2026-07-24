@@ -5,7 +5,9 @@ import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
+import { runGit } from "../git.js";
 import { openGroupsDb } from "../groups/db.js";
+import { runGh } from "../pr-state.js";
 import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
 import { createRunner, stopAll } from "../runner/index.js";
@@ -118,6 +120,8 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
     groups: groupsDb,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
+    runGit,
+    runPrState: runGh,
   });
   // Started once the port is bound so the -R bind targets the real listener.
   let tunnel: TunnelHandle | undefined;

@@ -78,6 +78,9 @@ const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
+const ghMockScriptPath = fileURLToPath(
+  new URL("./gh-mock-script.ts", import.meta.url),
+);
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -257,6 +260,11 @@ const mockGoose = (): Promise<() => void> =>
     file: gooseMockScriptPath,
   });
 
+// Mocked `gh` lets pr-state/git-info tests exercise the real `gh pr view`
+// flow without a GitHub token or network.
+const mockGh = (): Promise<() => void> =>
+  mockBin("gh", `node --import ${tsxLoader}`, { file: ghMockScriptPath });
+
 const startServer = (
   dbs: Databases,
   port: number,
@@ -288,6 +296,7 @@ const startIntegrationEnv = async (
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
   const restoreGoosePath = await mockGoose();
+  const restoreGhPath = await mockGh();
 
   const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
@@ -317,6 +326,7 @@ const startIntegrationEnv = async (
     await browser.close();
     await stopProcess(proc);
     restoreGoosePath();
+    restoreGhPath();
     const stderr = readStderr();
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
     rmSync(scratchDir, { recursive: true, force: true });

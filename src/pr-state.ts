@@ -77,4 +77,4 @@ const STATE_LABEL: Record<Exclude<PrState, "unknown">, string> = {
 };
 
 export type { CommandRunner };
-export { resolvePrBranch, resolvePrState, STATE_LABEL };
+export { resolvePrBranch, resolvePrState, runGh, STATE_LABEL };
