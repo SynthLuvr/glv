@@ -179,6 +179,39 @@ back in at any time with a quick passkey tap.
 > on a LAN hostname or over the network, place it behind a reverse proxy
 > with a valid TLS certificate.
 
+### Registering a new domain
+
+A passkey is cryptographically bound to the domain (Relying Party ID) it
+was created on, so one made on `localhost` cannot unlock a different
+domain, and vice versa. To sign in from more than one origin — for
+example your local machine *and* a deployed host — register a separate
+passkey for each via the single-use **enrollment** flow:
+
+1.  Log in on an origin you already have a passkey for
+    (e.g. `http://localhost:3000`).
+2.  Visit `/auth/devices` and click **Add a passkey for another device
+    or domain**. The viewer mints a one-time enrollment link.
+3.  Open that link on the new domain — for another host, swap the
+    `localhost` part for your domain
+    (e.g. `https://your-host.example/auth/enroll/<token>`). Complete the
+    passkey ceremony there; the credential is bound to that origin’s RP
+    ID and attached to your existing owner account.
+4.  Sign in from either origin. The two passkeys coexist — there’s no
+    need to delete the old one.
+
+A cancelled or failed ceremony does not consume the link, so you can
+retry with the same URL until one succeeds.
+
+> **Behind a reverse proxy.** When the viewer sits behind a
+> TLS-terminating proxy, forward the original request details so
+> WebAuthn computes the correct RP origin and cookie flags:
+>
+> ``` nginx
+> proxy_set_header Host $host;
+> proxy_set_header X-Forwarded-Host $host;
+> proxy_set_header X-Forwarded-Proto $scheme;
+> ```
+
 ## Development
 
 ``` bash
