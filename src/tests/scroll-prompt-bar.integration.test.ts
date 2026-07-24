@@ -19,12 +19,10 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
-// The prompt bar uses `position: sticky; bottom: 0` inside the scrolling
-// transcript pane. Its containing block is the wrapper's content box, so any
-// wrapper padding-bottom lifts the bar off the viewport's bottom edge once the
-// reader scrolls to the very end — the bar should stay pegged flush instead.
 describe("sticky prompt bar", () => {
   it("stays flush to the bottom edge when scrolled to the end of a long transcript", async () => {
+    // Regression: a non-zero wrapper padding-bottom lifts the sticky prompt bar
+    // off the viewport's bottom edge — it must stay pegged flush to the end.
     insertSessions(env.dbs.sessionsDb, [
       {
         id: "scroll-flush",
@@ -32,41 +30,36 @@ describe("sticky prompt bar", () => {
         workingDir: join(env.scratchDir, "scroll"),
       },
     ]);
-    // Many tall messages so the transcript overflows the viewport.
-    const tall = Array.from({ length: 50 }, (_, i) => ({
-      role: i % 2 === 0 ? "user" : "assistant",
-      content: [{ type: "text", text: `Line ${i}.\n`.repeat(10) }],
-    }));
-    insertMessages(env.dbs.sessionsDb, "scroll-flush", tall);
+    insertMessages(
+      env.dbs.sessionsDb,
+      "scroll-flush",
+      Array.from({ length: 50 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: `Line ${i}.\n`.repeat(10) }],
+      })),
+    );
 
     await withPage(env.context, async (page) => {
       await page.goto(`${env.baseUrl}/sessions/scroll-flush`);
-      await expect(page.locator("[data-prompt-bar]")).toBeVisible();
-      const pane = page.locator("#detail-pane");
 
-      // Sanity: the transcript must actually overflow so scrolling is real.
+      const bar = page.locator("[data-prompt-bar]");
+      const pane = page.locator("#detail-pane");
+      await expect(bar).toBeVisible();
+
+      // The transcript must overflow for the scroll to be meaningful.
       const overflow = await pane.evaluate(
         (el) => el.scrollHeight - el.clientHeight,
       );
       expect(overflow).toBeGreaterThan(200);
 
-      // Scroll the transcript to the very bottom.
       await pane.evaluate((el) => {
         el.scrollTop = el.scrollHeight;
       });
 
-      // Gap between the prompt bar's bottom edge and the pane's bottom edge.
-      // With the bug (wrapper padding-bottom) the bar lifts off the bottom;
-      // once pegged flush the gap is ~0.
-      const gap = await page.evaluate(() => {
-        const bar = document.querySelector("[data-prompt-bar]");
-        const detail = document.getElementById("detail-pane");
-        if (bar === null || detail === null) return Number.POSITIVE_INFINITY;
-        return (
-          detail.getBoundingClientRect().bottom -
-          bar.getBoundingClientRect().bottom
-        );
-      });
+      // Pegged flush: the bar's bottom edge should sit at the pane's bottom edge.
+      const gap =
+        (await pane.evaluate((el) => el.getBoundingClientRect().bottom)) -
+        (await bar.evaluate((el) => el.getBoundingClientRect().bottom));
       expect(gap).toBeLessThan(5);
     });
   });
