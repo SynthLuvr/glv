@@ -65,6 +65,10 @@ const INSERT_SESSION_SQL =
   "INSERT INTO sessions (id, name, session_type, working_dir, created_at, updated_at) " +
   "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'))";
 
+const INSERT_MESSAGE_SQL =
+  "INSERT INTO messages (message_id, session_id, role, content_json, " +
+  "created_timestamp, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const GLV = join(ROOT, "bin", "glv");
 
@@ -111,12 +115,41 @@ const waitForHttp = async (url: string, timeoutMs = 20000): Promise<void> => {
 
 type SessionSeed = { id: string; name: string; workingDir: string };
 
+// A content_json string or an array of content items, written verbatim into the
+// message row so transcript-rendering tests can seed rich transcripts.
+type MessageSeed = {
+  role: string;
+  content: unknown;
+  createdTimestamp?: number;
+  messageId?: string;
+};
+
 type Databases = {
   sessionsDb: string;
   authDb: string;
   promptsDb: string;
   groupsDb: string;
   token: string;
+};
+
+type MockConfig = {
+  /** Delay (ms) before the mock emits output, keeping a run "running". */
+  sleepMs?: number;
+  /** goose exit code; non-zero surfaces as a runner error. */
+  exitCode?: number;
+  /** NDJSON lines to emit (newline-joined); default is a single reply. */
+  lines?: string[];
+  /** Name written into a new session row. */
+  sessionName?: string;
+};
+
+type IntegrationEnv = {
+  scratchDir: string;
+  baseUrl: string;
+  cookie: string;
+  context: BrowserContext;
+  dbs: Databases;
+  cleanup: () => Promise<void>;
 };
 
 // WAL lets a test process (or the mock goose) write while the server reads,
@@ -160,6 +193,34 @@ const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
   db.exec("PRAGMA busy_timeout=5000");
   const stmt = db.prepare(INSERT_SESSION_SQL);
   for (const s of sessions) stmt.run(s.id, s.name, s.workingDir);
+  db.close();
+};
+
+// Seeds a transcript straight into the goose sessions DB the server reads
+// from. `content` may be a raw JSON string or an array of content items.
+const insertMessages = (
+  dbPath: string,
+  sessionId: string,
+  messages: MessageSeed[],
+): void => {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA busy_timeout=5000");
+  const stmt = db.prepare(INSERT_MESSAGE_SQL);
+  let ts = Date.now();
+  for (const m of messages) {
+    const contentJson =
+      typeof m.content === "string"
+        ? (m.content as string)
+        : JSON.stringify(m.content);
+    stmt.run(
+      m.messageId ?? null,
+      sessionId,
+      m.role,
+      contentJson,
+      m.createdTimestamp ?? ts,
+    );
+    ts += 1000;
+  }
   db.close();
 };
 
@@ -213,17 +274,16 @@ const startServer = (
   return { proc, readStderr: () => stderr };
 };
 
-type IntegrationEnv = {
-  scratchDir: string;
-  baseUrl: string;
-  context: BrowserContext;
-  dbs: Databases;
-  cleanup: () => Promise<void>;
-};
+const mockEnv = (mock: MockConfig): Record<string, string> => ({
+  GOOSE_MOCK_SESSION_NAME: mock.sessionName ?? "",
+  GOOSE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
+  GOOSE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
+  GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
+});
 
 const startIntegrationEnv = async (
   prefix: string,
-  extraEnv: Record<string, string> = {},
+  mock: MockConfig = {},
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
@@ -233,7 +293,7 @@ const startIntegrationEnv = async (
   const baseUrl = `http://localhost:${port}`;
   const { proc, readStderr } = startServer(dbs, port, {
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
-    ...extraEnv,
+    ...mockEnv(mock),
   });
 
   await waitForHttp(baseUrl);
@@ -262,7 +322,14 @@ const startIntegrationEnv = async (
     rmSync(scratchDir, { recursive: true, force: true });
   };
 
-  return { scratchDir, baseUrl, context, dbs, cleanup };
+  return {
+    scratchDir,
+    baseUrl,
+    cookie: `glv_session=${dbs.token}`,
+    context,
+    dbs,
+    cleanup,
+  };
 };
 
 const withPage = async (
@@ -277,5 +344,128 @@ const withPage = async (
   }
 };
 
-export type { IntegrationEnv };
-export { insertSessions, startIntegrationEnv, withPage };
+const authedFetch = (
+  env: IntegrationEnv,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> => {
+  const headers: Record<string, string> = { cookie: env.cookie };
+  const extra = init.headers as Record<string, string> | undefined;
+  if (extra !== undefined) Object.assign(headers, extra);
+  return fetch(`${env.baseUrl}${path}`, {
+    ...init,
+    headers,
+    redirect: "manual",
+  });
+};
+
+type SseEvent = { event: string; data: string; id: string | undefined };
+
+const parseSseData = (data: string): Record<string, unknown> => {
+  try {
+    return JSON.parse(data) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
+
+// Parses one SSE line: field lines update `current` in place; an empty line
+// (frame boundary) returns the accumulated event if one is in progress.
+const parseSseLine = (
+  line: string,
+  current: Partial<SseEvent>,
+): SseEvent | undefined => {
+  if (line === "") {
+    if (current.event === undefined) return undefined;
+    return {
+      event: current.event,
+      data: current.data ?? "",
+      id: current.id,
+    };
+  }
+  if (line.startsWith("event:")) current.event = line.slice(6).trim();
+  else if (line.startsWith("data:"))
+    current.data = (current.data ?? "") + line.slice(5).trim();
+  else if (line.startsWith("id:")) current.id = line.slice(3).trim();
+  return undefined;
+};
+
+const readSseStream = async (
+  reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
+  until: (events: SseEvent[]) => boolean,
+  events: SseEvent[],
+): Promise<void> => {
+  const decoder = new TextDecoder();
+  let buf = "";
+  let current: Partial<SseEvent> = {};
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      const line = buf.slice(0, nl).replace(/\r$/, "");
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf("\n");
+      const event = parseSseLine(line, current);
+      if (line === "") {
+        current = {};
+        if (event !== undefined) events.push(event);
+        if (until(events)) return;
+      }
+    }
+  }
+};
+
+// Reads an SSE endpoint until `until` is satisfied or `timeoutMs` elapses.
+// The server keeps streams open indefinitely, so the reader is always released.
+const collectSse = async (
+  env: IntegrationEnv,
+  path: string,
+  until: (events: SseEvent[]) => boolean,
+  timeoutMs = 10000,
+): Promise<SseEvent[]> =>
+  new Promise((resolve, reject) => {
+    const events: SseEvent[] = [];
+    let reader:
+      | ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>
+      | undefined;
+
+    const timer = setTimeout(() => {
+      reader?.cancel().catch(() => undefined);
+      reject(
+        new Error(
+          `timed out after ${timeoutMs}ms; got ${events.length} events`,
+        ),
+      );
+    }, timeoutMs);
+
+    const finish = (): void => {
+      clearTimeout(timer);
+      reader?.cancel().catch(() => undefined);
+      resolve(events);
+    };
+
+    void authedFetch(env, path, { headers: { accept: "text/event-stream" } })
+      .then(async (res) => {
+        if (res.body === null) throw new Error("no response body");
+        reader = res.body.getReader();
+        await readSseStream(reader, until, events);
+        finish();
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+
+export type { IntegrationEnv, MessageSeed, MockConfig, SessionSeed, SseEvent };
+export {
+  authedFetch,
+  collectSse,
+  insertMessages,
+  insertSessions,
+  parseSseData,
+  startIntegrationEnv,
+  withPage,
+};

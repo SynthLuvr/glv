@@ -17,7 +17,7 @@ let workDir: string;
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-integration-", {
-    GOOSE_MOCK_SESSION_NAME: SESSION_NAME,
+    sessionName: SESSION_NAME,
   });
 
   workDir = join(env.scratchDir, "project");
