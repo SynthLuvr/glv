@@ -141,8 +141,6 @@ const applySync = (data: string): void => {
     const id = item.dataset.sessionId;
     if (id !== undefined) setStatusIndicator(id, active.has(id));
   }
-  for (const group of document.querySelectorAll(".session-group"))
-    setGroupRunning(group);
 };
 
 // Unread when a run finishes in a session that isn't the open one; read on click.

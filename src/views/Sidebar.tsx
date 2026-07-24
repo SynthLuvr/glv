@@ -243,7 +243,9 @@ const GroupEntry = ({
   selectedId: string | undefined;
   runningIds: Set<string>;
 }) => {
-  const groupRunning = entry.members.some((m) => runningIds.has(m.id));
+  const groupRunning = entry.members.some((member) =>
+    runningIds.has(member.id),
+  );
   return (
     <div class="session-group" data-group-id={entry.groupId}>
       <GroupHeader
