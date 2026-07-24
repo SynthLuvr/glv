@@ -402,6 +402,18 @@ body {
   border-radius: 999px;
   flex-shrink: 0;
 }
+/* Group-level running indicator — visible only while a member is running. */
+.group-header .run-indicator {
+  display: none;
+}
+.group-header[data-running] .run-indicator {
+  display: inline-flex;
+  align-items: center;
+}
+.group-header[data-running] .run-dot {
+  background: var(--color-ok);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
 .group-archive-btn {
   display: inline-flex;
   align-items: center;

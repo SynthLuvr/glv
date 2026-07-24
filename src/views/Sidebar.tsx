@@ -194,14 +194,20 @@ const GroupHeader = ({
   groupId,
   groupName,
   memberCount,
+  running,
   target,
 }: {
   groupId: string;
   groupName: string;
   memberCount: number;
+  running: boolean;
   target: string;
 }) => (
-  <div class="group-header" data-group-id={groupId}>
+  <div
+    class="group-header"
+    data-group-id={groupId}
+    data-running={running ? "" : undefined}
+  >
     <button
       type="button"
       class="group-toggle"
@@ -215,6 +221,12 @@ const GroupHeader = ({
     <GroupRenameWrap groupId={groupId} name={groupName} target={target} />
     <span class="group-count" title={`${memberCount} sessions`}>
       {memberCount}
+    </span>
+    <span
+      class="run-indicator"
+      title={running ? "A session in this group is running" : undefined}
+    >
+      <span class="run-dot" />
     </span>
     <button
       type="button"
@@ -243,26 +255,32 @@ const GroupEntry = ({
   entry: Extract<ListEntry, { kind: "group" }>;
   selectedId: string | undefined;
   runningIds: Set<string>;
-}) => (
-  <div class="session-group" data-group-id={entry.groupId}>
-    <GroupHeader
-      groupId={entry.groupId}
-      groupName={entry.groupName}
-      memberCount={entry.memberCount}
-      target="#session-list"
-    />
-    <div class="group-members">
-      {entry.members.map((session) => (
-        <SessionItem
-          session={session}
-          selected={session.id === selectedId}
-          running={runningIds.has(session.id)}
-          inGroup
-        />
-      ))}
+}) => {
+  const groupRunning = entry.members.some((member) =>
+    runningIds.has(member.id),
+  );
+  return (
+    <div class="session-group" data-group-id={entry.groupId}>
+      <GroupHeader
+        groupId={entry.groupId}
+        groupName={entry.groupName}
+        memberCount={entry.memberCount}
+        running={groupRunning}
+        target="#session-list"
+      />
+      <div class="group-members">
+        {entry.members.map((session) => (
+          <SessionItem
+            session={session}
+            selected={session.id === selectedId}
+            running={runningIds.has(session.id)}
+            inGroup
+          />
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const BulkActionBar = () => (
   <div id="bulk-bar" class="bulk-bar" hidden={true}>
