@@ -7,10 +7,9 @@ import {
   stop,
   stopAll,
 } from "./queue.js";
-import type { DrainResult, LineBuffer } from "./ring-buffer.js";
+import type { LineBuffer } from "./ring-buffer.js";
 import { createRingBuffer } from "./ring-buffer.js";
 import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
-import { killProcessGroup } from "./spawn.js";
 import type {
   ProcessResult,
   RunHandle,
@@ -27,7 +26,6 @@ import {
 } from "./types.js";
 
 export type {
-  DrainResult,
   LineBuffer,
   ProcessResult,
   RunHandle,
@@ -46,7 +44,6 @@ export {
   generateTempKey,
   getHandle,
   isTerminalStatus,
-  killProcessGroup,
   makeRunnerConfig,
   newSessionInvocation,
   rekey,

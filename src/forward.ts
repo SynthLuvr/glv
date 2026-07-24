@@ -49,4 +49,4 @@ const startForwardTunnel = (port: number, host: string): TunnelHandle => {
 };
 
 export type { TunnelHandle };
-export { forwardArgs, startForwardTunnel };
+export { startForwardTunnel };

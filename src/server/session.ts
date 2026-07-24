@@ -104,7 +104,6 @@ export type { EstablishOutcome };
 export {
   activeRunPrompt,
   establishSession,
-  findNewSessionId,
   pollForSessionId,
   prepareNewSession,
   withCreateLock,
