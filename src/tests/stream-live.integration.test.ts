@@ -8,7 +8,6 @@ import {
   withPage,
 } from "./integration-harness";
 
-// Distinct chunk texts so each streamed log is identifiable in the transcript.
 const LINE_TEXTS = [
   "Streaming chunk one",
   "Streaming chunk two",
@@ -17,10 +16,9 @@ const LINE_TEXTS = [
 
 const LINE_COUNT = LINE_TEXTS.length;
 
-// NDJSON envelopes — the same shape goose writes to stdout and persists to the
-// messages table — so the mock can stream them as a live preview and commit
-// them as real rows.
-const STREAM_LINES: string[] = LINE_TEXTS.map((text) =>
+// NDJSON envelopes matching goose's stdout and DB shape, so the mock can both
+// stream them as a preview and commit them as message rows.
+const STREAM_LINES = LINE_TEXTS.map((text) =>
   JSON.stringify({
     role: "assistant",
     content: [{ type: "text", text }],
@@ -34,14 +32,11 @@ beforeAll(async () => {
   env = await startIntegrationEnv("glv-stream-live-", {
     sessionName: "Live Streaming Session",
     lines: STREAM_LINES,
-    // Persist each log to the sessions DB as it is produced (a real goose
-    // run writes its transcript incrementally), and pace the commits so a
-    // viewer tail observes them streaming in one at a time rather than in a
-    // single batch.
+    // Write each line to the sessions DB as it streams, paced so the viewer
+    // sees them arrive one at a time rather than all at once.
     writeDb: true,
     lineDelayMs: 700,
-    // Hold off before the first commit so the run is visibly active (with an
-    // empty transcript) before logs begin arriving.
+    // Keep the run active (transcript empty) before the first line arrives.
     sleepMs: 700,
   });
   workDir = join(env.scratchDir, "project");
@@ -67,18 +62,15 @@ describe("live log streaming", () => {
         .locator("button.archive-btn")
         .waitFor({ state: "visible", timeout: 20000 });
 
-      // The run is live.
       await expect(page.locator(".status-hint.running")).toBeVisible();
 
-      // The first committed log arrives over the event stream…
+      // The first log arrives while the run is still active, proving the
+      // transcript fills progressively rather than in a single batch.
       await page.waitForFunction(
         () => document.querySelectorAll("#messages .message").length >= 1,
         null,
         { timeout: 10000 },
       );
-
-      // …while the session is still running, so the rest are still on the
-      // way — proving the logs stream in progressively, not all at once.
       const partial = await page.locator("#messages .message").count();
       expect(partial).toBeLessThan(LINE_COUNT);
 

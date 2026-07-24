@@ -18,8 +18,7 @@ const linesFromEnv = (): string[] => {
   );
 };
 
-// Writes the new session row and returns its id so callers can key committed
-// message rows to it. Returns undefined when no sessions DB is configured.
+// Returns the new session's id so emitted lines can be committed to it.
 const insertSession = (): string | undefined => {
   const dbPath = process.env.GOOSE_SESSIONS_DB;
   const sessionName = process.env.GOOSE_MOCK_SESSION_NAME ?? "";
@@ -41,9 +40,8 @@ const sessionIdFromArgs = (args: string[]): string | undefined => {
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-// A streamed NDJSON line is a full message envelope; persist its content
-// array and role as a committed message row, matching how goose writes its
-// transcript to the sessions DB.
+// Persists a streamed NDJSON envelope as a committed message row, the way
+// goose writes its transcript to the sessions DB.
 const commitMessage = (
   db: DatabaseSync,
   sessionId: string,
@@ -57,7 +55,7 @@ const commitMessage = (
     if (typeof parsed.role === "string") role = parsed.role;
     if (parsed.content !== undefined) content = JSON.stringify(parsed.content);
   } catch {
-    // Malformed JSON is stored verbatim.
+    // malformed JSON is kept as the raw line text
   }
   db.prepare(
     "INSERT INTO messages (message_id, session_id, role, content_json, " +
@@ -65,37 +63,37 @@ const commitMessage = (
   ).run(null, sessionId, role, content, ts);
 };
 
-// Emits each line to stdout, pacing them so a tail consumer observes them
-// arriving rather than reading them in a single burst.
-const emitLines = async (lines: string[], delay: number): Promise<void> => {
+// Prints each line to stdout, spacing them by `delay` so a tailing consumer
+// sees them arrive one at a time rather than in a single burst. `commit`
+// persists each line as a DB row when writing to the sessions DB.
+const streamLines = async (
+  lines: string[],
+  delay: number,
+  commit?: (line: string, ts: number) => void,
+): Promise<void> => {
+  let ts = Date.now();
   for (const line of lines) {
     console.log(line);
+    commit?.(line, ts);
+    ts += 1000;
     if (delay > 0) await sleep(delay);
   }
 };
 
-// Mirrors a real goose run: stream each line to stdout AND commit it to the
-// sessions DB as it is produced. Pacing the commits lets a viewer tail see
-// the logs stream in one at a time until the run finishes.
+// Streams each line to stdout while persisting it to the sessions DB, the way
+// goose writes its transcript incrementally.
 const streamAndCommit = async (
   sessionId: string,
   lines: string[],
   delay: number,
 ): Promise<void> => {
   const dbPath = process.env.GOOSE_SESSIONS_DB;
-  if (dbPath === undefined) {
-    await emitLines(lines, delay);
-    return;
-  }
+  if (dbPath === undefined) return streamLines(lines, delay);
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
-  let ts = Date.now();
-  for (const line of lines) {
-    console.log(line);
-    commitMessage(db, sessionId, line, ts);
-    ts += 1000;
-    if (delay > 0) await sleep(delay);
-  }
+  await streamLines(lines, delay, (line, ts) =>
+    commitMessage(db, sessionId, line, ts),
+  );
   db.close();
 };
 
@@ -115,7 +113,7 @@ const main = async (): Promise<void> => {
 
   if (process.env.GOOSE_MOCK_WRITE_DB === "1" && sessionId !== undefined)
     await streamAndCommit(sessionId, lines, delay);
-  else await emitLines(lines, delay);
+  else await streamLines(lines, delay);
 
   process.exit(Number(process.env.GOOSE_MOCK_EXIT_CODE ?? 0));
 };
