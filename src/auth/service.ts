@@ -225,7 +225,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     };
   };
 
-  const toRecord = (
+  const toNewCredential = (
     credential: VerifiedCredential,
     transports: string[],
   ): NewCredential => ({
@@ -243,7 +243,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     if (!result.verified) return { verified: false, error: result.error };
     const userId = createOwner(
       authDb,
-      toRecord(result.credential, result.transports),
+      toNewCredential(result.credential, result.transports),
     );
     const token = createSession(authDb, userId);
     return { verified: true, token };
@@ -261,7 +261,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     addCredential(
       authDb,
       ownerId,
-      toRecord(result.credential, result.transports),
+      toNewCredential(result.credential, result.transports),
     );
     const token = createSession(authDb, ownerId);
     return { verified: true, token };
@@ -339,6 +339,13 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     if (token !== undefined && token !== "") deleteSession(authDb, token);
   };
 
+  const issueEnrollmentToken = (): string | undefined => {
+    const id = ownerUserId(authDb);
+    return id === undefined
+      ? undefined
+      : createEnrollmentToken(authDb, id, ENROLLMENT_TTL_SECONDS);
+  };
+
   return {
     isClaimed: () => isClaimed(authDb),
     ownerUserId: () => ownerUserId(authDb),
@@ -347,12 +354,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     verifyEnrollment,
     loginOptions,
     verifyLogin,
-    issueEnrollmentToken: () => {
-      const id = ownerUserId(authDb);
-      return id === undefined
-        ? undefined
-        : createEnrollmentToken(authDb, id, ENROLLMENT_TTL_SECONDS);
-    },
+    issueEnrollmentToken,
     isEnrollmentTokenValid: (token: string) =>
       enrollmentTokenValid(authDb, token),
     consumeEnrollmentToken: (token: string) =>
@@ -383,18 +385,20 @@ const isPublicPath = (path: string): boolean =>
 // would reject the real https:// assertion. Headers are only trusted when the
 // proxy sends them; the app is passkey-gated, so a spoofed origin cannot forge
 // an assertion (the authenticator still enforces the RP binding).
+const firstForwardedValue = (
+  header: string | undefined,
+): string | undefined => {
+  if (header === undefined || header === "") return undefined;
+  const first = header.split(",")[0]?.trim();
+  return first === undefined || first === "" ? undefined : first;
+};
+
 const resolveRequestUrl = (c: Context): URL => {
   const url = new URL(c.req.url);
-  const fwdHost = c.req.header("x-forwarded-host");
-  const fwdProto = c.req.header("x-forwarded-proto");
-  if (fwdHost !== undefined && fwdHost !== "") {
-    const first = fwdHost.split(",")[0]?.trim();
-    if (first !== undefined && first !== "") url.host = first;
-  }
-  if (fwdProto !== undefined && fwdProto !== "") {
-    const first = fwdProto.split(",")[0]?.trim();
-    if (first !== undefined && first !== "") url.protocol = `${first}:`;
-  }
+  const host = firstForwardedValue(c.req.header("x-forwarded-host"));
+  if (host !== undefined) url.host = host;
+  const proto = firstForwardedValue(c.req.header("x-forwarded-proto"));
+  if (proto !== undefined) url.protocol = `${proto}:`;
   return url;
 };
 

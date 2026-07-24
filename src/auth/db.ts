@@ -142,11 +142,9 @@ const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
 // passkeys (e.g. for a different domain) attach to this same user.
 const ownerUserId = (db: DatabaseSync): string | undefined => {
   const row = db
-    .prepare("SELECT id AS id FROM users ORDER BY created_at ASC LIMIT 1")
+    .prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1")
     .get();
-  return row !== undefined && typeof (row as { id?: unknown }).id === "string"
-    ? (row as { id: string }).id
-    : undefined;
+  return typeof row?.id === "string" ? row.id : undefined;
 };
 
 const listCredentials = (db: DatabaseSync): StoredCredential[] =>
@@ -178,32 +176,8 @@ const getCredential = (
   return row === undefined ? undefined : mapCredential(row);
 };
 
-const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
-  const userId = randomUUID();
-  transaction(db, () => {
-    db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
-      userId,
-      "owner",
-    );
-    db.prepare(
-      `INSERT INTO credentials
-         (id, user_id, public_key, counter, transports)
-         VALUES (${placeholders(5)})`,
-    ).run(
-      credential.id,
-      userId,
-      credential.publicKey,
-      credential.counter,
-      JSON.stringify(credential.transports),
-    );
-  });
-  return userId;
-};
-
-// Attaches an additional passkey to an existing owner. Used by the enrollment
-// flow so one account can hold a passkey per domain/device — a passkey created
-// on localhost cannot unlock dev.mynth.ai (or vice versa), so each origin the
-// owner signs in from needs its own credential.
+// A passkey is origin-bound, so the owner accumulates one credential per
+// domain/device; createOwner reuses this for the first credential.
 const addCredential = (
   db: DatabaseSync,
   userId: string,
@@ -220,6 +194,18 @@ const addCredential = (
     credential.counter,
     JSON.stringify(credential.transports),
   );
+};
+
+const createOwner = (db: DatabaseSync, credential: NewCredential): string => {
+  const userId = randomUUID();
+  transaction(db, () => {
+    db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+      userId,
+      "owner",
+    );
+    addCredential(db, userId, credential);
+  });
+  return userId;
 };
 
 const updateCounter = (db: DatabaseSync, id: string, counter: number): void => {
@@ -275,9 +261,8 @@ const deleteSession = (db: DatabaseSync, token: string): void => {
   db.prepare("DELETE FROM sessions WHERE id = ?").run(token);
 };
 
-// Single-use bearer tokens that authorize adding a passkey on an origin where
-// the owner has no session cookie (sessions are host-scoped, so a cookie set on
-// localhost is invisible to dev.mynth.ai). The owner generates a token while
+// Sessions are host-scoped, so a cookie on one origin can't authorize adding a
+// passkey on another. The owner mints this single-use bearer token while
 // authenticated, then redeems it on the other origin to run the ceremony.
 const createEnrollmentToken = (
   db: DatabaseSync,
@@ -318,10 +303,7 @@ const consumeEnrollmentToken = (
   const row = db
     .prepare("SELECT user_id AS userId FROM enrollment_tokens WHERE id = ?")
     .get(token);
-  return row !== undefined &&
-    typeof (row as { userId?: unknown }).userId === "string"
-    ? (row as { userId: string }).userId
-    : undefined;
+  return typeof row?.userId === "string" ? row.userId : undefined;
 };
 
 export type { CredentialSummary, NewCredential };

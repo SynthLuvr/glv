@@ -125,7 +125,7 @@ type DevicesPageProps = {
 };
 
 // Owner-only management screen. A passkey is locked to the domain it was made
-// on, so to sign in from both localhost and dev.mynth.ai the owner needs one
+// on, so to sign in from both localhost and another origin the owner needs one
 // passkey per origin — added here via a single-use enrollment link.
 const DevicesPage = ({ credentials, enrollUrl, token }: DevicesPageProps) => (
   <AuthLayout title="Passkeys — Goose Log Viewer">
@@ -133,8 +133,8 @@ const DevicesPage = ({ credentials, enrollUrl, token }: DevicesPageProps) => (
       <h1>Passkeys</h1>
       <p class="auth-sub">
         A passkey is locked to the domain it was created on, so one made on{" "}
-        <code>localhost</code> can't unlock <code>dev.mynth.ai</code> (or vice
-        versa). Add a passkey for each place you sign in.
+        <code>localhost</code> can't unlock another domain (or vice versa). Add
+        a passkey for each place you sign in.
       </p>
       {credentials.length === 0 ? (
         <p class="auth-sub">No passkeys yet.</p>
@@ -159,8 +159,8 @@ const DevicesPage = ({ credentials, enrollUrl, token }: DevicesPageProps) => (
               the copy-paste link for the current origin. */}
           <data id="enroll-token" value={token} />
           <p class="auth-sub">
-            Open this on the device/domain you want to enroll — for{" "}
-            <code>dev.mynth.ai</code>, swap the host:
+            Open this on the device/domain you want to enroll — for another
+            domain, swap the host:
           </p>
           <code class="enroll-url">{enrollUrl}</code>
         </div>
