@@ -21,6 +21,33 @@ pnpm build && pnpm lint && pnpm test
 
 All three must pass with zero errors.
 
+## Testing Requirements (Enforced)
+
+### New features need integration tests
+
+Every new feature or behavior change **must** ship with an integration
+test that exercises the real code path end-to-end. Pure unit tests are
+not a substitute. If you add an endpoint, a UI flow, or a data change,
+add a test in `src/tests/` (filenames end in `.integration.test.ts`)
+that would fail without your change.
+
+### No function mocks
+
+Do **not** mock functions, modules, or methods (`vi.fn`, `jest.fn`,
+monkey-patching, stubbing internals, etc.). Tests must run against the
+real implementation. The only "mock" allowed is substituting an
+external process binary (e.g. the `goose` CLI) with a real script on
+`PATH` — never a function-level mock.
+
+### Test over localhost HTTP only
+
+All assertions must be made by querying the running server over
+`http://localhost:<port>`. Use the helpers in
+`src/tests/integration-harness.ts` (`startIntegrationEnv`,
+`authedFetch`, `collectSse`, `withPage`) to boot a real `glv serve`
+process on a free localhost port and hit its endpoints over HTTP/SSE.
+Do not import server internals into a test or call handlers directly.
+
 ## Coding Conventions (Enforced)
 
 These are **not** preferences — the toolchain will fail if you violate
