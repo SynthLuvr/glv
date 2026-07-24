@@ -68,13 +68,16 @@ describe("PR chip in the transcript", () => {
 });
 
 describe("PR state endpoint", () => {
-  it("degrades to an empty body when gh cannot resolve state", async () => {
+  it("resolves the PR state via mocked gh", async () => {
     const res = await authedFetch(
       env,
       "/sessions/pr-sess/pr-state?url=" + encodeURIComponent(PR_URL),
     );
     expect(res.status).toBe(200);
-    expect((await res.text()).trim()).toBe("");
+    // PR 35 is not mapped in gh-mock-script.ts, so it defaults to OPEN.
+    const html = await res.text();
+    expect(html).toContain("pr-state-open");
+    expect(html).toContain("Open");
   });
 
   it("returns an empty body for a non-PR url", async () => {
@@ -88,10 +91,15 @@ describe("PR state endpoint", () => {
 });
 
 describe("git-info endpoint", () => {
-  it("returns an empty body when no branch can be resolved", async () => {
+  it("resolves the branch via gh but omits worktree for a non-repo dir", async () => {
     const res = await authedFetch(env, "/sessions/pr-sess/git-info");
     expect(res.status).toBe(200);
-    expect((await res.text()).trim()).toBe("");
+    const html = await res.text();
+    // gh-mock-script returns feat-35 for PR 35.
+    expect(html).toContain("feat-35");
+    expect(html).toContain("git-chip-branch");
+    // The session's working_dir is not a git repo, so no worktree chip.
+    expect(html).not.toContain("git-chip-worktree");
   });
 });
 

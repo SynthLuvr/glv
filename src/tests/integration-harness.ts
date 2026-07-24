@@ -78,6 +78,9 @@ const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
+const ghMockScriptPath = fileURLToPath(
+  new URL("./gh-mock-script.ts", import.meta.url),
+);
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -251,11 +254,15 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     proc.kill("SIGTERM");
   });
 
-// mockBin prepends its temp dir to PATH so the glv subprocess finds `goose`.
+// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
+const mockScript = (bin: string, file: string): Promise<() => void> =>
+  mockBin(bin, `node --import ${tsxLoader}`, { file });
+
 const mockGoose = (): Promise<() => void> =>
-  mockBin("goose", `node --import ${tsxLoader}`, {
-    file: gooseMockScriptPath,
-  });
+  mockScript("goose", gooseMockScriptPath);
+
+// Lets pr-state/git-info tests exercise `gh pr view` without a token or network.
+const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
 
 const startServer = (
   dbs: Databases,
@@ -288,6 +295,7 @@ const startIntegrationEnv = async (
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
   const restoreGoosePath = await mockGoose();
+  const restoreGhPath = await mockGh();
 
   const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
@@ -317,6 +325,7 @@ const startIntegrationEnv = async (
     await browser.close();
     await stopProcess(proc);
     restoreGoosePath();
+    restoreGhPath();
     const stderr = readStderr();
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
     rmSync(scratchDir, { recursive: true, force: true });
