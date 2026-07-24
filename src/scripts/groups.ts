@@ -29,76 +29,141 @@ const postGroupAction = (
   });
 };
 
-// ---- drag and drop ----
-// Native HTML5 drag-and-drop is desktop-only; the per-card group menu is the
-// always-available touch fallback.
+// ---- drag to group (pointer events: mouse + touch) ----
+// Native HTML5 drag-and-drop never fires on touch, so pointer events drive
+// grouping across every input type. The drag handle (touch-action: none)
+// keeps list scrolling usable: a gesture starting on it drags, not scrolls.
 
-let dragSourceId: string | null = null;
+const DRAG_THRESHOLD_PX = 6;
 
-const clearDragState = (): void => {
+type ActiveDrag = {
+  sourceId: string;
+  sourceEl: HTMLElement;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  ghost: HTMLElement | null;
+};
+
+let activeDrag: ActiveDrag | null = null;
+
+const cleanupDrag = (): void => {
+  if (activeDrag === null) return;
+  activeDrag.ghost?.remove();
   document.querySelectorAll(".dragging, .drag-over").forEach((el) => {
     el.classList.remove("dragging", "drag-over");
   });
-  dragSourceId = null;
+  activeDrag = null;
 };
 
-document.addEventListener("dragstart", (e) => {
-  if (e.dataTransfer === null) return;
-  const el = e.target instanceof Element ? e.target : null;
-  const item = el?.closest(".session-item") ?? null;
-  if (item === null) return;
-  const id = item.getAttribute("data-session-id");
-  if (id === null) return;
-  dragSourceId = id;
-  e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", id);
-  item.classList.add("dragging");
-});
+// On touch the finger hides the source, so a clone tracks the pointer.
+const createGhost = (source: HTMLElement): HTMLElement => {
+  const ghost = source.cloneNode(true) as HTMLElement;
+  ghost.classList.remove("dragging");
+  ghost.classList.add("drag-ghost");
+  ghost.style.width = `${source.getBoundingClientRect().width}px`;
+  return ghost;
+};
 
-document.addEventListener("dragend", clearDragState);
+const positionGhost = (
+  ghost: HTMLElement | null,
+  x: number,
+  y: number,
+): void => {
+  if (ghost === null) return;
+  // Float above the pointer so it never covers the drop target beneath it.
+  ghost.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`;
+};
 
-document.addEventListener("dragover", (e) => {
-  if (dragSourceId === null || e.dataTransfer === null) return;
-  const el = e.target instanceof Element ? e.target : null;
-  const groupHeader = el?.closest(".group-header") ?? null;
-  const sessionItem = el?.closest(".session-item") ?? null;
-  const inList = el?.closest("#session-list") !== null;
-  if (groupHeader === null && sessionItem === null && !inList) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = "move";
+type DropTarget =
+  | { el: Element; id: string; kind: "group" }
+  | { el: Element; id: string; kind: "session" }
+  | { kind: "list" }
+  | null;
 
+// The ghost has pointer-events: none, so elementFromPoint sees through it.
+const resolveDropTarget = (x: number, y: number): DropTarget => {
+  const base = document.elementFromPoint(x, y);
+  if (base === null) return null;
+  const groupHeader = base.closest(".group-header");
+  if (groupHeader !== null) {
+    const id = groupHeader.getAttribute("data-group-id");
+    return id === null ? null : { el: groupHeader, id, kind: "group" };
+  }
+  const sessionItem = base.closest(".session-item");
+  if (sessionItem !== null && !sessionItem.classList.contains("dragging")) {
+    const id = sessionItem.getAttribute("data-session-id");
+    return id === null ? null : { el: sessionItem, id, kind: "session" };
+  }
+  if (base.closest("#session-list") !== null) return { kind: "list" };
+  return null;
+};
+
+const highlightTarget = (x: number, y: number): void => {
+  const target = resolveDropTarget(x, y);
   document
     .querySelectorAll(".drag-over")
     .forEach((n) => n.classList.remove("drag-over"));
-  // Never highlight the item being dragged.
-  if (groupHeader !== null) groupHeader.classList.add("drag-over");
-  else if (sessionItem !== null && !sessionItem.classList.contains("dragging"))
-    sessionItem.classList.add("drag-over");
+  if (target !== null && target.kind !== "list")
+    target.el.classList.add("drag-over");
+};
+
+const performDrop = (sourceId: string, x: number, y: number): void => {
+  const target = resolveDropTarget(x, y);
+  if (target === null) return;
+  if (target.kind === "group")
+    postGroupAction(`/sessions/${sourceId}/group`, { groupId: target.id });
+  else if (target.kind === "session")
+    postGroupAction(`/sessions/${sourceId}/group-with`, {
+      otherId: target.id,
+    });
+  else postGroupAction(`/sessions/${sourceId}/ungroup`, {});
+};
+
+document.addEventListener("pointerdown", (e) => {
+  if (activeDrag !== null) return;
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+  const handle = target.closest(".session-drag-handle");
+  if (handle === null) return;
+  const item = handle.closest(".session-item");
+  if (item === null) return;
+  const id = item.getAttribute("data-session-id");
+  if (id === null) return;
+  activeDrag = {
+    sourceId: id,
+    sourceEl: item as HTMLElement,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    ghost: null,
+  };
 });
 
-document.addEventListener("drop", (e) => {
-  if (dragSourceId === null) return;
-  e.preventDefault();
-  const draggedId = dragSourceId;
-  clearDragState();
-
-  const el = e.target instanceof Element ? e.target : null;
-  const groupHeader = el?.closest(".group-header") ?? null;
-  const sessionItem = el?.closest(".session-item") ?? null;
-
-  if (groupHeader !== null) {
-    const groupId = groupHeader.getAttribute("data-group-id");
-    if (groupId !== null)
-      postGroupAction(`/sessions/${draggedId}/group`, { groupId });
-  } else if (sessionItem !== null) {
-    const targetId = sessionItem.getAttribute("data-session-id");
-    if (targetId !== null && targetId !== draggedId)
-      postGroupAction(`/sessions/${draggedId}/group-with`, {
-        otherId: targetId,
-      });
-  } else if (el?.closest("#session-list") !== null)
-    postGroupAction(`/sessions/${draggedId}/ungroup`, {});
+document.addEventListener("pointermove", (e) => {
+  if (activeDrag === null || e.pointerId !== activeDrag.pointerId) return;
+  if (activeDrag.ghost === null) {
+    const dx = e.clientX - activeDrag.startX;
+    const dy = e.clientY - activeDrag.startY;
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+    activeDrag.sourceEl.classList.add("dragging");
+    const ghost = createGhost(activeDrag.sourceEl);
+    activeDrag.ghost = ghost;
+    document.body.append(ghost);
+  }
+  positionGhost(activeDrag.ghost, e.clientX, e.clientY);
+  highlightTarget(e.clientX, e.clientY);
 });
+
+const finishDrag = (e: PointerEvent): void => {
+  if (activeDrag === null || e.pointerId !== activeDrag.pointerId) return;
+  if (activeDrag.ghost !== null)
+    performDrop(activeDrag.sourceId, e.clientX, e.clientY);
+  cleanupDrag();
+};
+
+document.addEventListener("pointerup", finishDrag);
+document.addEventListener("pointercancel", cleanupDrag);
 
 // ---- collapse / expand ----
 

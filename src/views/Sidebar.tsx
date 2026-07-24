@@ -77,8 +77,21 @@ const SessionItem = ({
       class={`session-item${selected ? " selected" : ""}${inGroup ? " in-group" : ""}`}
       data-session-id={session.id}
       data-running={running ? "" : undefined}
-      draggable="true"
     >
+      <span
+        class="session-drag-handle"
+        title="Drag to group"
+        aria-label={`Drag ${displayName(session.name)} to group`}
+      >
+        {icon([
+          <circle cx="9" cy="6" r="1.2" />,
+          <circle cx="9" cy="12" r="1.2" />,
+          <circle cx="9" cy="18" r="1.2" />,
+          <circle cx="15" cy="6" r="1.2" />,
+          <circle cx="15" cy="12" r="1.2" />,
+          <circle cx="15" cy="18" r="1.2" />,
+        ])}
+      </span>
       <label class="session-check-wrap" title="Select for bulk actions">
         <input
           type="checkbox"
