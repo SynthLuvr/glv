@@ -4,6 +4,11 @@ import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
 import { resolveAuthDbPath } from "./auth/db.js";
+import {
+  runConfigGet,
+  runConfigList,
+  runConfigSet,
+} from "./commands/config.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
@@ -111,6 +116,26 @@ program
   .action((sessionId: string) => {
     useDb((db) => runView(db, sessionId));
   });
+
+const configCmd = program
+  .command("config")
+  .description("Read and set fields in ~/.config/glv/config.json")
+  .action(() => runConfigList());
+
+configCmd
+  .command("get <key>")
+  .description("Print the value of a config field")
+  .action((key: string) => runConfigGet(key));
+
+configCmd
+  .command("set <key> <value>")
+  .description("Set a config field to a value")
+  .action((key: string, value: string) => runConfigSet(key, value));
+
+configCmd
+  .command("list")
+  .description("List all config fields")
+  .action(() => runConfigList());
 
 const MaxConcurrent = type("string.numeric.parse").pipe(
   type("number.integer > 0"),

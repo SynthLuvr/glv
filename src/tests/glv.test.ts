@@ -3,7 +3,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 const GLV = resolve("bin/glv");
 
@@ -192,5 +200,52 @@ describe("glv serve argument validation", () => {
     const { stderr, status } = run("serve", "--goose-binary", "/no/such/goose");
     expect(status).toBe(1);
     expect(stderr).toContain("goose-binary");
+  });
+});
+
+describe("glv config", () => {
+  let cfgDir: string;
+
+  beforeEach(() => {
+    cfgDir = mkdtempSync(join(tmpdir(), "glv-cfg-cli-"));
+  });
+
+  afterEach(() => {
+    rmSync(cfgDir, { recursive: true, force: true });
+  });
+
+  const runConfig = (args: string[]): RunResult => {
+    const res = spawnSync(GLV, args, {
+      encoding: "utf-8",
+      env: { ...process.env, GLV_CONFIG: join(cfgDir, "config.json") },
+    });
+    return {
+      stdout: res.stdout ?? "",
+      stderr: res.stderr ?? "",
+      status: res.status,
+    };
+  };
+
+  it("bare command lists known keys with empty values", () => {
+    const { stdout } = runConfig(["config"]);
+    expect(stdout).toContain("forwardHost=");
+  });
+
+  it("lists known keys explicitly", () => {
+    const { stdout } = runConfig(["config", "list"]);
+    expect(stdout).toContain("forwardHost=");
+  });
+
+  it("sets a field then reads it back", () => {
+    const set = runConfig(["config", "set", "forwardHost", "203.0.113.9"]);
+    expect(set.status).toBe(0);
+    const { stdout } = runConfig(["config", "get", "forwardHost"]);
+    expect(stdout).toContain("203.0.113.9");
+  });
+
+  it("exits non-zero for an unknown key", () => {
+    const { stderr, status } = runConfig(["config", "get", "bogus"]);
+    expect(status).toBe(1);
+    expect(stderr).toContain("Unknown config key");
   });
 });
