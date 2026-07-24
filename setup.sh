@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Guided Live Velocity (glv) — Project Setup Helper
+# glv — Project Setup Helper
 #
 #   1. Verifies prerequisites (Node.js, pnpm)
 #   2. Installs Node dependencies

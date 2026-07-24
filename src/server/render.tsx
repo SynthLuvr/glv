@@ -120,7 +120,7 @@ const render = (
   {
     refreshSidebar = false,
     status = 200,
-    title = "Guided Live Velocity",
+    title = "GLV",
   }: {
     refreshSidebar?: boolean;
     status?: ContentfulStatusCode;
@@ -167,7 +167,7 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
     listSessions(ctx.db, VIEWER_FILTER),
     undefined,
     <NotFoundDetail id={id} />,
-    { status: 404, title: "Session not found — Guided Live Velocity" },
+    { status: 404, title: "Session not found — GLV" },
   );
 
 const newSessionDetail = (

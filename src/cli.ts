@@ -189,11 +189,7 @@ program
     resolveGooseBinary,
     "goose",
   )
-  .option(
-    "--rp-name <name>",
-    "WebAuthn relying party name",
-    "Guided Live Velocity",
-  )
+  .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
   .option(
     "--rp-id <domain>",
     "WebAuthn relying party ID (defaults to the request host)",

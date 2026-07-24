@@ -130,7 +130,7 @@ Options:
   `~/.local/share/glv/auth.db`, or `GLV_AUTH_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
-  passkey prompt (default `Guided Live Velocity`).
+  passkey prompt (default `GLV`).
 
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).
