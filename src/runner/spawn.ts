@@ -22,21 +22,6 @@ const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
   }
 };
 
-// Resolve with the awaited value, or undefined when `promise` doesn't settle
-// within `timeoutMs`. The timer is cleared the moment the promise resolves so
-// a long-lived `proc.exit` can't accumulate dangling timers.
-const withTimeout = <T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-): Promise<T | undefined> =>
-  new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(undefined), timeoutMs);
-    void promise.then((value) => {
-      clearTimeout(timer);
-      resolve(value);
-    });
-  });
-
 const describeFailure = (result: ProcessResult): string => {
   if (result.signal !== undefined)
     return `goose killed by signal ${result.signal}`;
@@ -87,27 +72,34 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
-// Poll proc.exit in grace-sized windows. A stop() issued mid-run is noticed
-// within one window; once stopped, each elapsed window escalates the kill
-// signal — SIGTERM, then uncatchable SIGKILL — so a process that traps SIGINT
-// can't park runProcess here forever, holding a runner slot and leaking its
-// detached process group.
+// A self-rearming interval polls handle.status in grace-sized windows so a
+// stop() issued mid-run is noticed within one window; once stopped, each
+// elapsed window escalates the kill signal — SIGTERM, then uncatchable
+// SIGKILL — so a process that traps SIGINT can't park runProcess here forever,
+// holding a runner slot and leaking its detached process group. proc.exit is
+// awaited once (not re-wrapped per window) so polling doesn't accumulate
+// dangling .then handlers on the same promise.
 const awaitExit = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
   graceMs: number,
 ): Promise<ProcessResult> => {
   let escalated = false;
-  for (;;) {
-    const result = await withTimeout(proc.exit, graceMs);
-    if (result !== undefined) return result;
-    if (handle.status !== "stopped") continue;
+  const poll = setInterval(() => {
+    if (handle.status !== "stopped") return;
     if (escalated) {
+      clearInterval(poll);
       proc.kill("SIGKILL");
-      return proc.exit;
+      return;
     }
     escalated = true;
     proc.kill("SIGTERM");
+  }, graceMs);
+
+  try {
+    return await proc.exit;
+  } finally {
+    clearInterval(poll);
   }
 };
 

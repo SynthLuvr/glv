@@ -14,6 +14,7 @@ import {
 import { type } from "arktype";
 import { type Context, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { errorMessage } from "../util.js";
 import {
   addCredential,
   type CredentialSummary,
@@ -75,9 +76,6 @@ type AuthService = {
   isValidSession: (token: string | undefined) => boolean;
   logout: (token: string | undefined) => void;
 };
-
-const errDetail = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
 
 // Stored transports are plain strings; validate each against the WebAuthn
 // transport union rather than asserting the whole array sight-unseen. Values
@@ -213,7 +211,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
         requireUserVerification: false,
       });
     } catch (err) {
-      return { verified: false, error: errDetail(err) };
+      return { verified: false, error: errorMessage(err) };
     }
     if (!verification.verified || verification.registrationInfo === undefined)
       return { verified: false, error: "Registration could not be verified." };
@@ -318,7 +316,7 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
         requireUserVerification: false,
       });
     } catch (err) {
-      return { verified: false, error: errDetail(err) };
+      return { verified: false, error: errorMessage(err) };
     }
     if (!verification.verified)
       return { verified: false, error: "Authentication failed." };

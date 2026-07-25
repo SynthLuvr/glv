@@ -6,6 +6,7 @@ import {
   resolveRequestUrl,
   setSessionCookie,
 } from "../../auth/service.js";
+import { errorMessage } from "../../util.js";
 import {
   DevicesPage,
   EnrollPage,
@@ -13,7 +14,6 @@ import {
   RegisterPage,
 } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
-import { errorMessage } from "../http.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
   const url = resolveRequestUrl(c);

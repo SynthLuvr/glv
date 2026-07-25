@@ -26,8 +26,9 @@ the browser.
 - **Run goose from a UI.** Instead of juggling terminals, start a new
   `goose run` from a form, queue follow-up prompts, and watch the output
   stream live — on one machine or many.
-- **Safe to use alongside goose.** It opens the goose session database
-  read-only, so it never interferes with a running goose session.
+- **Safe to use alongside goose.** Browsing is read-only, and the only
+  writes are viewer-side archive/rename metadata — never to the live
+  session data a running goose session is using.
 - **Private by design.** The viewer is protected by passkey
   authentication and runs entirely on your own machine.
 
@@ -66,8 +67,9 @@ web framework:
 
 - **Reads goose’s database directly.** Sessions are read from the goose
   SQLite database at `~/.local/share/goose/sessions/sessions.db`.
-  Browsing uses a read-only connection, so it is always safe while goose
-  is running.
+  Browsing is read-only; the only writes are viewer-managed archive and
+  rename metadata, which never touch the rows a running goose session
+  reads, so it is always safe while goose is running.
 - **Server-rendered with interactivity.** Pages are rendered server-side
   with `hono/jsx` and updated incrementally with
   [htmx](https://htmx.org) — there is no client-side SPA to build or
@@ -169,7 +171,7 @@ back in at any time with a quick passkey tap.
 
 - **Auth database** — passkey credentials and login sessions live in a
   separate SQLite database at `~/.local/share/glv/auth.db`, fully
-  independent of the read-only goose sessions database. Override with
+  independent of the goose sessions database. Override with
   `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once

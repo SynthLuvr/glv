@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
+import { tryParseJson } from "../parse.js";
 
 // Both tables must exist before the server starts: the sidebar queries them
 // and the mock goose inserts into them.
@@ -379,13 +380,8 @@ const authedFetch = (
 
 type SseEvent = { event: string; data: string; id: string | undefined };
 
-const parseSseData = (data: string): Record<string, unknown> => {
-  try {
-    return JSON.parse(data) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
+const parseSseData = (data: string): Record<string, unknown> =>
+  tryParseJson<Record<string, unknown>>(data) ?? {};
 
 // Parses one SSE line: field lines update `current` in place; an empty line
 // (frame boundary) returns the accumulated event if one is in progress.

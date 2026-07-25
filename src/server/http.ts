@@ -15,7 +15,4 @@ const serveAsset = (c: Context, body: string, contentType: string) =>
     "Cache-Control": "public, max-age=86400",
   });
 
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
-
-export { errorMessage, extractIds, isHtmxRequest, serveAsset };
+export { extractIds, isHtmxRequest, serveAsset };

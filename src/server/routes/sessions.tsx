@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { type Hono } from "hono";
+import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -8,6 +8,7 @@ import {
   listMessages,
   listSessions,
   renameSession,
+  type SessionRow,
 } from "../../db.js";
 import { displayName, parseMessage } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
@@ -54,6 +55,39 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   const NEW_SESSION_TITLE = "New Session — GLV";
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
+
+  // Renders a full <Transcript> (messages + run handle) inside the standard
+  // page shell.
+  const renderSession = (
+    c: Context,
+    id: string,
+    session: SessionRow,
+    {
+      prompt,
+      refreshSidebar = false,
+      includeRun = true,
+    }: {
+      prompt?: string;
+      refreshSidebar?: boolean;
+      includeRun?: boolean;
+    } = {},
+  ) => {
+    const messages = listMessages(ctx.db, id).map(parseMessage);
+    return render(
+      c,
+      ctx,
+      sessionsAll(),
+      id,
+      <Transcript
+        session={session}
+        messages={messages}
+        run={includeRun ? getHandle(ctx.runner, id) : undefined}
+        prompt={prompt}
+        prompts={libraryPrompts()}
+      />,
+      { refreshSidebar, title: sessionTitle(session.name) },
+    );
+  };
 
   app.get("/", (c) =>
     render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
@@ -134,49 +168,22 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (promptId !== "" && ctx.prompts !== undefined)
       bumpUsage(ctx.prompts, promptId);
 
-    return render(
-      c,
-      ctx,
-      listSessions(ctx.db, VIEWER_FILTER),
-      realId,
-      <Transcript
-        session={session}
-        messages={listMessages(ctx.db, realId).map(parseMessage)}
-        run={getHandle(ctx.runner, realId)}
-        prompt={prompt}
-        prompts={libraryPrompts()}
-      />,
-      { refreshSidebar: true, title: sessionTitle(session.name) },
-    );
+    return renderSession(c, realId, session, {
+      prompt,
+      refreshSidebar: true,
+    });
   });
 
   app.get("/sessions/:id", (c) => {
     const id = c.req.param("id");
-    const sessions = sessionsAll();
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
-    const messages = listMessages(ctx.db, id).map(parseMessage);
-    // Surfaced so a re-render after the stream reflects the run's outcome.
-    const run = getHandle(ctx.runner, id);
     // ?sidebar=1 (set by the stream's done handler) requests an out-of-band
     // sidebar refresh so a freshly renamed session no longer shows the stale
     // "CLI session" placeholder.
-    return render(
-      c,
-      ctx,
-      sessions,
-      id,
-      <Transcript
-        session={session}
-        messages={messages}
-        run={run}
-        prompts={libraryPrompts()}
-      />,
-      {
-        refreshSidebar: c.req.query("sidebar") === "1",
-        title: sessionTitle(session.name),
-      },
-    );
+    return renderSession(c, id, session, {
+      refreshSidebar: c.req.query("sidebar") === "1",
+    });
   });
 
   // Targeted prompt-bar fragment swap (status transition only). Lets the
@@ -222,23 +229,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           runningIds={activeSessionIds(ctx.runner)}
         />,
       );
-    if (!isHtmxRequest(c)) {
-      const messages = listMessages(ctx.db, id).map(parseMessage);
-      const run = getHandle(ctx.runner, id);
-      return render(
-        c,
-        ctx,
-        sessions,
-        id,
-        <Transcript
-          session={updated}
-          messages={messages}
-          run={run}
-          prompts={libraryPrompts()}
-        />,
-        { title: sessionTitle(updated.name) },
-      );
-    }
+    if (!isHtmxRequest(c)) return renderSession(c, id, updated);
     return c.html(
       <Fragment>
         <SessionTitleWrap session={updated} />
@@ -292,21 +283,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const run = getHandle(ctx.runner, id);
     activePrompt ??= activeRunPrompt(run);
 
-    const messages = listMessages(ctx.db, id).map(parseMessage);
-    return render(
-      c,
-      ctx,
-      listSessions(ctx.db, VIEWER_FILTER),
-      id,
-      <Transcript
-        session={session}
-        messages={messages}
-        run={run}
-        prompt={activePrompt}
-        prompts={libraryPrompts()}
-      />,
-      { title: sessionTitle(session.name) },
-    );
+    return renderSession(c, id, session, { prompt: activePrompt });
   });
 
   app.post("/sessions/:id/queue/cancel", (c) => {
@@ -316,21 +293,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     clearPending(ctx.runner, id);
     const run = getHandle(ctx.runner, id);
-    const messages = listMessages(ctx.db, id).map(parseMessage);
-    return render(
-      c,
-      ctx,
-      listSessions(ctx.db, VIEWER_FILTER),
-      id,
-      <Transcript
-        session={session}
-        messages={messages}
-        run={run}
-        prompt={activeRunPrompt(run)}
-        prompts={libraryPrompts()}
-      />,
-      { title: sessionTitle(session.name) },
-    );
+    return renderSession(c, id, session, { prompt: activeRunPrompt(run) });
   });
 
   app.post("/sessions/:id/stop", (c) => {
@@ -338,19 +301,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     stop(ctx.runner, id);
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
-    const messages = listMessages(ctx.db, id).map(parseMessage);
-    return render(
-      c,
-      ctx,
-      listSessions(ctx.db, VIEWER_FILTER),
-      id,
-      <Transcript
-        session={session}
-        messages={messages}
-        prompts={libraryPrompts()}
-      />,
-      { title: sessionTitle(session.name) },
-    );
+    return renderSession(c, id, session, { includeRun: false });
   });
 };
 
