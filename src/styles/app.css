@@ -85,6 +85,10 @@ html,
 body {
   height: 100%;
   margin: 0;
+  /* Stop touch overscroll from chaining to <body>: without this, scrolling an
+     inner pane to its limit bounces the whole layout (and the top bar with
+     it) on mobile. */
+  overscroll-behavior: none;
 }
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -97,7 +101,12 @@ body {
 
 /* ---------- layout ---------- */
 .app {
-  @apply flex h-screen overflow-hidden;
+  @apply flex overflow-hidden;
+  /* 100vh is the *large* viewport (ignores the mobile address bar / keyboard),
+     so a 100vh shell clips content and rubber-bands on scroll. 100dvh tracks
+     the real visible area; the 100vh line is a safe fallback. */
+  height: 100vh;
+  height: 100dvh;
 }
 .sidebar {
   width: 19rem;
@@ -106,6 +115,7 @@ body {
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
 }
@@ -619,6 +629,7 @@ body {
 /* ---------- detail pane ---------- */
 .detail {
   @apply flex-1 overflow-y-auto;
+  overscroll-behavior: contain;
 }
 .detail-inner {
   max-width: 50rem;
@@ -1197,6 +1208,13 @@ textarea.prompt-input,
   height: 1.05rem;
 }
 .scroll-latest[hidden] {
+  display: none;
+}
+
+/* The scroll-to-latest button is position:fixed on <body> and is a detail-pane
+   affordance. On mobile the detail pane is hidden while the sidebar pane is
+   active, so without this the button floats over the session list. */
+body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
   display: none;
 }
 
@@ -1780,6 +1798,7 @@ pre::-webkit-scrollbar-thumb {
 /* ---------- auth screens ---------- */
 .auth-main {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
