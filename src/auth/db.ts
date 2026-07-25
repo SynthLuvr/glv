@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { warn } from "../log.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
@@ -86,7 +87,8 @@ const parseTransports = (raw: string | null): string[] => {
     return Array.isArray(parsed)
       ? parsed.filter((t): t is string => typeof t === "string")
       : [];
-  } catch {
+  } catch (err) {
+    warn("auth", err);
     return [];
   }
 };

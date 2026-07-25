@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import { execa } from "execa";
+import { debug } from "../log.js";
 import type {
   GooseInvocation,
   InternalHandle,
@@ -17,8 +18,10 @@ const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
   if (pid <= 0) return;
   try {
     process.kill(-pid, signal);
-  } catch {
-    // Already exited.
+  } catch (err) {
+    // Usually the process already exited; surface at debug in case the
+    // failure is a permissions issue worth investigating.
+    debug("runner", err);
   }
 };
 
