@@ -199,15 +199,10 @@ program
     "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
   )
   .action((opts: ServeOpts) => {
-    // Archive/rename mutations use a separate writable connection. It opens
-    // first so an as-yet-uncreated sessions database exists before the
-    // read-only browsing connection opens it (read-only mode can't create a
-    // file, so this keeps `glv serve` working before goose has ever run).
+    // Writable opens first: read-only mode can't create the file, so serve
+    // works before goose has ever run.
     const dbWritable = openDb(getDbPath(), { readOnly: false });
-    // Wait out a concurrent goose write instead of throwing SQLITE_BUSY.
-    dbWritable.exec("PRAGMA busy_timeout=5000");
-    // Browsing opens the goose sessions database read-only so it can never
-    // write to a row a running goose session is using.
+    dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
     const db = openDb(getDbPath());
     runServe(db, dbWritable, {
       port: Number(opts.port),

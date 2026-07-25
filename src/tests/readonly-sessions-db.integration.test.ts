@@ -12,8 +12,8 @@ import {
 
 let env: IntegrationEnv;
 
-// Reads a column straight from the goose sessions DB the server browses, so a
-// mutation's persistence is checked against the real file, not server state.
+// Opens a fresh read-only connection each call so the mutation's effect is
+// read straight from the sessions file, not server-cached state.
 const col = (id: string, name: string): unknown => {
   const db = new DatabaseSync(env.dbs.sessionsDb, { readOnly: true });
   const row = db
@@ -52,8 +52,8 @@ afterAll(async () => {
 
 describe("read-only browsing connection", () => {
   it("opens the sessions database read-only yet still sees live goose writes", async () => {
-    // The server browses through a read-only connection, so an external writer
-    // (the real goose process appending a row) must still show up via WAL.
+    // A read-only browse connection must still see rows an external writer
+    // (goose) appends — SQLite WAL propagates them.
     insertSessions(env.dbs.sessionsDb, [
       {
         id: "ro-live",
@@ -71,9 +71,8 @@ describe("read-only browsing connection", () => {
   });
 
   it("routes archive/rename through the separate writable connection", async () => {
-    // A read-only browsing connection cannot mutate, so these only succeed via
-    // the dedicated writable connection. They must persist to the file and be
-    // reflected by the next read-only browse.
+    // These mutate, so they succeed only via the writable connection, then
+    // persist to the file and show up on the next read-only browse.
     const renameRes = await post("/sessions/ro-mutate/rename", {
       name: "Renamed Safe",
       from: "header",
@@ -86,7 +85,6 @@ describe("read-only browsing connection", () => {
     expect(archiveRes.status).toBe(200);
     expect(col("ro-mutate", "archived_at")).not.toBeNull();
 
-    // The archived (renamed) session is now excluded from browsing.
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);
       await expect(page.locator("#session-list")).not.toContainText(
