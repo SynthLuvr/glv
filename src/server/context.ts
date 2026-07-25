@@ -39,7 +39,10 @@ type ServerOptions = {
 // Everything a route handler needs, threaded in explicitly so route modules
 // stay free of shared mutable closure state.
 type ServerContext = {
+  // Browsing stays read-only so it never touches a row a live goose session
+  // is writing; archive/rename mutations go through `dbWritable`.
   readonly db: DatabaseSync;
+  readonly dbWritable: DatabaseSync;
   readonly runner: Runner;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;

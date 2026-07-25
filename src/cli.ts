@@ -199,8 +199,12 @@ program
     "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
   )
   .action((opts: ServeOpts) => {
-    const db = openDb(getDbPath(), { readOnly: false });
-    runServe(db, {
+    // Writable opens first: read-only mode can't create the file, so serve
+    // works before goose has ever run.
+    const dbWritable = openDb(getDbPath(), { readOnly: false });
+    dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
+    const db = openDb(getDbPath());
+    runServe(db, dbWritable, {
       port: Number(opts.port),
       runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
       authDbPath: getAuthDbPath(),

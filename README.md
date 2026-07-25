@@ -67,9 +67,10 @@ web framework:
 
 - **Reads goose’s database directly.** Sessions are read from the goose
   SQLite database at `~/.local/share/goose/sessions/sessions.db`.
-  Browsing is read-only; the only writes are viewer-managed archive and
-  rename metadata, which never touch the rows a running goose session
-  reads, so it is always safe while goose is running.
+  Browsing opens the database **read-only** — the only writes are
+  viewer-managed archive and rename metadata, routed through a separate
+  writable connection, and they never touch the rows a running goose
+  session reads, so it is always safe while goose is running.
 - **Server-rendered with interactivity.** Pages are rendered server-side
   with `hono/jsx` and updated incrementally with
   [htmx](https://htmx.org) — there is no client-side SPA to build or

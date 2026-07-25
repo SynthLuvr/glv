@@ -205,7 +205,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
-    archiveSessions(ctx.db, [id]);
+    archiveSessions(ctx.dbWritable, [id]);
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,
       title: NEW_SESSION_TITLE,
@@ -217,7 +217,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const body = await c.req.parseBody();
     const name = typeof body.name === "string" ? body.name : "";
     const from = body.from === "sidebar" ? "sidebar" : "header";
-    renameSession(ctx.db, id, name);
+    renameSession(ctx.dbWritable, id, name);
     const updated = getSession(ctx.db, id);
     if (updated === undefined) return renderNotFound(c, ctx, id);
     const sessions = sessionsAll();
@@ -245,7 +245,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/archive", async (c) => {
     const body = await c.req.parseBody({ all: true });
-    archiveSessions(ctx.db, extractIds(body.id));
+    archiveSessions(ctx.dbWritable, extractIds(body.id));
     const sessions = sessionsAll();
     return c.html(
       <SessionList
