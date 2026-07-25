@@ -11,11 +11,8 @@ const CSS_INPUT = join(SRC_DIR, "styles", "app.css");
 const CSS_OUTPUT = join(OUTPUT_DIR, "app.css");
 const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
 
-// Every client entry is bundled into a self-contained classic <script> in a
-// single pass. Bundling (rather than transpiling each entry in isolation and
-// special-casing the two that import shared modules) means any entry can now
-// depend on a shared module such as src/scripts/shared.ts — esbuild inlines
-// and tree-shakes it per entry, so no script needs bespoke build config.
+// Bundle every client entry into a self-contained IIFE in one pass, so any
+// script may import shared modules (e.g. ./shared) without bespoke config.
 const CLIENT_ENTRIES = [
   "sidebar",
   "stream",
