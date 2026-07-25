@@ -152,20 +152,22 @@ describe("events stream — database tail", () => {
   });
 
   it("emits a rename when the session name changes", async () => {
-    const stream = collectSse(
+    const renameTo = (name: string): void => {
+      const db = new DatabaseSync(env.dbs.sessionsDb);
+      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, "db-1");
+      db.close();
+    };
+    // The rename must land after the stream snapshots its baseline name, or
+    // the new name is the baseline and no rename delta is ever emitted.
+    const events = await collectSse(
       env,
       "/sessions/db-1/events",
       (evs) => evs.some((e) => e.event === "rename"),
       12000,
+      (e) => {
+        if (e.event === "status") renameTo("Renamed Tail");
+      },
     );
-    await delay(500);
-    const db = new DatabaseSync(env.dbs.sessionsDb);
-    db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(
-      "Renamed Tail",
-      "db-1",
-    );
-    db.close();
-    const events = await stream;
     const rename = events.find((e) => e.event === "rename");
     expect(parseSseData(rename?.data ?? "").name).toBe("Renamed Tail");
   });

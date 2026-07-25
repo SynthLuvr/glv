@@ -409,6 +409,7 @@ const readSseStream = async (
   reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
   until: (events: SseEvent[]) => boolean,
   events: SseEvent[],
+  onEvent?: (event: SseEvent) => void,
 ): Promise<void> => {
   const decoder = new TextDecoder();
   let buf = "";
@@ -425,7 +426,10 @@ const readSseStream = async (
       const event = parseSseLine(line, current);
       if (line === "") {
         current = {};
-        if (event !== undefined) events.push(event);
+        if (event !== undefined) {
+          events.push(event);
+          onEvent?.(event);
+        }
         if (until(events)) return;
       }
     }
@@ -439,6 +443,7 @@ const collectSse = async (
   path: string,
   until: (events: SseEvent[]) => boolean,
   timeoutMs = 10000,
+  onEvent?: (event: SseEvent) => void,
 ): Promise<SseEvent[]> =>
   new Promise((resolve, reject) => {
     const events: SseEvent[] = [];
@@ -465,7 +470,7 @@ const collectSse = async (
       .then(async (res) => {
         if (res.body === null) throw new Error("no response body");
         reader = res.body.getReader();
-        await readSseStream(reader, until, events);
+        await readSseStream(reader, until, events, onEvent);
         finish();
       })
       .catch((err) => {
