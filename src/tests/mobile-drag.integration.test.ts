@@ -156,3 +156,52 @@ describe("pointer drag to group", () => {
     });
   }, 30000);
 });
+
+describe("drag ghost tracks the cursor", () => {
+  it("keeps the pointer inside the ghost instead of floating above it", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      const handle = page.locator(
+        '.session-item[data-session-id="md-a"] .session-drag-handle',
+      );
+      await expect(handle).toBeVisible();
+      const box = await handle.boundingBox();
+      if (box === null) throw new Error("drag handle not found");
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+
+      // Cross the threshold so the ghost is born at the grab point.
+      const cur1 = { x: startX + 25, y: startY + 12 };
+      await page.mouse.move(cur1.x, cur1.y, { steps: 6 });
+
+      const ghost = page.locator(".session-item.drag-ghost");
+      await expect(ghost).toBeVisible();
+      const ghostBox1 = await ghost.boundingBox();
+      if (ghostBox1 === null) throw new Error("drag ghost not found");
+      // The cursor must sit *inside* the ghost at the grab point. The bug
+      // floated the ghost up ~130% of its height, leaving the cursor below it.
+      expect(cur1.x).toBeGreaterThanOrEqual(ghostBox1.x);
+      expect(cur1.x).toBeLessThanOrEqual(ghostBox1.x + ghostBox1.width);
+      expect(cur1.y).toBeGreaterThanOrEqual(ghostBox1.y);
+      expect(cur1.y).toBeLessThanOrEqual(ghostBox1.y + ghostBox1.height);
+
+      // The ghost follows the cursor and the cursor stays inside as it moves.
+      const cur2 = { x: startX + 90, y: startY + 55 };
+      await page.mouse.move(cur2.x, cur2.y, { steps: 6 });
+      const ghostBox2 = await ghost.boundingBox();
+      if (ghostBox2 === null) throw new Error("drag ghost not found");
+      expect(cur2.x).toBeGreaterThanOrEqual(ghostBox2.x);
+      expect(cur2.x).toBeLessThanOrEqual(ghostBox2.x + ghostBox2.width);
+      expect(cur2.y).toBeGreaterThanOrEqual(ghostBox2.y);
+      expect(cur2.y).toBeLessThanOrEqual(ghostBox2.y + ghostBox2.height);
+
+      // Release over the detail pane (outside #session-list) so no grouping
+      // side effect leaks into the shared DB for later tests.
+      await page.mouse.move(1000, 100, { steps: 6 });
+      await page.mouse.up();
+    });
+  }, 30000);
+});
