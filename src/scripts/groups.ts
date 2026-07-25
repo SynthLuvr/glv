@@ -47,12 +47,8 @@ type ActiveDrag = {
 
 let activeDrag: ActiveDrag | null = null;
 
-// A handle gesture (even a tap that never crosses the drag threshold) is
-// followed by a synthesized `click`. The stretched-link overlay
-// (.session-link::before) covers the whole card, so that click lands on the
-// session link and navigates to the detail pane — wrong for a drag affordance.
-// Suppress it: set on handle pointerdown, cleared by the click it spawns or by
-// the next (unrelated) pointerdown.
+// A handle gesture synthesizes a `click` that lands on the stretched session
+// link and would navigate to the detail pane — suppress it.
 let suppressClick = false;
 
 const cleanupDrag = (): void => {
@@ -129,8 +125,7 @@ const performDrop = (sourceId: string, x: number, y: number): void => {
 };
 
 document.addEventListener("pointerdown", (e) => {
-  // A new gesture ends any previous one; clear a stale flag first so a later,
-  // unrelated click is never swallowed.
+  // Clear any flag left by a prior gesture that never synthesized a click.
   suppressClick = false;
   if (activeDrag !== null) return;
   const target = e.target;
@@ -141,7 +136,6 @@ document.addEventListener("pointerdown", (e) => {
   if (item === null) return;
   const id = item.getAttribute("data-session-id");
   if (id === null) return;
-  // The click synthesized when this gesture ends must not navigate.
   suppressClick = true;
   activeDrag = {
     sourceId: id,
@@ -178,8 +172,7 @@ const finishDrag = (e: PointerEvent): void => {
 document.addEventListener("pointerup", finishDrag);
 document.addEventListener("pointercancel", cleanupDrag);
 
-// Capture phase runs before htmx's element-level (bubble) click listener, so
-// stopping propagation here keeps the click from reaching the session link.
+// Capture phase beats htmx's bubble-phase listener, so the click dies here.
 document.addEventListener(
   "click",
   (e) => {
