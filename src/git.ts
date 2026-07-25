@@ -124,5 +124,23 @@ const readWorktreeByBranch = (
 ): Promise<GitInfo> =>
   resolveWorktreeByBranch(cwd, run, branch).catch(() => ({}));
 
+// Never throws. Non-repos are skipped silently so plain directories stay
+// quiet; any pull failure is warned but never blocks session creation.
+// `--no-edit` avoids hanging on a merge commit editor prompt.
+const pullRepo = async (
+  cwd: string,
+  run: GitRunner = runGit,
+): Promise<void> => {
+  const info = await readGitInfo(cwd, run);
+  if (info.worktree === undefined) return;
+  try {
+    const result = await run(["pull", "--no-edit"], cwd);
+    if (result.exitCode !== 0)
+      console.warn(`git pull failed in ${cwd} (exit ${result.exitCode})`);
+  } catch (err) {
+    console.warn(`git pull failed in ${cwd}: ${String(err)}`);
+  }
+};
+
 export type { GitRunner };
-export { readGitInfo, readWorktreeByBranch };
+export { pullRepo, readGitInfo, readWorktreeByBranch };

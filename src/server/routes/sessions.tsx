@@ -10,6 +10,7 @@ import {
   renameSession,
 } from "../../db.js";
 import { displayName, parseMessage } from "../../format/index.js";
+import { pullRepo } from "../../git.js";
 import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
@@ -102,6 +103,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       ctx.createLocks,
       workingDir,
       async (): Promise<EstablishOutcome> => {
+        // Inside the per-directory lock so concurrent starts can't race the pull.
+        await pullRepo(workingDir, ctx.runGit);
         const { tempKey, known } = prepareNewSession(ctx, workingDir, prompt);
 
         const realId = await pollForSessionId(
