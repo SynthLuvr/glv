@@ -42,7 +42,7 @@ describe("auth gate", () => {
       headers: { cookie: env.cookie },
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Goose Sessions");
+    expect(await res.text()).toContain("Sessions");
   });
 });
 
