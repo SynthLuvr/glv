@@ -10,13 +10,21 @@ const OUTPUT_DIR = join(PROJECT_ROOT, "dist");
 const CSS_INPUT = join(SRC_DIR, "styles", "app.css");
 const CSS_OUTPUT = join(OUTPUT_DIR, "app.css");
 const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
-const SCRIPT_ENTRIES = [
-  join(SRC_DIR, "scripts", "sidebar.ts"),
-  join(SRC_DIR, "scripts", "stream.ts"),
-  join(SRC_DIR, "scripts", "rename.ts"),
-  join(SRC_DIR, "scripts", "ui.ts"),
-  join(SRC_DIR, "scripts", "groups.ts"),
-];
+
+// Every client entry is bundled into a self-contained classic <script> in a
+// single pass. Bundling (rather than transpiling each entry in isolation and
+// special-casing the two that import shared modules) means any entry can now
+// depend on a shared module such as src/scripts/shared.ts — esbuild inlines
+// and tree-shakes it per entry, so no script needs bespoke build config.
+const CLIENT_ENTRIES = [
+  "sidebar",
+  "stream",
+  "rename",
+  "ui",
+  "groups",
+  "prompts",
+  "passkey",
+].map((name) => join(SRC_DIR, "scripts", `${name}.ts`));
 
 const ensureDistDir = (): void => {
   mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -32,32 +40,11 @@ const buildStyles = (): void => {
 const buildScripts = (): void => {
   ensureDistDir();
   buildSync({
-    entryPoints: SCRIPT_ENTRIES,
+    entryPoints: CLIENT_ENTRIES,
+    bundle: true,
+    format: "iife",
+    minify: true,
     outdir: OUTPUT_DIR,
-    minify: true,
-    target: ["es2020"],
-  });
-  // Bundled separately: prompts.ts imports the shared template helpers, so it
-  // needs import resolution inlined into a self-contained classic <script>.
-  // Only this entry is bundled — the scripts above keep their top-level
-  // declarations so tests referencing them by name still pass.
-  buildSync({
-    entryPoints: [join(SRC_DIR, "scripts", "prompts.ts")],
-    outfile: join(OUTPUT_DIR, "prompts.js"),
-    bundle: true,
-    minify: true,
-    format: "iife",
-    target: ["es2020"],
-  });
-  // Bundled separately: passkey.ts imports @simplewebauthn/browser, which must
-  // be inlined into a self-contained IIFE (the package's exports map blocks
-  // direct subpath access to its prebuilt UMD bundle).
-  buildSync({
-    entryPoints: [join(SRC_DIR, "scripts", "passkey.ts")],
-    outfile: join(OUTPUT_DIR, "passkey.js"),
-    bundle: true,
-    minify: true,
-    format: "iife",
     platform: "browser",
     target: ["es2020"],
   });

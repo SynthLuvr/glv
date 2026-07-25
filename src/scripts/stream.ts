@@ -1,3 +1,5 @@
+import { parseJson } from "./shared.js";
+
 declare const htmx: {
   ajax: (
     verb: string,
@@ -138,15 +140,6 @@ const removeEmptyState = (): void => {
 
 type MessageEntry = { index: number; html: string };
 
-// Parse JSON without throwing; malformed server payloads are silently skipped.
-const safeJson = <T>(raw: string): T | undefined => {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-};
-
 // Append a message, skipping if its index is already present (idempotent on
 // reconnect — the cursor-based catch-up may re-send rows the client has).
 const appendMessage = (
@@ -178,7 +171,7 @@ const isMessageEntry = (value: unknown): value is MessageEntry =>
 
 const applyReplace = (messages: Element | null, data: string): void => {
   if (messages === null) return;
-  const parsed = safeJson<unknown>(data);
+  const parsed = parseJson<unknown>(data);
   if (!isMessageEntry(parsed) || parsed.html === "") return;
   const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
   if (existing !== null) existing.outerHTML = parsed.html;
@@ -189,7 +182,7 @@ const applyReplace = (messages: Element | null, data: string): void => {
 };
 
 const applyRename = (data: string): void => {
-  const parsed = safeJson<{ name?: unknown }>(data);
+  const parsed = parseJson<{ name?: unknown }>(data);
   if (parsed === undefined || typeof parsed.name !== "string") return;
   const title = document.querySelector("#detail-pane .session-title");
   if (title !== null)
@@ -282,7 +275,7 @@ const restoreBarDraft = (): void => {
 };
 
 const handleStatus = (sessionId: string, raw: string): void => {
-  const data = safeJson<StreamStatus>(raw);
+  const data = parseJson<StreamStatus>(raw);
   if (data === undefined) return;
   // Session deleted mid-connection: close so EventSource stops retrying.
   if (data.status === "deleted") {
@@ -309,13 +302,13 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("messages", (e) => {
     if (!(e instanceof MessageEvent) || messages === null) return;
-    const data = safeJson<{ entries: MessageEntry[] }>(e.data);
+    const data = parseJson<{ entries: MessageEntry[] }>(e.data);
     if (data !== undefined) reconcileMessages(messages, data.entries);
   });
 
   activeSource.addEventListener("append", (e) => {
     if (!(e instanceof MessageEvent) || messages === null) return;
-    const entry = safeJson<MessageEntry>(e.data);
+    const entry = parseJson<MessageEntry>(e.data);
     if (entry === undefined) return;
     appendMessage(messages, entry.index, entry.html);
     if (nearBottom()) scrollToBottom();
@@ -367,7 +360,7 @@ const connect = (root: Element): void => {
 
   activeSource.addEventListener("meta", (e) => {
     if (!(e instanceof MessageEvent)) return;
-    const data = safeJson<MetaUpdate>(e.data);
+    const data = parseJson<MetaUpdate>(e.data);
     if (data !== undefined) updateMeta(data);
   });
 };
