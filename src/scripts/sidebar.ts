@@ -284,6 +284,10 @@ const connectStatusFeed = (): void => {
     if (!(e instanceof MessageEvent)) return;
     onRenameEvent(e.data);
   });
+  // Hot reload: the server rebuilt frontend assets; refresh the page.
+  statusSource.addEventListener("reload", () => {
+    location.reload();
+  });
   // The poll loop emits "done" when it exhausts; close the EventSource and
   // reconnect with backoff instead of spinning into a reconnect storm.
   statusSource.addEventListener("done", () => {

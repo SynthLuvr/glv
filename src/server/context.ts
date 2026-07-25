@@ -6,6 +6,11 @@ import type { CommandRunner } from "../pr-state.js";
 import type { Runner } from "../runner/index.js";
 import type { AssetBundle } from "./bundle.js";
 
+// Mutable counter bumped after each frontend asset rebuild so SSE clients
+// know to reload the page. Lives on the context (shared mutable state)
+// rather than a module-level variable so tests stay isolated.
+type ReloadSignal = { version: number };
+
 const VIEWER_FILTER: SessionFilter = {
   type: "user",
   limit: 100,
@@ -55,8 +60,10 @@ type ServerContext = {
   readonly runPrState: CommandRunner | undefined;
   readonly runGit: GitRunner | undefined;
   readonly createLocks: Map<string, Promise<void>>;
-  readonly assets: AssetBundle;
+  // Mutable so hot-reload can swap in a freshly built bundle.
+  assets: AssetBundle;
+  reloadSignal: ReloadSignal;
 };
 
-export type { ServerContext, ServerOptions };
+export type { ReloadSignal, ServerContext, ServerOptions };
 export { SESSION_TIMEOUT_ERROR, VIEWER_FILTER };

@@ -1,5 +1,8 @@
+import { type FSWatcher, watch } from "node:fs";
 import type { Socket } from "node:net";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
@@ -20,6 +23,51 @@ type ServeOpts = {
   rpName: string;
   rpIdOverride?: string;
   forwardHost?: string;
+  hot?: boolean;
+};
+
+const HOT_RELOAD_DEBOUNCE_MS = 300;
+
+// Watches frontend source directories (scripts, styles, views) and triggers
+// a debounced rebuild + asset reload. Returns a cleanup function that aborts
+// every watcher so shutdown can stop them deterministically.
+const startHotReloadWatcher = (reload: () => void): (() => void) => {
+  const srcDir = fileURLToPath(new URL("../", import.meta.url));
+  const watchDirs = [
+    join(srcDir, "scripts"),
+    join(srcDir, "styles"),
+    join(srcDir, "views"),
+  ];
+
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  const watchers: FSWatcher[] = [];
+
+  const onFileChange = (): void => {
+    if (debounce !== undefined) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      debounce = undefined;
+      try {
+        buildScripts();
+        buildStyles();
+        reload();
+        console.log("glv hot reload → assets rebuilt");
+      } catch (err) {
+        console.error("glv hot reload → build failed:", err);
+      }
+    }, HOT_RELOAD_DEBOUNCE_MS);
+  };
+
+  for (const dir of watchDirs)
+    try {
+      watchers.push(watch(dir, { recursive: true }, onFileChange));
+    } catch {
+      // Directory may not exist in stripped installs; skip silently.
+    }
+
+  return () => {
+    for (const w of watchers) w.close();
+    if (debounce !== undefined) clearTimeout(debounce);
+  };
 };
 
 // close() stops accepting connections; in-flight requests drain asynchronously.
@@ -55,6 +103,7 @@ type ShutdownDeps = {
   destroyConnections: () => void;
   stopProcesses: () => void;
   stopTunnel: () => void;
+  stopWatcher: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
 };
@@ -75,6 +124,7 @@ const createShutdown = (
     await closeServer(deps.server);
     deps.stopProcesses();
     deps.stopTunnel();
+    deps.stopWatcher();
     deps.closeDbs();
     deps.exit(exitCode);
   };
@@ -112,7 +162,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
   const auth = makeAuthService(authDb);
-  const app = createApp(db, runner, {
+  const { app, reload } = createApp(db, runner, {
     auth,
     prompts: promptsDb,
     groups: groupsDb,
@@ -127,6 +177,13 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
       tunnel = startForwardTunnel(info.port, opts.forwardHost);
   });
   const destroyConnections = trackConnections(server);
+
+  const stopWatcher =
+    opts.hot === true
+      ? startHotReloadWatcher(reload)
+      : (): void => {
+          /* hot reload disabled */
+        };
 
   const closeDbs = (): void => {
     db.close();
@@ -148,6 +205,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
     destroyConnections,
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
+    stopWatcher,
     closeDbs,
     exit: (code?: number) => process.exit(code),
   });

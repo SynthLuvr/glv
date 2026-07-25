@@ -272,9 +272,10 @@ const startServer = (
   dbs: Databases,
   port: number,
   extraEnv: Record<string, string> = {},
+  extraArgs: string[] = [],
 ): { proc: ChildProcess; readStderr: () => string } => {
   let stderr = "";
-  const proc = spawn(GLV, serveArgs(dbs, port), {
+  const proc = spawn(GLV, [...serveArgs(dbs, port), ...extraArgs], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, ...extraEnv },
@@ -297,6 +298,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
 const startIntegrationEnv = async (
   prefix: string,
   mock: MockConfig = {},
+  extraServeArgs: string[] = [],
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
@@ -305,10 +307,15 @@ const startIntegrationEnv = async (
 
   const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(dbs, port, {
-    GOOSE_SESSIONS_DB: dbs.sessionsDb,
-    ...mockEnv(mock),
-  });
+  const { proc, readStderr } = startServer(
+    dbs,
+    port,
+    {
+      GOOSE_SESSIONS_DB: dbs.sessionsDb,
+      ...mockEnv(mock),
+    },
+    extraServeArgs,
+  );
 
   await waitForHttp(baseUrl);
 

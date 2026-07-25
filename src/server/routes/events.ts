@@ -42,10 +42,18 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
         return;
       if (!(await emitNames(lastNames))) return;
 
+      let lastReloadVersion = ctx.reloadSignal.version;
+
       while (!stream.aborted && polls < ctx.maxStatusPolls) {
         polls++;
         await stream.sleep(ctx.statusPollMs);
         if (stream.aborted) return;
+
+        // Hot-reload: tell the browser to refresh when assets are rebuilt.
+        if (ctx.reloadSignal.version !== lastReloadVersion) {
+          lastReloadVersion = ctx.reloadSignal.version;
+          if (!(await emit(stream, "reload", ""))) return;
+        }
 
         const now = activeStatuses(ctx.runner);
         for (const [id, status] of statusDeltas(last, now))

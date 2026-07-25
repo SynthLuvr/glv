@@ -35,6 +35,7 @@ type ServeOpts = {
   rpName: string;
   rpId?: string;
   forward?: boolean;
+  hot?: boolean;
 };
 
 const program = new Command();
@@ -198,6 +199,7 @@ program
     "--forward",
     "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
   )
+  .option("--hot", "rebuild frontend assets on file change and live-reload")
   .action((opts: ServeOpts) => {
     const db = openDb(getDbPath(), { readOnly: false });
     runServe(db, {
@@ -209,6 +211,7 @@ program
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
       forwardHost: resolveForwardHost(opts.forward),
+      hot: opts.hot,
     });
   });
 

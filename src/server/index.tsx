@@ -20,7 +20,7 @@ const createApp = (
   db: DatabaseSync,
   runner: Runner,
   opts: ServerOptions = {},
-): Hono => {
+): { app: Hono; reload: () => void } => {
   const ctx: ServerContext = {
     db,
     runner,
@@ -39,6 +39,7 @@ const createApp = (
     runGit: opts.runGit,
     createLocks: new Map(),
     assets: buildAssetBundle(),
+    reloadSignal: { version: 0 },
   };
 
   const app = new Hono();
@@ -57,7 +58,14 @@ const createApp = (
   registerStreamRoutes(app, ctx);
   registerEventsRoutes(app, ctx);
 
-  return app;
+  // Re-reads dist/ into a fresh asset bundle and bumps the reload signal so
+  // connected SSE clients know to refresh the page.
+  const reload = (): void => {
+    ctx.assets = buildAssetBundle();
+    ctx.reloadSignal.version++;
+  };
+
+  return { app, reload };
 };
 
 export { createApp, expandHome };
