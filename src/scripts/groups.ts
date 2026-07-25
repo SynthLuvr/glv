@@ -207,22 +207,6 @@ const applyCollapsedState = (): void => {
   });
 };
 
-// ---- group menu ----
-
-const closeMenu = (details: HTMLDetailsElement): void => {
-  details.open = false;
-  const slot = details.querySelector(".session-group-menu-slot");
-  if (slot !== null) slot.innerHTML = "";
-};
-
-const closeMenusOutside = (click: Element): void => {
-  document
-    .querySelectorAll<HTMLDetailsElement>("details.session-group-menu[open]")
-    .forEach((d) => {
-      if (!d.contains(click)) closeMenu(d);
-    });
-};
-
 const toggleCollapsed = (group: Element, groupId: string): void => {
   const collapse = !collapsedGroups.has(groupId);
   if (collapse) collapsedGroups.add(groupId);
@@ -238,8 +222,6 @@ const toggleCollapsed = (group: Element, groupId: string): void => {
 // grouping triggers, mirroring sidebar.ts.
 document.addEventListener("click", (e) => {
   const el = e.target instanceof Element ? e.target : null;
-  if (el !== null) closeMenusOutside(el);
-
   const toggleBtn = el?.closest("[data-action='toggle-group']");
   if (toggleBtn instanceof HTMLElement) {
     e.preventDefault();
@@ -249,14 +231,6 @@ document.addEventListener("click", (e) => {
     const groupId = group.getAttribute("data-group-id");
     if (groupId === null) return;
     toggleCollapsed(group, groupId);
-    return;
-  }
-
-  const cancelBtn = el?.closest("[data-action='cancel-group-menu']");
-  if (cancelBtn instanceof HTMLElement) {
-    e.preventDefault();
-    const details = cancelBtn.closest("details.session-group-menu");
-    if (details instanceof HTMLDetailsElement) closeMenu(details);
   }
 });
 

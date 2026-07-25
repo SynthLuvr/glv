@@ -62,12 +62,6 @@ describe("session groups", () => {
     });
   });
 
-  it("renders a group picker for a session", async () => {
-    const res = await authedFetch(env, "/sessions/g-a/group-picker");
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("group-picker-form");
-  });
-
   it("renames a group", async () => {
     const id = firstGroupId();
     expect(id).toBeDefined();
