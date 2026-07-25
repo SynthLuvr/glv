@@ -1,3 +1,4 @@
+import { debug } from "./log.js";
 import { execGit } from "./shell.js";
 
 type GitResult = { stdout: string; exitCode: number };
@@ -115,14 +116,20 @@ const resolveWorktreeByBranch = async (
 
 // Never throws — a missing git binary degrades to an empty GitInfo.
 const readGitInfo = (cwd: string, run: GitRunner = runGit): Promise<GitInfo> =>
-  resolveGitInfo(cwd, run).catch(() => ({}));
+  resolveGitInfo(cwd, run).catch((err) => {
+    debug("git", err);
+    return {};
+  });
 
 const readWorktreeByBranch = (
   cwd: string,
   run: GitRunner = runGit,
   branch: string,
 ): Promise<GitInfo> =>
-  resolveWorktreeByBranch(cwd, run, branch).catch(() => ({}));
+  resolveWorktreeByBranch(cwd, run, branch).catch((err) => {
+    debug("git", err);
+    return {};
+  });
 
 // Never throws. Non-repos are skipped silently so plain directories stay
 // quiet; any pull failure is warned but never blocks session creation.

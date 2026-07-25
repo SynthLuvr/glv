@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { debug } from "./log.js";
 import { tryParseJson } from "./parse.js";
 import { PR_URL } from "./pr.js";
 import { execGh } from "./shell.js";
@@ -54,7 +55,8 @@ const runPrView = async (
   if (!isPrUrl(url)) return "";
   try {
     return (await run(["pr", "view", url, "--json", field])).stdout;
-  } catch {
+  } catch (err) {
+    debug("pr-state", err);
     return "";
   }
 };
