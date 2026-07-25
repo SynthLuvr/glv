@@ -47,6 +47,14 @@ type ActiveDrag = {
 
 let activeDrag: ActiveDrag | null = null;
 
+// A handle gesture (even a tap that never crosses the drag threshold) is
+// followed by a synthesized `click`. The stretched-link overlay
+// (.session-link::before) covers the whole card, so that click lands on the
+// session link and navigates to the detail pane — wrong for a drag affordance.
+// Suppress it: set on handle pointerdown, cleared by the click it spawns or by
+// the next (unrelated) pointerdown.
+let suppressClick = false;
+
 const cleanupDrag = (): void => {
   if (activeDrag === null) return;
   activeDrag.ghost?.remove();
@@ -121,6 +129,9 @@ const performDrop = (sourceId: string, x: number, y: number): void => {
 };
 
 document.addEventListener("pointerdown", (e) => {
+  // A new gesture ends any previous one; clear a stale flag first so a later,
+  // unrelated click is never swallowed.
+  suppressClick = false;
   if (activeDrag !== null) return;
   const target = e.target;
   if (!(target instanceof Element)) return;
@@ -130,6 +141,8 @@ document.addEventListener("pointerdown", (e) => {
   if (item === null) return;
   const id = item.getAttribute("data-session-id");
   if (id === null) return;
+  // The click synthesized when this gesture ends must not navigate.
+  suppressClick = true;
   activeDrag = {
     sourceId: id,
     sourceEl: item as HTMLElement,
@@ -164,6 +177,19 @@ const finishDrag = (e: PointerEvent): void => {
 
 document.addEventListener("pointerup", finishDrag);
 document.addEventListener("pointercancel", cleanupDrag);
+
+// Capture phase runs before htmx's element-level (bubble) click listener, so
+// stopping propagation here keeps the click from reaching the session link.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  },
+  true,
+);
 
 // ---- collapse / expand ----
 

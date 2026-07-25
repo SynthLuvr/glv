@@ -42,6 +42,7 @@ const SessionList = ({
       class="sidebar-meta-loader"
       hx-get="/sessions/sidebar-meta"
       hx-trigger="load"
+      hx-target="#session-list"
       hx-swap="none"
       hx-push-url="false"
       aria-hidden="true"
