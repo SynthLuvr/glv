@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type IntegrationEnv,
@@ -36,6 +36,18 @@ const handleCenter = async (
   const box = await handle.boundingBox();
   if (box === null) throw new Error("drag handle not found");
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+};
+
+const expectCursorInsideGhost = async (
+  cursor: { x: number; y: number },
+  ghost: Locator,
+): Promise<void> => {
+  const box = await ghost.boundingBox();
+  if (box === null) throw new Error("drag ghost not found");
+  expect(cursor.x).toBeGreaterThanOrEqual(box.x);
+  expect(cursor.x).toBeLessThanOrEqual(box.x + box.width);
+  expect(cursor.y).toBeGreaterThanOrEqual(box.y);
+  expect(cursor.y).toBeLessThanOrEqual(box.y + box.height);
 };
 
 // page.mouse fires the same pointer events a touch would, so a desktop run
@@ -153,6 +165,34 @@ describe("pointer drag to group", () => {
       await expect(
         page.locator(".session-group .group-members .session-item"),
       ).toHaveCount(3);
+    });
+  }, 30000);
+});
+
+describe("drag ghost tracks the cursor", () => {
+  it("keeps the pointer inside the ghost instead of floating above it", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      const { x, y } = await handleCenter(page, "md-a");
+
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+
+      // Cross the drag threshold so the ghost appears at the grab point.
+      const cursor1 = { x: x + 25, y: y + 12 };
+      await page.mouse.move(cursor1.x, cursor1.y, { steps: 6 });
+
+      const ghost = page.locator(".session-item.drag-ghost");
+      await expect(ghost).toBeVisible();
+      await expectCursorInsideGhost(cursor1, ghost);
+
+      const cursor2 = { x: x + 90, y: y + 55 };
+      await page.mouse.move(cursor2.x, cursor2.y, { steps: 6 });
+      await expectCursorInsideGhost(cursor2, ghost);
+
+      // Release off the session list so no grouping leaks into the shared DB.
+      await page.mouse.move(1000, 100, { steps: 6 });
+      await page.mouse.up();
     });
   }, 30000);
 });

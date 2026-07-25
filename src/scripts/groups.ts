@@ -42,6 +42,8 @@ type ActiveDrag = {
   pointerId: number;
   startX: number;
   startY: number;
+  grabOffsetX: number;
+  grabOffsetY: number;
   ghost: HTMLElement | null;
 };
 
@@ -73,10 +75,11 @@ const positionGhost = (
   ghost: HTMLElement | null,
   x: number,
   y: number,
+  offsetX: number,
+  offsetY: number,
 ): void => {
   if (ghost === null) return;
-  // Float above the pointer so it never covers the drop target beneath it.
-  ghost.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`;
+  ghost.style.transform = `translate(${x - offsetX}px, ${y - offsetY}px)`;
 };
 
 type DropTarget =
@@ -143,6 +146,8 @@ document.addEventListener("pointerdown", (e) => {
     pointerId: e.pointerId,
     startX: e.clientX,
     startY: e.clientY,
+    grabOffsetX: 0,
+    grabOffsetY: 0,
     ghost: null,
   };
 });
@@ -154,11 +159,21 @@ document.addEventListener("pointermove", (e) => {
     const dy = e.clientY - activeDrag.startY;
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     activeDrag.sourceEl.classList.add("dragging");
+    // Keep the grab point under the cursor so the ghost is born in place.
+    const rect = activeDrag.sourceEl.getBoundingClientRect();
+    activeDrag.grabOffsetX = activeDrag.startX - rect.left;
+    activeDrag.grabOffsetY = activeDrag.startY - rect.top;
     const ghost = createGhost(activeDrag.sourceEl);
     activeDrag.ghost = ghost;
     document.body.append(ghost);
   }
-  positionGhost(activeDrag.ghost, e.clientX, e.clientY);
+  positionGhost(
+    activeDrag.ghost,
+    e.clientX,
+    e.clientY,
+    activeDrag.grabOffsetX,
+    activeDrag.grabOffsetY,
+  );
   highlightTarget(e.clientX, e.clientY);
 });
 
