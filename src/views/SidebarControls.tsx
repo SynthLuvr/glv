@@ -6,6 +6,7 @@ const BulkActionBar = () => (
       id="bulk-toggle"
       data-bulk-action="select-all"
       title="Select or deselect every session"
+      aria-pressed="false"
     >
       Select all
     </button>
@@ -40,6 +41,7 @@ const ThemeToggle = () => (
     class="theme-toggle"
     aria-label="Toggle dark mode"
     title="Toggle dark / light theme"
+    aria-pressed="false"
   >
     <svg
       class="icon-moon"

@@ -270,7 +270,12 @@ const updatePromptBar = (sessionId: string, data: StreamStatus): void => {
 const restoreBarDraft = (): void => {
   if (pendingBarDraft === undefined) return;
   const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
-  if (textarea !== null) textarea.value = pendingBarDraft;
+  if (textarea !== null) {
+    textarea.value = pendingBarDraft;
+    // A programmatic write skips `input`; dispatch it so the autogrow
+    // listener resizes a restored multi-line draft instead of clipping it.
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   pendingBarDraft = undefined;
 };
 

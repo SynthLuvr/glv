@@ -53,6 +53,19 @@ import {
     if (field !== null) field.value = value;
   };
 
+  // Writes the textarea value AND dispatches `input` so the ui.ts autogrow
+  // listener resizes multi-line prompts. A bare `.value =` never fires the
+  // event, so the field would otherwise stay one row tall and clip behind a
+  // scrollbar.
+  const fillPromptInput = (
+    el: HTMLTextAreaElement | null,
+    value: string,
+  ): void => {
+    if (el === null) return;
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
   type PlaceholderValues = Record<string, string>;
 
   const fieldValue = (name: string): string => {
@@ -80,6 +93,10 @@ import {
     names: string[],
   ): Promise<PlaceholderValues | null> =>
     new Promise((resolve) => {
+      // Capture before opening the modal so focus can be restored to the
+      // trigger (e.g. the "Run" button) on close — dialog.remove() alone
+      // never returns focus, leaving keyboard users stranded.
+      const trigger = document.activeElement as HTMLElement | null;
       const dialog = document.createElement("dialog");
       dialog.className = "prompt-var-modal";
       const form = document.createElement("form");
@@ -120,7 +137,9 @@ import {
       dialog.showModal();
 
       const finish = (values: PlaceholderValues | null): void => {
+        dialog.close();
         dialog.remove();
+        trigger?.focus();
         resolve(values);
       };
       cancel.addEventListener("click", () => finish(null));
@@ -155,7 +174,7 @@ import {
     );
     const main = mainTextarea();
     if (main !== null) {
-      main.value = body;
+      fillPromptInput(main, body);
       main.focus();
     }
     setPromptId("");
@@ -174,7 +193,9 @@ import {
       body = substitutePlaceholders(body, collected);
     }
     const main = mainTextarea();
-    if (main !== null) main.value = body;
+    // Fill before restoring the id: the input dispatch clears prompt_id, so
+    // set it afterwards (still before submit) so usage stats bump correctly.
+    fillPromptInput(main, body);
     setPromptId(btn.dataset.promptId ?? "");
     submitSessionForm(sessionForm());
   };
@@ -203,7 +224,7 @@ import {
     );
     const textarea = followupTextarea(btn);
     if (textarea !== null) {
-      textarea.value = body;
+      fillPromptInput(textarea, body);
       textarea.focus();
     }
     const picker = btn.closest<HTMLElement>(".followup-picker");

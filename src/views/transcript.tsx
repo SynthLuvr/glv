@@ -132,7 +132,11 @@ const FollowupPicker = ({
   workingDir: string;
 }) => (
   <details class="followup-picker" data-working-dir={workingDir}>
-    <summary class="followup-picker-btn" title="Insert a saved prompt">
+    <summary
+      class="followup-picker-btn"
+      title="Insert a saved prompt"
+      aria-label="Insert a saved prompt"
+    >
       📋
     </summary>
     <div class="followup-picker-list">
@@ -199,6 +203,7 @@ const PromptBar = ({
           placeholder={busy ? "Queue a follow-up prompt…" : "Ask goose…"}
           class="prompt-input"
           rows={2}
+          aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
         />
         {busy ? (
           <>

@@ -13,6 +13,7 @@ import {
   messageKind,
   renderMarkdown,
   thinkingText,
+  toIso,
   toolCallInfo,
   toolResultInfo,
   truncate,
@@ -186,7 +187,9 @@ const MessageView = ({
     <article class={`message ${kind}`} data-msg-index={String(index)}>
       <div class="message-head">
         <span class={`tag ${kind}`}>{tagFor(kind)}</span>
-        <time title={message.timestamp}>{fmtRelative(message.timestamp)}</time>
+        <time datetime={toIso(message.timestamp)} title={message.timestamp}>
+          {fmtRelative(message.timestamp)}
+        </time>
       </div>
       <div class="message-body">{blocks}</div>
     </article>

@@ -99,6 +99,7 @@ const GroupHeader = ({
       title={running ? "A session in this group is running" : undefined}
     >
       <span class="run-dot" />
+      {running && <span class="sr-only">Running</span>}
     </span>
     <button
       type="button"

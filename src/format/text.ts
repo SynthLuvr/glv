@@ -42,6 +42,15 @@ const parseTimestamp = (timestamp: string): number => {
   return Date.parse(hasZone ? iso : `${iso}Z`);
 };
 
+// Normalises a goose timestamp into a valid machine-readable value for the
+// <time datetime> attribute: SQLite's space-separated "YYYY-MM-DD HH:MM:SS"
+// becomes ISO 8601, anchored to UTC (matching parseTimestamp's zone handling).
+const toIso = (timestamp: string): string => {
+  const iso = timestamp.replace(" ", "T");
+  const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  return hasZone ? iso : `${iso}Z`;
+};
+
 const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   const then = parseTimestamp(timestamp);
   if (Number.isNaN(then)) return timestamp;
@@ -58,4 +67,4 @@ const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   return formatDate(then, now);
 };
 
-export { fmtRelative, fmtTokens, shortenHome, truncate, truncateMiddle };
+export { fmtRelative, fmtTokens, shortenHome, toIso, truncate, truncateMiddle };

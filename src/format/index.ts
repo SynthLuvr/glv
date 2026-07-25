@@ -24,6 +24,7 @@ export {
   fmtRelative,
   fmtTokens,
   shortenHome,
+  toIso,
   truncate,
   truncateMiddle,
 } from "./text.js";

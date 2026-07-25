@@ -13,7 +13,10 @@ const updateBulkBar = (): void => {
   const bar = document.getElementById("bulk-bar");
   if (bar) bar.hidden = checkedCount === 0;
   const toggle = document.getElementById("bulk-toggle");
-  if (toggle) toggle.textContent = allChecked ? "Deselect all" : "Select all";
+  if (toggle) {
+    toggle.textContent = allChecked ? "Deselect all" : "Select all";
+    toggle.setAttribute("aria-pressed", String(allChecked));
+  }
 };
 
 // Event delegation on `document` survives the out-of-band sidebar swaps that
@@ -63,6 +66,25 @@ document.addEventListener("click", (e) => {
 const findSessionItem = (sessionId: string): Element | null =>
   document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
 
+// Keeps the run-indicator's screen-reader text in sync with its visual state
+// so a session that flips to running mid-view (via the status feed) is still
+// announced — the sr-only node is otherwise only present in the initial render.
+const syncRunIndicator = (
+  indicator: Element | null,
+  running: boolean,
+): void => {
+  if (indicator === null) return;
+  const sr = indicator.querySelector(".sr-only");
+  if (running) {
+    if (sr === null) {
+      const node = document.createElement("span");
+      node.className = "sr-only";
+      node.textContent = "Running";
+      indicator.append(node);
+    }
+  } else sr?.remove();
+};
+
 // A group's indicator mirrors whether any of its members is running.
 const setGroupRunning = (group: Element): void => {
   const header = group.querySelector(".group-header");
@@ -70,15 +92,19 @@ const setGroupRunning = (group: Element): void => {
   const anyRunning =
     group.querySelector(".session-item[data-running]") !== null;
   header.toggleAttribute("data-running", anyRunning);
+  syncRunIndicator(header.querySelector(".run-indicator"), anyRunning);
 };
 
 const setStatusIndicator = (sessionId: string, running: boolean): void => {
   const item = findSessionItem(sessionId);
   if (item === null) return;
   item.toggleAttribute("data-running", running);
-  item
-    .querySelector(".run-indicator")
-    ?.setAttribute("title", running ? "Session is running" : "Session idle");
+  const indicator = item.querySelector(".run-indicator");
+  indicator?.setAttribute(
+    "title",
+    running ? "Session is running" : "Session idle",
+  );
+  syncRunIndicator(indicator, running);
   const group = item.closest(".session-group");
   if (group !== null) setGroupRunning(group);
 };
