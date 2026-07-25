@@ -156,6 +156,8 @@ type IntegrationEnv = {
   cookie: string;
   context: BrowserContext;
   dbs: Databases;
+  /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
+  serverStderr: () => string;
   cleanup: () => Promise<void>;
 };
 
@@ -343,6 +345,7 @@ const startIntegrationEnv = async (
     cookie: `glv_session=${dbs.token}`,
     context,
     dbs,
+    serverStderr: readStderr,
     cleanup,
   };
 };

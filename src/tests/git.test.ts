@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type GitRunner, readGitInfo, readWorktreeByBranch } from "../git.js";
+import {
+  type GitRunner,
+  pullRepo,
+  readGitInfo,
+  readWorktreeByBranch,
+} from "../git.js";
 
 // A fake GitRunner returning canned porcelain output so the parsing and
 // lookup logic in git.ts can be exercised without a real repo.
@@ -87,5 +92,55 @@ describe("readWorktreeByBranch", () => {
     expect(
       await readWorktreeByBranch("/nope", fakeRunner("", 128), "main"),
     ).toEqual({});
+  });
+});
+
+describe("pullRepo", () => {
+  // Branches on the first arg: `worktree` probes repo state, `pull` is the
+  // pull itself. Records every invocation so call order is assertable.
+  const recordingRunner = (
+    porcelainOut: string,
+    repoExit = 0,
+    pullExit = 0,
+  ): { run: GitRunner; calls: string[][] } => {
+    const calls: string[][] = [];
+    const run: GitRunner = async (args) => {
+      calls.push([...args]);
+      if (args[0] === "worktree")
+        return { stdout: porcelainOut, exitCode: repoExit };
+      return { stdout: "", exitCode: pullExit };
+    };
+    return { run, calls };
+  };
+
+  it("pulls when cwd is inside a git worktree", async () => {
+    const wt = porcelain("worktree /repo", "branch refs/heads/main");
+    const { run, calls } = recordingRunner(wt);
+    await pullRepo("/repo", run);
+    expect(calls).toEqual([
+      ["worktree", "list", "--porcelain"],
+      ["pull", "--no-edit"],
+    ]);
+  });
+
+  it("skips the pull when cwd is not a git repo", async () => {
+    const { run, calls } = recordingRunner("", 128);
+    await pullRepo("/nope", run);
+    expect(calls).toEqual([["worktree", "list", "--porcelain"]]);
+  });
+
+  it("swallows a non-zero pull exit without throwing", async () => {
+    const wt = porcelain("worktree /repo", "branch refs/heads/main");
+    const { run } = recordingRunner(wt, 0, 1);
+    await expect(pullRepo("/repo", run)).resolves.toBeUndefined();
+  });
+
+  it("swallows a thrown runner error without throwing", async () => {
+    const wt = porcelain("worktree /repo", "branch refs/heads/main");
+    const run: GitRunner = async (args) => {
+      if (args[0] === "worktree") return { stdout: wt, exitCode: 0 };
+      throw new Error("boom");
+    };
+    await expect(pullRepo("/repo", run)).resolves.toBeUndefined();
   });
 });

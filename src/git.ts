@@ -124,5 +124,27 @@ const readWorktreeByBranch = (
 ): Promise<GitInfo> =>
   resolveWorktreeByBranch(cwd, run, branch).catch(() => ({}));
 
+// Runs `git pull` in `cwd` before a new goose session starts, so goose works
+// against the latest committed state. Only pulls when `cwd` is inside a git
+// worktree — a non-repo (empty GitInfo) is skipped silently so a plain
+// directory never logs a noisy warning. Any pull failure — a non-zero exit,
+// a missing binary, or a timeout — is swallowed and logged as a warning, so
+// a broken remote or merge conflict can never block session creation. Never
+// throws. `--no-edit` keeps a merge from parking on an editor prompt.
+const pullRepo = async (
+  cwd: string,
+  run: GitRunner = runGit,
+): Promise<void> => {
+  const info = await readGitInfo(cwd, run);
+  if (info.worktree === undefined) return;
+  try {
+    const result = await run(["pull", "--no-edit"], cwd);
+    if (result.exitCode !== 0)
+      console.warn(`git pull failed in ${cwd} (exit ${result.exitCode})`);
+  } catch (err) {
+    console.warn(`git pull failed in ${cwd}: ${String(err)}`);
+  }
+};
+
 export type { GitRunner };
-export { readGitInfo, readWorktreeByBranch };
+export { pullRepo, readGitInfo, readWorktreeByBranch };
