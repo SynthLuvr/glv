@@ -26,6 +26,18 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
+const handleCenter = async (
+  page: Page,
+  sourceId: string,
+): Promise<{ x: number; y: number }> => {
+  const handle = page.locator(
+    `.session-item[data-session-id="${sourceId}"] .session-drag-handle`,
+  );
+  const box = await handle.boundingBox();
+  if (box === null) throw new Error("drag handle not found");
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+};
+
 // page.mouse fires the same pointer events a touch would, so a desktop run
 // exercises the mobile drag path.
 const dragHandleOnto = async (
@@ -33,18 +45,84 @@ const dragHandleOnto = async (
   sourceId: string,
   targetId: string,
 ): Promise<void> => {
-  const handle = page.locator(
-    `.session-item[data-session-id="${sourceId}"] .session-drag-handle`,
-  );
+  const { x, y } = await handleCenter(page, sourceId);
   const target = page.locator(`.session-item[data-session-id="${targetId}"]`);
-  const h = await handle.boundingBox();
-  const t = await target.boundingBox();
-  if (h === null || t === null) throw new Error("drag elements not found");
-  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  const drop = await target.boundingBox();
+  if (drop === null) throw new Error("drop target not found");
+  await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 8 });
+  await page.mouse.move(drop.x + drop.width / 2, drop.y + drop.height / 2, {
+    steps: 8,
+  });
   await page.mouse.up();
 };
+
+// A sub-threshold handle gesture still synthesizes a click that must not
+// switch to the detail pane.
+const dragHandleInPlace = async (
+  page: Page,
+  sourceId: string,
+): Promise<void> => {
+  const { x, y } = await handleCenter(page, sourceId);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 3, y + 3, { steps: 4 });
+  await page.mouse.up();
+};
+
+// Home opens on the detail pane (latest session selected); reach the list via
+// the sidebar toggle, the way a mobile user does.
+const openMobileList = async (page: Page): Promise<void> => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.goto(env.baseUrl);
+  await page.locator('.mobile-pane-btn[data-pane="sidebar"]').click();
+  await expect(page.locator(".app")).toHaveAttribute(
+    "data-mobile-pane",
+    "sidebar",
+  );
+};
+
+describe("drag does not navigate on mobile", () => {
+  it("keeps the list pane after a handle gesture that barely moves", async () => {
+    await withPage(env.context, async (page) => {
+      await openMobileList(page);
+      await dragHandleInPlace(page, "md-a");
+      // Wait for any spurious navigation to settle.
+      await page.waitForTimeout(300);
+      await expect(page.locator(".app")).toHaveAttribute(
+        "data-mobile-pane",
+        "sidebar",
+      );
+    });
+  }, 30000);
+
+  it("keeps the list pane after a full drag that lands back on the list", async () => {
+    await withPage(env.context, async (page) => {
+      await openMobileList(page);
+      await dragHandleOnto(page, "md-b", "md-c");
+      // Wait for any spurious navigation to settle.
+      await page.waitForTimeout(300);
+      await expect(page.locator(".app")).toHaveAttribute(
+        "data-mobile-pane",
+        "sidebar",
+      );
+    });
+  }, 30000);
+
+  it("a normal session tap still navigates to the detail pane", async () => {
+    await withPage(env.context, async (page) => {
+      await openMobileList(page);
+      await page
+        .locator('.session-item[data-session-id="md-a"] .session-name')
+        .click();
+      await expect(page).toHaveURL(`${env.baseUrl}/sessions/md-a`);
+      await expect(page.locator(".app")).toHaveAttribute(
+        "data-mobile-pane",
+        "detail",
+      );
+    });
+  }, 30000);
+});
 
 describe("pointer drag to group", () => {
   it("groups two sessions by dragging a handle onto another card", async () => {

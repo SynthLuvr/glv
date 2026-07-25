@@ -47,6 +47,10 @@ type ActiveDrag = {
 
 let activeDrag: ActiveDrag | null = null;
 
+// A handle gesture synthesizes a `click` that lands on the stretched session
+// link and would navigate to the detail pane — suppress it.
+let suppressClick = false;
+
 const cleanupDrag = (): void => {
   if (activeDrag === null) return;
   activeDrag.ghost?.remove();
@@ -121,6 +125,8 @@ const performDrop = (sourceId: string, x: number, y: number): void => {
 };
 
 document.addEventListener("pointerdown", (e) => {
+  // Clear any flag left by a prior gesture that never synthesized a click.
+  suppressClick = false;
   if (activeDrag !== null) return;
   const target = e.target;
   if (!(target instanceof Element)) return;
@@ -130,6 +136,7 @@ document.addEventListener("pointerdown", (e) => {
   if (item === null) return;
   const id = item.getAttribute("data-session-id");
   if (id === null) return;
+  suppressClick = true;
   activeDrag = {
     sourceId: id,
     sourceEl: item as HTMLElement,
@@ -164,6 +171,18 @@ const finishDrag = (e: PointerEvent): void => {
 
 document.addEventListener("pointerup", finishDrag);
 document.addEventListener("pointercancel", cleanupDrag);
+
+// Capture phase beats htmx's bubble-phase listener, so the click dies here.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  },
+  true,
+);
 
 // ---- collapse / expand ----
 
