@@ -4,13 +4,11 @@ import {
   firstPromptSessionName,
   listSessions,
 } from "../../db.js";
-import type { GroupWithMembers } from "../../groups/db.js";
 import {
   addMember,
   createGroup,
   getGroup,
   groupIdOf,
-  listGroups,
   memberIdsOf,
   pruneBelowThreshold,
   removeMember,
@@ -21,42 +19,6 @@ import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { sidebarEntries } from "../render.js";
 import { activeSessionIds } from "../status.js";
-
-// Inline picker loaded into a session's group-menu slot; an empty groupId
-// means "New group".
-const GroupPicker = ({
-  sessionId,
-  groups,
-}: {
-  sessionId: string;
-  groups: GroupWithMembers[];
-}) => (
-  <form
-    class="group-picker-form"
-    hx-post={`/sessions/${sessionId}/group`}
-    hx-target="#session-list"
-    hx-swap="outerHTML"
-  >
-    <select class="group-picker-select" name="groupId">
-      <option value="">New group</option>
-      {groups.map((g) => (
-        <option value={g.id}>
-          {g.name ?? "New group"} · {g.memberIds.length}
-        </option>
-      ))}
-    </select>
-    <button type="submit" class="group-picker-submit">
-      Move
-    </button>
-    <button
-      type="button"
-      class="group-picker-cancel"
-      data-action="cancel-group-menu"
-    >
-      Cancel
-    </button>
-  </form>
-);
 
 // The groups sidecar is optional; when absent no routes register, so requests
 // fall through to a 404.
@@ -140,11 +102,6 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
     if (getGroup(groups, id) === undefined) return c.notFound();
     archiveSessions(ctx.db, memberIdsOf(groups, id));
     return renderList(c);
-  });
-
-  app.get("/sessions/:id/group-picker", (c) => {
-    const id = c.req.param("id");
-    return c.html(<GroupPicker sessionId={id} groups={listGroups(groups)} />);
   });
 };
 

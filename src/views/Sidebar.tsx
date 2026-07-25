@@ -15,51 +15,6 @@ type SidebarProps = {
   runningIds: Set<string>;
 };
 
-const SessionGroupMenu = ({
-  session,
-  inGroup,
-}: {
-  session: SessionRow;
-  inGroup: boolean;
-}) => (
-  <details class="session-group-menu">
-    <summary
-      class="session-group-menu-trigger"
-      aria-label={`Group actions for ${displayName(session.name)}`}
-      title="Group actions"
-    >
-      {icon([
-        <circle cx="12" cy="5" r="1.4" />,
-        <circle cx="12" cy="12" r="1.4" />,
-        <circle cx="12" cy="19" r="1.4" />,
-      ])}
-    </summary>
-    <div class="session-group-menu-popover">
-      <button
-        type="button"
-        class="session-group-menu-item"
-        hx-get={`/sessions/${session.id}/group-picker`}
-        hx-target={`#group-menu-slot-${session.id}`}
-        hx-swap="innerHTML"
-      >
-        Move to group…
-      </button>
-      {inGroup && (
-        <button
-          type="button"
-          class="session-group-menu-item"
-          hx-post={`/sessions/${session.id}/ungroup`}
-          hx-target="#session-list"
-          hx-swap="outerHTML"
-        >
-          Remove from group
-        </button>
-      )}
-    </div>
-    <div id={`group-menu-slot-${session.id}`} class="session-group-menu-slot" />
-  </details>
-);
-
 const SessionItem = ({
   session,
   selected,
@@ -124,7 +79,6 @@ const SessionItem = ({
           class="session-meta-tags"
         ></span>
       </div>
-      <SessionGroupMenu session={session} inGroup={inGroup} />
       <RenameWrap session={session} context="sidebar" target="#session-list" />
     </div>
   );
