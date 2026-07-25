@@ -1,4 +1,4 @@
-import { parseJson } from "./shared.js";
+import { fillPromptInput, parseJson } from "./shared.js";
 
 declare const htmx: {
   ajax: (
@@ -270,7 +270,7 @@ const updatePromptBar = (sessionId: string, data: StreamStatus): void => {
 const restoreBarDraft = (): void => {
   if (pendingBarDraft === undefined) return;
   const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
-  if (textarea !== null) textarea.value = pendingBarDraft;
+  fillPromptInput(textarea, pendingBarDraft);
   pendingBarDraft = undefined;
 };
 

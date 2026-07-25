@@ -120,6 +120,7 @@ const PromptToolbar = ({
         type="button"
         class={`prompt-toggle${sortBy === "usage" ? " active" : ""}`}
         title="Sort by how often each prompt is run"
+        aria-pressed={sortBy === "usage" ? "true" : "false"}
         hx-get={`/prompts?${usageParams}`}
         hx-target="#prompt-library"
         hx-swap="outerHTML"
@@ -130,6 +131,7 @@ const PromptToolbar = ({
         type="button"
         class={`prompt-toggle${grouped ? " active" : ""}`}
         title="Group prompts into collapsible category sections"
+        aria-pressed={grouped ? "true" : "false"}
         hx-get={`/prompts?${groupParams}`}
         hx-target="#prompt-library"
         hx-swap="outerHTML"
@@ -166,6 +168,7 @@ const PromptLibrary = ({
       type="search"
       class="prompt-filter"
       placeholder="🔍 Filter prompts…"
+      aria-label="Filter prompts"
       autocomplete="off"
       data-prompt-filter
     />

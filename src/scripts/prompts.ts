@@ -3,6 +3,7 @@ import {
   substitutePlaceholders,
   today,
 } from "../prompts/template.js";
+import { fillPromptInput } from "./shared.js";
 
 (() => {
   // Scoped inside this IIFE so it never collides with the global `htmx`
@@ -80,6 +81,9 @@ import {
     names: string[],
   ): Promise<PlaceholderValues | null> =>
     new Promise((resolve) => {
+      // dialog.remove() never returns focus; capture the trigger first so it
+      // can be restored on close for keyboard users.
+      const trigger = document.activeElement as HTMLElement | null;
       const dialog = document.createElement("dialog");
       dialog.className = "prompt-var-modal";
       const form = document.createElement("form");
@@ -120,7 +124,9 @@ import {
       dialog.showModal();
 
       const finish = (values: PlaceholderValues | null): void => {
+        dialog.close();
         dialog.remove();
+        trigger?.focus();
         resolve(values);
       };
       cancel.addEventListener("click", () => finish(null));
@@ -155,7 +161,7 @@ import {
     );
     const main = mainTextarea();
     if (main !== null) {
-      main.value = body;
+      fillPromptInput(main, body);
       main.focus();
     }
     setPromptId("");
@@ -174,7 +180,9 @@ import {
       body = substitutePlaceholders(body, collected);
     }
     const main = mainTextarea();
-    if (main !== null) main.value = body;
+    fillPromptInput(main, body);
+    // The input dispatch clears prompt_id; restore it before submit so usage
+    // stats still bump.
     setPromptId(btn.dataset.promptId ?? "");
     submitSessionForm(sessionForm());
   };
@@ -203,7 +211,7 @@ import {
     );
     const textarea = followupTextarea(btn);
     if (textarea !== null) {
-      textarea.value = body;
+      fillPromptInput(textarea, body);
       textarea.focus();
     }
     const picker = btn.closest<HTMLElement>(".followup-picker");

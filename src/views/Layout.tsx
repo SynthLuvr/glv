@@ -12,7 +12,10 @@ const Layout = ({ title, children }: LayoutProps) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover"
+      />
       <HeadMeta />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>

@@ -3,6 +3,7 @@ import {
   displayName,
   fmtRelative,
   shortenHome,
+  toIso,
   truncateMiddle,
 } from "../format/index.js";
 import { icon, RenameWrap } from "./Rename.js";
@@ -49,10 +50,18 @@ const SessionItem = ({
         />
       </label>
       <div class="session-main">
-        <a class="session-link" href={href} hx-get={href}>
+        <a
+          class="session-link"
+          href={href}
+          hx-get={href}
+          aria-current={selected ? "page" : undefined}
+        >
           <span class="session-name">{displayName(session.name)}</span>
           <span class="session-sub">
-            <time title={session.updated_at}>
+            <time
+              datetime={toIso(session.updated_at)}
+              title={session.updated_at}
+            >
               {fmtRelative(session.updated_at)}
             </time>
             <span
@@ -60,6 +69,7 @@ const SessionItem = ({
               title={running ? "Session is running" : "Session idle"}
             >
               <span class="run-dot" />
+              {running && <span class="sr-only">Running</span>}
             </span>
           </span>
           <span class="session-dir" title={session.working_dir}>
