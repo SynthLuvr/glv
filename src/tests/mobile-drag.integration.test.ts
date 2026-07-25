@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type IntegrationEnv,
@@ -36,6 +36,18 @@ const handleCenter = async (
   const box = await handle.boundingBox();
   if (box === null) throw new Error("drag handle not found");
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+};
+
+const expectCursorInsideGhost = async (
+  cursor: { x: number; y: number },
+  ghost: Locator,
+): Promise<void> => {
+  const box = await ghost.boundingBox();
+  if (box === null) throw new Error("drag ghost not found");
+  expect(cursor.x).toBeGreaterThanOrEqual(box.x);
+  expect(cursor.x).toBeLessThanOrEqual(box.x + box.width);
+  expect(cursor.y).toBeGreaterThanOrEqual(box.y);
+  expect(cursor.y).toBeLessThanOrEqual(box.y + box.height);
 };
 
 // page.mouse fires the same pointer events a touch would, so a desktop run
@@ -161,45 +173,24 @@ describe("drag ghost tracks the cursor", () => {
   it("keeps the pointer inside the ghost instead of floating above it", async () => {
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);
-      const handle = page.locator(
-        '.session-item[data-session-id="md-a"] .session-drag-handle',
-      );
-      await expect(handle).toBeVisible();
-      const box = await handle.boundingBox();
-      if (box === null) throw new Error("drag handle not found");
-      const startX = box.x + box.width / 2;
-      const startY = box.y + box.height / 2;
+      const { x, y } = await handleCenter(page, "md-a");
 
-      await page.mouse.move(startX, startY);
+      await page.mouse.move(x, y);
       await page.mouse.down();
 
-      // Cross the threshold so the ghost is born at the grab point.
-      const cur1 = { x: startX + 25, y: startY + 12 };
-      await page.mouse.move(cur1.x, cur1.y, { steps: 6 });
+      // Cross the drag threshold so the ghost appears at the grab point.
+      const cursor1 = { x: x + 25, y: y + 12 };
+      await page.mouse.move(cursor1.x, cursor1.y, { steps: 6 });
 
       const ghost = page.locator(".session-item.drag-ghost");
       await expect(ghost).toBeVisible();
-      const ghostBox1 = await ghost.boundingBox();
-      if (ghostBox1 === null) throw new Error("drag ghost not found");
-      // The cursor must sit *inside* the ghost at the grab point. The bug
-      // floated the ghost up ~130% of its height, leaving the cursor below it.
-      expect(cur1.x).toBeGreaterThanOrEqual(ghostBox1.x);
-      expect(cur1.x).toBeLessThanOrEqual(ghostBox1.x + ghostBox1.width);
-      expect(cur1.y).toBeGreaterThanOrEqual(ghostBox1.y);
-      expect(cur1.y).toBeLessThanOrEqual(ghostBox1.y + ghostBox1.height);
+      await expectCursorInsideGhost(cursor1, ghost);
 
-      // The ghost follows the cursor and the cursor stays inside as it moves.
-      const cur2 = { x: startX + 90, y: startY + 55 };
-      await page.mouse.move(cur2.x, cur2.y, { steps: 6 });
-      const ghostBox2 = await ghost.boundingBox();
-      if (ghostBox2 === null) throw new Error("drag ghost not found");
-      expect(cur2.x).toBeGreaterThanOrEqual(ghostBox2.x);
-      expect(cur2.x).toBeLessThanOrEqual(ghostBox2.x + ghostBox2.width);
-      expect(cur2.y).toBeGreaterThanOrEqual(ghostBox2.y);
-      expect(cur2.y).toBeLessThanOrEqual(ghostBox2.y + ghostBox2.height);
+      const cursor2 = { x: x + 90, y: y + 55 };
+      await page.mouse.move(cursor2.x, cursor2.y, { steps: 6 });
+      await expectCursorInsideGhost(cursor2, ghost);
 
-      // Release over the detail pane (outside #session-list) so no grouping
-      // side effect leaks into the shared DB for later tests.
+      // Release off the session list so no grouping leaks into the shared DB.
       await page.mouse.move(1000, 100, { steps: 6 });
       await page.mouse.up();
     });

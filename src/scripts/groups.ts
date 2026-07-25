@@ -42,9 +42,6 @@ type ActiveDrag = {
   pointerId: number;
   startX: number;
   startY: number;
-  // Pointer position relative to the source's top-left, captured when the
-  // ghost is born so it can follow the cursor at the grab point rather than
-  // leaping above it.
   grabOffsetX: number;
   grabOffsetY: number;
   ghost: HTMLElement | null;
@@ -82,9 +79,6 @@ const positionGhost = (
   offsetY: number,
 ): void => {
   if (ghost === null) return;
-  // Follow the pointer at the grab offset so the cursor stays on the box
-  // where the user picked it up, instead of floating above it. The ghost
-  // is `pointer-events: none`, so it never masks the drop target beneath it.
   ghost.style.transform = `translate(${x - offsetX}px, ${y - offsetY}px)`;
 };
 
@@ -165,8 +159,7 @@ document.addEventListener("pointermove", (e) => {
     const dy = e.clientY - activeDrag.startY;
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     activeDrag.sourceEl.classList.add("dragging");
-    // Lock the grab point in place so the ghost appears exactly where the
-    // source sat — no jump on drag start.
+    // Keep the grab point under the cursor so the ghost is born in place.
     const rect = activeDrag.sourceEl.getBoundingClientRect();
     activeDrag.grabOffsetX = activeDrag.startX - rect.left;
     activeDrag.grabOffsetY = activeDrag.startY - rect.top;
