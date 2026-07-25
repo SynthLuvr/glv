@@ -18,11 +18,13 @@ import { registerStreamRoutes } from "./routes/stream.js";
 
 const createApp = (
   db: DatabaseSync,
+  dbWritable: DatabaseSync,
   runner: Runner,
   opts: ServerOptions = {},
 ): Hono => {
   const ctx: ServerContext = {
     db,
+    dbWritable,
     runner,
     auth: opts.auth,
     prompts: opts.prompts,

@@ -103,7 +103,11 @@ const registerShutdown = (
   emitter.on("unhandledRejection", onCrash);
 };
 
-const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
+const runServe = (
+  db: DatabaseSync,
+  dbWritable: DatabaseSync,
+  opts: ServeOpts,
+): void => {
   buildStyles();
   buildScripts();
   // Created here so shutdown can reap detached goose processes.
@@ -112,7 +116,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
   const auth = makeAuthService(authDb);
-  const app = createApp(db, runner, {
+  const app = createApp(db, dbWritable, runner, {
     auth,
     prompts: promptsDb,
     groups: groupsDb,
@@ -130,6 +134,7 @@ const runServe = (db: DatabaseSync, opts: ServeOpts): void => {
 
   const closeDbs = (): void => {
     db.close();
+    dbWritable.close();
     authDb.close();
     promptsDb.close();
     groupsDb.close();

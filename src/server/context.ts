@@ -40,6 +40,9 @@ type ServerOptions = {
 // stay free of shared mutable closure state.
 type ServerContext = {
   readonly db: DatabaseSync;
+  // Archive/rename mutations go through this separate writable connection so
+  // `db` (browsing) stays genuinely read-only and never touches a live row.
+  readonly dbWritable: DatabaseSync;
   readonly runner: Runner;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;

@@ -100,7 +100,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/groups/:id/archive", (c) => {
     const id = c.req.param("id");
     if (getGroup(groups, id) === undefined) return c.notFound();
-    archiveSessions(ctx.db, memberIdsOf(groups, id));
+    archiveSessions(ctx.dbWritable, memberIdsOf(groups, id));
     return renderList(c);
   });
 };
