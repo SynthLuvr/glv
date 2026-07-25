@@ -12,9 +12,8 @@ import {
 const PROMPT_TEXT = "git pull integration test";
 const MARKER_FILE = "pulled-by-glv.txt";
 
-// A fixed identity keeps `git commit` from blocking on a missing user config,
-// and GIT_TERMINAL_PROMPT=0 turns any credential prompt into a hard failure
-// rather than a hang.
+// GIT_TERMINAL_PROMPT=0 turns credential prompts into hard failures
+// instead of hanging.
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 const git = (cwd: string, ...args: string[]): void => {
   execFileSync(
@@ -47,7 +46,6 @@ beforeAll(async () => {
     sessionName: "Git Pull Test",
   });
 
-  // --- behind clone -------------------------------------------------------
   const root = join(env.scratchDir, "git");
   const sourceDir = join(root, "source");
   behindCloneDir = join(root, "clone");
@@ -66,7 +64,6 @@ beforeAll(async () => {
   git(sourceDir, "add", "-A");
   git(sourceDir, "commit", "-q", "-m", "add marker");
 
-  // --- no upstream --------------------------------------------------------
   const root2 = join(env.scratchDir, "git-noupstream");
   noUpstreamDir = join(root2, "repo");
   mkdirSync(noUpstreamDir, { recursive: true });
@@ -74,7 +71,6 @@ beforeAll(async () => {
   writeFileSync(join(noUpstreamDir, "a.txt"), "a");
   git(noUpstreamDir, "add", "-A");
   git(noUpstreamDir, "commit", "-q", "-m", "init");
-  // No remote/upstream is configured → `git pull` exits non-zero.
 }, 90000);
 
 afterAll(async () => {
@@ -87,8 +83,7 @@ const startSessionIn = async (workingDir: string): Promise<void> => {
     await page.locator('input[name="working_dir"]').fill(workingDir);
     await page.locator('textarea[name="prompt"]').fill(PROMPT_TEXT);
     await page.locator("button.send-btn").click();
-    // The transcript (with its archive button) replaces the form once goose
-    // creates the session and glv re-keys the run onto the real id.
+    // The archive button appears once the session is live.
     await page
       .locator("button.archive-btn")
       .waitFor({ state: "visible", timeout: 20000 });
@@ -97,21 +92,17 @@ const startSessionIn = async (workingDir: string): Promise<void> => {
 
 describe("git pull before a new session", () => {
   it("pulls the latest commits into the working directory before goose starts", async () => {
-    // Sanity: the clone is behind the source before the session starts.
     expect(existsSync(join(behindCloneDir, MARKER_FILE))).toBe(false);
 
     await startSessionIn(behindCloneDir);
 
-    // glv ran `git pull` (inside the per-directory lock, before enqueueing
-    // goose) and fast-forwarded the clone to the marker commit.
     expect(existsSync(join(behindCloneDir, MARKER_FILE))).toBe(true);
   });
 
   it("starts a session even when git pull fails, logging a warning", async () => {
     await startSessionIn(noUpstreamDir);
 
-    // The pull failure was swallowed (the session still started) but surfaced
-    // as a warning on the server's stderr (console.warn → stderr).
+    // The pull failure was swallowed but surfaced via console.warn on stderr.
     expect(env.serverStderr()).toContain("git pull failed");
   });
 });

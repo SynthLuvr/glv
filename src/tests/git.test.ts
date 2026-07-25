@@ -96,8 +96,8 @@ describe("readWorktreeByBranch", () => {
 });
 
 describe("pullRepo", () => {
-  // Branches on the first arg: `worktree` probes repo state, `pull` is the
-  // pull itself. Records every invocation so call order is assertable.
+  // Routes `worktree` to canned porcelain, `pull` to a settable exit code.
+  // Records all calls so order is assertable.
   const recordingRunner = (
     porcelainOut: string,
     repoExit = 0,
