@@ -3,6 +3,7 @@ import {
   substitutePlaceholders,
   today,
 } from "../prompts/template.js";
+import { fillPromptInput } from "./shared.js";
 
 (() => {
   // Scoped inside this IIFE so it never collides with the global `htmx`
@@ -53,19 +54,6 @@ import {
     if (field !== null) field.value = value;
   };
 
-  // Writes the textarea value AND dispatches `input` so the ui.ts autogrow
-  // listener resizes multi-line prompts. A bare `.value =` never fires the
-  // event, so the field would otherwise stay one row tall and clip behind a
-  // scrollbar.
-  const fillPromptInput = (
-    el: HTMLTextAreaElement | null,
-    value: string,
-  ): void => {
-    if (el === null) return;
-    el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  };
-
   type PlaceholderValues = Record<string, string>;
 
   const fieldValue = (name: string): string => {
@@ -93,9 +81,8 @@ import {
     names: string[],
   ): Promise<PlaceholderValues | null> =>
     new Promise((resolve) => {
-      // Capture before opening the modal so focus can be restored to the
-      // trigger (e.g. the "Run" button) on close — dialog.remove() alone
-      // never returns focus, leaving keyboard users stranded.
+      // dialog.remove() never returns focus; capture the trigger first so it
+      // can be restored on close for keyboard users.
       const trigger = document.activeElement as HTMLElement | null;
       const dialog = document.createElement("dialog");
       dialog.className = "prompt-var-modal";
@@ -193,9 +180,9 @@ import {
       body = substitutePlaceholders(body, collected);
     }
     const main = mainTextarea();
-    // Fill before restoring the id: the input dispatch clears prompt_id, so
-    // set it afterwards (still before submit) so usage stats bump correctly.
     fillPromptInput(main, body);
+    // The input dispatch clears prompt_id; restore it before submit so usage
+    // stats still bump.
     setPromptId(btn.dataset.promptId ?? "");
     submitSessionForm(sessionForm());
   };

@@ -31,25 +31,18 @@ const formatDate = (epoch: number, now: number): string => {
   return date.toLocaleDateString("en-US", options);
 };
 
-// Goose writes session/message timestamps in UTC without a zone suffix
-// (both the SQLite CURRENT_TIMESTAMP defaults and the created_timestamp
-// UTC epoch corroborate this against the live DB). Date.parse would read a
-// zone-less value as local time, so anchor zone-less values to UTC and
-// honour an explicit zone designator when one is present.
-const parseTimestamp = (timestamp: string): number => {
-  const iso = timestamp.replace(" ", "T");
-  const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
-  return Date.parse(hasZone ? iso : `${iso}Z`);
-};
-
-// Normalises a goose timestamp into a valid machine-readable value for the
-// <time datetime> attribute: SQLite's space-separated "YYYY-MM-DD HH:MM:SS"
-// becomes ISO 8601, anchored to UTC (matching parseTimestamp's zone handling).
+// Goose timestamps are UTC but lack a zone suffix (SQLite CURRENT_TIMESTAMP),
+// so anchor zone-less values to UTC — otherwise Date.parse and the
+// <time datetime> attribute would read them as local time. An explicit
+// designator is honoured when present.
 const toIso = (timestamp: string): string => {
   const iso = timestamp.replace(" ", "T");
   const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
   return hasZone ? iso : `${iso}Z`;
 };
+
+const parseTimestamp = (timestamp: string): number =>
+  Date.parse(toIso(timestamp));
 
 const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   const then = parseTimestamp(timestamp);

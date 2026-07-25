@@ -66,23 +66,23 @@ document.addEventListener("click", (e) => {
 const findSessionItem = (sessionId: string): Element | null =>
   document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
 
-// Keeps the run-indicator's screen-reader text in sync with its visual state
-// so a session that flips to running mid-view (via the status feed) is still
-// announced — the sr-only node is otherwise only present in the initial render.
+// The sr-only "Running" label only exists in the initial render; keep it in
+// sync for sessions whose status changes mid-view via the status feed.
 const syncRunIndicator = (
   indicator: Element | null,
   running: boolean,
 ): void => {
   if (indicator === null) return;
   const sr = indicator.querySelector(".sr-only");
-  if (running) {
-    if (sr === null) {
-      const node = document.createElement("span");
-      node.className = "sr-only";
-      node.textContent = "Running";
-      indicator.append(node);
-    }
-  } else sr?.remove();
+  if (!running) {
+    sr?.remove();
+    return;
+  }
+  if (sr !== null) return;
+  const node = document.createElement("span");
+  node.className = "sr-only";
+  node.textContent = "Running";
+  indicator.append(node);
 };
 
 // A group's indicator mirrors whether any of its members is running.

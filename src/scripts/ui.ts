@@ -118,12 +118,15 @@ document.addEventListener("input", (e) => {
     uiGrow(e.target);
 });
 
-// Persists the toggle; Layout.tsx applies the saved theme before first paint.
-const uiApplyTheme = (isDark: boolean): void => {
-  document.documentElement.classList.toggle("dark", isDark);
+const uiSyncThemeToggle = (isDark: boolean): void =>
   document
     .querySelector(".theme-toggle")
     ?.setAttribute("aria-pressed", String(isDark));
+
+// Persists the toggle; Layout.tsx applies the saved theme before first paint.
+const uiApplyTheme = (isDark: boolean): void => {
+  document.documentElement.classList.toggle("dark", isDark);
+  uiSyncThemeToggle(isDark);
   try {
     localStorage.setItem(UI_THEME_KEY, isDark ? "dark" : "light");
   } catch {
@@ -224,14 +227,9 @@ const uiInit = (): void => {
   uiUpdateScrollButton();
   uiObserve();
   uiInitPaneToggle();
-  // Sync the toggle's aria-pressed with the class the bootstrap script applied
-  // before first paint, so it reflects the active theme for assistive tech.
-  document
-    .querySelector(".theme-toggle")
-    ?.setAttribute(
-      "aria-pressed",
-      String(document.documentElement.classList.contains("dark")),
-    );
+  // Reflect the pre-paint theme class (set by Layout's bootstrap script) on
+  // the toggle for assistive tech.
+  uiSyncThemeToggle(document.documentElement.classList.contains("dark"));
   document
     .querySelector(".theme-toggle")
     ?.addEventListener("click", uiToggleTheme);
