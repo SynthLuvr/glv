@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
@@ -188,9 +189,10 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   return true;
 };
 
-// Prefixed so it can never collide with a real goose session id.
-const generateTempKey = (): string =>
-  `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+// Prefixed so it can never collide with a real goose session id. Uses
+// randomUUID() for collision-resistant, crypto-strong keys (consistent with
+// the rest of the codebase) rather than Date.now()/Math.random().
+const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
 const stop = (runner: Runner, sessionId: string): boolean => {
   const handle = runner.registry.get(sessionId);
