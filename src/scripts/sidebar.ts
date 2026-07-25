@@ -1,3 +1,5 @@
+import { parseJson } from "./shared.js";
+
 const getChecks = (): HTMLInputElement[] => [
   ...document.querySelectorAll<HTMLInputElement>(".session-check"),
 ];
@@ -118,21 +120,13 @@ const refreshMeta = (sessionId: string): void => {
   });
 };
 
-const safeParse = (data: string): unknown => {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
-};
-
 // On (re)connect the server emits a full snapshot of active session ids.
 // Reconcile every card to correct indicators that drifted during a disconnect.
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
 const applySync = (data: string): void => {
-  const parsed = safeParse(data);
+  const parsed = parseJson(data);
   if (!isStringArray(parsed)) return;
   const active = new Set(parsed);
   for (const item of document.querySelectorAll<HTMLElement>(
@@ -158,7 +152,7 @@ const unreadStorage = (): Storage | null => {
 const loadUnread = (): string[] => {
   const storage = unreadStorage();
   if (storage === null) return [];
-  const parsed = safeParse(storage.getItem(UNREAD_KEY) ?? "");
+  const parsed = parseJson(storage.getItem(UNREAD_KEY) ?? "");
   return isStringArray(parsed) ? parsed : [];
 };
 
@@ -218,7 +212,7 @@ const isStatusPayload = (value: unknown): value is StatusPayload =>
   typeof value.status === "string";
 
 const onStatusEvent = (data: string): void => {
-  const parsed = safeParse(data);
+  const parsed = parseJson(data);
   if (!isStatusPayload(parsed)) return;
   const running = parsed.status !== "done";
   setStatusIndicator(parsed.sessionId, running);
@@ -240,7 +234,7 @@ const isRenamePayload = (value: unknown): value is RenamePayload =>
   typeof value.name === "string";
 
 const onRenameEvent = (data: string): void => {
-  const parsed = safeParse(data);
+  const parsed = parseJson(data);
   if (!isRenamePayload(parsed)) return;
   setSessionName(parsed.sessionId, parsed.name);
 };
