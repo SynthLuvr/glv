@@ -1,10 +1,6 @@
-const isDebugEnabled = (): boolean => {
-  const flag = process.env.GLV_DEBUG;
-  return flag === "1" || flag === "true";
-};
+const isDebugEnabled = (): boolean =>
+  process.env.GLV_DEBUG === "1" || process.env.GLV_DEBUG === "true";
 
-// Each line is tagged with the originating component so logs can be grepped by
-// subsystem; the message is extracted from any thrown shape.
 const formatLine = (
   level: "debug" | "warn",
   component: string,
@@ -14,16 +10,15 @@ const formatLine = (
   return `[glv:${component}] ${level}: ${message}`;
 };
 
-// The floor for benign-but-noteworthy catches (a process that already exited,
-// a non-repo git query): suppressed unless GLV_DEBUG is set so it is not noise
-// by default, yet remains observable when triaging an issue.
+// Benign catches (a process that already exited, a non-repo git query): hidden
+// unless GLV_DEBUG is set so they aren't noise, yet observable when triaging.
 const debug = (component: string, err: unknown): void => {
   if (!isDebugEnabled()) return;
   console.debug(formatLine("debug", component, err));
 };
 
-// Always emitted and reserved for genuinely unexpected failures (e.g. a
-// corrupt DB row), so there is a diagnostic trail even in production.
+// Genuinely unexpected failures (e.g. a corrupt DB row): always emitted so
+// there is a diagnostic trail even in production.
 const warn = (component: string, err: unknown): void => {
   console.warn(formatLine("warn", component, err));
 };
