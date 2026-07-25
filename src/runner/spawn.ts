@@ -72,16 +72,13 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   return { pid, kill, stdout, exit };
 };
 
-// Await proc.exit exactly once. While waiting, a self-rearming interval polls
-// handle.status in grace-sized windows so a stop() issued mid-run is noticed
-// within one window; once stopped, each elapsed window escalates the kill
-// signal — SIGTERM, then uncatchable SIGKILL — so a process that traps SIGINT
-// can't park runProcess here forever, holding a runner slot and leaking its
-// detached process group.
-//
-// Awaiting proc.exit a single time (rather than re-wrapping it per window)
-// avoids accumulating dangling .then handlers on the same promise across
-// ticks — the prior withTimeout-based polling leaked one handler per window.
+// A self-rearming interval polls handle.status in grace-sized windows so a
+// stop() issued mid-run is noticed within one window; once stopped, each
+// elapsed window escalates the kill signal — SIGTERM, then uncatchable
+// SIGKILL — so a process that traps SIGINT can't park runProcess here forever,
+// holding a runner slot and leaking its detached process group. proc.exit is
+// awaited once (not re-wrapped per window) so polling doesn't accumulate
+// dangling .then handlers on the same promise.
 const awaitExit = async (
   proc: SpawnedProcess,
   handle: InternalHandle,

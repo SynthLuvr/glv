@@ -57,10 +57,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
 
   // Renders a full <Transcript> (messages + run handle) inside the standard
-  // shell. Encapsulates the fetch-messages / get-handle / render sequence that
-  // was previously copy-pasted across the prompt, queue/cancel, stop, rename,
-  // and view handlers, and guarantees every call site resolves the session
-  // list via sessionsAll() rather than re-issuing listSessions() inline.
+  // page shell.
   const renderSession = (
     c: Context,
     id: string,

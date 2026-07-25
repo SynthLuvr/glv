@@ -189,9 +189,7 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   return true;
 };
 
-// Prefixed so it can never collide with a real goose session id. Uses
-// randomUUID() for collision-resistant, crypto-strong keys (consistent with
-// the rest of the codebase) rather than Date.now()/Math.random().
+// Prefixed so it can never collide with a real goose session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
 const stop = (runner: Runner, sessionId: string): boolean => {
