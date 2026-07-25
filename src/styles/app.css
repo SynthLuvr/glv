@@ -85,9 +85,7 @@ html,
 body {
   height: 100%;
   margin: 0;
-  /* Stop touch overscroll from chaining to <body>: without this, scrolling an
-     inner pane to its limit bounces the whole layout (and the top bar with
-     it) on mobile. */
+  /* Stops momentum scroll from chaining to <body> and bouncing the top bar. */
   overscroll-behavior: none;
 }
 body {
@@ -102,9 +100,8 @@ body {
 /* ---------- layout ---------- */
 .app {
   @apply flex overflow-hidden;
-  /* 100vh is the *large* viewport (ignores the mobile address bar / keyboard),
-     so a 100vh shell clips content and rubber-bands on scroll. 100dvh tracks
-     the real visible area; the 100vh line is a safe fallback. */
+  /* dvh tracks the real mobile viewport (address bar/keyboard); vh is the
+     fallback for browsers without dvh support. */
   height: 100vh;
   height: 100dvh;
 }
@@ -1211,9 +1208,8 @@ textarea.prompt-input,
   display: none;
 }
 
-/* The scroll-to-latest button is position:fixed on <body> and is a detail-pane
-   affordance. On mobile the detail pane is hidden while the sidebar pane is
-   active, so without this the button floats over the session list. */
+/* position:fixed on <body> as a detail-pane affordance — hide it over the
+   mobile session list while the sidebar pane is active. */
 body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
   display: none;
 }

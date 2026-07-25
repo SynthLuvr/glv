@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type IntegrationEnv,
@@ -11,12 +11,14 @@ import {
 
 let env: IntegrationEnv;
 
-// A transcript tall enough to overflow the detail pane at a mobile viewport so
-// the scroll-to-latest button appears and scroll behaviour is exercised.
+// Tall enough to overflow the detail pane at a mobile viewport, which makes
+// the scroll-to-latest button appear and exercises scroll behaviour.
 const TALL_MESSAGES = Array.from({ length: 50 }, (_, i) => ({
   role: i % 2 === 0 ? "user" : "assistant",
   content: [{ type: "text", text: `Line ${i}.\n`.repeat(8) }],
 }));
+
+const VIEWPORT = { width: 400, height: 800 };
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-mobile-layout-");
@@ -40,22 +42,26 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
-// The detail pane is the default on mobile when a session is selected.
 const openMobileDetail = async (
-  page: import("@playwright/test").Page,
+  page: Page,
   id = "mobile-tall",
 ): Promise<void> => {
-  await page.setViewportSize({ width: 400, height: 800 });
+  await page.setViewportSize(VIEWPORT);
   await page.goto(`${env.baseUrl}/sessions/${id}`);
   await expect(page.locator("#detail-pane")).toBeVisible();
 };
 
-// Reads the toggle bar's box straight from the DOM — more reliable than
-// Playwright's locator.boundingBox(), which can yield null for actionability.
-const toggleRect = async (
-  page: import("@playwright/test").Page,
-): Promise<{ top: number; bottom: number; display: string } | null> =>
-  page.evaluate(() => {
+const switchPane = async (
+  page: Page,
+  pane: "sidebar" | "detail",
+): Promise<void> => {
+  await page.locator(`.mobile-pane-btn[data-pane="${pane}"]`).click();
+};
+
+// Read the toggle bar's box straight from the DOM rather than via
+// locator.boundingBox(), which can return null for actionability reasons.
+const expectTopBarWithinViewport = async (page: Page): Promise<void> => {
+  const rect = await page.evaluate(() => {
     const el = document.querySelector(".mobile-pane-toggle");
     if (el === null) return null;
     const r = el.getBoundingClientRect();
@@ -65,20 +71,22 @@ const toggleRect = async (
       display: getComputedStyle(el).display,
     };
   });
+  expect(rect).not.toBeNull();
+  expect(rect!.display).toBe("flex");
+  // The top bar stays flush to the top and fully inside the viewport.
+  expect(rect!.top).toBeGreaterThanOrEqual(-0.5);
+  expect(rect!.bottom).toBeLessThanOrEqual(VIEWPORT.height);
+};
 
 describe("mobile scroll-to-latest button", () => {
-  it("hides while the sidebar pane is active (it is a detail-pane affordance)", async () => {
+  it("hides while the sidebar pane is active", async () => {
     await withPage(env.context, async (page) => {
       await openMobileDetail(page);
-
       const scrollBtn = page.locator("#scroll-latest");
-      // Loaded at the top of a long, idle transcript → not near the bottom, so
-      // the floating button is shown.
+      // Idle at the top of a long transcript → not near the bottom → shown.
       await expect(scrollBtn).toBeVisible();
 
-      // Switch to the session list: the detail pane is hidden via CSS, so the
-      // floating button must hide too instead of floating over the list.
-      await page.locator('.mobile-pane-btn[data-pane="sidebar"]').click();
+      await switchPane(page, "sidebar");
       await expect(page.locator(".app")).toHaveAttribute(
         "data-mobile-pane",
         "sidebar",
@@ -93,10 +101,9 @@ describe("mobile scroll-to-latest button", () => {
       const scrollBtn = page.locator("#scroll-latest");
       await expect(scrollBtn).toBeVisible();
 
-      await page.locator('.mobile-pane-btn[data-pane="sidebar"]').click();
+      await switchPane(page, "sidebar");
       await expect(scrollBtn).toBeHidden();
-      await page.locator('.mobile-pane-btn[data-pane="detail"]').click();
-      // Back on the detail pane, still scrolled to the top → button returns.
+      await switchPane(page, "detail");
       await expect(scrollBtn).toBeVisible();
     });
   }, 30000);
@@ -114,26 +121,19 @@ describe("mobile layout stability", () => {
       );
       expect(overflow).toBeGreaterThan(200);
 
-      // Scroll the detail pane to its very bottom.
       await pane.evaluate((el) => {
         el.scrollTop = el.scrollHeight;
       });
 
-      const rect = await toggleRect(page);
-      expect(rect).not.toBeNull();
-      expect(rect!.display).toBe("flex");
-      // The top bar stays flush to the top and fully within the viewport.
-      expect(rect!.top).toBeGreaterThanOrEqual(-0.5);
-      expect(rect!.bottom).toBeLessThanOrEqual(800);
+      await expectTopBarWithinViewport(page);
 
-      // The page itself never scrolls — only the inner pane does. This is the
-      // invariant overscroll containment + the dynamic viewport height protect.
+      // Only the inner pane scrolls; overscroll containment keeps the body put.
       const bodyScroll = await page.evaluate(
         () => document.body.scrollTop + document.documentElement.scrollTop,
       );
       expect(bodyScroll).toBe(0);
 
-      // The shell fills the real viewport (dynamic viewport height).
+      // The shell fills the real (dynamic) viewport height.
       const fills = await page.evaluate(() => {
         const app = document.querySelector(".app");
         if (app === null) return false;
@@ -148,17 +148,13 @@ describe("mobile layout stability", () => {
     await withPage(env.context, async (page) => {
       await openMobileDetail(page);
       // Navigate to the other session via the sidebar (htmx swap).
-      await page.locator('.mobile-pane-btn[data-pane="sidebar"]').click();
+      await switchPane(page, "sidebar");
       await page
         .locator('.session-item[data-session-id="mobile-tall-2"] .session-name')
         .click();
       await expect(page).toHaveURL(`${env.baseUrl}/sessions/mobile-tall-2`);
 
-      const rect = await toggleRect(page);
-      expect(rect).not.toBeNull();
-      expect(rect!.display).toBe("flex");
-      expect(rect!.top).toBeGreaterThanOrEqual(-0.5);
-      expect(rect!.bottom).toBeLessThanOrEqual(800);
+      await expectTopBarWithinViewport(page);
     });
   }, 30000);
 });
