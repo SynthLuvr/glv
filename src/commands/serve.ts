@@ -21,6 +21,7 @@ type ServeOpts = {
   rpName: string;
   rpIdOverride?: string;
   forwardHost?: string;
+  debug: boolean;
 };
 
 // close() stops accepting connections; in-flight requests drain asynchronously.
@@ -109,7 +110,7 @@ const runServe = (
   dbWritable: DatabaseSync,
   opts: ServeOpts,
 ): void => {
-  setupLogging();
+  setupLogging(opts.debug);
   buildStyles();
   buildScripts();
   // Created here so shutdown can reap detached goose processes.
