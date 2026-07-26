@@ -1,23 +1,20 @@
-import { createConsola } from "consola";
+import { createConsola, LogLevels } from "consola";
 
 const isDebugEnabled = (): boolean =>
   process.env.GLV_DEBUG === "1" || process.env.GLV_DEBUG === "true";
 
-// Mirrors ../mynth-logger's dev setup: one consola instance wraps the global
-// console so every console.warn/debug/error is rendered with the colorful
-// fancy reporter in the terminal. Debug output stays gated behind GLV_DEBUG
-// (matching the previous logger) by lowering the level otherwise; production
-// concerns (JSON logs, redaction, Datadog/Discord forwarding) are deferred.
-// consola's bundled types omit the runtime-supported "fancy" flag, so the
-// options are built as a plain object before being passed in.
-const setupLogging = () => {
+// Wraps the global console with consola so diagnostics share one renderer.
+// Debug output stays hidden unless GLV_DEBUG lifts the level; warn and above
+// always emit, leaving a diagnostic trail even in production.
+const setupLogging = (): void => {
+  // Bundler resolution selects consola's browser types, whose createConsola
+  // signature omits the runtime-supported `fancy` flag. Indirecting the
+  // options through a variable sidesteps the excess-property check.
   const options = {
     fancy: true,
-    level: isDebugEnabled() ? 5 : 3,
+    level: isDebugEnabled() ? LogLevels.debug : LogLevels.info,
   };
-  const consola = createConsola(options);
-  consola.wrapConsole();
-  return consola;
+  createConsola(options).wrapConsole();
 };
 
 export { setupLogging };
