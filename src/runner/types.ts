@@ -11,11 +11,20 @@ type RunnerConfig = {
   maxLines: number;
   /** How long (ms) a terminal run lingers before eviction from the registry. */
   terminalRetentionMs: number;
+  /** Deadline (ms) for goose to emit its first output line before a restart. */
+  startupTimeoutMs: number;
+  /** Max restart attempts when goose hangs before its first output line. */
+  maxStartupRetries: number;
 };
 
 const DEFAULT_STOP_GRACE_MS = 5000;
 const DEFAULT_MAX_LINES = 5000;
 const DEFAULT_TERMINAL_RETENTION_MS = 30000;
+// goose loads MCP servers and providers at startup, which can take several
+// seconds — 30 s is long enough to avoid false restarts yet still recovers a
+// genuinely wedged process instead of parking a runner slot forever.
+const DEFAULT_STARTUP_TIMEOUT_MS = 30000;
+const DEFAULT_MAX_STARTUP_RETRIES = 2;
 
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
@@ -23,6 +32,8 @@ const RunnerConfigSchema = type({
   stopGraceMs: "number.integer >= 1",
   maxLines: "number.integer >= 1",
   terminalRetentionMs: "number.integer >= 1",
+  startupTimeoutMs: "number.integer >= 1",
+  maxStartupRetries: "number.integer >= 0",
 });
 
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
@@ -31,21 +42,19 @@ const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   stopGraceMs: DEFAULT_STOP_GRACE_MS,
   maxLines: DEFAULT_MAX_LINES,
   terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
+  startupTimeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
+  maxStartupRetries: DEFAULT_MAX_STARTUP_RETRIES,
 };
 
 const makeRunnerConfig = (
-  maxConcurrent: number,
-  gooseBinary: string,
-  stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
-  maxLines: number = DEFAULT_MAX_LINES,
-  terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
+  overrides: Partial<RunnerConfig> & {
+    maxConcurrent: number;
+    gooseBinary: string;
+  },
 ): RunnerConfig => {
   const result = RunnerConfigSchema({
-    maxConcurrent,
-    gooseBinary,
-    stopGraceMs,
-    maxLines,
-    terminalRetentionMs,
+    ...DEFAULT_RUNNER_CONFIG,
+    ...overrides,
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
@@ -94,6 +103,12 @@ type RunHandle = {
 type ProcessResult = {
   exitCode: number | null;
   signal?: string;
+  /** stderr captured by the spawn layer on failure (execa's buffered copy). */
+  stderr?: string;
+  /** Short message describing a spawn failure (e.g. "spawn goose ENOENT"). */
+  message?: string;
+  /** True when goose could not be spawned at all (binary missing / refused). */
+  spawnFailed?: boolean;
 };
 
 type SpawnedProcess = {
@@ -151,7 +166,9 @@ export type {
   SpawnFn,
 };
 export {
+  DEFAULT_MAX_STARTUP_RETRIES,
   DEFAULT_RUNNER_CONFIG,
+  DEFAULT_STARTUP_TIMEOUT_MS,
   makeRunnerConfig,
   newSessionInvocation,
   resumeInvocation,

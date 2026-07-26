@@ -149,6 +149,8 @@ type MockConfig = {
   lineDelayMs?: number;
   /** When set, persist each line to the sessions DB as it is produced. */
   writeDb?: boolean;
+  /** stderr lines to emit (newline-joined) before stdout, like a load error. */
+  stderr?: string;
 };
 
 type IntegrationEnv = {
@@ -295,11 +297,13 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
   GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
   GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
+  GOOSE_MOCK_STDERR: mock.stderr ?? "",
 });
 
 const startIntegrationEnv = async (
   prefix: string,
   mock: MockConfig = {},
+  extraEnv: Record<string, string> = {},
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
@@ -311,6 +315,7 @@ const startIntegrationEnv = async (
   const { proc, readStderr } = startServer(dbs, port, {
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
     ...mockEnv(mock),
+    ...extraEnv,
   });
 
   await waitForHttp(baseUrl);
