@@ -6,6 +6,7 @@ import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
+import { setupLogging } from "../log.js";
 import { openPromptsDb } from "../prompts/db.js";
 import type { RunnerConfig } from "../runner/index.js";
 import { createRunner, stopAll } from "../runner/index.js";
@@ -108,6 +109,7 @@ const runServe = (
   dbWritable: DatabaseSync,
   opts: ServeOpts,
 ): void => {
+  setupLogging();
   buildStyles();
   buildScripts();
   // Created here so shutdown can reap detached goose processes.

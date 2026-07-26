@@ -14,7 +14,6 @@ import {
 import { type } from "arktype";
 import { type Context, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import { debug } from "../log.js";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -153,7 +152,7 @@ const challengeFromResponse = (response: unknown): string | undefined => {
     const data = ChallengeView(JSON.parse(decoded));
     return data instanceof type.errors ? undefined : data.challenge;
   } catch (err) {
-    debug("auth", err);
+    console.debug("[glv:auth]", err);
     return undefined;
   }
 };

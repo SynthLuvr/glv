@@ -1,4 +1,3 @@
-import { debug } from "./log.js";
 import { execGit } from "./shell.js";
 
 type GitResult = { stdout: string; exitCode: number };
@@ -117,7 +116,7 @@ const resolveWorktreeByBranch = async (
 // Never throws — a missing git binary degrades to an empty GitInfo.
 const readGitInfo = (cwd: string, run: GitRunner = runGit): Promise<GitInfo> =>
   resolveGitInfo(cwd, run).catch((err) => {
-    debug("git", err);
+    console.debug("[glv:git]", err);
     return {};
   });
 
@@ -127,7 +126,7 @@ const readWorktreeByBranch = (
   branch: string,
 ): Promise<GitInfo> =>
   resolveWorktreeByBranch(cwd, run, branch).catch((err) => {
-    debug("git", err);
+    console.debug("[glv:git]", err);
     return {};
   });
 

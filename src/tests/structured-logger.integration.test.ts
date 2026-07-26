@@ -35,9 +35,10 @@ describe("structured error logging", () => {
     insertCredential("cred-corrupt", "not-json{");
     const res = await authedFetch(env, "/auth/devices");
     expect(res.status).toBe(200);
-    // Without the logger, parseTransports swallows the parse error silently;
-    // with it, a structured [glv:auth] warn line is left as a diagnostic trail.
-    expect(env.serverStderr()).toContain("[glv:auth] warn:");
+    // Without setupLogging, parseTransports would swallow this parse error
+    // silently; the warn leaves a tagged diagnostic trail on stderr.
+    expect(env.serverStderr()).toContain("WARN");
+    expect(env.serverStderr()).toContain("[glv:auth]");
   });
 
   it("stays silent for well-formed transports", async () => {

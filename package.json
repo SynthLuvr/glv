@@ -53,6 +53,7 @@
     "@simplewebauthn/server": "^13.3.2",
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
+    "consola": "^3.4.2",
     "dompurify": "^3.4.12",
     "execa": "^10.0.0",
     "hono": "^4.12.30",

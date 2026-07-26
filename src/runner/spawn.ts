@@ -1,6 +1,5 @@
 import { type } from "arktype";
 import { execa } from "execa";
-import { debug, warn } from "../log.js";
 import type {
   GooseInvocation,
   InternalHandle,
@@ -21,7 +20,7 @@ const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
   } catch (err) {
     // Usually the process already exited; surface at debug in case the
     // failure is a permissions issue worth investigating.
-    debug("runner", err);
+    console.debug("[glv:runner]", err);
   }
 };
 
@@ -207,7 +206,7 @@ const runAttempt = async (
   );
 
   if (first.kind === "timeout") {
-    warn("runner", {
+    console.warn("[glv:runner]", {
       message: `goose produced no output within ${runner.config.startupTimeoutMs}ms; restarting`,
       sessionId: handle.sessionId,
       pid: proc.pid,
@@ -216,7 +215,7 @@ const runAttempt = async (
     // Reap the detached group so a wedged goose can't linger, and salvage any
     // stderr it printed before hanging.
     const killed = await proc.exit.catch((err) => {
-      debug("runner", err);
+      console.debug("[glv:runner]", err);
       return undefined;
     });
     return { kind: "retry", stderr: killed?.stderr };
@@ -295,7 +294,11 @@ const markError = (
 ): void => {
   handle.status = "error";
   handle.error = message;
-  warn("runner", { message, sessionId: handle.sessionId, ...context });
+  console.warn("[glv:runner]", {
+    message,
+    sessionId: handle.sessionId,
+    ...context,
+  });
 };
 
 // Runs goose, restarting it when it hangs before its first output line (up to
