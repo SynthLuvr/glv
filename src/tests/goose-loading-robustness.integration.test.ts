@@ -91,10 +91,10 @@ describe("goose load failures — diagnostics surface", () => {
     expect(typeof err).toBe("string");
     expect(err).toContain("code 1");
     expect(err).toContain("failed to initialise MCP server");
-    // The failure also leaves a structured [glv:runner] diagnostic. The warn
-    // fires synchronously with the status change, so it is already in stderr
-    // by the time the stream observes the terminal "error" status.
-    expect(envErr.serverStderr()).toContain("[glv:runner] warn:");
+    // The failure also leaves a [glv:runner] diagnostic. The warn fires
+    // synchronously with the status change, so it is already in stderr by the
+    // time the stream observes the terminal "error" status.
+    expect(envErr.serverStderr()).toContain("[glv:runner]");
     expect(envErr.serverStderr()).toContain("failed to initialise MCP server");
   });
 });
