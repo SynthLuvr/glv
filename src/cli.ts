@@ -39,6 +39,7 @@ type ServeOpts = {
   rpName: string;
   rpId?: string;
   forward?: boolean;
+  debug?: boolean;
 };
 
 const program = new Command();
@@ -211,6 +212,7 @@ program
     "--forward",
     "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
   )
+  .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
   .action((opts: ServeOpts) => {
     // Writable opens first: read-only mode can't create the file, so serve
     // works before goose has ever run.
@@ -237,6 +239,7 @@ program
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
       forwardHost: resolveForwardHost(opts.forward),
+      debug: opts.debug === true,
     });
   });
 
