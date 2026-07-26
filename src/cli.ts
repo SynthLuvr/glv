@@ -219,15 +219,18 @@ program
     const db = openDb(getDbPath());
     runServe(db, dbWritable, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(
-        opts.maxConcurrent,
-        opts.gooseBinary,
-        5000,
-        5000,
-        30000,
-        envInt("GLV_STARTUP_TIMEOUT_MS", DEFAULT_STARTUP_TIMEOUT_MS),
-        envInt("GLV_STARTUP_RETRIES", DEFAULT_MAX_STARTUP_RETRIES),
-      ),
+      runner: makeRunnerConfig({
+        maxConcurrent: opts.maxConcurrent,
+        gooseBinary: opts.gooseBinary,
+        startupTimeoutMs: envInt(
+          "GLV_STARTUP_TIMEOUT_MS",
+          DEFAULT_STARTUP_TIMEOUT_MS,
+        ),
+        maxStartupRetries: envInt(
+          "GLV_STARTUP_RETRIES",
+          DEFAULT_MAX_STARTUP_RETRIES,
+        ),
+      }),
       authDbPath: getAuthDbPath(),
       promptsDbPath: getPromptsDbPath(),
       groupsDbPath: getGroupsDbPath(),

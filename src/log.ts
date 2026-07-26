@@ -1,9 +1,19 @@
 const isDebugEnabled = (): boolean =>
   process.env.GLV_DEBUG === "1" || process.env.GLV_DEBUG === "true";
 
+const describeUnserialisable = (detail: unknown): string => {
+  if (detail === null || typeof detail !== "object")
+    return "<unserialisable value>";
+  const name = (detail as { constructor?: { name?: string } }).constructor
+    ?.name;
+  return typeof name === "string" && name !== ""
+    ? `<${name}>`
+    : "<unserialisable value>";
+};
+
 // Renders a diagnostic value to a single line. Plain objects (structured
-// context like { message, sessionId, stderr }) are serialised to JSON so the
-// full detail survives in the log instead of collapsing to "[object Object]".
+// context like { message, sessionId }) are serialised to JSON so the full
+// detail survives instead of collapsing to "[object Object]".
 const formatDetail = (detail: unknown): string => {
   if (typeof detail === "string") return detail;
   if (detail instanceof Error) return detail.message;
@@ -11,13 +21,7 @@ const formatDetail = (detail: unknown): string => {
   try {
     return JSON.stringify(detail);
   } catch {
-    // Unserialisable (e.g. circular reference): avoid "[object Object]".
-    if (detail !== null && typeof detail === "object") {
-      const name = (detail as { constructor?: { name?: string } }).constructor
-        ?.name;
-      if (typeof name === "string" && name !== "") return `<${name}>`;
-    }
-    return "<unserialisable value>";
+    return describeUnserialisable(detail);
   }
 };
 

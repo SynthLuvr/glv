@@ -47,22 +47,14 @@ const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
 };
 
 const makeRunnerConfig = (
-  maxConcurrent: number,
-  gooseBinary: string,
-  stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
-  maxLines: number = DEFAULT_MAX_LINES,
-  terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
-  startupTimeoutMs: number = DEFAULT_STARTUP_TIMEOUT_MS,
-  maxStartupRetries: number = DEFAULT_MAX_STARTUP_RETRIES,
+  overrides: Partial<RunnerConfig> & {
+    maxConcurrent: number;
+    gooseBinary: string;
+  },
 ): RunnerConfig => {
   const result = RunnerConfigSchema({
-    maxConcurrent,
-    gooseBinary,
-    stopGraceMs,
-    maxLines,
-    terminalRetentionMs,
-    startupTimeoutMs,
-    maxStartupRetries,
+    ...DEFAULT_RUNNER_CONFIG,
+    ...overrides,
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);

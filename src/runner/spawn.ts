@@ -25,6 +25,13 @@ const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
   }
 };
 
+// Node's Timeout exposes unref; the DOM lib's setTimeout returns a number, so
+// guard before calling it. Detaching the timer keeps it from blocking exit.
+const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
+  if (typeof timer === "object" && timer !== null && "unref" in timer)
+    (timer as { unref: () => void }).unref();
+};
+
 const ExecaError = type({
   "exitCode?": "number | undefined",
   "signal?": "string | undefined",
@@ -33,21 +40,37 @@ const ExecaError = type({
   "originalMessage?": "string | undefined",
 });
 
-// A missing or non-executable binary surfaces as an ENOENT/EACCES on the
-// underlying spawn; execa folds it into originalMessage/shortMessage. Treat
-// those as a distinct "could not start goose" failure rather than a crash.
+// A missing or non-executable binary surfaces as ENOENT/EACCES, which execa
+// folds into originalMessage/shortMessage. Treat that as a distinct "could not
+// start goose" failure rather than a crash with an exit code.
 const isSpawnFailure = (e: {
   originalMessage?: string;
   shortMessage?: string;
-}): boolean => {
-  const msg = `${e.originalMessage ?? ""} ${e.shortMessage ?? ""}`;
-  return /ENOENT|EACCES|spawn|not found|permission/i.test(msg);
+}): boolean =>
+  /ENOENT|EACCES|spawn|not found|permission/i.test(
+    `${e.originalMessage ?? ""} ${e.shortMessage ?? ""}`,
+  );
+
+// Splits an async stream of string chunks into newline-delimited lines.
+const splitLines = async function* (
+  stream: AsyncIterable<string>,
+): AsyncGenerator<string> {
+  let buffer = "";
+  let nl: number;
+  for await (const chunk of stream) {
+    buffer += chunk;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      yield buffer.slice(0, nl);
+      buffer = buffer.slice(nl + 1);
+    }
+  }
+  if (buffer.length > 0) yield buffer;
 };
 
 // execa buffers stderr internally even while stdout is iterated externally
-// (verified: the buffered copy survives a non-zero exit and a SIGTERM kill),
-// so we read diagnostics from the result/error rather than racing a second
-// consumer that would split the stream.
+// (the buffered copy survives a non-zero exit and a SIGTERM kill), so we read
+// diagnostics from the result/error rather than racing a second consumer that
+// would split the stream.
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
     input: opts.stdin,
@@ -56,13 +79,10 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   });
   const pid = proc.pid ?? -1;
 
-  // execa emits stdout in arbitrary chunks; split into lines so each yielded
-  // value is one NDJSON record.
   const stdout = splitLines(proc);
 
-  // On rejection (non-zero exit or a spawn failure) execa carries the exit
-  // code, signal, buffered stderr and a short message. Capture all of them so
-  // describeFailure can surface *why* goose died instead of a bare exit code.
+  // On rejection execa carries exit code, signal, buffered stderr and a short
+  // message; capture all of them so describeFailure can show *why* goose died.
   const exit = proc.then(
     (r): ProcessResult => ({ exitCode: r.exitCode ?? 0, stderr: r.stderr }),
     (e: unknown): ProcessResult => {
@@ -82,21 +102,6 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   };
 
   return { pid, kill, stdout, exit };
-};
-
-const splitLines = async function* (
-  stream: AsyncIterable<unknown>,
-): AsyncGenerator<string> {
-  let buffer = "";
-  let nl: number;
-  for await (const chunk of stream) {
-    buffer += typeof chunk === "string" ? chunk : String(chunk);
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      yield buffer.slice(0, nl);
-      buffer = buffer.slice(nl + 1);
-    }
-  }
-  if (buffer.length > 0) yield buffer;
 };
 
 // A self-rearming interval polls handle.status in grace-sized windows so a
@@ -135,12 +140,26 @@ type FirstOutput =
   | { kind: "timeout" }
   | { kind: "ended"; result: ProcessResult };
 
-// Race goose's first output line against a startup deadline and the process
-// exit. "timeout" means goose hung at startup (no output) and should restart;
-// "ended" means it exited/crashed before emitting anything; "line" means it is
-// alive and streaming. The deadline timer is unref'd so it never blocks exit
-// and always cleared so it can't leak past the first line.
-const raceFirstOutput = (
+// Reads the first output line, settling to "closed" on end-of-stream or a
+// spawn failure (ENOENT rejects the iterator) so the caller falls back to the
+// exit result for the cause.
+const nextFirstLine = async (
+  iter: AsyncIterator<string>,
+): Promise<{ kind: "line"; value: string } | { kind: "closed" }> => {
+  try {
+    const result = await iter.next();
+    return result.done
+      ? { kind: "closed" }
+      : { kind: "line", value: result.value as string };
+  } catch {
+    return { kind: "closed" };
+  }
+};
+
+// Races goose's first output line against a startup deadline and the process
+// exit: "timeout" means it hung at startup and should restart, "ended" means it
+// exited before emitting anything, "line" means it is alive and streaming.
+const raceFirstOutput = async (
   iter: AsyncIterator<string>,
   exit: Promise<ProcessResult>,
   timeoutMs: number,
@@ -148,27 +167,13 @@ const raceFirstOutput = (
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), timeoutMs);
-    if (typeof timer === "object" && timer !== null && "unref" in timer)
-      (timer as { unref: () => void }).unref();
+    unrefTimer(timer);
   });
-  // A spawn failure (ENOENT) rejects the stdout iterator; treat that as
-  // "ended" and let the already-settled exit result carry the cause.
-  const next = iter.next().then(
-    (result) => ({
-      kind: "line" as const,
-      value: result.value as string,
-      done: result.done === true,
-    }),
-    () => ({ kind: "stream-error" as const }),
-  );
-  return Promise.race([next, timeout]).then((winner) => {
-    if (timer !== undefined) clearTimeout(timer);
-    if (winner === "timeout") return { kind: "timeout" };
-    if (winner.kind === "line" && !winner.done)
-      return { kind: "line", value: winner.value };
-    // stdout closed/errored before a usable line: fall through to the exit.
-    return exit.then((result) => ({ kind: "ended", result }));
-  });
+  const first = await Promise.race([nextFirstLine(iter), timeout]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (first === "timeout") return { kind: "timeout" };
+  if (first.kind === "line") return { kind: "line", value: first.value };
+  return { kind: "ended", result: await exit };
 };
 
 type AttemptOutcome =
@@ -188,7 +193,7 @@ const runAttempt = async (
   });
   handle.process = proc;
 
-  // stop() may have set cancelled before we assigned the process
+  // stop() may have set cancelled before we assigned the process.
   if (handle.cancelled) {
     proc.kill("SIGINT");
     return { kind: "stopped" };
@@ -208,8 +213,8 @@ const runAttempt = async (
       pid: proc.pid,
     });
     proc.kill("SIGTERM");
-    // Reap the detached group so a wedged goose can't linger across restarts,
-    // and salvage any stderr it printed before hanging.
+    // Reap the detached group so a wedged goose can't linger, and salvage any
+    // stderr it printed before hanging.
     const killed = await proc.exit.catch((err) => {
       debug("runner", err);
       return undefined;
@@ -226,9 +231,9 @@ const runAttempt = async (
   }
   // first.kind === "ended": goose exited before any output — nothing to stream.
 
-  // Subsequent lines have no deadline: a run that started streaming is alive.
-  // The stdout iterator rejects on a non-zero exit, so swallow that and let
-  // awaitExit below capture the structured result (with stderr).
+  // A run that started streaming is alive, so later lines have no deadline.
+  // The iterator rejects on a non-zero exit; swallow that and let awaitExit
+  // capture the structured result with stderr.
   for (;;) {
     let step: IteratorResult<string>;
     try {
@@ -247,15 +252,21 @@ const runAttempt = async (
   return { kind: "failed", result };
 };
 
-// Keep error detail short enough to fit in a status payload without truncating
-// the usually-informative final lines.
+// Caps stderr detail so it fits in a status payload, keeping the usually
+// informative final lines.
 const STDERR_DETAIL_MAX = 2000;
 
 const trimStderr = (text: string | undefined): string => {
   if (text === undefined) return "";
   const trimmed = text.trim();
-  if (trimmed.length <= STDERR_DETAIL_MAX) return trimmed;
-  return `…${trimmed.slice(-STDERR_DETAIL_MAX)}`;
+  return trimmed.length <= STDERR_DETAIL_MAX
+    ? trimmed
+    : `…${trimmed.slice(-STDERR_DETAIL_MAX)}`;
+};
+
+const withDetail = (base: string, stderr: string | undefined): string => {
+  const detail = trimStderr(stderr);
+  return detail === "" ? base : `${base} — ${detail}`;
 };
 
 const describeFailure = (result: ProcessResult): string => {
@@ -264,25 +275,32 @@ const describeFailure = (result: ProcessResult): string => {
   if (result.signal !== undefined)
     return `goose killed by signal ${result.signal}`;
   if (result.exitCode === null) return "goose process exited unexpectedly";
-  const base = `goose exited with code ${result.exitCode}`;
-  const detail = trimStderr(result.stderr);
-  return detail === "" ? base : `${base} — ${detail}`;
+  return withDetail(`goose exited with code ${result.exitCode}`, result.stderr);
 };
 
 const startupTimeoutError = (
   timeoutMs: number,
   attempts: number,
   stderr: string | undefined,
-): string => {
-  const base = `goose produced no output after ${attempts} attempt${attempts === 1 ? "" : "s"} (${timeoutMs}ms each)`;
-  const detail = trimStderr(stderr);
-  return detail === "" ? base : `${base} — ${detail}`;
+): string =>
+  withDetail(
+    `goose produced no output after ${attempts} attempt${attempts === 1 ? "" : "s"} (${timeoutMs}ms each)`,
+    stderr,
+  );
+
+const markError = (
+  handle: InternalHandle,
+  message: string,
+  context: Record<string, unknown>,
+): void => {
+  handle.status = "error";
+  handle.error = message;
+  warn("runner", { message, sessionId: handle.sessionId, ...context });
 };
 
-// Runs goose, restarting it when it hangs before emitting its first output
-// line (up to maxStartupRetries). A process that streams anything is
-// considered alive and never restarted; a non-zero exit is a real failure
-// surfaced with captured stderr so the user knows *why* it died.
+// Runs goose, restarting it when it hangs before its first output line (up to
+// maxStartupRetries). A process that streams anything is alive and never
+// restarted; a non-zero exit fails immediately with captured stderr.
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
@@ -298,11 +316,7 @@ const runProcess = async (
       return;
     }
     if (outcome.kind === "failed") {
-      handle.status = "error";
-      handle.error = describeFailure(outcome.result);
-      warn("runner", {
-        message: handle.error,
-        sessionId: handle.sessionId,
+      markError(handle, describeFailure(outcome.result), {
         exitCode: outcome.result.exitCode,
         spawnFailed: outcome.result.spawnFailed === true,
         stderr: outcome.result.stderr,
@@ -310,19 +324,17 @@ const runProcess = async (
       return;
     }
 
-    // retry: a hung startup. Restart unless attempts are exhausted.
+    // retry: a hung startup — restart unless attempts are exhausted.
     if (attempt >= maxAttempts) {
-      handle.status = "error";
-      handle.error = startupTimeoutError(
-        runner.config.startupTimeoutMs,
-        attempt,
-        outcome.stderr,
+      markError(
+        handle,
+        startupTimeoutError(
+          runner.config.startupTimeoutMs,
+          attempt,
+          outcome.stderr,
+        ),
+        { stderr: outcome.stderr },
       );
-      warn("runner", {
-        message: handle.error,
-        sessionId: handle.sessionId,
-        stderr: outcome.stderr,
-      });
       return;
     }
   }
