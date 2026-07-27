@@ -43,6 +43,12 @@ const switchPane = async (
   await page.locator(`.mobile-pane-btn[data-pane="${pane}"]`).click();
 };
 
+const selectSession = async (page: Page, id: string): Promise<void> => {
+  await page
+    .locator(`.session-item[data-session-id="${id}"] .session-name`)
+    .click();
+};
+
 describe("mobile pane toggle", () => {
   // Regression: clicking Sessions must keep the session list visible even
   // when a #detail-pane swap (here a deliberately slowed session-select GET)
@@ -57,9 +63,7 @@ describe("mobile pane toggle", () => {
       await openDetail(page, "mp-a");
       await switchPane(page, "sidebar");
       // Start the (delayed) navigation, then immediately switch back.
-      await page
-        .locator('.session-item[data-session-id="mp-b"] .session-name')
-        .click();
+      await selectSession(page, "mp-b");
       await switchPane(page, "sidebar");
       // Let the delayed swap land.
       await page.waitForTimeout(1200);
@@ -70,15 +74,11 @@ describe("mobile pane toggle", () => {
     });
   }, 30000);
 
-  // The fix moves the auto-switch to click time, so a normal session tap must
-  // still surface the detail pane immediately.
   it("switches to the detail pane when a session is tapped from the sidebar", async () => {
     await withPage(env.context, async (page) => {
       await openDetail(page, "mp-a");
       await switchPane(page, "sidebar");
-      await page
-        .locator('.session-item[data-session-id="mp-b"] .session-name')
-        .click();
+      await selectSession(page, "mp-b");
       await expect(page.locator(".app")).toHaveAttribute(
         "data-mobile-pane",
         "detail",

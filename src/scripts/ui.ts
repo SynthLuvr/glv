@@ -251,10 +251,9 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
 // Surface the detail pane at click time — not when the swap lands — so a
 // slow response can never override a user who switched to the session list.
 document.addEventListener("click", (e) => {
-  const el = e.target instanceof Element ? e.target : null;
-  const link = el?.closest("[hx-get]");
-  if (!(link instanceof Element)) return;
-  if (link.closest('[hx-target="#detail-pane"]') !== null)
+  if (!(e.target instanceof Element)) return;
+  const link = e.target.closest("[hx-get]");
+  if (link !== null && link.closest('[hx-target="#detail-pane"]') !== null)
     uiApplyPane("detail");
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });
