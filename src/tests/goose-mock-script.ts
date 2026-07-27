@@ -18,13 +18,6 @@ const linesFromEnv = (): string[] => {
   );
 };
 
-// Emits diagnostic lines to stderr before any work, the way goose writes load
-// errors or MCP warnings. Captured by the runner and surfaced in failures.
-const stderrLines = (): string[] => {
-  const custom = process.env.GOOSE_MOCK_STDERR ?? "";
-  return custom.split("\n").filter((line) => line !== "");
-};
-
 // Returns the new session's id so emitted lines can be committed to it.
 const insertSession = (): string | undefined => {
   const dbPath = process.env.GOOSE_SESSIONS_DB;
@@ -111,10 +104,6 @@ const main = async (): Promise<void> => {
   // Insert first so the server's session poll detects the row promptly even
   // when a long sleep keeps the process alive afterwards.
   const sessionId = isResume ? sessionIdFromArgs(args) : insertSession();
-
-  // Stderr is written before the startup sleep so a hang (long sleep, no
-  // stdout) still leaves a diagnostic trail the runner captures.
-  for (const line of stderrLines()) console.error(line);
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

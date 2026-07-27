@@ -16,11 +16,7 @@ import { readConfig } from "./config.js";
 import { openDb, resolveDbPath } from "./db.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
-import {
-  DEFAULT_MAX_STARTUP_RETRIES,
-  DEFAULT_STARTUP_TIMEOUT_MS,
-  makeRunnerConfig,
-} from "./runner/index.js";
+import { makeRunnerConfig } from "./runner/index.js";
 
 type SessionsOpts = {
   type: string;
@@ -168,15 +164,6 @@ const resolveGooseBinary = (value: string): string => {
   return value;
 };
 
-// Operators (and tests) tune the startup deadline and restart budget via env so
-// a wedged goose load is recovered automatically without restarting glv.
-const envInt = (name: string, fallback: number): number => {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-};
-
 const resolveForwardHost = (forward?: boolean): string | undefined => {
   if (!forward) return undefined;
   const { forwardHost } = readConfig();
@@ -221,18 +208,7 @@ program
     const db = openDb(getDbPath());
     runServe(db, dbWritable, {
       port: Number(opts.port),
-      runner: makeRunnerConfig({
-        maxConcurrent: opts.maxConcurrent,
-        gooseBinary: opts.gooseBinary,
-        startupTimeoutMs: envInt(
-          "GLV_STARTUP_TIMEOUT_MS",
-          DEFAULT_STARTUP_TIMEOUT_MS,
-        ),
-        maxStartupRetries: envInt(
-          "GLV_STARTUP_RETRIES",
-          DEFAULT_MAX_STARTUP_RETRIES,
-        ),
-      }),
+      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
       authDbPath: getAuthDbPath(),
       promptsDbPath: getPromptsDbPath(),
       groupsDbPath: getGroupsDbPath(),

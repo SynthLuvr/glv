@@ -19,9 +19,7 @@ import type {
   SpawnFn,
 } from "./types.js";
 import {
-  DEFAULT_MAX_STARTUP_RETRIES,
   DEFAULT_RUNNER_CONFIG,
-  DEFAULT_STARTUP_TIMEOUT_MS,
   makeRunnerConfig,
   newSessionInvocation,
   resumeInvocation,
@@ -40,9 +38,7 @@ export {
   clearPending,
   createRingBuffer,
   createRunner,
-  DEFAULT_MAX_STARTUP_RETRIES,
   DEFAULT_RUNNER_CONFIG,
-  DEFAULT_STARTUP_TIMEOUT_MS,
   enqueueOrQueue,
   enqueueRun,
   generateTempKey,
