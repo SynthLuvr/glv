@@ -237,7 +237,9 @@ const uiInit = (): void => {
 
 document.addEventListener("DOMContentLoaded", uiInit);
 // htmx swaps replace #detail-pane's children; re-sync title and focus — the
-// MutationObserver picks up the new nodes for code-block enhancement.
+// MutationObserver picks up the new nodes for code-block enhancement. The
+// mobile pane switch is deliberately NOT done here: a swap that lands after
+// the user clicked "Sessions" would bounce them back to the detail pane.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;
@@ -245,7 +247,13 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   uiSyncTitle();
   uiAutogrowAll();
   uiFocusAutofocus();
-  // Selecting a session swaps #detail-pane — surface it immediately.
-  uiApplyPane("detail");
+});
+// Surface the detail pane at click time — not when the swap lands — so a
+// slow response can never override a user who switched to the session list.
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) return;
+  const link = e.target.closest("[hx-get]");
+  if (link !== null && link.closest('[hx-target="#detail-pane"]') !== null)
+    uiApplyPane("detail");
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });
