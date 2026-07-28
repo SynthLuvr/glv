@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -149,6 +149,8 @@ type MockConfig = {
   lineDelayMs?: number;
   /** When set, persist each line to the sessions DB as it is produced. */
   writeDb?: boolean;
+  /** When set, writes goose's stdin (the full prompt) to this file path. */
+  captureStdin?: string;
 };
 
 type IntegrationEnv = {
@@ -157,6 +159,8 @@ type IntegrationEnv = {
   cookie: string;
   context: BrowserContext;
   dbs: Databases;
+  /** GLV's private uploads directory (temp dir, cleaned up on test end). */
+  uploadsDir: string;
   /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
   serverStderr: () => string;
   cleanup: () => Promise<void>;
@@ -295,6 +299,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
   GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
   GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
+  GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
 });
 
 const startIntegrationEnv = async (
@@ -303,6 +308,8 @@ const startIntegrationEnv = async (
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
+  const uploadsDir = join(scratchDir, "uploads");
+  mkdirSync(uploadsDir, { recursive: true });
   const restoreGoosePath = await mockGoose();
   const restoreGhPath = await mockGh();
 
@@ -310,6 +317,7 @@ const startIntegrationEnv = async (
   const baseUrl = `http://localhost:${port}`;
   const { proc, readStderr } = startServer(dbs, port, {
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
+    GLV_UPLOADS_DIR: uploadsDir,
     ...mockEnv(mock),
   });
 
@@ -346,6 +354,7 @@ const startIntegrationEnv = async (
     cookie: `glv_session=${dbs.token}`,
     context,
     dbs,
+    uploadsDir,
     serverStderr: readStderr,
     cleanup,
   };

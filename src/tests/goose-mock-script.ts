@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 // Stand-in for the real goose binary. A `--session-id` flag means a resume
@@ -104,6 +105,15 @@ const main = async (): Promise<void> => {
   // Insert first so the server's session poll detects the row promptly even
   // when a long sleep keeps the process alive afterwards.
   const sessionId = isResume ? sessionIdFromArgs(args) : insertSession();
+
+  // Optionally capture stdin (the full prompt including file-path context)
+  // so upload tests can verify what goose received.
+  const captureTo = process.env.GOOSE_MOCK_CAPTURE_STDIN;
+  if (captureTo !== undefined && captureTo !== "") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+    writeFileSync(captureTo, Buffer.concat(chunks));
+  }
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

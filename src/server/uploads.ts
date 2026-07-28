@@ -1,0 +1,132 @@
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join } from "node:path";
+import { resolveDataPath } from "../db-path.js";
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file
+const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100 MB across all uploads
+const SESSION_MARKER = ".glv-session-id";
+
+const resolveUploadsBase = (): string =>
+  resolveDataPath(undefined, "GLV_UPLOADS_DIR", "glv", "uploads");
+
+const resolveUploadDir = (id: string): string => join(resolveUploadsBase(), id);
+
+// Strip path components and unsafe characters so a filename can never escape
+// the per-session upload dir.
+const sanitizeFilename = (name: string): string => {
+  const cleaned = basename(name).replace(/[^a-zA-Z0-9._-]/g, "_");
+  return cleaned === "" || cleaned === "." ? "upload" : cleaned;
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+class UploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadError";
+  }
+}
+
+// Appends -1, -2, ... before the extension until the name is unused.
+const uniqueName = (name: string, used: Set<string>): string => {
+  if (!used.has(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let i = 1;
+  let candidate = `${stem}-${i}${ext}`;
+  while (used.has(candidate)) {
+    i++;
+    candidate = `${stem}-${i}${ext}`;
+  }
+  return candidate;
+};
+
+type SavedUpload = { paths: string[]; dir: string };
+
+// Writes each file into a fresh per-batch directory. The real session id
+// isn't known until goose creates it, so the dir is named with a uuid and the
+// caller tags it onto the session id later (tagUploadDir).
+const saveUploads = async (files: File[]): Promise<SavedUpload> => {
+  const dir = resolveUploadDir(randomUUID());
+  mkdirSync(dir, { recursive: true });
+
+  let totalSize = 0;
+  const used = new Set<string>();
+  const paths: string[] = [];
+
+  for (const file of files) {
+    if (file.size > MAX_FILE_SIZE)
+      throw new UploadError(
+        `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(MAX_FILE_SIZE)}.`,
+      );
+
+    totalSize += file.size;
+    if (totalSize > MAX_TOTAL_SIZE)
+      throw new UploadError(
+        `Total upload size exceeds ${formatFileSize(MAX_TOTAL_SIZE)}.`,
+      );
+
+    const name = uniqueName(sanitizeFilename(file.name), used);
+    used.add(name);
+    const dest = join(dir, name);
+    writeFileSync(dest, Buffer.from(await file.arrayBuffer()));
+    paths.push(dest);
+  }
+
+  return { paths, dir };
+};
+
+// Appends an absolute-path reference section to the prompt so goose reads the
+// files regardless of its working directory.
+const buildUploadContext = (paths: string[]): string => {
+  if (paths.length === 0) return "";
+  const list = paths.map((p) => `- ${p}`).join("\n");
+  return `\n\n---\nAttached files (read them as needed):\n${list}`;
+};
+
+// Tags the upload dir with its session id so cleanup can find it on archive.
+// The dir keeps its uuid name: renaming would break the absolute paths already
+// handed to goose for the lifetime of the run.
+const tagUploadDir = (dir: string, sessionId: string): void => {
+  writeFileSync(join(dir, SESSION_MARKER), sessionId);
+};
+
+// Removes the sub-dir tagged with this session id. Untagged dirs (from crashed
+// sessions) are left untouched.
+const deleteUploads = (sessionId: string): void => {
+  const base = resolveUploadsBase();
+  if (!existsSync(base)) return;
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const markerPath = join(base, entry.name, SESSION_MARKER);
+    if (!existsSync(markerPath)) continue;
+    if (readFileSync(markerPath, "utf-8").trim() === sessionId)
+      rmSync(join(base, entry.name), { recursive: true, force: true });
+  }
+};
+
+const deleteUploadDir = (dir: string): void => {
+  rmSync(dir, { recursive: true, force: true });
+};
+
+export {
+  buildUploadContext,
+  deleteUploadDir,
+  deleteUploads,
+  saveUploads,
+  tagUploadDir,
+  UploadError,
+};

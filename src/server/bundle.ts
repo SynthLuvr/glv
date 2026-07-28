@@ -11,6 +11,7 @@ type AssetBundle = {
   readonly prompts: string;
   readonly groups: string;
   readonly passkey: string;
+  readonly uploads: string;
 };
 
 // Resolved relative to this file (src/server/) so dist/ is two levels up.
@@ -31,6 +32,7 @@ const buildAssetBundle = (): AssetBundle => ({
   prompts: readAsset("../../dist/prompts.js"),
   groups: readAsset("../../dist/groups.js"),
   passkey: readAsset("../../dist/passkey.js"),
+  uploads: readAsset("../../dist/uploads.js"),
 });
 
 export type { AssetBundle };

@@ -45,6 +45,14 @@ import {
   withCreateLock,
 } from "../session.js";
 import { activeSessionIds } from "../status.js";
+import {
+  buildUploadContext,
+  deleteUploadDir,
+  deleteUploads,
+  saveUploads,
+  tagUploadDir,
+  UploadError,
+} from "../uploads.js";
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
@@ -109,13 +117,25 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
-    const body = await c.req.parseBody();
-    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    const promptId =
-      typeof body.prompt_id === "string" ? body.prompt_id.trim() : "";
-    const workingDir = expandHome(
-      typeof body.working_dir === "string" ? body.working_dir.trim() : "",
-    );
+    const body = await c.req.parseBody({ all: true });
+    const fieldString = (key: string): string => {
+      const val = body[key];
+      if (Array.isArray(val))
+        return typeof val[0] === "string" ? val[0].trim() : "";
+      return typeof val === "string" ? val.trim() : "";
+    };
+
+    const prompt = fieldString("prompt");
+    const promptId = fieldString("prompt_id");
+    const workingDir = expandHome(fieldString("working_dir"));
+
+    const rawUploads = body.uploads;
+    const files: File[] = [];
+    if (Array.isArray(rawUploads)) {
+      for (const v of rawUploads)
+        if (v instanceof File && v.size > 0) files.push(v);
+    } else if (rawUploads instanceof File && rawUploads.size > 0)
+      files.push(rawUploads);
 
     const rejectForm = (error: string, status: ContentfulStatusCode) =>
       render(
@@ -133,13 +153,34 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (workingDir === "" || !existsSync(workingDir))
       return rejectForm("That working directory does not exist.", 422);
 
+    // Save uploaded files into GLV's private storage and append their
+    // absolute paths to the prompt so goose can read them.
+    let uploadDir: string | undefined;
+    let fullPrompt = prompt;
+    if (files.length > 0)
+      try {
+        const saved = await saveUploads(files);
+        fullPrompt = prompt + buildUploadContext(saved.paths);
+        uploadDir = saved.dir;
+      } catch (err) {
+        const msg =
+          err instanceof UploadError
+            ? err.message
+            : "Failed to save uploaded files.";
+        return rejectForm(msg, 422);
+      }
+
     const result = await withCreateLock(
       ctx.createLocks,
       workingDir,
       async (): Promise<EstablishOutcome> => {
         // Inside the per-directory lock so concurrent starts can't race the pull.
         await pullRepo(workingDir, ctx.runGit);
-        const { tempKey, known } = prepareNewSession(ctx, workingDir, prompt);
+        const { tempKey, known } = prepareNewSession(
+          ctx,
+          workingDir,
+          fullPrompt,
+        );
 
         const realId = await pollForSessionId(
           ctx.db,
@@ -160,8 +201,15 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       },
     );
 
-    if (!result.ok) return rejectForm(result.error, result.status);
+    if (!result.ok) {
+      if (uploadDir !== undefined) deleteUploadDir(uploadDir);
+      return rejectForm(result.error, result.status);
+    }
     const { realId, session } = result;
+
+    // Tag the upload dir with the real session id so cleanup finds it when
+    // the session is archived.
+    if (uploadDir !== undefined) tagUploadDir(uploadDir, realId);
 
     // A "Run" from a saved prompt tags the submit with the prompt id; bump
     // usage stats only once the run has actually been established.
@@ -206,6 +254,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
     archiveSessions(ctx.dbWritable, [id]);
+    deleteUploads(id);
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,
       title: NEW_SESSION_TITLE,
