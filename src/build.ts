@@ -21,6 +21,7 @@ const CLIENT_ENTRIES = [
   "groups",
   "prompts",
   "passkey",
+  "uploads",
 ].map((name) => join(SRC_DIR, "scripts", `${name}.ts`));
 
 const ensureDistDir = (): void => {
