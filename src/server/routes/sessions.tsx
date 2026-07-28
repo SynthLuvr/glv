@@ -207,8 +207,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     }
     const { realId, session } = result;
 
-    // Move uploads from the temp batch dir onto the real session id so
-    // cleanup finds them when the session is archived.
+    // Tag the upload dir with the real session id so cleanup finds it when
+    // the session is archived.
     if (uploadDir !== undefined) tagUploadDir(uploadDir, realId);
 
     // A "Run" from a saved prompt tags the submit with the prompt id; bump

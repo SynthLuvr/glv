@@ -12,15 +12,15 @@ import { resolveDataPath } from "../db-path.js";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file
 const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100 MB across all uploads
+const SESSION_MARKER = ".glv-session-id";
 
 const resolveUploadsBase = (): string =>
   resolveDataPath(undefined, "GLV_UPLOADS_DIR", "glv", "uploads");
 
-const resolveUploadDir = (sessionId: string): string =>
-  join(resolveUploadsBase(), sessionId);
+const resolveUploadDir = (id: string): string => join(resolveUploadsBase(), id);
 
-// Strip path components and unsafe characters so an uploaded filename can
-// never escape the per-session upload dir.
+// Strip path components and unsafe characters so a filename can never escape
+// the per-session upload dir.
 const sanitizeFilename = (name: string): string => {
   const cleaned = basename(name).replace(/[^a-zA-Z0-9._-]/g, "_");
   return cleaned === "" || cleaned === "." ? "upload" : cleaned;
@@ -39,8 +39,7 @@ class UploadError extends Error {
   }
 }
 
-// Resolves filename collisions inside a session's upload dir by appending
-// -1, -2, etc. before the extension.
+// Appends -1, -2, ... before the extension until the name is unused.
 const uniqueName = (name: string, used: Set<string>): string => {
   if (!used.has(name)) return name;
   const dot = name.lastIndexOf(".");
@@ -57,13 +56,11 @@ const uniqueName = (name: string, used: Set<string>): string => {
 
 type SavedUpload = { paths: string[]; dir: string };
 
-// Writes each file into a fresh per-batch directory under GLV's private
-// uploads area. Returns the absolute paths so they can be handed to goose,
-// plus the temp dir so the caller can move it onto the real session id once
-// goose has created it.
+// Writes each file into a fresh per-batch directory. The real session id
+// isn't known until goose creates it, so the dir is named with a uuid and the
+// caller tags it onto the session id later (tagUploadDir).
 const saveUploads = async (files: File[]): Promise<SavedUpload> => {
-  const uploadId = randomUUID();
-  const dir = resolveUploadDir(uploadId);
+  const dir = resolveUploadDir(randomUUID());
   mkdirSync(dir, { recursive: true });
 
   let totalSize = 0;
@@ -92,28 +89,23 @@ const saveUploads = async (files: File[]): Promise<SavedUpload> => {
   return { paths, dir };
 };
 
-// Appends a file-reference section to the prompt so goose knows where to find
-// the uploaded files. Paths are absolute so goose resolves them regardless of
-// its working directory.
+// Appends an absolute-path reference section to the prompt so goose reads the
+// files regardless of its working directory.
 const buildUploadContext = (paths: string[]): string => {
   if (paths.length === 0) return "";
   const list = paths.map((p) => `- ${p}`).join("\n");
   return `\n\n---\nAttached files (read them as needed):\n${list}`;
 };
 
-const SESSION_MARKER = ".glv-session-id";
-
-// Writes a marker file inside the upload dir so cleanup can find it by
-// session id on archive. Files stay in the original (uuid-named) dir so the
-// paths handed to goose remain valid for the lifetime of the run — renaming
-// after goose starts would create a race where the prompt's file paths
-// suddenly point at a moved directory.
+// Tags the upload dir with its session id so cleanup can find it on archive.
+// The dir keeps its uuid name: renaming would break the absolute paths already
+// handed to goose for the lifetime of the run.
 const tagUploadDir = (dir: string, sessionId: string): void => {
   writeFileSync(join(dir, SESSION_MARKER), sessionId);
 };
 
-// Scans the uploads base dir for a sub-dir tagged with the given session id
-// and removes it. Untagged dirs (from crashed sessions) are left untouched.
+// Removes the sub-dir tagged with this session id. Untagged dirs (from crashed
+// sessions) are left untouched.
 const deleteUploads = (sessionId: string): void => {
   const base = resolveUploadsBase();
   if (!existsSync(base)) return;
@@ -134,9 +126,6 @@ export {
   buildUploadContext,
   deleteUploadDir,
   deleteUploads,
-  formatFileSize,
-  MAX_FILE_SIZE,
-  resolveUploadDir,
   saveUploads,
   tagUploadDir,
   UploadError,
