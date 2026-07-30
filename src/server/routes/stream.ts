@@ -261,10 +261,11 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         if (next === false) return;
         state.sentLineOffset = next;
       } else if (handle !== undefined) {
-        // Terminal on connect (e.g. EventSource reconnect): skip every
-        // buffered line — they're already committed DB messages.
+        // Terminal reconnect: buffered lines are already committed, so skip
+        // them and clear the stale preview tail to avoid duplicates.
         state.sentLineOffset = handle.output.drain(0).nextSeq;
         state.flushedTerminal = true;
+        if (!(await emit(stream, "preview-clear", "", state.msgCursor))) return;
       }
 
       let polls = 0;
