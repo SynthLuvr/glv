@@ -122,6 +122,7 @@ const NewSessionForm = ({
       />
       <p class="upload-error" style="display:none" />
       <div class="upload-chips" style="display:none" />
+      <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
       <div class="form-actions upload-actions">
         <button
           type="button"

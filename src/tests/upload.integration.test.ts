@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
@@ -193,6 +193,113 @@ describe("file upload — session with attachments", () => {
         withFileTypes: true,
       }).filter((d) => d.isDirectory());
       expect(afterDirs.length).toBeLessThanOrEqual(beforeDirs.length);
+    });
+  });
+});
+
+const PASTED_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+
+// A plain object so it serialises across the Playwright boundary.
+type PastePayload =
+  | { kind: "image"; b64: string; mime: string }
+  | { kind: "text"; text: string };
+
+const PASTED_PNG: PastePayload = {
+  kind: "image",
+  b64: PASTED_PNG_B64,
+  mime: "image/png",
+};
+
+const pasteIntoForm = async (
+  page: Page,
+  payload: PastePayload,
+): Promise<void> => {
+  await page.evaluate((p) => {
+    const dt = new DataTransfer();
+    if (p.kind === "image") {
+      const bin = atob(p.b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      dt.items.add(new File([bytes], "clipboard.png", { type: p.mime }));
+    } else {
+      dt.setData("text/plain", p.text);
+    }
+    const evt = new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.querySelector("form.new-session-form")!.dispatchEvent(evt);
+  }, payload);
+};
+
+const readInputFileNames = async (page: Page): Promise<string[]> =>
+  page
+    .locator('input[type="file"]')
+    .evaluate((el: HTMLInputElement) =>
+      Array.from(el.files ?? []).map((f) => f.name),
+    );
+
+describe("file upload — paste images from clipboard", () => {
+  it("attaches a pasted image as a chip with a thumbnail", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      await expect(page.locator("form.new-session-form")).toBeVisible();
+
+      await pasteIntoForm(page, PASTED_PNG);
+
+      await expect(page.locator(".upload-chip")).toBeVisible();
+      await expect(page.locator(".chip-name")).toContainText(
+        "pasted-image-1.png",
+      );
+      // Images render an <img> thumbnail, not the generic file-icon span.
+      await expect(page.locator(".upload-chip img.chip-thumb")).toBeVisible();
+
+      // Synced into the hidden input for the htmx multipart submit.
+      expect(await readInputFileNames(page)).toEqual(["pasted-image-1.png"]);
+    });
+  });
+
+  it("increments the name for successive pastes", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      await expect(page.locator("form.new-session-form")).toBeVisible();
+
+      await pasteIntoForm(page, PASTED_PNG);
+      await pasteIntoForm(page, PASTED_PNG);
+
+      await expect(page.locator(".chip-name")).toContainText([
+        "pasted-image-1.png",
+        "pasted-image-2.png",
+      ]);
+    });
+  });
+
+  it("removes a pasted-image chip on ✕ and clears the input", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      await expect(page.locator("form.new-session-form")).toBeVisible();
+
+      await pasteIntoForm(page, PASTED_PNG);
+
+      await expect(page.locator(".upload-chip")).toBeVisible();
+      await page.locator(".chip-remove").click();
+      await expect(page.locator(".upload-chip")).toHaveCount(0);
+
+      expect(await readInputFileNames(page)).toEqual([]);
+    });
+  });
+
+  it("lets plain-text paste through without creating a chip", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      await expect(page.locator("form.new-session-form")).toBeVisible();
+
+      await page.locator("textarea[name=prompt]").focus();
+      await pasteIntoForm(page, { kind: "text", text: "just some text" });
+
+      await expect(page.locator(".upload-chip")).toHaveCount(0);
     });
   });
 });
