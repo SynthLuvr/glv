@@ -153,10 +153,7 @@ describe("terminal reconnect — no stale preview", () => {
     const previews = collected.filter((e) => e.event === "preview");
     expect(previews).toHaveLength(0);
 
-    // A terminal reconnect must clear any stale preview the client still
-    // holds in #live-tail from before the disconnect — otherwise the
-    // already-committed message shows twice (once in #messages, once in
-    // the uncleared preview tail).
+    // Stale preview tail must also be cleared.
     expect(collected.some((e) => e.event === "preview-clear")).toBe(true);
 
     // Catchup and status events should still arrive.
