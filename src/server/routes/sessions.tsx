@@ -52,8 +52,7 @@ import {
   deleteUploads,
   removeDir,
   saveUploads,
-  tagTempDir,
-  tagUploadDir,
+  tagDir,
   UploadError,
 } from "../uploads.js";
 
@@ -160,8 +159,6 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     )
       return rejectForm("That working directory does not exist.", 422);
 
-    // A temporary directory is created on demand once validation has passed
-    // and swept up when the session is archived.
     const tempWorkingDir = sessionMode === "temp" ? createTempDir() : undefined;
     const workingDir = tempWorkingDir ?? submittedWorkingDir;
 
@@ -222,10 +219,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.
-    if (uploadDir !== undefined) tagUploadDir(uploadDir, realId);
-
-    // Tag the temp working dir the same way so it is swept on archive.
-    if (tempWorkingDir !== undefined) tagTempDir(tempWorkingDir, realId);
+    if (uploadDir !== undefined) tagDir(uploadDir, realId);
+    if (tempWorkingDir !== undefined) tagDir(tempWorkingDir, realId);
 
     // A "Run" from a saved prompt tags the submit with the prompt id; bump
     // usage stats only once the run has actually been established.
