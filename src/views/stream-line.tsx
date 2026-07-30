@@ -18,7 +18,6 @@ const renderStreamLine = (line: string): string => {
     return renderToString(<p class="stream-raw">{line}</p>);
 
   // Goose wraps each record in a {"type":"message","message":{...}} envelope.
-  // Unwrap it so the content array and role are at the expected top level.
   const payload =
     parsed.type === "message" && isRecord(parsed.message)
       ? parsed.message

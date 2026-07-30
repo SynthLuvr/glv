@@ -115,15 +115,14 @@ describe("envelope-format NDJSON preview", () => {
     const previews = events.filter((e) => e.event === "preview");
     expect(previews.length).toBeGreaterThan(0);
 
-    // Envelope message text should appear as rendered HTML.
     const envelopePreview = previews.find((p) =>
       p.data.includes("envelope reply"),
     );
     expect(envelopePreview).toBeDefined();
-    // The raw envelope wrapper must NOT leak as text.
+    // The envelope wrapper must not leak as raw text.
     expect(envelopePreview?.data).not.toContain('"type":"message"');
 
-    // Non-JSON lines still render as stream-raw (light text).
+    // Non-JSON lines still render as stream-raw.
     const rawPreview = previews.find((p) => p.data.includes("goose is ready"));
     expect(rawPreview).toBeDefined();
     expect(rawPreview?.data).toContain("stream-raw");
@@ -132,14 +131,11 @@ describe("envelope-format NDJSON preview", () => {
 
 describe("terminal reconnect — no stale preview re-flush", () => {
   it("does not emit preview events when reconnecting to a finished run", async () => {
-    // Start a run and let it finish (the mock exits quickly).
     await startRun(envReconnect, "rc-1", "reconnect test");
-    // Wait for the run to complete and the handle to reach terminal status.
     await delay(2000);
 
-    // Simulate an EventSource reconnect: open a fresh SSE connection to the
-    // now-terminal session. The handle is still retained (30s window), so its
-    // ring buffer still holds every NDJSON line from the run.
+    // Simulate an EventSource reconnect: the handle is still retained (30s
+    // window), so its ring buffer still holds every buffered NDJSON line.
     const collected: SseEvent[] = [];
     try {
       await collectSse(
@@ -154,13 +150,10 @@ describe("terminal reconnect — no stale preview re-flush", () => {
       // Expected: collectSse rejects on timeout.
     }
 
-    // With the fix, no preview events should be emitted on reconnect to a
-    // terminal session. The old buffered lines are already represented by
-    // committed DB messages.
     const previews = collected.filter((e) => e.event === "preview");
     expect(previews).toHaveLength(0);
 
-    // Sanity: the initial catchup and status events should still arrive.
+    // Catchup and status events should still arrive.
     expect(collected.some((e) => e.event === "messages")).toBe(true);
     expect(hasStatus(collected, "completed")).toBe(true);
   });
