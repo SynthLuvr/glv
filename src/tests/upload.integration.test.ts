@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
@@ -197,14 +197,10 @@ describe("file upload — session with attachments", () => {
   });
 });
 
-// A real 1x1 PNG as base64 — the uploads script recognises it as an image.
 const PASTED_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
 
-type Page = import("@playwright/test").Page;
-
-// Describes what a synthetic paste should carry. It is a plain object so it
-// can be serialised across the Playwright boundary without eval.
+// A plain object so it serialises across the Playwright boundary.
 type PastePayload =
   | { kind: "image"; b64: string; mime: string }
   | { kind: "text"; text: string };
@@ -215,8 +211,6 @@ const PASTED_PNG: PastePayload = {
   mime: "image/png",
 };
 
-// Dispatches a synthetic paste event carrying the given payload onto the
-// New Session form, mirroring a user pressing ⌘/Ctrl+V.
 const pasteIntoForm = async (
   page: Page,
   payload: PastePayload,
@@ -259,11 +253,10 @@ describe("file upload — paste images from clipboard", () => {
       await expect(page.locator(".chip-name")).toContainText(
         "pasted-image-1.png",
       );
-      // Images render a thumbnail <img>, not the generic file-icon span.
+      // Images render an <img> thumbnail, not the generic file-icon span.
       await expect(page.locator(".upload-chip img.chip-thumb")).toBeVisible();
 
-      // The pasted image is synced into the hidden file input, ready for the
-      // htmx multipart submission — the same path the file picker uses.
+      // Synced into the hidden input for the htmx multipart submit.
       expect(await readInputFileNames(page)).toEqual(["pasted-image-1.png"]);
     });
   });
