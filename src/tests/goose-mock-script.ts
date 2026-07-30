@@ -52,7 +52,15 @@ const commitMessage = (
   let role = "assistant";
   let content = line;
   try {
-    const parsed = JSON.parse(line) as { role?: unknown; content?: unknown };
+    let parsed = JSON.parse(line) as {
+      type?: unknown;
+      message?: { role?: unknown; content?: unknown };
+      role?: unknown;
+      content?: unknown;
+    };
+    // Goose wraps each record in a {"type":"message","message":{...}} envelope.
+    if (parsed.type === "message" && parsed.message !== undefined)
+      parsed = parsed.message;
     if (typeof parsed.role === "string") role = parsed.role;
     if (parsed.content !== undefined) content = JSON.stringify(parsed.content);
   } catch {

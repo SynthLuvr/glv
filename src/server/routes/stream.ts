@@ -260,6 +260,11 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         );
         if (next === false) return;
         state.sentLineOffset = next;
+      } else if (handle !== undefined) {
+        // Terminal on connect (e.g. EventSource reconnect): skip every
+        // buffered line — they're already committed DB messages.
+        state.sentLineOffset = handle.output.drain(0).nextSeq;
+        state.flushedTerminal = true;
       }
 
       let polls = 0;
