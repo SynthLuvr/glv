@@ -260,6 +260,13 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         );
         if (next === false) return;
         state.sentLineOffset = next;
+      } else if (handle !== undefined) {
+        // Terminal on connect (e.g. EventSource reconnect to a finished run):
+        // advance past every buffered NDJSON line so pollRunner doesn't
+        // re-flush them as stale preview into the still-present #live-tail.
+        // Those lines are already represented by committed DB messages.
+        state.sentLineOffset = handle.output.drain(0).nextSeq;
+        state.flushedTerminal = true;
       }
 
       let polls = 0;

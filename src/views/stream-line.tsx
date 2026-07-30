@@ -17,12 +17,19 @@ const renderStreamLine = (line: string): string => {
   if (!isRecord(parsed))
     return renderToString(<p class="stream-raw">{line}</p>);
 
-  if (!Array.isArray(parsed.content)) return "";
+  // Goose wraps each record in a {"type":"message","message":{...}} envelope.
+  // Unwrap it so the content array and role are at the expected top level.
+  const payload =
+    parsed.type === "message" && isRecord(parsed.message)
+      ? parsed.message
+      : parsed;
 
-  const items = parseContent(JSON.stringify(parsed.content));
+  if (!Array.isArray(payload.content)) return "";
+
+  const items = parseContent(JSON.stringify(payload.content));
   if (items.length === 0) return "";
 
-  const role = typeof parsed.role === "string" ? parsed.role : "assistant";
+  const role = typeof payload.role === "string" ? payload.role : "assistant";
   const kind = messageKind(role, items);
   const blocks = items
     .map((item) => itemBlock(item, kind === "output"))
