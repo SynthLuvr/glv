@@ -30,6 +30,42 @@ const WorkingDirBody = ({
   </div>
 );
 
+const TempDirBody = () => (
+  <div class="source-body" data-source-body="temp" hidden>
+    <p class="temp-dir-hint">
+      A fresh temporary directory is created for this session and deleted
+      automatically when you archive it.
+    </p>
+  </div>
+);
+
+const SourceToggle = () => (
+  <fieldset class="source-toggle">
+    <legend class="form-label">Working location</legend>
+    <div class="source-toggle-options">
+      <label class="source-toggle-option">
+        <input
+          type="radio"
+          name="session_mode"
+          value="working_dir"
+          data-source-radio="working_dir"
+          checked
+        />
+        <span>Working directory</span>
+      </label>
+      <label class="source-toggle-option">
+        <input
+          type="radio"
+          name="session_mode"
+          value="temp"
+          data-source-radio="temp"
+        />
+        <span>Temporary directory</span>
+      </label>
+    </div>
+  </fieldset>
+);
+
 // The prompt-id field lets the "Run" action flag which saved prompt a session
 // started from so the run flow can bump its usage stats. It is cleared on any
 // manual edit so a hand-typed start never bumps a stale prompt.
@@ -62,7 +98,11 @@ const NewSessionForm = ({
     >
       {error !== undefined && <p class="status-hint error">{error}</p>}
       <input type="hidden" name="prompt_id" value="" data-prompt-id />
-      <WorkingDirBody workingDir={workingDir} dirs={dirs} />
+      <SourceToggle />
+      <div class="source-bodies" data-source-bodies>
+        <WorkingDirBody workingDir={workingDir} dirs={dirs} />
+        <TempDirBody />
+      </div>
       <label class="form-field">
         <span class="form-label">Prompt</span>
         <textarea

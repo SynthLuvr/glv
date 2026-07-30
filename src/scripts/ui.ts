@@ -219,6 +219,34 @@ const uiObserve = (): void => {
   });
 };
 
+// Shows the source body matching the selected radio and hides the rest. The
+// bodies are server-rendered (both present); this just toggles `hidden`.
+const uiSyncSourceBodies = (): void => {
+  const container = document.querySelector("[data-source-bodies]");
+  if (container === null) return;
+  const checked = document.querySelector<HTMLInputElement>(
+    'input[name="session_mode"]:checked',
+  );
+  const active = checked?.value ?? "working_dir";
+  for (const body of container.querySelectorAll<HTMLElement>(
+    "[data-source-body]",
+  ))
+    body.hidden = body.dataset.sourceBody !== active;
+};
+
+const uiInitSourceToggle = (): void => {
+  const toggle = document.querySelector(".source-toggle");
+  if (toggle === null) return;
+  uiSyncSourceBodies();
+  toggle.addEventListener("change", (e) => {
+    if (
+      e.target instanceof HTMLInputElement &&
+      e.target.name === "session_mode"
+    )
+      uiSyncSourceBodies();
+  });
+};
+
 const uiInit = (): void => {
   uiAutogrowAll();
   uiFocusAutofocus();
@@ -227,6 +255,7 @@ const uiInit = (): void => {
   uiUpdateScrollButton();
   uiObserve();
   uiInitPaneToggle();
+  uiInitSourceToggle();
   // Reflect the pre-paint theme class (set by Layout's bootstrap script) on
   // the toggle for assistive tech.
   uiSyncThemeToggle(document.documentElement.classList.contains("dark"));
@@ -247,6 +276,7 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   uiSyncTitle();
   uiAutogrowAll();
   uiFocusAutofocus();
+  uiInitSourceToggle();
 });
 // Surface the detail pane at click time — not when the swap lands — so a
 // slow response can never override a user who switched to the session list.

@@ -151,6 +151,8 @@ type MockConfig = {
   writeDb?: boolean;
   /** When set, writes goose's stdin (the full prompt) to this file path. */
   captureStdin?: string;
+  /** When set, writes goose's working directory to this file path. */
+  captureCwd?: string;
 };
 
 type IntegrationEnv = {
@@ -161,6 +163,8 @@ type IntegrationEnv = {
   dbs: Databases;
   /** GLV's private uploads directory (temp dir, cleaned up on test end). */
   uploadsDir: string;
+  /** GLV's private temp working-directory area (cleaned up on test end). */
+  tempDir: string;
   /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
   serverStderr: () => string;
   cleanup: () => Promise<void>;
@@ -300,6 +304,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
   GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
   GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
+  GOOSE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
 });
 
 const startIntegrationEnv = async (
@@ -310,6 +315,8 @@ const startIntegrationEnv = async (
   const dbs = createDatabases(scratchDir);
   const uploadsDir = join(scratchDir, "uploads");
   mkdirSync(uploadsDir, { recursive: true });
+  const tempDir = join(scratchDir, "tmp");
+  mkdirSync(tempDir, { recursive: true });
   const restoreGoosePath = await mockGoose();
   const restoreGhPath = await mockGh();
 
@@ -318,6 +325,7 @@ const startIntegrationEnv = async (
   const { proc, readStderr } = startServer(dbs, port, {
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
     GLV_UPLOADS_DIR: uploadsDir,
+    GLV_TEMP_DIR: tempDir,
     ...mockEnv(mock),
   });
 
@@ -355,6 +363,7 @@ const startIntegrationEnv = async (
     context,
     dbs,
     uploadsDir,
+    tempDir,
     serverStderr: readStderr,
     cleanup,
   };
