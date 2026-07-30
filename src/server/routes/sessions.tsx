@@ -47,10 +47,12 @@ import {
 import { activeSessionIds } from "../status.js";
 import {
   buildUploadContext,
-  deleteUploadDir,
+  createTempDir,
+  deleteTempDir,
   deleteUploads,
+  removeDir,
   saveUploads,
-  tagUploadDir,
+  tagDir,
   UploadError,
 } from "../uploads.js";
 
@@ -127,7 +129,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
-    const workingDir = expandHome(fieldString("working_dir"));
+    const sessionMode = fieldString("session_mode");
+    const submittedWorkingDir = expandHome(fieldString("working_dir"));
 
     const rawUploads = body.uploads;
     const files: File[] = [];
@@ -143,15 +146,21 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, { error, workingDir }),
+        newSessionDetail(ctx, { error, workingDir: submittedWorkingDir }),
         { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
 
-    if (workingDir === "" || !existsSync(workingDir))
+    if (
+      sessionMode !== "temp" &&
+      (submittedWorkingDir === "" || !existsSync(submittedWorkingDir))
+    )
       return rejectForm("That working directory does not exist.", 422);
+
+    const tempWorkingDir = sessionMode === "temp" ? createTempDir() : undefined;
+    const workingDir = tempWorkingDir ?? submittedWorkingDir;
 
     // Save uploaded files into GLV's private storage and append their
     // absolute paths to the prompt so goose can read them.
@@ -202,14 +211,16 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
 
     if (!result.ok) {
-      if (uploadDir !== undefined) deleteUploadDir(uploadDir);
+      if (uploadDir !== undefined) removeDir(uploadDir);
+      if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
       return rejectForm(result.error, result.status);
     }
     const { realId, session } = result;
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.
-    if (uploadDir !== undefined) tagUploadDir(uploadDir, realId);
+    if (uploadDir !== undefined) tagDir(uploadDir, realId);
+    if (tempWorkingDir !== undefined) tagDir(tempWorkingDir, realId);
 
     // A "Run" from a saved prompt tags the submit with the prompt id; bump
     // usage stats only once the run has actually been established.
@@ -255,6 +266,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const id = c.req.param("id");
     archiveSessions(ctx.dbWritable, [id]);
     deleteUploads(id);
+    deleteTempDir(id);
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,
       title: NEW_SESSION_TITLE,

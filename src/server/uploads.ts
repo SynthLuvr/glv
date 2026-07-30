@@ -19,6 +19,11 @@ const resolveUploadsBase = (): string =>
 
 const resolveUploadDir = (id: string): string => join(resolveUploadsBase(), id);
 
+// Temp working dirs live under GLV's data dir so the tag-and-sweep
+// lifecycle cleans them up on archive.
+const resolveTempBase = (): string =>
+  resolveDataPath(undefined, "GLV_TEMP_DIR", "glv", "tmp");
+
 // Strip path components and unsafe characters so a filename can never escape
 // the per-session upload dir.
 const sanitizeFilename = (name: string): string => {
@@ -58,7 +63,7 @@ type SavedUpload = { paths: string[]; dir: string };
 
 // Writes each file into a fresh per-batch directory. The real session id
 // isn't known until goose creates it, so the dir is named with a uuid and the
-// caller tags it onto the session id later (tagUploadDir).
+// caller tags it onto the session id later (tagDir).
 const saveUploads = async (files: File[]): Promise<SavedUpload> => {
   const dir = resolveUploadDir(randomUUID());
   mkdirSync(dir, { recursive: true });
@@ -97,17 +102,16 @@ const buildUploadContext = (paths: string[]): string => {
   return `\n\n---\nAttached files (read them as needed):\n${list}`;
 };
 
-// Tags the upload dir with its session id so cleanup can find it on archive.
-// The dir keeps its uuid name: renaming would break the absolute paths already
-// handed to goose for the lifetime of the run.
-const tagUploadDir = (dir: string, sessionId: string): void => {
+// Tags a managed directory with its owning session id via a marker file.
+// The dir keeps its uuid name because renaming would break the absolute
+// paths already handed to goose for the run's lifetime.
+const tagDir = (dir: string, sessionId: string): void => {
   writeFileSync(join(dir, SESSION_MARKER), sessionId);
 };
 
-// Removes the sub-dir tagged with this session id. Untagged dirs (from crashed
-// sessions) are left untouched.
-const deleteUploads = (sessionId: string): void => {
-  const base = resolveUploadsBase();
+// Removes any sub-directory whose marker matches the session id. Untagged
+// dirs (from crashed sessions) are left untouched.
+const deleteTaggedDir = (base: string, sessionId: string): void => {
   if (!existsSync(base)) return;
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -118,15 +122,30 @@ const deleteUploads = (sessionId: string): void => {
   }
 };
 
-const deleteUploadDir = (dir: string): void => {
+const deleteUploads = (sessionId: string): void =>
+  deleteTaggedDir(resolveUploadsBase(), sessionId);
+
+const createTempDir = (): string => {
+  const dir = join(resolveTempBase(), randomUUID());
+  mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
+const deleteTempDir = (sessionId: string): void =>
+  deleteTaggedDir(resolveTempBase(), sessionId);
+
+// Pre-tag failure cleanup — the sweep can only find tagged directories.
+const removeDir = (dir: string): void => {
   rmSync(dir, { recursive: true, force: true });
 };
 
 export {
   buildUploadContext,
-  deleteUploadDir,
+  createTempDir,
+  deleteTempDir,
   deleteUploads,
+  removeDir,
   saveUploads,
-  tagUploadDir,
+  tagDir,
   UploadError,
 };

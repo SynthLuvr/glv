@@ -115,6 +115,12 @@ const main = async (): Promise<void> => {
     writeFileSync(captureTo, Buffer.concat(chunks));
   }
 
+  // Optionally capture the working directory goose was spawned in so temp-dir
+  // tests can verify the session ran in the expected location.
+  const captureCwd = process.env.GOOSE_MOCK_CAPTURE_CWD;
+  if (captureCwd !== undefined && captureCwd !== "")
+    writeFileSync(captureCwd, process.cwd());
+
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);
 

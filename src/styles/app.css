@@ -1737,6 +1737,68 @@ pre::-webkit-scrollbar-thumb {
   flex-direction: column;
   gap: 0.75rem;
 }
+.source-bodies {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* ---------- working location toggle ---------- */
+.source-toggle {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.source-toggle > .form-label {
+  margin-bottom: 0.2rem;
+}
+.source-toggle-options {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  width: fit-content;
+}
+.source-toggle-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+  border-right: 1px solid var(--color-border-strong);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.source-toggle-option:last-child {
+  border-right: none;
+}
+.source-toggle-option:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.source-toggle-option input {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.source-toggle-option:has(input:checked) {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.temp-dir-hint {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-muted);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+}
 
 /* ---------- live streaming output ---------- */
 .live-tail {
