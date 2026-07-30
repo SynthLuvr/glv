@@ -14,6 +14,41 @@ const fileIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/></svg>';
 
 let selectedFiles: File[] = [];
+let pastedImageCount = 0;
+
+// Maps a clipboard image MIME type to a file extension so pasted images get
+// a predictable, descriptive name.
+const imageExtForType = (type: string): string => {
+  if (type === "image/jpeg" || type === "image/jpg") return "jpg";
+  if (type === "image/webp") return "webp";
+  if (type === "image/gif") return "gif";
+  return "png";
+};
+
+// Adds a batch of files to the selection, enforcing the per-file size limit
+// across the whole batch (one oversized file rejects the batch). Shared by
+// the file-picker change handler and the clipboard paste handler so both
+// paths produce identical chips.
+const addFiles = (
+  incoming: File[],
+  input: HTMLInputElement,
+  chipsContainer: HTMLElement | null,
+  errorEl: HTMLElement | null,
+): void => {
+  for (const file of incoming)
+    if (file.size > UPLOADS_MAX_FILE_SIZE) {
+      if (errorEl !== null)
+        showError(
+          errorEl,
+          `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(UPLOADS_MAX_FILE_SIZE)}.`,
+        );
+      return;
+    }
+
+  selectedFiles = [...selectedFiles, ...incoming];
+  if (chipsContainer !== null) renderChips(chipsContainer, input);
+  syncInput(input);
+};
 
 const syncInput = (input: HTMLInputElement): void => {
   const dt = new DataTransfer();
@@ -109,6 +144,7 @@ const initUploadForm = (): void => {
   if (input === null || button === null) return;
 
   selectedFiles = [];
+  pastedImageCount = 0;
 
   button.addEventListener("click", () => input.click());
 
@@ -116,21 +152,41 @@ const initUploadForm = (): void => {
     if (input.files === null) return;
     const incoming = Array.from(input.files);
     input.value = "";
-
-    for (const file of incoming)
-      if (file.size > UPLOADS_MAX_FILE_SIZE) {
-        if (errorEl !== null)
-          showError(
-            errorEl,
-            `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(UPLOADS_MAX_FILE_SIZE)}.`,
-          );
-        return;
-      }
-
-    selectedFiles = [...selectedFiles, ...incoming];
-    if (chipsContainer !== null) renderChips(chipsContainer, input);
-    syncInput(input);
+    addFiles(incoming, input, chipsContainer, errorEl);
   });
+
+  // Pasting image data from the clipboard anywhere in the form attaches it
+  // just like picking a file — the image becomes a chip and is synced into
+  // the hidden input for submission. Only image items are intercepted; a
+  // plain-text paste still lands in the prompt textarea.
+  form.addEventListener("paste", (e: ClipboardEvent) => {
+    const dt = e.clipboardData;
+    if (dt === null) return;
+    const images: File[] = [];
+    for (const item of dt.items) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file === null || !file.type.startsWith("image/")) continue;
+      pastedImageCount += 1;
+      const ext = imageExtForType(file.type);
+      images.push(
+        new File([file], `pasted-image-${pastedImageCount}.${ext}`, {
+          type: file.type,
+        }),
+      );
+    }
+    if (images.length === 0) return;
+    e.preventDefault();
+    addFiles(images, input, chipsContainer, errorEl);
+  });
+
+  // Show the correct modifier key for this platform in the paste hint.
+  const hintEl = form.querySelector<HTMLElement>(".paste-hint");
+  if (hintEl !== null) {
+    const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+    const mod = isMac ? "⌘" : "Ctrl";
+    hintEl.textContent = `Tip: paste images with ${mod}+V`;
+  }
 
   // Ensure the hidden file input carries the selected files into the htmx
   // multipart submission even if htmx re-reads the form at submit time.

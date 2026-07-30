@@ -1622,6 +1622,11 @@ pre::-webkit-scrollbar-thumb {
   background: var(--color-err-soft);
   border: 1px solid var(--color-err-border);
 }
+.paste-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+}
 .upload-chips {
   display: flex;
   flex-wrap: wrap;
