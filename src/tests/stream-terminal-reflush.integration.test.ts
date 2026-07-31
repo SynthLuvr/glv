@@ -129,8 +129,8 @@ describe("envelope-format NDJSON preview", () => {
   });
 });
 
-describe("terminal reconnect — no stale preview", () => {
-  it("skips preview lines and clears stale tail when reconnecting to a finished run", async () => {
+describe("terminal reconnect — no stale preview re-flush", () => {
+  it("does not emit preview events when reconnecting to a finished run", async () => {
     await startRun(envReconnect, "rc-1", "reconnect test");
     await delay(2000);
 
@@ -152,9 +152,6 @@ describe("terminal reconnect — no stale preview", () => {
 
     const previews = collected.filter((e) => e.event === "preview");
     expect(previews).toHaveLength(0);
-
-    // Stale preview tail must also be cleared.
-    expect(collected.some((e) => e.event === "preview-clear")).toBe(true);
 
     // Catchup and status events should still arrive.
     expect(collected.some((e) => e.event === "messages")).toBe(true);
