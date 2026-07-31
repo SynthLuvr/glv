@@ -1,34 +1,22 @@
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
 import { messageKind, parseContent } from "../format/index.js";
+import { tryParseJson } from "../parse.js";
 import { itemBlock, tagFor } from "./message-blocks.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const renderStreamLine = (line: string): string => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return renderToString(<p class="stream-raw">{line}</p>);
-  }
+  const parsed = tryParseJson(line);
+  // Only message records with a content array preview; raw stdout is discarded.
+  if (parsed === null || !isRecord(parsed) || !Array.isArray(parsed.content))
+    return "";
 
-  if (!isRecord(parsed))
-    return renderToString(<p class="stream-raw">{line}</p>);
-
-  // Goose wraps each record in a {"type":"message","message":{...}} envelope.
-  const payload =
-    parsed.type === "message" && isRecord(parsed.message)
-      ? parsed.message
-      : parsed;
-
-  if (!Array.isArray(payload.content)) return "";
-
-  const items = parseContent(JSON.stringify(payload.content));
+  const items = parseContent(JSON.stringify(parsed.content));
   if (items.length === 0) return "";
 
-  const role = typeof payload.role === "string" ? payload.role : "assistant";
+  const role = typeof parsed.role === "string" ? parsed.role : "assistant";
   const kind = messageKind(role, items);
   const blocks = items
     .map((item) => itemBlock(item, kind === "output"))

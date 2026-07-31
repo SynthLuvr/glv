@@ -333,8 +333,7 @@ const connect = (root: Element): void => {
   // arrives.
   activeSource.addEventListener("preview-clear", () => {
     const liveTail = document.getElementById("live-tail");
-    if (liveTail === null) return;
-    liveTail.innerHTML = "";
+    if (liveTail !== null) liveTail.innerHTML = "";
     document.querySelector("[data-active-prompt]")?.remove();
   });
 
