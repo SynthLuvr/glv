@@ -41,9 +41,8 @@ let envValid: IntegrationEnv;
 let envRaw: IntegrationEnv;
 
 beforeAll(async () => {
-  // sleepMs keeps each run "running" long enough for the SSE to latch onto
-  // active polling before the line streams; each env emits a single line so
-  // the transient stdout preview reliably surfaces on the terminal flush.
+  // sleepMs keeps each run alive long enough for the SSE to attach before the
+  // line streams, so the transient preview reliably surfaces.
   envValid = await startIntegrationEnv("glv-discard-valid-", {
     lines: [VALID_LINE],
     sleepMs: 4000,
@@ -108,15 +107,12 @@ describe("non-JSON stream lines are discarded", () => {
     try {
       await collect;
     } catch {
-      // Expected: the never-satisfied predicate rejects on timeout.
+      // expected timeout
     }
 
-    // The run finished, so its raw line was processed (and discarded).
     expect(hasStatus(collected, "completed")).toBe(true);
     expect(collected.filter((e) => e.event === "preview")).toHaveLength(0);
     expect(collected.some((e) => e.data.includes("stream-raw"))).toBe(false);
-    expect(collected.some((e) => e.data.includes("goose is ready"))).toBe(
-      false,
-    );
+    expect(collected.some((e) => e.data.includes(RAW_LINE))).toBe(false);
   });
 });

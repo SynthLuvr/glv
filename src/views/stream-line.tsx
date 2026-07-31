@@ -1,22 +1,17 @@
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
 import { messageKind, parseContent } from "../format/index.js";
+import { tryParseJson } from "../parse.js";
 import { itemBlock, tagFor } from "./message-blocks.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const renderStreamLine = (line: string): string => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
+  const parsed = tryParseJson(line);
+  // Only message records with a content array preview; raw stdout is discarded.
+  if (parsed === null || !isRecord(parsed) || !Array.isArray(parsed.content))
     return "";
-  }
-
-  // Discard anything that isn't a valid message record — raw banner text,
-  // scalars, and envelope wrappers alike produce no preview.
-  if (!isRecord(parsed) || !Array.isArray(parsed.content)) return "";
 
   const items = parseContent(JSON.stringify(parsed.content));
   if (items.length === 0) return "";
