@@ -11,13 +11,12 @@ const renderStreamLine = (line: string): string => {
   try {
     parsed = JSON.parse(line);
   } catch {
-    return renderToString(<p class="stream-raw">{line}</p>);
+    return "";
   }
 
-  if (!isRecord(parsed))
-    return renderToString(<p class="stream-raw">{line}</p>);
-
-  if (!Array.isArray(parsed.content)) return "";
+  // Discard anything that isn't a valid message record — raw banner text,
+  // scalars, and envelope wrappers alike produce no preview.
+  if (!isRecord(parsed) || !Array.isArray(parsed.content)) return "";
 
   const items = parseContent(JSON.stringify(parsed.content));
   if (items.length === 0) return "";
