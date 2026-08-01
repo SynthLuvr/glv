@@ -93,7 +93,7 @@ const uiEnhanceCodeBlocks = (root: ParentNode): void => {
 // SSE-appended stream lines without per-button listeners.
 document.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) return;
-  const btn = e.target.closest(".copy-code-btn, .copy-md-btn");
+  const btn = e.target.closest(".copy-code-btn, .copy-md-btn, .copy-value-btn");
   if (!(btn instanceof HTMLElement)) return;
   e.preventDefault();
   if (btn.classList.contains("copy-code-btn")) {
@@ -104,6 +104,11 @@ document.addEventListener("click", (e) => {
       active: uiCheckIcon,
       idle: uiCopyIcon,
     });
+    return;
+  }
+  if (btn.classList.contains("copy-value-btn")) {
+    const copyValue = btn.dataset.copy;
+    if (copyValue !== undefined) void uiCopyWithFeedback(btn, copyValue);
     return;
   }
   const md = btn.dataset.md;
