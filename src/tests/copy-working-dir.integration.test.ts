@@ -72,10 +72,9 @@ describe("working directory copy", () => {
       await btn.click();
       // writeText is async; poll until the clipboard reflects it.
       await expect
-        .poll(
-          () => page.evaluate(() => navigator.clipboard.readText()),
-          { timeout: 5000 },
-        )
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
+          timeout: 5000,
+        })
         .toBe(expected);
       // The transient `.copied` feedback class is applied after a write.
       await expect(btn).toHaveClass(/copied/);
