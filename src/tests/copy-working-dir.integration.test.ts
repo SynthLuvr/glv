@@ -54,7 +54,6 @@ describe("working directory copy", () => {
         "data-copy",
         expected,
       );
-      // The displayed value is abbreviated while the copy value stays whole.
       const shown =
         (await chip.locator(".meta-value.mono").first().textContent()) ?? "";
       expect(shown).toContain("…");
@@ -76,7 +75,6 @@ describe("working directory copy", () => {
           timeout: 5000,
         })
         .toBe(expected);
-      // The transient `.copied` feedback class is applied after a write.
       await expect(btn).toHaveClass(/copied/);
     });
   });

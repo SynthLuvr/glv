@@ -9,10 +9,8 @@ import { PrChip } from "./chips.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
 
-// A hover-revealed icon button that copies an arbitrary value verbatim. The
-// copy/check icons are toggled by the `.copied` class that ui.ts's delegated
-// handler sets after a successful clipboard write, so the markup stays
-// self-contained and needs no per-button wiring.
+// Icons are toggled via the `.copied` class that ui.ts's delegated handler
+// adds after a clipboard write — no per-button wiring needed.
 const MetaCopyButton = ({ value, label }: { value: string; label: string }) => {
   const action = `Copy ${label.toLowerCase()}`;
   return (
