@@ -121,6 +121,12 @@ const main = async (): Promise<void> => {
   if (captureCwd !== undefined && captureCwd !== "")
     writeFileSync(captureCwd, process.cwd());
 
+  // Optionally capture goose's argv so --system tests can verify the flags
+  // passed to it.
+  const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
+  if (captureArgs !== undefined && captureArgs !== "")
+    writeFileSync(captureArgs, JSON.stringify(args));
+
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);
 
