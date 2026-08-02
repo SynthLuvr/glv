@@ -17,10 +17,6 @@ import {
   startIntegrationEnv,
 } from "./integration-harness";
 
-// A distinctive custom value so the override test can tell the real guardrails
-// apart from whatever the operator passed on the command line.
-const CUSTOM_SYSTEM = "CUSTOM SYSTEM MARKER — override the defaults.";
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -53,69 +49,46 @@ const flagValue = (
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-let envDefault: IntegrationEnv;
-let envCustom: IntegrationEnv;
-let defaultArgsDir: string;
-let defaultArgsPath: string;
-let customArgsDir: string;
-let customArgsPath: string;
+let env: IntegrationEnv;
+let argsDir: string;
+let argsPath: string;
 
 beforeAll(async () => {
-  defaultArgsDir = mkdtempSync(join(tmpdir(), "glv-sys-default-"));
-  defaultArgsPath = join(defaultArgsDir, "args.json");
-  envDefault = await startIntegrationEnv("glv-sys-default-", {
-    captureArgs: defaultArgsPath,
-  });
+  argsDir = mkdtempSync(join(tmpdir(), "glv-sys-"));
+  argsPath = join(argsDir, "args.json");
+  env = await startIntegrationEnv("glv-sys-", { captureArgs: argsPath });
 
-  customArgsDir = mkdtempSync(join(tmpdir(), "glv-sys-custom-"));
-  customArgsPath = join(customArgsDir, "args.json");
-  envCustom = await startIntegrationEnv(
-    "glv-sys-custom-",
-    { captureArgs: customArgsPath },
-    ["--system", CUSTOM_SYSTEM],
-  );
-
-  // Seed an existing session in the default env so the follow-up test can
-  // exercise the resume path; its working dir must exist for the spawn.
-  mkdirSync(join(envDefault.scratchDir, "followup"), { recursive: true });
-  insertSessions(envDefault.dbs.sessionsDb, [
+  // Seed an existing session so the follow-up test can exercise the resume
+  // path; its working dir must exist for the spawn.
+  mkdirSync(join(env.scratchDir, "followup"), { recursive: true });
+  insertSessions(env.dbs.sessionsDb, [
     {
       id: "followup-1",
       name: "Follow Up",
-      workingDir: join(envDefault.scratchDir, "followup"),
+      workingDir: join(env.scratchDir, "followup"),
     },
   ]);
 }, 120000);
 
 afterAll(async () => {
-  await envDefault?.cleanup();
-  await envCustom?.cleanup();
-  rmSync(defaultArgsDir, { recursive: true, force: true });
-  rmSync(customArgsDir, { recursive: true, force: true });
+  await env?.cleanup();
+  rmSync(argsDir, { recursive: true, force: true });
 });
 
-const startSession = (
-  env: IntegrationEnv,
-  workDir: string,
-  prompt: string,
-): Promise<Response> => {
-  mkdirSync(workDir, { recursive: true });
-  return authedFetch(env, "/sessions", {
-    method: "POST",
-    body: new URLSearchParams({ prompt, working_dir: workDir }),
-  });
-};
-
-describe("--system flag — default guardrails", () => {
+describe("system prompt — guardrails passed to every goose run", () => {
   it("passes the built-in guardrails to a brand-new goose session", async () => {
-    const res = await startSession(
-      envDefault,
-      join(envDefault.scratchDir, "new"),
-      "inspect the project",
-    );
+    const workDir = join(env.scratchDir, "new");
+    mkdirSync(workDir, { recursive: true });
+    const res = await authedFetch(env, "/sessions", {
+      method: "POST",
+      body: new URLSearchParams({
+        prompt: "inspect the project",
+        working_dir: workDir,
+      }),
+    });
     expect(res.status).toBe(200);
 
-    const args = await waitForArgs(defaultArgsPath);
+    const args = await waitForArgs(argsPath);
     // A new session is a fresh `run` (no resume), yet still carries --system.
     expect(args).not.toContain("--session-id");
     expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
@@ -123,33 +96,17 @@ describe("--system flag — default guardrails", () => {
 
   it("passes the guardrails to a follow-up (resume) run too", async () => {
     // Drop the file from the prior run so waitForArgs waits for this one.
-    rmSync(defaultArgsPath, { force: true });
-
-    const res = await authedFetch(envDefault, "/sessions/followup-1/prompt", {
+    rmSync(argsPath, { force: true });
+    const res = await authedFetch(env, "/sessions/followup-1/prompt", {
       method: "POST",
       body: new URLSearchParams({ prompt: "follow up now" }),
       headers: { "HX-Request": "true" },
     });
     expect(res.status).toBe(200);
 
-    const args = await waitForArgs(defaultArgsPath);
+    const args = await waitForArgs(argsPath);
     // A follow-up resumes by session id and still carries the guardrails.
     expect(args).toContain("--session-id");
     expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
-  });
-});
-
-describe("--system flag — explicit override", () => {
-  it("passes a custom --system value instead of the built-in guardrails", async () => {
-    const res = await startSession(
-      envCustom,
-      join(envCustom.scratchDir, "new"),
-      "override test",
-    );
-    expect(res.status).toBe(200);
-
-    const args = await waitForArgs(customArgsPath);
-    expect(flagValue(args, "--system")).toBe(CUSTOM_SYSTEM);
-    expect(flagValue(args, "--system")).not.toBe(DEFAULT_SYSTEM_PROMPT);
   });
 });

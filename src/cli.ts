@@ -17,7 +17,6 @@ import { openDb, resolveDbPath } from "./db.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
 import { makeRunnerConfig } from "./runner/index.js";
-import { DEFAULT_SYSTEM_PROMPT } from "./system.js";
 
 type SessionsOpts = {
   type: string;
@@ -33,7 +32,6 @@ type ServeOpts = {
   port: string;
   maxConcurrent: number;
   gooseBinary: string;
-  system?: string;
   rpName: string;
   rpId?: string;
   forward?: boolean;
@@ -202,10 +200,6 @@ program
     "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
   )
   .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
-  .option(
-    "--system <text>",
-    "extra system instructions passed to every goose run (defaults to built-in guardrails)",
-  )
   .action((opts: ServeOpts) => {
     // Writable opens first: read-only mode can't create the file, so serve
     // works before goose has ever run.
@@ -214,11 +208,7 @@ program
     const db = openDb(getDbPath());
     runServe(db, dbWritable, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(
-        opts.maxConcurrent,
-        opts.gooseBinary,
-        opts.system ?? DEFAULT_SYSTEM_PROMPT,
-      ),
+      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
       authDbPath: getAuthDbPath(),
       promptsDbPath: getPromptsDbPath(),
       groupsDbPath: getGroupsDbPath(),
