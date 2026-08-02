@@ -1,26 +1,15 @@
-const DEFAULT_SYSTEM_PROMPT = `## Gather before you conclude
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-For any non-trivial request:
-
-- Inspect the actual files, run the relevant commands, and read the real
-  state before forming a conclusion. Reason from evidence, not from
-  assumptions about what the code or environment looks like.
-- Check which tools are available before assuming something is impossible.
-- Network access is available — verify facts by fetching or searching
-  rather than relying on memory.
-
-## Reason carefully
-
-- State every assumption explicitly. For each, ask: can I verify this
-  cheaply right now? If yes, verify it instead of assuming.
-- Separate what you verified (cite the file, command, or result) from what
-  you inferred or assumed. Flag inferences and assumptions as such; never
-  present them as established fact.
-
-## Priorities
-
-- Correctness over speed or brevity. "I need to check" and "I'm not sure"
-  beat a confident guess. More steps to the right answer beat fewer steps
-  to a wrong one.`;
+// Loaded from a sibling markdown file so the prompt text can be edited as
+// prose without touching TypeScript. Resolved from this module's own URL so
+// it works whether glv runs from source (bin/glv → tsx src/cli.ts) or under
+// the test runner. trimEnd drops pandoc's trailing newline.
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_SYSTEM_PROMPT = readFileSync(
+  join(moduleDir, "system-prompt.md"),
+  "utf-8",
+).trimEnd();
 
 export { DEFAULT_SYSTEM_PROMPT };
