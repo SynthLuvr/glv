@@ -47,6 +47,7 @@ import {
 import { activeSessionIds } from "../status.js";
 import {
   buildUploadContext,
+  collectFiles,
   createTempDir,
   deleteTempDir,
   deleteUploads,
@@ -76,10 +77,12 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       prompt,
       refreshSidebar = false,
       includeRun = true,
+      uploadError,
     }: {
       prompt?: string;
       refreshSidebar?: boolean;
       includeRun?: boolean;
+      uploadError?: string;
     } = {},
   ) => {
     const messages = listMessages(ctx.db, id).map(parseMessage);
@@ -94,6 +97,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         run={includeRun ? getHandle(ctx.runner, id) : undefined}
         prompt={prompt}
         prompts={libraryPrompts()}
+        uploadError={uploadError}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -132,13 +136,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const sessionMode = fieldString("session_mode");
     const submittedWorkingDir = expandHome(fieldString("working_dir"));
 
-    const rawUploads = body.uploads;
-    const files: File[] = [];
-    if (Array.isArray(rawUploads)) {
-      for (const v of rawUploads)
-        if (v instanceof File && v.size > 0) files.push(v);
-    } else if (rawUploads instanceof File && rawUploads.size > 0)
-      files.push(rawUploads);
+    const files = collectFiles(body.uploads);
 
     const rejectForm = (error: string, status: ContentfulStatusCode) =>
       render(
@@ -324,18 +322,44 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
-    const body = await c.req.parseBody();
-    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const body = await c.req.parseBody({ all: true });
+    const promptField = body.prompt;
+    const prompt =
+      Array.isArray(promptField) && typeof promptField[0] === "string"
+        ? promptField[0].trim()
+        : typeof promptField === "string"
+          ? promptField.trim()
+          : "";
+
+    const files = collectFiles(body.uploads);
+
+    // Save uploaded files into GLV's private storage and append their
+    // absolute paths to the prompt so goose can read them. The session id is
+    // already known, so the dir is tagged immediately for archive cleanup.
+    let fullPrompt = prompt;
+    let uploadError: string | undefined;
+    if (files.length > 0)
+      try {
+        const saved = await saveUploads(files);
+        fullPrompt = prompt + buildUploadContext(saved.paths);
+        tagDir(saved.dir, id);
+      } catch (err) {
+        uploadError =
+          err instanceof UploadError
+            ? err.message
+            : "Failed to save uploaded files.";
+      }
 
     // Render the submitted prompt only when it started right away; queued
     // prompts surface as QueuedPrompt cards via the handle, so passing the
-    // text here too would double-display it.
+    // text here too would double-display it. Skip enqueuing entirely when an
+    // upload failed so the user can retry.
     let activePrompt: string | undefined;
-    if (prompt !== "") {
+    if (prompt !== "" && uploadError === undefined) {
       const { queued } = enqueueOrQueue(
         ctx.runner,
         id,
-        prompt,
+        fullPrompt,
         session.working_dir,
       );
       if (!queued) activePrompt = prompt;
@@ -344,7 +368,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const run = getHandle(ctx.runner, id);
     activePrompt ??= activeRunPrompt(run);
 
-    return renderSession(c, id, session, { prompt: activePrompt });
+    return renderSession(c, id, session, {
+      prompt: activePrompt,
+      uploadError,
+    });
   });
 
   app.post("/sessions/:id/queue/cancel", (c) => {

@@ -146,10 +146,9 @@ const collectPastedImages = (dt: DataTransfer): File[] => {
   return images;
 };
 
-const initUploadForm = (): void => {
-  const form = document.querySelector<HTMLFormElement>("form.new-session-form");
-  if (form === null) return;
-
+// Wires a single form's attach/paste flow. Reset the shared file state so a
+// freshly arrived form (e.g. after a prompt-bar swap) starts empty.
+const wireForm = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>('input[type="file"]');
   const button = form.querySelector<HTMLButtonElement>(".paperclip-btn");
   const chipsContainer = form.querySelector<HTMLElement>(".upload-chips");
@@ -190,11 +189,33 @@ const initUploadForm = (): void => {
   form.addEventListener("submit", () => syncInput(input));
 };
 
-document.addEventListener("DOMContentLoaded", initUploadForm);
+// Tracks already-wired forms so re-init after a swap is a no-op for a form
+// that is still in place, while a freshly swapped form (new DOM node) wires
+// up and resets the file state. Only one upload form is on a page at a time
+// (the New Session form or the in-session prompt bar).
+const wired = new WeakSet<HTMLFormElement>();
 
-// htmx swaps #detail-pane innerHTML; re-init when the form arrives.
+const initUploadForms = (): void => {
+  for (const form of document.querySelectorAll<HTMLFormElement>(
+    "[data-upload-form]",
+  )) {
+    if (wired.has(form)) continue;
+    wired.add(form);
+    wireForm(form);
+  }
+};
+
+document.addEventListener("DOMContentLoaded", initUploadForms);
+
+// Re-init when the whole detail pane swaps (navigation, prompt submit) and
+// when just the prompt bar swaps on a busy/idle transition — both bring a
+// fresh form node that needs wiring.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;
-  if (target?.id === "detail-pane") initUploadForm();
+  if (
+    target?.id === "detail-pane" ||
+    target?.hasAttribute("data-prompt-bar") === true
+  )
+    initUploadForms();
 });
