@@ -58,7 +58,29 @@ const makeRunnerConfig = (
 // all shell-quoting concerns, and works for arbitrarily long prompts.
 const STREAM_FLAGS = ["--output-format", "stream-json", "-i", "-"];
 
-// Passed on every run, including resumes, so the guardrails always apply.
+// DESIGN DECISION: --system MUST be passed on every invocation, including
+// resume (`-r`) sessions — not just the first prompt of a new session.
+//
+// goose does NOT persist the --system flag across resume sessions. It is a
+// per-invocation runtime injection: goose applies it fresh on each `goose run`
+// but never writes it into the stored conversation history. This was verified
+// empirically against goose 1.45.0:
+//
+//   1. New session + --system "pirate persona" → response in pirate-speak ✓
+//   2. Resume WITHOUT --system                → normal English, persona lost ✗
+//   3. Resume WITH --system                   → pirate persona restored ✓
+//
+// The system-prompt text was also confirmed absent from the persisted session
+// database — only user/assistant/tool messages are stored, not the --system
+// value. Removing --system from resumeInvocation would silently strip the
+// guardrails from every follow-up, reverting the model to stock goose behaviour.
+//
+// The token cost is negligible: ~240 tokens (156 words) vs. the 10K–100K+
+// tokens of a typical resumed conversation — well under 1% overhead.
+//
+// The only alternative that would avoid per-invocation passing is setting the
+// prompt at the goose config level (~/.config/goose/config.yaml), but that
+// affects ALL goose usage system-wide, not just GLV-managed sessions.
 const SYSTEM_FLAGS = ["--system", DEFAULT_SYSTEM_PROMPT];
 
 type GooseInvocation = {
