@@ -7,6 +7,7 @@ import { type ServerContext, type ServerOptions } from "./context.js";
 import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerBrowseRoutes } from "./routes/browse.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerGroupRoutes } from "./routes/groups.js";
@@ -50,6 +51,7 @@ const createApp = (
 
   registerAssetRoutes(app, ctx);
   registerAuthRoutes(app, ctx);
+  registerBrowseRoutes(app, ctx);
   registerSidebarMetaRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
   registerGroupRoutes(app, ctx);

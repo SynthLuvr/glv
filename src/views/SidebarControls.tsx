@@ -104,6 +104,32 @@ const NewSessionButton = () => (
   </a>
 );
 
+const BrowseFilesButton = () => (
+  <a
+    class="browse-files-btn"
+    href="/browse"
+    hx-get="/browse"
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    hx-push-url="true"
+    title="Browse files in your home directory"
+    aria-label="Browse files"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2z" />
+    </svg>
+  </a>
+);
+
 const LogoutButton = () => (
   <form action="/auth/logout" method="post" class="logout-form">
     <button
@@ -130,4 +156,10 @@ const LogoutButton = () => (
   </form>
 );
 
-export { BulkActionBar, LogoutButton, NewSessionButton, ThemeToggle };
+export {
+  BrowseFilesButton,
+  BulkActionBar,
+  LogoutButton,
+  NewSessionButton,
+  ThemeToggle,
+};

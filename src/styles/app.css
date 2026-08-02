@@ -2592,3 +2592,129 @@ pre::-webkit-scrollbar-thumb {
   font-size: 0.8rem;
   color: var(--color-faint);
 }
+
+/* ---------- file browser ---------- */
+.browse-files-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  text-decoration: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.browse-files-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+.browse-files-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.browse-files-btn svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.browse {
+  padding: 1.4rem 1.75rem 2rem;
+}
+.browse-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+.browse-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.browse-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+.browse-crumb {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.browse-crumb:hover {
+  text-decoration: underline;
+}
+.browse-crumb-sep {
+  color: var(--color-faint);
+  user-select: none;
+}
+.browse-empty {
+  margin: 0;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--color-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+}
+.browse-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+.browse-entry {
+  border-bottom: 1px solid var(--color-border);
+}
+.browse-entry:last-child {
+  border-bottom: none;
+}
+.browse-entry-link {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.85rem;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background 0.1s ease;
+}
+.browse-entry-link:hover {
+  background: var(--color-surface-2);
+}
+.browse-entry-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.browse-entry-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.browse-entry-folder .browse-entry-icon {
+  color: var(--color-accent);
+}
+.browse-entry-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browse-entry-meta {
+  flex: 0 0 auto;
+  color: var(--color-faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.browse-entry-parent .browse-entry-name {
+  color: var(--color-muted);
+}
