@@ -70,10 +70,7 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
 // glimpse the terminal status of the run that just finished.
-const advanceChain = (
-  handle: InternalHandle,
-  system: string,
-): GooseInvocation | undefined => {
+const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
   if (handle.status === "stopped") {
     handle.pendingPrompts = [];
     return undefined;
@@ -84,7 +81,7 @@ const advanceChain = (
   handle.prompt = nextPrompt;
   handle.error = undefined;
   handle.status = "running";
-  return resumeInvocation(handle.sessionId, nextPrompt, system);
+  return resumeInvocation(handle.sessionId, nextPrompt);
 };
 
 const enqueueInvocation = (
@@ -130,7 +127,7 @@ const enqueueInvocation = (
       }
       handle.process = undefined;
 
-      currentInvocation = advanceChain(handle, runner.config.system);
+      currentInvocation = advanceChain(handle);
     }
     scheduleEviction(runner, handle);
   });
@@ -149,8 +146,8 @@ const enqueueRun = (
     runner,
     key,
     opts.isNewSession
-      ? newSessionInvocation(prompt, runner.config.system)
-      : resumeInvocation(key, prompt, runner.config.system),
+      ? newSessionInvocation(prompt)
+      : resumeInvocation(key, prompt),
     workingDir,
   );
 

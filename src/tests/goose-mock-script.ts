@@ -121,8 +121,8 @@ const main = async (): Promise<void> => {
   if (captureCwd !== undefined && captureCwd !== "")
     writeFileSync(captureCwd, process.cwd());
 
-  // Optionally capture the argv goose was spawned with so --system tests can
-  // verify the flags that GLV threaded through to goose.
+  // Optionally capture goose's argv so --system tests can verify the flags
+  // passed to it.
   const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
   if (captureArgs !== undefined && captureArgs !== "")
     writeFileSync(captureArgs, JSON.stringify(args));

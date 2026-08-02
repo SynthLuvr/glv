@@ -40,7 +40,6 @@ const waitForArgs = async (
   throw new Error(`args file ${path} not written within ${timeoutMs}ms`);
 };
 
-// Returns the value immediately following `flag` in argv, or undefined.
 const flagValue = (
   args: readonly string[],
   flag: string,
@@ -89,7 +88,6 @@ describe("system prompt — guardrails passed to every goose run", () => {
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
-    // A new session is a fresh `run` (no resume), yet still carries --system.
     expect(args).not.toContain("--session-id");
     expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
   });
@@ -105,7 +103,6 @@ describe("system prompt — guardrails passed to every goose run", () => {
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
-    // A follow-up resumes by session id and still carries the guardrails.
     expect(args).toContain("--session-id");
     expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
   });

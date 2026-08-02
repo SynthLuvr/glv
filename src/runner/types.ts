@@ -6,8 +6,6 @@ import type { LineBuffer } from "./ring-buffer.js";
 type RunnerConfig = {
   maxConcurrent: number;
   gooseBinary: string;
-  /** Extra system instructions passed to goose via `--system` ("" = none). */
-  system: string;
   /** Grace window (ms) after each stop signal before escalating it. */
   stopGraceMs: number;
   /** Max NDJSON lines retained per run before the oldest are dropped. */
@@ -23,7 +21,6 @@ const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   gooseBinary: "string >= 1",
-  system: "string",
   stopGraceMs: "number.integer >= 1",
   maxLines: "number.integer >= 1",
   terminalRetentionMs: "number.integer >= 1",
@@ -32,7 +29,6 @@ const RunnerConfigSchema = type({
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   maxConcurrent: 6,
   gooseBinary: "goose",
-  system: DEFAULT_SYSTEM_PROMPT,
   stopGraceMs: DEFAULT_STOP_GRACE_MS,
   maxLines: DEFAULT_MAX_LINES,
   terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
@@ -41,7 +37,6 @@ const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
 const makeRunnerConfig = (
   maxConcurrent: number,
   gooseBinary: string,
-  system: string = DEFAULT_SYSTEM_PROMPT,
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
   maxLines: number = DEFAULT_MAX_LINES,
   terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
@@ -49,7 +44,6 @@ const makeRunnerConfig = (
   const result = RunnerConfigSchema({
     maxConcurrent,
     gooseBinary,
-    system,
     stopGraceMs,
     maxLines,
     terminalRetentionMs,
@@ -64,28 +58,22 @@ const makeRunnerConfig = (
 // all shell-quoting concerns, and works for arbitrarily long prompts.
 const STREAM_FLAGS = ["--output-format", "stream-json", "-i", "-"];
 
+// Passed on every run, including resumes, so the guardrails always apply.
+const SYSTEM_FLAGS = ["--system", DEFAULT_SYSTEM_PROMPT];
+
 type GooseInvocation = {
   args: string[];
   stdin: string;
 };
 
-// `--system <text>` is passed as a real argv element (execa hands args to the
-// binary as an array, so there are no shell-quoting concerns) only when the
-// text is non-empty, so an explicit `--system ""` disables the guardrails.
-// goose still reads the user prompt from stdin via `-i -`; the system text
-// stays a normal flag value.
-const systemFlags = (system: string): string[] =>
-  system === "" ? [] : ["--system", system];
-
 const resumeInvocation = (
   sessionId: string,
   prompt: string,
-  system: string = DEFAULT_SYSTEM_PROMPT,
 ): GooseInvocation => ({
   args: [
     "run",
     "-r",
-    ...systemFlags(system),
+    ...SYSTEM_FLAGS,
     "--session-id",
     sessionId,
     ...STREAM_FLAGS,
@@ -93,11 +81,8 @@ const resumeInvocation = (
   stdin: prompt,
 });
 
-const newSessionInvocation = (
-  prompt: string,
-  system: string = DEFAULT_SYSTEM_PROMPT,
-): GooseInvocation => ({
-  args: ["run", ...systemFlags(system), ...STREAM_FLAGS],
+const newSessionInvocation = (prompt: string): GooseInvocation => ({
+  args: ["run", ...SYSTEM_FLAGS, ...STREAM_FLAGS],
   stdin: prompt,
 });
 
