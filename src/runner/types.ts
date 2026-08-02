@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
+import { RECIPE_FLAGS } from "./recipe.js";
 import type { LineBuffer } from "./ring-buffer.js";
 
 type RunnerConfig = {
@@ -70,8 +71,12 @@ const resumeInvocation = (
   stdin: prompt,
 });
 
+// New sessions apply the GLV Default Profile recipe (agent, extensions,
+// standing instructions) as `goose run` flags derived from the bundled
+// recipe — see src/runner/recipe.ts. `--recipe` itself can't be used because
+// it forbids `-i` in headless mode; these flags are compatible with `-i -`.
 const newSessionInvocation = (prompt: string): GooseInvocation => ({
-  args: ["run", ...STREAM_FLAGS],
+  args: ["run", ...RECIPE_FLAGS, ...STREAM_FLAGS],
   stdin: prompt,
 });
 

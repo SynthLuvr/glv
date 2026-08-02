@@ -1,0 +1,89 @@
+version: "1.0.0"
+title: GLV Default Profile
+description: "Default recipe used by GLV for every new goose session."
+
+instructions: "Carry out the user's request."
+
+system: ""
+
+agent:
+  provider: zai
+  model: glm-5.2
+
+extensions:
+  - type: stdio
+    name: github
+    cmd: bash
+    args:
+      - "-c"
+      - >-
+        exec npx mcp-remote https://api.githubcopilot.com/mcp/ --header
+        "Authorization:Bearer $(gh auth token)"
+    timeout: 300
+
+  - type: stdio
+    name: linux-mcp-server
+    cmd: uvx
+    args:
+      - "--python"
+      - "3.13"
+      - linux-mcp-server
+    timeout: 300
+
+  - type: stdio
+    name: goose-docs
+    cmd: npx
+    args:
+      - mcp-remote
+      - https://block.gitmcp.io/goose/
+    timeout: 300
+
+  - type: stdio
+    name: tavily
+    cmd: bash
+    args:
+      - "-c"
+      - >-
+        TAVILY_API_KEY="$(cat "$HOME/.config/goose/tavily_key")" exec node
+        /home/regan/tavily-mcp/build/index.js
+    timeout: 300
+
+  - type: platform
+    name: extensionmanager
+    bundled: true
+
+  - type: platform
+    name: summon
+    bundled: true
+
+  - type: platform
+    name: analyze
+    bundled: true
+
+  - type: platform
+    name: code_execution
+    bundled: true
+
+  - type: platform
+    name: skills
+    bundled: true
+
+  - type: platform
+    name: chatrecall
+    bundled: true
+
+  - type: platform
+    name: summarize
+    bundled: true
+
+  - type: builtin
+    name: developer
+    bundled: true
+
+  - type: platform
+    name: todo
+    bundled: true
+
+  - type: platform
+    name: orchestrator
+    bundled: true

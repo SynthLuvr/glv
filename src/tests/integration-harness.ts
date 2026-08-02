@@ -153,6 +153,8 @@ type MockConfig = {
   captureStdin?: string;
   /** When set, writes goose's working directory to this file path. */
   captureCwd?: string;
+  /** When set, writes goose's argv (as JSON) to this file path. */
+  captureArgs?: string;
 };
 
 type IntegrationEnv = {
@@ -305,6 +307,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
   GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
   GOOSE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
+  GOOSE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
 });
 
 const startIntegrationEnv = async (

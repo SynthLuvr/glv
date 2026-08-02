@@ -121,6 +121,12 @@ const main = async (): Promise<void> => {
   if (captureCwd !== undefined && captureCwd !== "")
     writeFileSync(captureCwd, process.cwd());
 
+  // Optionally capture the full argv so recipe/flag tests can verify exactly
+  // how GLV invoked goose (e.g. that recipe-derived flags were passed).
+  const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
+  if (captureArgs !== undefined && captureArgs !== "")
+    writeFileSync(captureArgs, JSON.stringify(process.argv.slice(2)));
+
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);
 
