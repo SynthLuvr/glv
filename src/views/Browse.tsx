@@ -1,6 +1,7 @@
 import { Fragment } from "hono/jsx";
 import {
   type BrowseEntry,
+  childRel,
   formatFileSize,
   parentRel,
 } from "../server/browse.js";
@@ -41,14 +42,14 @@ const FileIcon = () => (
 const browseHref = (rel: string): string =>
   rel === "" ? "/browse" : `/browse/${rel}`;
 
-// A file link points at /files so the browser opens or downloads the bytes
+// File links point at /files so the browser opens or downloads the bytes
 // directly, outside the htmx detail-pane swap.
 const fileHref = (rel: string, name: string): string =>
-  rel === "" ? `/files/${name}` : `/files/${rel}/${name}`;
+  `/files/${childRel(rel, name)}`;
 
 const BrowseRow = ({ entry, rel }: { entry: BrowseEntry; rel: string }) => {
   if (entry.isDir) {
-    const href = browseHref(rel === "" ? entry.name : `${rel}/${entry.name}`);
+    const href = browseHref(childRel(rel, entry.name));
     return (
       <li class="browse-entry browse-entry-folder">
         <a
@@ -82,24 +83,27 @@ const BrowseRow = ({ entry, rel }: { entry: BrowseEntry; rel: string }) => {
   );
 };
 
-// Renders a navigable directory listing: a path breadcrumb, a ".." parent link
-// when not at the root, and entries sorted with folders first.
 const BrowseDetail = ({
   rel,
-  segments,
   entries,
 }: {
   rel: string;
-  segments: string[];
   entries: BrowseEntry[];
 }) => {
+  const segments = rel.split("/").filter(Boolean);
   const crumbs: Crumb[] = [{ label: "~", href: "/browse" }];
   let acc = "";
   for (const seg of segments) {
-    acc = acc === "" ? seg : `${acc}/${seg}`;
-    crumbs.push({ label: seg, href: `/browse/${acc}` });
+    acc = childRel(acc, seg);
+    crumbs.push({ label: seg, href: browseHref(acc) });
   }
   const up = parentRel(rel);
+  const emptyMessage =
+    entries.length === 0
+      ? rel === ""
+        ? "Your home directory has nothing to show."
+        : "This folder is empty."
+      : undefined;
   return (
     <div class="detail-inner browse">
       <div class="browse-head">
@@ -126,12 +130,7 @@ const BrowseDetail = ({
           ))}
         </nav>
       </div>
-      {entries.length === 0 && rel === "" && (
-        <p class="browse-empty">Your home directory has nothing to show.</p>
-      )}
-      {entries.length === 0 && rel !== "" && (
-        <p class="browse-empty">This folder is empty.</p>
-      )}
+      {emptyMessage !== undefined && <p class="browse-empty">{emptyMessage}</p>}
       {entries.length > 0 && (
         <ul class="browse-list">
           {rel !== "" && (
