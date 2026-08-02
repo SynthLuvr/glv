@@ -1452,8 +1452,7 @@ pre::-webkit-scrollbar-thumb {
   gap: 0.5rem;
   align-items: flex-end;
 }
-/* Icon-only attach button inside the in-session prompt-bar row — sized to
-   match the saved-prompt picker so the row stays compact on mobile. */
+/* Sized to match the saved-prompt picker so the prompt-bar row stays compact. */
 .prompt-input-row .paperclip-btn {
   display: flex;
   align-items: center;

@@ -1,9 +1,8 @@
 const UPLOAD_ACCEPT =
   "image/*,application/pdf,text/*,.md,.txt,.csv,.json,.yaml,.yml,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.go,.rs,.java,.c,.cpp,.h,.sh,.sql";
 
-// The hidden file input plus the chip/error containers the uploads script
-// drives. Any form that embeds these and is tagged data-upload-form gains the
-// full attach/paste flow (New Session form and the in-session prompt bar).
+// Any form embedding these and tagged data-upload-form gets the attach/paste
+// flow (New Session form and the in-session prompt bar).
 const UploadFields = () => (
   <>
     <input
@@ -18,8 +17,6 @@ const UploadFields = () => (
   </>
 );
 
-// The paperclip attach button. `compact` renders an icon-only square for the
-// prompt-bar row; the full form shows the icon + label.
 const PaperclipButton = ({ compact = false }: { compact?: boolean }) => (
   <button
     type="button"

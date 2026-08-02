@@ -44,6 +44,9 @@ class UploadError extends Error {
   }
 }
 
+const uploadErrorMessage = (err: unknown): string =>
+  err instanceof UploadError ? err.message : "Failed to save uploaded files.";
+
 // Appends -1, -2, ... before the extension until the name is unused.
 const uniqueName = (name: string, used: Set<string>): string => {
   if (!used.has(name)) return name;
@@ -61,9 +64,8 @@ const uniqueName = (name: string, used: Set<string>): string => {
 
 type SavedUpload = { paths: string[]; dir: string };
 
-// Normalises the `uploads` field from a parsed multipart body into a flat
-// File[] — Hono hands back a single File or File[] (and FileList-shaped
-// values) depending on parseBody options. Zero-size entries are dropped.
+// Hono's parseBody yields a single File or File[] for the same field name
+// depending on options; flatten to File[], dropping zero-size entries.
 const collectFiles = (raw: unknown): File[] => {
   const files: File[] = [];
   if (Array.isArray(raw)) {
@@ -160,4 +162,5 @@ export {
   saveUploads,
   tagDir,
   UploadError,
+  uploadErrorMessage,
 };

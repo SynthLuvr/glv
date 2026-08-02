@@ -54,8 +54,15 @@ import {
   removeDir,
   saveUploads,
   tagDir,
-  UploadError,
+  uploadErrorMessage,
 } from "../uploads.js";
+
+// parseBody({ all: true }) returns an array per field; take the first string.
+const firstString = (val: unknown): string => {
+  if (Array.isArray(val))
+    return typeof val[0] === "string" ? val[0].trim() : "";
+  return typeof val === "string" ? val.trim() : "";
+};
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
@@ -124,12 +131,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
     const body = await c.req.parseBody({ all: true });
-    const fieldString = (key: string): string => {
-      const val = body[key];
-      if (Array.isArray(val))
-        return typeof val[0] === "string" ? val[0].trim() : "";
-      return typeof val === "string" ? val.trim() : "";
-    };
+    const fieldString = (key: string): string => firstString(body[key]);
 
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
@@ -170,11 +172,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         fullPrompt = prompt + buildUploadContext(saved.paths);
         uploadDir = saved.dir;
       } catch (err) {
-        const msg =
-          err instanceof UploadError
-            ? err.message
-            : "Failed to save uploaded files.";
-        return rejectForm(msg, 422);
+        return rejectForm(uploadErrorMessage(err), 422);
       }
 
     const result = await withCreateLock(
@@ -323,19 +321,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (session === undefined) return renderNotFound(c, ctx, id);
 
     const body = await c.req.parseBody({ all: true });
-    const promptField = body.prompt;
-    const prompt =
-      Array.isArray(promptField) && typeof promptField[0] === "string"
-        ? promptField[0].trim()
-        : typeof promptField === "string"
-          ? promptField.trim()
-          : "";
-
+    const prompt = firstString(body.prompt);
     const files = collectFiles(body.uploads);
 
-    // Save uploaded files into GLV's private storage and append their
-    // absolute paths to the prompt so goose can read them. The session id is
-    // already known, so the dir is tagged immediately for archive cleanup.
+    // Session id is known, so tag the upload dir immediately for cleanup.
     let fullPrompt = prompt;
     let uploadError: string | undefined;
     if (files.length > 0)
@@ -344,10 +333,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         fullPrompt = prompt + buildUploadContext(saved.paths);
         tagDir(saved.dir, id);
       } catch (err) {
-        uploadError =
-          err instanceof UploadError
-            ? err.message
-            : "Failed to save uploaded files.";
+        uploadError = uploadErrorMessage(err);
       }
 
     // Render the submitted prompt only when it started right away; queued

@@ -146,8 +146,8 @@ const collectPastedImages = (dt: DataTransfer): File[] => {
   return images;
 };
 
-// Wires a single form's attach/paste flow. Reset the shared file state so a
-// freshly arrived form (e.g. after a prompt-bar swap) starts empty.
+// Module-level chip state persists across swaps; reset so a fresh form
+// starts empty.
 const wireForm = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>('input[type="file"]');
   const button = form.querySelector<HTMLButtonElement>(".paperclip-btn");
@@ -189,10 +189,8 @@ const wireForm = (form: HTMLFormElement): void => {
   form.addEventListener("submit", () => syncInput(input));
 };
 
-// Tracks already-wired forms so re-init after a swap is a no-op for a form
-// that is still in place, while a freshly swapped form (new DOM node) wires
-// up and resets the file state. Only one upload form is on a page at a time
-// (the New Session form or the in-session prompt bar).
+// Identity-keyed: a form that survives a swap isn't re-wired, but a freshly
+// swapped node (new identity) is.
 const wired = new WeakSet<HTMLFormElement>();
 
 const initUploadForms = (): void => {
@@ -207,15 +205,11 @@ const initUploadForms = (): void => {
 
 document.addEventListener("DOMContentLoaded", initUploadForms);
 
-// Re-init when the whole detail pane swaps (navigation, prompt submit) and
-// when just the prompt bar swaps on a busy/idle transition — both bring a
-// fresh form node that needs wiring.
+// A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
+// transition) both bring a fresh form node to wire.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;
-  if (
-    target?.id === "detail-pane" ||
-    target?.hasAttribute("data-prompt-bar") === true
-  )
+  if (target?.id === "detail-pane" || target?.hasAttribute("data-prompt-bar"))
     initUploadForms();
 });
