@@ -313,6 +313,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
 const startIntegrationEnv = async (
   prefix: string,
   mock: MockConfig = {},
+  homeDir?: string,
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = createDatabases(scratchDir);
@@ -329,6 +330,7 @@ const startIntegrationEnv = async (
     GOOSE_SESSIONS_DB: dbs.sessionsDb,
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
+    ...(homeDir !== undefined ? { HOME: homeDir } : {}),
     ...mockEnv(mock),
   });
 

@@ -3,6 +3,7 @@ import type { ListEntry } from "../groups/model.js";
 import { GroupEntry } from "./GroupEntry.js";
 import { SessionItem } from "./SessionItem.js";
 import {
+  BrowseFilesButton,
   BulkActionBar,
   LogoutButton,
   NewSessionButton,
@@ -77,6 +78,7 @@ const Sidebar = ({
       <h1>Sessions</h1>
       <span class="session-count">{sessions.length}</span>
       <NewSessionButton />
+      <BrowseFilesButton />
       <ThemeToggle />
       {logout && <LogoutButton />}
     </div>
