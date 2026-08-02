@@ -1452,6 +1452,16 @@ pre::-webkit-scrollbar-thumb {
   gap: 0.5rem;
   align-items: flex-end;
 }
+/* Sized to match the saved-prompt picker so the prompt-bar row stays compact. */
+.prompt-input-row .paperclip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.4rem;
+  min-height: 2.4rem;
+  padding: 0;
+}
 /* flex:1 is scoped to the row so the textarea fills the space between the
    picker and the action button. It must NOT apply to the new-session form,
    whose textarea lives in a column flex container — there flex-basis:0 would

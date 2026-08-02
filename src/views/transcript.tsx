@@ -8,6 +8,7 @@ import type { RunHandle } from "../runner/index.js";
 import { PrChip } from "./chips.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
+import { PaperclipButton, UploadFields } from "./uploads.js";
 
 // Icons are toggled via the `.copied` class that ui.ts's delegated handler
 // adds after a clipboard write — no per-button wiring needed.
@@ -212,11 +213,13 @@ const PromptBar = ({
   run,
   prompts = [],
   workingDir = "",
+  uploadError,
 }: {
   sessionId: string;
   run?: RunHandle;
   prompts?: SavedPrompt[];
   workingDir?: string;
+  uploadError?: string;
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
@@ -224,9 +227,11 @@ const PromptBar = ({
     <form
       class="prompt-bar"
       data-prompt-bar
+      data-upload-form
       hx-post={`/sessions/${sessionId}/prompt`}
       hx-target="#detail-pane"
       hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
     >
       {run?.status === "queued" && run.queuePosition !== undefined && (
         <p class="status-hint queued" aria-live="polite">
@@ -245,6 +250,12 @@ const PromptBar = ({
           {run.error}
         </p>
       )}
+      {uploadError !== undefined && (
+        <p class="status-hint error" aria-live="polite">
+          {uploadError}
+        </p>
+      )}
+      <UploadFields />
       <div class="prompt-input-row">
         <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
@@ -254,6 +265,7 @@ const PromptBar = ({
           rows={2}
           aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
         />
+        <PaperclipButton compact />
         {busy ? (
           <>
             <button type="submit" class="queue-btn">
@@ -285,12 +297,14 @@ const Transcript = ({
   run,
   prompt,
   prompts = [],
+  uploadError,
 }: {
   session: SessionRow;
   messages: ParsedMessage[];
   run?: RunHandle;
   prompt?: string;
   prompts?: SavedPrompt[];
+  uploadError?: string;
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
@@ -340,6 +354,7 @@ const Transcript = ({
         run={run}
         prompts={prompts}
         workingDir={session.working_dir}
+        uploadError={uploadError}
       />
     </div>
   );

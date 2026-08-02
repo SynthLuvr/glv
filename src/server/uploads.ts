@@ -44,6 +44,9 @@ class UploadError extends Error {
   }
 }
 
+const uploadErrorMessage = (err: unknown): string =>
+  err instanceof UploadError ? err.message : "Failed to save uploaded files.";
+
 // Appends -1, -2, ... before the extension until the name is unused.
 const uniqueName = (name: string, used: Set<string>): string => {
   if (!used.has(name)) return name;
@@ -60,6 +63,16 @@ const uniqueName = (name: string, used: Set<string>): string => {
 };
 
 type SavedUpload = { paths: string[]; dir: string };
+
+// Hono's parseBody yields a single File or File[] for the same field name
+// depending on options; flatten to File[], dropping zero-size entries.
+const collectFiles = (raw: unknown): File[] => {
+  const files: File[] = [];
+  if (Array.isArray(raw)) {
+    for (const v of raw) if (v instanceof File && v.size > 0) files.push(v);
+  } else if (raw instanceof File && raw.size > 0) files.push(raw);
+  return files;
+};
 
 // Writes each file into a fresh per-batch directory. The real session id
 // isn't known until goose creates it, so the dir is named with a uuid and the
@@ -141,6 +154,7 @@ const removeDir = (dir: string): void => {
 
 export {
   buildUploadContext,
+  collectFiles,
   createTempDir,
   deleteTempDir,
   deleteUploads,
@@ -148,4 +162,5 @@ export {
   saveUploads,
   tagDir,
   UploadError,
+  uploadErrorMessage,
 };

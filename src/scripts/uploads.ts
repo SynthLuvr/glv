@@ -146,10 +146,9 @@ const collectPastedImages = (dt: DataTransfer): File[] => {
   return images;
 };
 
-const initUploadForm = (): void => {
-  const form = document.querySelector<HTMLFormElement>("form.new-session-form");
-  if (form === null) return;
-
+// Module-level chip state persists across swaps; reset so a fresh form
+// starts empty.
+const wireForm = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>('input[type="file"]');
   const button = form.querySelector<HTMLButtonElement>(".paperclip-btn");
   const chipsContainer = form.querySelector<HTMLElement>(".upload-chips");
@@ -190,11 +189,27 @@ const initUploadForm = (): void => {
   form.addEventListener("submit", () => syncInput(input));
 };
 
-document.addEventListener("DOMContentLoaded", initUploadForm);
+// Identity-keyed: a form that survives a swap isn't re-wired, but a freshly
+// swapped node (new identity) is.
+const wired = new WeakSet<HTMLFormElement>();
 
-// htmx swaps #detail-pane innerHTML; re-init when the form arrives.
+const initUploadForms = (): void => {
+  for (const form of document.querySelectorAll<HTMLFormElement>(
+    "[data-upload-form]",
+  )) {
+    if (wired.has(form)) continue;
+    wired.add(form);
+    wireForm(form);
+  }
+};
+
+document.addEventListener("DOMContentLoaded", initUploadForms);
+
+// A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
+// transition) both bring a fresh form node to wire.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;
-  if (target?.id === "detail-pane") initUploadForm();
+  if (target?.id === "detail-pane" || target?.hasAttribute("data-prompt-bar"))
+    initUploadForms();
 });

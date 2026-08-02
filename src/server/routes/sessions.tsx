@@ -47,14 +47,22 @@ import {
 import { activeSessionIds } from "../status.js";
 import {
   buildUploadContext,
+  collectFiles,
   createTempDir,
   deleteTempDir,
   deleteUploads,
   removeDir,
   saveUploads,
   tagDir,
-  UploadError,
+  uploadErrorMessage,
 } from "../uploads.js";
+
+// parseBody({ all: true }) returns an array per field; take the first string.
+const firstString = (val: unknown): string => {
+  if (Array.isArray(val))
+    return typeof val[0] === "string" ? val[0].trim() : "";
+  return typeof val === "string" ? val.trim() : "";
+};
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
@@ -76,10 +84,12 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       prompt,
       refreshSidebar = false,
       includeRun = true,
+      uploadError,
     }: {
       prompt?: string;
       refreshSidebar?: boolean;
       includeRun?: boolean;
+      uploadError?: string;
     } = {},
   ) => {
     const messages = listMessages(ctx.db, id).map(parseMessage);
@@ -94,6 +104,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         run={includeRun ? getHandle(ctx.runner, id) : undefined}
         prompt={prompt}
         prompts={libraryPrompts()}
+        uploadError={uploadError}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -120,25 +131,14 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
     const body = await c.req.parseBody({ all: true });
-    const fieldString = (key: string): string => {
-      const val = body[key];
-      if (Array.isArray(val))
-        return typeof val[0] === "string" ? val[0].trim() : "";
-      return typeof val === "string" ? val.trim() : "";
-    };
+    const fieldString = (key: string): string => firstString(body[key]);
 
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
     const submittedWorkingDir = expandHome(fieldString("working_dir"));
 
-    const rawUploads = body.uploads;
-    const files: File[] = [];
-    if (Array.isArray(rawUploads)) {
-      for (const v of rawUploads)
-        if (v instanceof File && v.size > 0) files.push(v);
-    } else if (rawUploads instanceof File && rawUploads.size > 0)
-      files.push(rawUploads);
+    const files = collectFiles(body.uploads);
 
     const rejectForm = (error: string, status: ContentfulStatusCode) =>
       render(
@@ -172,11 +172,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         fullPrompt = prompt + buildUploadContext(saved.paths);
         uploadDir = saved.dir;
       } catch (err) {
-        const msg =
-          err instanceof UploadError
-            ? err.message
-            : "Failed to save uploaded files.";
-        return rejectForm(msg, 422);
+        return rejectForm(uploadErrorMessage(err), 422);
       }
 
     const result = await withCreateLock(
@@ -324,18 +320,32 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
-    const body = await c.req.parseBody();
-    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const body = await c.req.parseBody({ all: true });
+    const prompt = firstString(body.prompt);
+    const files = collectFiles(body.uploads);
+
+    // Session id is known, so tag the upload dir immediately for cleanup.
+    let fullPrompt = prompt;
+    let uploadError: string | undefined;
+    if (files.length > 0)
+      try {
+        const saved = await saveUploads(files);
+        fullPrompt = prompt + buildUploadContext(saved.paths);
+        tagDir(saved.dir, id);
+      } catch (err) {
+        uploadError = uploadErrorMessage(err);
+      }
 
     // Render the submitted prompt only when it started right away; queued
     // prompts surface as QueuedPrompt cards via the handle, so passing the
-    // text here too would double-display it.
+    // text here too would double-display it. Skip enqueuing entirely when an
+    // upload failed so the user can retry.
     let activePrompt: string | undefined;
-    if (prompt !== "") {
+    if (prompt !== "" && uploadError === undefined) {
       const { queued } = enqueueOrQueue(
         ctx.runner,
         id,
-        prompt,
+        fullPrompt,
         session.working_dir,
       );
       if (!queued) activePrompt = prompt;
@@ -344,7 +354,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const run = getHandle(ctx.runner, id);
     activePrompt ??= activeRunPrompt(run);
 
-    return renderSession(c, id, session, { prompt: activePrompt });
+    return renderSession(c, id, session, {
+      prompt: activePrompt,
+      uploadError,
+    });
   });
 
   app.post("/sessions/:id/queue/cancel", (c) => {
