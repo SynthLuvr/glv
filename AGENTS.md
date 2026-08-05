@@ -64,6 +64,21 @@ function foo() {}
 const foo = (): void => {};
 ```
 
+**Exception: function overloads.** TypeScript overloads *require*
+`function` declarations — each signature reuses the same name, which is
+impossible with `const`. Overload sets are permitted, and the
+`no-function-declaration` rule skips any `function_declaration` that
+immediately follows an overload signature:
+
+``` ts
+// ✅ Allowed — overloads must use function declarations
+function toLabel(value: string): string;
+function toLabel(value: number): string;
+function toLabel(value: string | number): string {
+  return `label: ${value}`;
+}
+```
+
 ### No inline exports
 
 Write `export` as a separate statement.

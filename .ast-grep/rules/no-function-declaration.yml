@@ -1,10 +1,26 @@
 id: no-function-declaration
 language: TypeScript
 rule:
-  kind: function_declaration
+  # Skip overload implementations — a `function_declaration` immediately
+  # following a `function_signature` sibling. Signatures are bodyless
+  # `function_signature` nodes (never matched here), and TS7010 guarantees
+  # each signature set ends in exactly one implementation.
+  all:
+    - kind: function_declaration
+    - not:
+        follows:
+          kind: function_signature
 
 ---
 id: no-function-declaration
 language: Tsx
 rule:
-  kind: function_declaration
+  # Skip overload implementations — a `function_declaration` immediately
+  # following a `function_signature` sibling. Signatures are bodyless
+  # `function_signature` nodes (never matched here), and TS7010 guarantees
+  # each signature set ends in exactly one implementation.
+  all:
+    - kind: function_declaration
+    - not:
+        follows:
+          kind: function_signature
