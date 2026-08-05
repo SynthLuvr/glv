@@ -18,7 +18,9 @@
     "format": "npm-run-all format:arrows format:braces format:biome format:check format:md",
     "lint:biome": "pnpm biome check .",
     "lint:oxlint": "pnpm oxlint --deny-warnings .",
-    "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps",
+    "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates",
+    "lint:audit": "pnpm audit --prod",
+    "lint:duplicates": "pnpm exec jscpd src --format typescript --min-lines 3 --threshold 5",
     "strip-braces": "pnpm exec ast-grep scan --rule .ast-grep/rules/strip-braces.yml -U",
     "lint:exports": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-inline-export.yml --error=no-inline-export --globs '!**/*.d.ts' .",
     "lint:functions": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-function-declaration.yml --error=no-function-declaration --globs '!**/*.d.ts' .",
@@ -26,7 +28,7 @@
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "lint:peer-deps": "tsx scripts/peer-deps.mts",
     "format:md": "tsx scripts/pandoc-md.mts --write",
-    "test": "pnpm build:assets && vitest run",
+    "test": "pnpm build:assets && vitest run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {
@@ -37,8 +39,10 @@
     "@tailwindcss/cli": "^4.3.3",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "convert-to-arrow": "^1.1.4",
     "esbuild": "^0.28.1",
+    "jscpd": "^5.0.14",
     "npm-run-all2": "^9.0.2",
     "oxlint": "^1.74.0",
     "oxlint-tsgolint": "^0.25.0",
@@ -57,9 +61,9 @@
     "consola": "^3.4.2",
     "dompurify": "^3.4.12",
     "execa": "^10.0.0",
-    "hono": "^4.12.30",
+    "hono": "^4.12.34",
     "htmx.org": "2.0.10",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "marked": "^18.0.6",
     "p-queue": "^9.3.1"
   }

@@ -7,6 +7,11 @@ const config = defineConfig({
     // a headless browser, so they need generous timeouts.
     testTimeout: 120000,
     hookTimeout: 120000,
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts", "src/**/*.tsx"],
+      exclude: ["src/tests/**", "src/scripts/**"],
+    },
   },
 });
 
