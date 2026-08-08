@@ -1,13 +1,18 @@
-const REPLACE: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
+import { createRequire } from "node:module";
 
-const escapeHtml = (value: string): string =>
-  value.replace(/[&<>"']/g, (c) => REPLACE[c]);
+// Load @kitajs/html's escape/attribute helpers at runtime without a typed
+// import. A static `import ... from "@kitajs/html"` pulls in the package's
+// `jsx.d.ts`, which declares a global `JSX` namespace that would override
+// this project's permissive JSX types. `require()` returns the module
+// untyped, so those declaration files (and their global JSX namespace) never
+// load, yet the real functions still resolve at runtime.
+const { attributesToString, escapeHtml, isVoidElement } = createRequire(
+  import.meta.url,
+)("@kitajs/html") as {
+  attributesToString: (attributes: object) => string;
+  escapeHtml: (value: unknown) => string;
+  isVoidElement: (tag: string) => boolean;
+};
 
 // A string already known to be safe HTML; rendered verbatim, never escaped.
 type RawHtml = { readonly __raw: true; readonly html: string };
@@ -19,67 +24,10 @@ const isRaw = (value: unknown): value is RawHtml =>
   value !== null &&
   (value as { __raw?: boolean }).__raw === true;
 
-// Void/empty elements have no end tag.
-const VOID_TAGS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "keygen",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
-// Boolean attributes render as a bare name when true.
-const BOOLEAN_ATTRS = new Set([
-  "allowfullscreen",
-  "async",
-  "autofocus",
-  "autoplay",
-  "checked",
-  "controls",
-  "default",
-  "defer",
-  "disabled",
-  "download",
-  "formnovalidate",
-  "hidden",
-  "inert",
-  "ismap",
-  "itemscope",
-  "loop",
-  "multiple",
-  "muted",
-  "nomodule",
-  "novalidate",
-  "open",
-  "playsinline",
-  "readonly",
-  "required",
-  "reversed",
-  "selected",
-]);
-
-// React-style camelCase aliases mapped to their HTML attribute names.
-const ATTR_ALIASES: Record<string, string> = {
-  className: "class",
-  htmlFor: "for",
-  crossOrigin: "crossorigin",
-  httpEquiv: "http-equiv",
-  itemProp: "itemprop",
-  fetchPriority: "fetchpriority",
-  noModule: "nomodule",
-  formAction: "formaction",
-};
-
+// Renders one child: plain strings are HTML-escaped (the security model this
+// viewer relies on), while `raw()`-wrapped HTML passes through untouched.
+// Element rendering, attribute serialisation, void-tag detection and the
+// escape table itself are delegated to @kitajs/html rather than reimplemented.
 const renderChild = (child: unknown): string => {
   if (child === null || child === undefined || typeof child === "boolean")
     return "";
@@ -88,20 +36,6 @@ const renderChild = (child: unknown): string => {
   if (typeof child === "number" || typeof child === "bigint")
     return String(child);
   if (Array.isArray(child)) return child.map(renderChild).join("");
-  return "";
-};
-
-const renderAttr = (rawName: string, value: unknown): string => {
-  const name = ATTR_ALIASES[rawName] ?? rawName;
-  if (value === null || value === undefined) return "";
-  if (typeof value === "boolean") {
-    if (BOOLEAN_ATTRS.has(name)) return value ? ` ${name}=""` : "";
-    return ` ${name}="${value}"`;
-  }
-  if (isRaw(value)) return ` ${name}="${value.html}"`;
-  if (typeof value === "number" || typeof value === "bigint")
-    return ` ${name}="${value}"`;
-  if (typeof value === "string") return ` ${name}="${escapeHtml(value)}"`;
   return "";
 };
 
@@ -121,21 +55,27 @@ const renderElement = (
   if (typeof type === "function") return toRaw(type(p));
 
   const tag = String(type);
-  const dsi = p.dangerouslySetInnerHTML as { __html?: string } | undefined;
-  let attrs = "";
-  let inner = "";
+  const dsi = (p.dangerouslySetInnerHTML as { __html?: string } | undefined)
+    ?.__html;
+
+  // Event handlers and the reserved children/innerHTML keys have no attribute
+  // form; everything else is serialised by @kitajs/html.
+  const attrs: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(p))
-    if (key === "children") {
-      inner = renderChild(value);
-    } else if (key === "dangerouslySetInnerHTML") {
-      // Inline HTML is trusted; supplants any children.
-      inner = dsi?.__html ?? "";
-    } else if (typeof value !== "function") attrs += renderAttr(key, value);
+    if (
+      key !== "children" &&
+      key !== "dangerouslySetInnerHTML" &&
+      typeof value !== "function"
+    )
+      attrs[key] = value;
 
-  if (VOID_TAGS.has(tag) && p.children === undefined && dsi === undefined)
-    return raw(`<${tag}${attrs}/>`);
+  const attrStr = attributesToString(attrs);
+  const inner = dsi ?? renderChild(p.children);
 
-  return raw(`<${tag}${attrs}>${inner}</${tag}>`);
+  if (isVoidElement(tag) && p.children === undefined && dsi === undefined)
+    return raw(`<${tag}${attrStr}/>`);
+
+  return raw(`<${tag}${attrStr}>${inner}</${tag}>`);
 };
 
 const jsx = (type: unknown, props: Record<string, unknown> | null): RawHtml =>
