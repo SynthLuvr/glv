@@ -12,7 +12,7 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { type } from "arktype";
-import { parse, serialize } from "cookie";
+import { serialize } from "cookie";
 import type { LooseContext } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
@@ -413,24 +413,8 @@ const setSessionCookie = (c: LooseContext, token: string): void => {
   });
 };
 
-const authMiddleware =
-  (auth: AuthService) =>
-  (c: LooseContext): Response | undefined => {
-    if (isPublicPath(new URL(c.request.url).pathname)) return undefined;
-    const token = parse(c.request.headers.get("cookie") ?? "")[COOKIE_NAME];
-    if (token !== undefined && token !== "" && auth.isValidSession(token)) {
-      // Sliding window: re-issue the cookie so the browser expiry tracks
-      // the just-refreshed DB session rather than the original login.
-      setSessionCookie(c, token);
-      return undefined;
-    }
-    const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
-    return new Response(null, { status: 302, headers: { location: dest } });
-  };
-
 export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
 export {
-  authMiddleware,
   COOKIE_NAME,
   isPublicPath,
   makeAuthService,

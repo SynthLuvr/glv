@@ -47,7 +47,7 @@ const registerGroupRoutes = (app: Elysia, ctx: ServerContext): void => {
   // Join an existing group, or create one when groupId is empty.
   app.post("/sessions/:id/group", async (c) => {
     const id = c.params.id;
-    const body = await parseBody(c);
+    const body = parseBody(c);
     const groupId = typeof body.groupId === "string" ? body.groupId : "";
     if (groupId !== "") {
       if (getGroup(groups, groupId) === undefined) return notFound(c);
@@ -74,7 +74,7 @@ const registerGroupRoutes = (app: Elysia, ctx: ServerContext): void => {
   // joins it, otherwise a new group is created for both.
   app.post("/sessions/:id/group-with", async (c) => {
     const id = c.params.id;
-    const body = await parseBody(c);
+    const body = parseBody(c);
     const otherId = typeof body.otherId === "string" ? body.otherId : "";
     if (otherId !== "" && otherId !== id) {
       const existing = groupIdOf(groups, otherId);
@@ -92,7 +92,7 @@ const registerGroupRoutes = (app: Elysia, ctx: ServerContext): void => {
 
   app.post("/groups/:id/rename", async (c) => {
     const id = c.params.id;
-    const body = await parseBody(c);
+    const body = parseBody(c);
     const name = typeof body.name === "string" ? body.name : "";
     renameGroup(groups, id, name);
     return renderList(c);

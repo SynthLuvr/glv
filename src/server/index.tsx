@@ -52,13 +52,12 @@ const createApp = (
 
   const app = new Elysia({ adapter: node() });
 
-  // Auth gate sits first: every non-public request must carry a valid
-  // session before any route handler runs. Registered in place; Elysia
-  // mutates the instance, so the return need not be captured.
+  // Auth gate: every non-public request must carry a valid session before any
+  // route handler runs. The redirect must be built and returned inline (not via
+  // a helper) — Elysia's compile-time analysis only wires the beforeHandle
+  // short-circuit when the Response is returned directly from this arrow.
   if (ctx.auth !== undefined) {
     const auth = ctx.auth;
-    // The redirect is returned inline (not via an opaque helper call) so
-    // Elysia's compile-time analysis wires the beforeHandle short-circuit.
     app.onBeforeHandle((c) => {
       const path = new URL(c.request.url).pathname;
       if (isPublicPath(path)) return;

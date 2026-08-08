@@ -64,8 +64,8 @@ const uniqueName = (name: string, used: Set<string>): string => {
 
 type SavedUpload = { paths: string[]; dir: string };
 
-// Hono's parseBody yields a single File or File[] for the same field name
-// depending on options; flatten to File[], dropping zero-size entries.
+// parseBody yields a single File or File[] for the same field name depending
+// on options; flatten to File[], dropping zero-size entries.
 const collectFiles = (raw: unknown): File[] => {
   const files: File[] = [];
   if (Array.isArray(raw)) {

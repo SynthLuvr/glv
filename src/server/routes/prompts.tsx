@@ -54,7 +54,7 @@ const registerPromptRoutes = (app: Elysia, ctx: ServerContext): void => {
   // comma-separated `order` field of ids; assigns sort_order by position.
   // Returns an empty 200 — the DOM is already reordered client-side.
   app.post("/prompts/reorder", async (c) => {
-    const body = await parseBody(c);
+    const body = parseBody(c);
     const raw = typeof body.order === "string" ? body.order : "";
     const ids = raw
       .split(",")
@@ -68,7 +68,7 @@ const registerPromptRoutes = (app: Elysia, ctx: ServerContext): void => {
   app.get("/prompts/new", (c) => html(c, <PromptSaveForm />));
 
   app.post("/prompts", async (c) => {
-    const input = readInput(await parseBody(c));
+    const input = readInput(parseBody(c));
     if (!isValid(input))
       return html(
         c,
@@ -114,7 +114,7 @@ const registerPromptRoutes = (app: Elysia, ctx: ServerContext): void => {
 
   app.put("/prompts/:id", async (c) => {
     const id = c.params.id;
-    const input = readInput(await parseBody(c));
+    const input = readInput(parseBody(c));
     const existing = getPrompt(prompts, id);
     if (existing === undefined) return notFound(c);
     if (!isValid(input))

@@ -84,8 +84,7 @@ const jsx = (type: unknown, props: Record<string, unknown> | null): RawHtml =>
 const jsxs = (type: unknown, props: Record<string, unknown> | null): RawHtml =>
   renderElement(type, props);
 
-// Identity for callers that previously needed hono's renderToString: every JSX
-// expression is already a fully-rendered HTML string.
+// Unwraps a rendered JSX node (RawHtml) into a plain HTML string.
 const renderToString = (node: unknown): string => renderChild(node);
 
 type Child =

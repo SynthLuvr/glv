@@ -75,17 +75,13 @@ const serveAsset = (
     "cache-control": "public, max-age=86400",
   });
 
-// Parses an urlencoded/multipart body into a plain record. With `all`, every
-// field is an array of its values (Hono's parseBody({ all: true })); otherwise
-// each field is its first value. File entries are preserved (not stringified)
-// so upload handling receives real File objects.
 // Normalizes Elysia's parsed body (c.body) into a plain record. With `all`,
-// every field is an array (Hono parseBody({ all: true })); otherwise each
-// field is its first value. File entries are preserved for upload handling.
-const parseBody = async (
+// every field is an array of values; otherwise each field is its first value.
+// File entries are preserved so upload handling receives real File objects.
+const parseBody = (
   c: LooseContext,
   all = false,
-): Promise<Record<string, string | File | (string | File)[]>> => {
+): Record<string, string | File | (string | File)[]> => {
   const raw = (c.body ?? {}) as Record<string, unknown>;
   const out: Record<string, string | File | (string | File)[]> = {};
   for (const [key, value] of Object.entries(raw))

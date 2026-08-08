@@ -7,7 +7,7 @@ const contentTypeFor = (path: string): string =>
     ? "text/css; charset=utf-8"
     : "application/javascript; charset=utf-8";
 
-const registerAssetRoutes = (app: Elysia, ctx: ServerContext): Elysia => {
+const registerAssetRoutes = (app: Elysia, ctx: ServerContext): void => {
   const a = ctx.assets;
   const routes = [
     { path: "/assets/htmx.min.js", body: a.htmx },
@@ -21,11 +21,8 @@ const registerAssetRoutes = (app: Elysia, ctx: ServerContext): Elysia => {
     { path: "/assets/passkey.js", body: a.passkey },
     { path: "/assets/uploads.js", body: a.uploads },
   ];
-  return routes.reduce<Elysia>(
-    (acc, { path, body }) =>
-      acc.get(path, (c) => serveAsset(c, body, contentTypeFor(path))),
-    app,
-  );
+  for (const { path, body } of routes)
+    app.get(path, (c) => serveAsset(c, body, contentTypeFor(path)));
 };
 
 export { registerAssetRoutes };

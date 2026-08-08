@@ -62,7 +62,7 @@ import {
   uploadErrorMessage,
 } from "../uploads.js";
 
-// parseBody({ all: true }) returns an array per field; take the first string.
+// parseBody(c, true) returns an array per field; take the first string.
 const firstString = (val: unknown): string => {
   if (Array.isArray(val))
     return typeof val[0] === "string" ? val[0].trim() : "";
@@ -135,7 +135,7 @@ const registerSessionRoutes = (app: Elysia, ctx: ServerContext): void => {
 
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
-    const body = await parseBody(c, true);
+    const body = parseBody(c, true);
     const fieldString = (key: string): string => firstString(body[key]);
 
     const prompt = fieldString("prompt");
@@ -277,7 +277,7 @@ const registerSessionRoutes = (app: Elysia, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/rename", async (c) => {
     const id = c.params.id;
-    const body = await parseBody(c);
+    const body = parseBody(c);
     const name = typeof body.name === "string" ? body.name : "";
     const from = body.from === "sidebar" ? "sidebar" : "header";
     renameSession(ctx.dbWritable, id, name);
@@ -309,7 +309,7 @@ const registerSessionRoutes = (app: Elysia, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/archive", async (c) => {
-    const body = await parseBody(c, true);
+    const body = parseBody(c, true);
     archiveSessions(ctx.dbWritable, extractIds(body.id));
     const sessions = sessionsAll();
     return html(
@@ -329,7 +329,7 @@ const registerSessionRoutes = (app: Elysia, ctx: ServerContext): void => {
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
-    const body = await parseBody(c, true);
+    const body = parseBody(c, true);
     const prompt = firstString(body.prompt);
     const files = collectFiles(body.uploads);
 
