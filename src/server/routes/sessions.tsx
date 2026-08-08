@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
-import { type Context, type Hono } from "hono";
-import { Fragment } from "hono/jsx";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { type Elysia } from "elysia";
+import { Fragment } from "#jsx";
 import {
   archiveSessions,
   getSession,
@@ -28,7 +27,13 @@ import {
   ServerContext,
   VIEWER_FILTER,
 } from "../context.js";
-import { extractIds, isHtmxRequest } from "../http.js";
+import {
+  extractIds,
+  html,
+  isHtmxRequest,
+  type LooseContext,
+  parseBody,
+} from "../http.js";
 import { expandHome } from "../paths.js";
 import {
   newSessionDetail,
@@ -64,7 +69,7 @@ const firstString = (val: unknown): string => {
   return typeof val === "string" ? val.trim() : "";
 };
 
-const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerSessionRoutes = (app: Elysia, ctx: ServerContext): void => {
   const sessionsAll = () => listSessions(ctx.db, VIEWER_FILTER);
   // The saved-prompt library powers the follow-up bar picker; empty when the
   // prompts store is disabled so the picker shows its "no prompts" message.
@@ -77,7 +82,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // Renders a full <Transcript> (messages + run handle) inside the standard
   // page shell.
   const renderSession = (
-    c: Context,
+    c: LooseContext,
     id: string,
     session: SessionRow,
     {
@@ -117,7 +122,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // Registered before the /sessions/:id wildcard so "new" is treated as a
   // literal segment rather than a session id.
   app.get("/sessions/new", (c) => {
-    const workingDir = c.req.query("working_dir") || undefined;
+    const workingDir = c.query.working_dir || undefined;
     return render(
       c,
       ctx,
@@ -130,7 +135,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions", async (c) => {
     const sessions = sessionsAll();
-    const body = await c.req.parseBody({ all: true });
+    const body = await parseBody(c, true);
     const fieldString = (key: string): string => firstString(body[key]);
 
     const prompt = fieldString("prompt");
@@ -140,7 +145,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     const files = collectFiles(body.uploads);
 
-    const rejectForm = (error: string, status: ContentfulStatusCode) =>
+    const rejectForm = (error: string, status: number) =>
       render(
         c,
         ctx,
@@ -230,25 +235,26 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.get("/sessions/:id", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     // ?sidebar=1 (set by the stream's done handler) requests an out-of-band
     // sidebar refresh so a freshly renamed session no longer shows the stale
     // "CLI session" placeholder.
     return renderSession(c, id, session, {
-      refreshSidebar: c.req.query("sidebar") === "1",
+      refreshSidebar: c.query.sidebar === "1",
     });
   });
 
   // Targeted prompt-bar fragment swap (status transition only). Lets the
   // client swap just the form — not the whole transcript — when a run ends.
   app.get("/sessions/:id/prompt-bar", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     const run = getHandle(ctx.runner, id);
-    return c.html(
+    return html(
+      c,
       <PromptBar
         sessionId={id}
         run={run}
@@ -259,7 +265,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/:id/archive", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     archiveSessions(ctx.dbWritable, [id]);
     deleteUploads(id);
     deleteTempDir(id);
@@ -270,8 +276,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/:id/rename", async (c) => {
-    const id = c.req.param("id");
-    const body = await c.req.parseBody();
+    const id = c.params.id;
+    const body = await parseBody(c);
     const name = typeof body.name === "string" ? body.name : "";
     const from = body.from === "sidebar" ? "sidebar" : "header";
     renameSession(ctx.dbWritable, id, name);
@@ -279,7 +285,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (updated === undefined) return renderNotFound(c, ctx, id);
     const sessions = sessionsAll();
     if (from === "sidebar")
-      return c.html(
+      return html(
+        c,
         <SessionList
           entries={sidebarEntries(ctx, sessions)}
           selectedId={undefined}
@@ -287,7 +294,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         />,
       );
     if (!isHtmxRequest(c)) return renderSession(c, id, updated);
-    return c.html(
+    return html(
+      c,
       <Fragment>
         <SessionTitleWrap session={updated} />
         <SessionList
@@ -301,10 +309,11 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/archive", async (c) => {
-    const body = await c.req.parseBody({ all: true });
+    const body = await parseBody(c, true);
     archiveSessions(ctx.dbWritable, extractIds(body.id));
     const sessions = sessionsAll();
-    return c.html(
+    return html(
+      c,
       <SessionList
         entries={sidebarEntries(ctx, sessions)}
         selectedId={undefined}
@@ -316,11 +325,11 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // Prompt runner endpoints
 
   app.post("/sessions/:id/prompt", async (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
-    const body = await c.req.parseBody({ all: true });
+    const body = await parseBody(c, true);
     const prompt = firstString(body.prompt);
     const files = collectFiles(body.uploads);
 
@@ -361,7 +370,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/:id/queue/cancel", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
@@ -371,7 +380,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/sessions/:id/stop", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     stop(ctx.runner, id);
     const session = getSession(ctx.db, id);
     if (session === undefined) return renderNotFound(c, ctx, id);

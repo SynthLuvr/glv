@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from "hono/jsx";
+import type { PropsWithChildren } from "#jsx";
 import { HeadMeta } from "./head.js";
 
 type LayoutProps = PropsWithChildren<{ title: string }>;

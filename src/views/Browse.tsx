@@ -1,4 +1,4 @@
-import { Fragment } from "hono/jsx";
+import { Fragment } from "#jsx";
 import {
   type BrowseEntry,
   childRel,

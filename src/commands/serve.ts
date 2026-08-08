@@ -1,6 +1,4 @@
-import type { Socket } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
-import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
@@ -24,37 +22,8 @@ type ServeOpts = {
   debug: boolean;
 };
 
-// close() stops accepting connections; in-flight requests drain asynchronously.
-type CloseableServer = {
-  close: (callback?: (err?: Error) => void) => void;
-};
-
-type ConnectionEmitter = {
-  on: (event: "connection", listener: (socket: Socket) => void) => void;
-};
-
-const closeServer = (server: CloseableServer): Promise<void> =>
-  new Promise((resolve) => server.close(() => resolve()));
-
-// SSE streams never close on their own, so close()'s drain hangs while one is
-// attached. Track every socket so shutdown can force them down and a single
-// Ctrl+C exits instead of waiting for the browser to disconnect.
-const trackConnections = (server: ConnectionEmitter): (() => void) => {
-  const sockets = new Set<Socket>();
-  server.on("connection", (socket) => {
-    sockets.add(socket);
-    socket.once("close", () => {
-      sockets.delete(socket);
-    });
-  });
-  return () => {
-    for (const socket of sockets) socket.destroy();
-  };
-};
-
 type ShutdownDeps = {
-  server: CloseableServer;
-  destroyConnections: () => void;
+  stopServer: () => Promise<void> | void;
   stopProcesses: () => void;
   stopTunnel: () => void;
   closeDbs: () => void;
@@ -72,9 +41,10 @@ const createShutdown = (
       return;
     }
     draining = true;
-    // Destroy sockets before draining; close() hangs on open SSE streams.
-    deps.destroyConnections();
-    await closeServer(deps.server);
+    // Stop the listener and tear down active connections: SSE streams never
+    // close on their own, so an ordinary close() would hang on an attached
+    // browser instead of letting Ctrl+C exit promptly.
+    await deps.stopServer();
     deps.stopProcesses();
     deps.stopTunnel();
     deps.closeDbs();
@@ -128,12 +98,11 @@ const runServe = (
   });
   // Started once the port is bound so the -R bind targets the real listener.
   let tunnel: TunnelHandle | undefined;
-  const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
-    console.log(`glv web viewer → http://localhost:${info.port}`);
+  app.listen(opts.port, () => {
+    console.log(`glv web viewer → http://localhost:${opts.port}`);
     if (opts.forwardHost !== undefined)
-      tunnel = startForwardTunnel(info.port, opts.forwardHost);
+      tunnel = startForwardTunnel(opts.port, opts.forwardHost);
   });
-  const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
     db.close();
@@ -152,8 +121,9 @@ const runServe = (
   });
 
   const shutdown = createShutdown({
-    server,
-    destroyConnections,
+    stopServer: async () => {
+      await app.stop(true);
+    },
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
     closeDbs,

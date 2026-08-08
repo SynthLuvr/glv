@@ -1,5 +1,9 @@
-import { type Context, type Hono } from "hono";
-import { deleteCookie, getCookie } from "hono/cookie";
+import type {
+  AuthenticationResponseJSON,
+  RegistrationResponseJSON,
+} from "@simplewebauthn/server";
+import { parse, serialize } from "cookie";
+import { type Elysia } from "elysia";
 import type { RpConfig, VerifyResult } from "../../auth/service.js";
 import {
   COOKIE_NAME,
@@ -14,8 +18,9 @@ import {
   RegisterPage,
 } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
+import { html, json, type LooseContext, redirect } from "../http.js";
 
-const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
+const rpFromContext = (c: LooseContext, ctx: ServerContext): RpConfig => {
   const url = resolveRequestUrl(c);
   return {
     rpName: ctx.rpName ?? "GLV",
@@ -25,57 +30,61 @@ const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
 };
 
 const finishAuth = (
-  c: Context,
+  c: LooseContext,
   result: VerifyResult,
   fallbackError: string,
 ) => {
   if (result.verified && result.token !== undefined) {
     setSessionCookie(c, result.token);
-    return c.json({ verified: true });
+    return json(c, { verified: true });
   }
-  return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
+  return json(
+    c,
+    { verified: false, error: result.error ?? fallbackError },
+    400,
+  );
 };
 
 // Route failures become structured JSON instead of an opaque 500: malformed
 // verify bodies are client input (400), while option generation is server-side
 // (500).
-const jsonOrError = async <T,>(c: Context, run: () => Promise<T>) => {
+const jsonOrError = async <T,>(c: LooseContext, run: () => Promise<T>) => {
   try {
-    return c.json(await run());
+    return json(c, await run());
   } catch (err) {
-    return c.json({ error: errorMessage(err) }, 500);
+    return json(c, { error: errorMessage(err) }, 500);
   }
 };
 
 const verifyAndRespond = async (
-  c: Context,
+  c: LooseContext,
   fallbackError: string,
   verify: () => Promise<VerifyResult>,
 ) => {
   try {
     return finishAuth(c, await verify(), fallbackError);
   } catch (err) {
-    return c.json({ verified: false, error: errorMessage(err) }, 400);
+    return json(c, { verified: false, error: errorMessage(err) }, 400);
   }
 };
 
-const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerAuthRoutes = (app: Elysia, ctx: ServerContext): void => {
   const auth = ctx.auth;
   if (auth === undefined) return;
 
   app.get("/auth/register", (c) => {
-    if (auth.isClaimed()) return c.redirect("/auth/login", 302);
-    return c.html(<RegisterPage />);
+    if (auth.isClaimed()) return redirect(c, "/auth/login", 302);
+    return html(c, <RegisterPage />);
   });
 
   app.get("/auth/login", (c) => {
-    if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
-    return c.html(<LoginPage />);
+    if (!auth.isClaimed()) return redirect(c, "/auth/register", 302);
+    return html(c, <LoginPage />);
   });
 
   app.get("/auth/register/options", async (c) => {
     if (auth.isClaimed())
-      return c.json({ error: "Registration is closed." }, 403);
+      return json(c, { error: "Registration is closed." }, 403);
     return jsonOrError(c, () =>
       auth.registrationOptions(rpFromContext(c, ctx)),
     );
@@ -83,9 +92,16 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/auth/register/verify", async (c) => {
     if (auth.isClaimed())
-      return c.json({ verified: false, error: "Registration is closed." }, 403);
+      return json(
+        c,
+        { verified: false, error: "Registration is closed." },
+        403,
+      );
     return verifyAndRespond(c, "Verification failed.", async () =>
-      auth.verifyRegistration(rpFromContext(c, ctx), await c.req.json()),
+      auth.verifyRegistration(
+        rpFromContext(c, ctx),
+        c.body as RegistrationResponseJSON,
+      ),
     );
   });
 
@@ -95,14 +111,17 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/auth/login/verify", (c) =>
     verifyAndRespond(c, "Login failed.", async () =>
-      auth.verifyLogin(rpFromContext(c, ctx), await c.req.json()),
+      auth.verifyLogin(
+        rpFromContext(c, ctx),
+        c.body as AuthenticationResponseJSON,
+      ),
     ),
   );
 
   // Owner-only passkey management. The auth middleware gates these (they are
   // excluded from isPublicPath), so reaching a handler implies a valid session.
   app.get("/auth/devices", (c) =>
-    c.html(<DevicesPage credentials={auth.listCredentialSummaries()} />),
+    html(c, <DevicesPage credentials={auth.listCredentialSummaries()} />),
   );
 
   app.post("/auth/devices", (c) => {
@@ -111,7 +130,8 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
       token === undefined
         ? undefined
         : `${resolveRequestUrl(c).origin}/auth/enroll/${token}`;
-    return c.html(
+    return html(
+      c,
       <DevicesPage
         credentials={auth.listCredentialSummaries()}
         enrollUrl={enrollUrl}
@@ -124,32 +144,37 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   // add a passkey bound to that origin's RP ID. Stays public (no session) but
   // every step re-checks the bearer token.
   app.get("/auth/enroll/:token", (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     if (!auth.isEnrollmentTokenValid(token))
-      return c.redirect("/auth/login", 302);
-    return c.html(<EnrollPage token={token} />);
+      return redirect(c, "/auth/login", 302);
+    return html(c, <EnrollPage token={token} />);
   });
 
   app.get("/auth/enroll/:token/options", async (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     if (!auth.isEnrollmentTokenValid(token))
-      return c.json({ error: "Enrollment link expired or already used." }, 403);
+      return json(
+        c,
+        { error: "Enrollment link expired or already used." },
+        403,
+      );
     return jsonOrError(c, () =>
       auth.registrationOptions(rpFromContext(c, ctx)),
     );
   });
 
   app.post("/auth/enroll/:token/verify", async (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     if (!auth.isEnrollmentTokenValid(token))
-      return c.json(
+      return json(
+        c,
         { verified: false, error: "Enrollment link expired or already used." },
         400,
       );
     return verifyAndRespond(c, "Enrollment failed.", async () => {
       const result = await auth.verifyEnrollment(
         rpFromContext(c, ctx),
-        await c.req.json(),
+        c.body as RegistrationResponseJSON,
       );
       // Burn the link only after a successful enroll so a cancelled or failed
       // ceremony can be retried with the same link.
@@ -159,9 +184,13 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/auth/logout", (c) => {
-    auth.logout(getCookie(c, COOKIE_NAME));
-    deleteCookie(c, COOKIE_NAME, { path: "/" });
-    return c.redirect("/auth/login", 302);
+    auth.logout(parse(c.request.headers.get("cookie") ?? "")[COOKIE_NAME]);
+    c.set.headers["set-cookie"] = serialize(COOKIE_NAME, "", {
+      path: "/",
+      expires: new Date(0),
+      maxAge: 0,
+    });
+    return redirect(c, "/auth/login", 302);
   });
 };
 

@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { getSession, type SessionRow, sessionIdsInDir } from "../db.js";
 import type { RunHandle } from "../runner/index.js";
 import {
@@ -76,7 +75,7 @@ const prepareNewSession = (
 
 type EstablishOutcome =
   | { ok: true; realId: string; session: SessionRow }
-  | { ok: false; status: ContentfulStatusCode; error: string };
+  | { ok: false; status: number; error: string };
 
 // Rekeys the temp run handle onto the real id and confirms the session row
 // exists, stopping the run on either failure. `conflictError` localises the

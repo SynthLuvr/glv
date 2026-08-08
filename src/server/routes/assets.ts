@@ -1,4 +1,4 @@
-import { type Hono } from "hono";
+import { type Elysia } from "elysia";
 import type { ServerContext } from "../context.js";
 import { serveAsset } from "../http.js";
 
@@ -7,7 +7,7 @@ const contentTypeFor = (path: string): string =>
     ? "text/css; charset=utf-8"
     : "application/javascript; charset=utf-8";
 
-const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerAssetRoutes = (app: Elysia, ctx: ServerContext): Elysia => {
   const a = ctx.assets;
   const routes = [
     { path: "/assets/htmx.min.js", body: a.htmx },
@@ -21,8 +21,11 @@ const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
     { path: "/assets/passkey.js", body: a.passkey },
     { path: "/assets/uploads.js", body: a.uploads },
   ];
-  for (const { path, body } of routes)
-    app.get(path, (c) => serveAsset(c, body, contentTypeFor(path)));
+  return routes.reduce<Elysia>(
+    (acc, { path, body }) =>
+      acc.get(path, (c) => serveAsset(c, body, contentTypeFor(path))),
+    app,
+  );
 };
 
 export { registerAssetRoutes };

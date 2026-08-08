@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { type Hono } from "hono";
-import { Fragment } from "hono/jsx";
+import { type Elysia } from "elysia";
+import { Fragment } from "#jsx";
 import {
   getSession,
   listMessages,
@@ -14,6 +14,7 @@ import { detectPrUrl } from "../../pr.js";
 import { BranchChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
+import { html, notFound } from "../http.js";
 import { activeSessionIds } from "../status.js";
 
 // One git lookup per unique working dir, not one per session; a non-repo or
@@ -79,16 +80,16 @@ const renderMeta = (
 // refreshes a single slot after a run completes. PR badges are withheld
 // while running since detection over a partial transcript can latch onto
 // the wrong URL.
-const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerSidebarMetaRoutes = (app: Elysia, ctx: ServerContext): void => {
   app.get("/sessions/:id/sidebar-meta", async (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const session = getSession(ctx.db, id);
-    if (session === undefined) return c.notFound();
+    if (session === undefined) return notFound(c);
     const branches = await resolveBranches([session], ctx.runGit);
     const prUrl = activeSessionIds(ctx.runner).has(id)
       ? undefined
       : resolvePrUrls(ctx.db, [session]).get(id);
-    return c.html(renderMeta(session, branches.get(id), prUrl));
+    return html(c, renderMeta(session, branches.get(id), prUrl));
   });
 
   app.get("/sessions/sidebar-meta", async (c) => {
@@ -96,7 +97,8 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
     const runningIds = activeSessionIds(ctx.runner);
     const branches = await resolveBranches(sessions, ctx.runGit);
     const prUrls = resolvePrUrls(ctx.db, sessions);
-    return c.html(
+    return html(
+      c,
       <Fragment>
         {sessions.map((session) => {
           const branch = branches.get(session.id);

@@ -1,4 +1,4 @@
-import type { Child } from "hono/jsx";
+import type { Child } from "#jsx";
 import type { SessionRow } from "../db.js";
 import { displayName } from "../format/index.js";
 

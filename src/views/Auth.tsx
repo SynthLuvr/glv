@@ -1,4 +1,4 @@
-import type { Child } from "hono/jsx";
+import type { Child } from "#jsx";
 import type { CredentialSummary } from "../auth/db.js";
 import { HeadMeta } from "./head.js";
 

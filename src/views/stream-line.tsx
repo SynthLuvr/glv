@@ -1,5 +1,4 @@
-import type { Child } from "hono/jsx";
-import { renderToString } from "hono/jsx/dom/server";
+import { type Child, renderToString } from "#jsx";
 import { messageKind, parseContent } from "../format/index.js";
 import { tryParseJson } from "../parse.js";
 import { itemBlock, tagFor } from "./message-blocks.js";

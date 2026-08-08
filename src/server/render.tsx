@@ -1,6 +1,4 @@
-import { type Context } from "hono";
-import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { type Child, Fragment, type PropsWithChildren } from "#jsx";
 import type { SessionRow } from "../db.js";
 import { listSessions } from "../db.js";
 import { listGroups } from "../groups/db.js";
@@ -12,7 +10,7 @@ import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
-import { isHtmxRequest } from "./http.js";
+import { html, isHtmxRequest, type LooseContext } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
 // Folds the goose session list and the viewer-owned group memberships into a
@@ -112,7 +110,7 @@ const Shell = ({
 // selection survives. Mutations additionally refresh the sidebar
 // out-of-band.
 const render = (
-  c: Context,
+  c: LooseContext,
   ctx: ServerContext,
   sessions: SessionRow[],
   selectedId: string | undefined,
@@ -123,7 +121,7 @@ const render = (
     title = "GLV",
   }: {
     refreshSidebar?: boolean;
-    status?: ContentfulStatusCode;
+    status?: number;
     title?: string;
   } = {},
 ) => {
@@ -131,7 +129,8 @@ const render = (
   const runningIds = activeSessionIds(ctx.runner);
   const showLogout = ctx.auth !== undefined;
   return isHtmxRequest(c)
-    ? c.html(
+    ? html(
+        c,
         <Fragment>
           {detail}
           {refreshSidebar && (
@@ -145,7 +144,8 @@ const render = (
         </Fragment>,
         status,
       )
-    : c.html(
+    : html(
+        c,
         <Shell
           sessions={sessions}
           entries={entries}
@@ -160,7 +160,7 @@ const render = (
       );
 };
 
-const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
+const renderNotFound = (c: LooseContext, ctx: ServerContext, id: string) =>
   render(
     c,
     ctx,

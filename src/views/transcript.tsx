@@ -1,4 +1,4 @@
-import { renderToString } from "hono/jsx/dom/server";
+import { renderToString } from "#jsx";
 import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format/index.js";
 import { fmtRelative, shortenHome, truncateMiddle } from "../format/index.js";

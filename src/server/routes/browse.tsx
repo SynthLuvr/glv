@@ -1,24 +1,48 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { serveStatic } from "@hono/node-server/serve-static";
-import { type Context, type Hono } from "hono";
+import { extname } from "node:path";
+import { type Elysia } from "elysia";
 import { listSessions } from "../../db.js";
 import { BrowseDetail, BrowseError } from "../../views/Browse.js";
 import { listBrowseDir, resolveBrowsePath, subPathOf } from "../browse.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
+import { type LooseContext, notFound, send } from "../http.js";
 import { render } from "../render.js";
 
 const BROWSE_PREFIX = "/browse";
 const FILES_PREFIX = "/files";
 
+// A focused MIME table for the file viewer; unknown extensions fall back to a
+// generic binary type so browsers at least offer a download.
+const MIME: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
+};
+
+const contentTypeFor = (rel: string): string =>
+  MIME[extname(rel).toLowerCase()] ?? "application/octet-stream";
+
 const browseTitle = (rel: string): string =>
   rel === "" ? "Browse ~ — GLV" : `Browse ~/${rel} — GLV`;
 
 const renderBrowse = (
-  c: Context,
+  c: LooseContext,
   ctx: ServerContext,
   sub: string,
-): Response | Promise<Response> => {
+): Response => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
   const sessions = listSessions(ctx.db, VIEWER_FILTER);
@@ -47,32 +71,31 @@ const renderBrowse = (
   );
 };
 
-// Validates containment, dotfile exclusion, and symlink safety before handing
-// off to serveStatic, which handles content types, byte ranges, and streaming.
-const serveBrowseFile = async (c: Context, sub: string): Promise<Response> => {
+// Validates containment, dotfile exclusion, and symlink safety before reading
+// the file. Content type comes from the extension map above.
+const serveBrowseFile = async (
+  c: LooseContext,
+  sub: string,
+): Promise<Response> => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
-  if (!target.ok) return c.body("Not found\n", target.status);
-  if (!target.stat.isFile()) return c.notFound();
-  const result = await serveStatic({
-    root: home,
-    rewriteRequestPath: () => target.rel,
-  })(c, async () => {
-    // Validated above; serveStatic only reaches next() on a file race.
-  });
-  return result instanceof Response ? result : c.notFound();
+  if (!target.ok) return send(c, "Not found\n", target.status);
+  if (!target.stat.isFile()) return notFound(c);
+  const body = await readFile(target.abs);
+  return send(c, body, 200, { "content-type": contentTypeFor(target.rel) });
 };
 
 // /browse renders a navigable listing; /files streams a file's bytes. Both sit
 // behind the passkey auth gate: neither prefix is on the public allowlist.
-const registerBrowseRoutes = (app: Hono, ctx: ServerContext): void => {
-  app.get(BROWSE_PREFIX, (c) => renderBrowse(c, ctx, ""));
-  app.get(`${BROWSE_PREFIX}/*`, (c) =>
-    renderBrowse(c, ctx, subPathOf(c.req.path, BROWSE_PREFIX)),
-  );
-  app.get(`${FILES_PREFIX}/*`, (c) =>
-    serveBrowseFile(c, subPathOf(c.req.path, FILES_PREFIX)),
-  );
+const registerBrowseRoutes = (app: Elysia, ctx: ServerContext): void => {
+  app
+    .get(BROWSE_PREFIX, (c) => renderBrowse(c, ctx, ""))
+    .get(`${BROWSE_PREFIX}/*`, (c) =>
+      renderBrowse(c, ctx, subPathOf(c.path, BROWSE_PREFIX)),
+    )
+    .get(`${FILES_PREFIX}/*`, (c) =>
+      serveBrowseFile(c, subPathOf(c.path, FILES_PREFIX)),
+    );
 };
 
 export { registerBrowseRoutes };

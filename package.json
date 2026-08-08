@@ -4,6 +4,10 @@
   "private": true,
   "description": "Self-hosted web UI that increases development speed with agentic coding",
   "type": "module",
+  "imports": {
+    "#jsx": "./src/jsx/index.ts",
+    "#jsx/jsx-runtime": "./src/jsx/jsx-runtime.ts"
+  },
   "packageManager": "pnpm@11.15.0",
   "engines": {
     "node": "26"
@@ -53,15 +57,17 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.10",
+    "@elysiajs/node": "^1.4.5",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
+    "@types/cookie": "^1.0.0",
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "dompurify": "^3.4.12",
+    "cookie": "^1.1.1",
+    "dompurify": "^3.4.13",
+    "elysia": "^1.4.29",
     "execa": "^10.0.0",
-    "hono": "^4.12.34",
     "htmx.org": "2.0.10",
     "jsdom": "^30.0.1",
     "marked": "^18.0.6",

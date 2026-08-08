@@ -1,6 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
-import { Hono } from "hono";
-import { authMiddleware } from "../auth/service.js";
+import { node } from "@elysiajs/node";
+import { parse } from "cookie";
+import { Elysia } from "elysia";
+import {
+  COOKIE_NAME,
+  isPublicPath,
+  setSessionCookie,
+} from "../auth/service.js";
 import { type Runner } from "../runner/index.js";
 import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
@@ -22,7 +28,7 @@ const createApp = (
   dbWritable: DatabaseSync,
   runner: Runner,
   opts: ServerOptions = {},
-): Hono => {
+): Elysia => {
   const ctx: ServerContext = {
     db,
     dbWritable,
@@ -44,10 +50,31 @@ const createApp = (
     assets: buildAssetBundle(),
   };
 
-  const app = new Hono();
+  const app = new Elysia({ adapter: node() });
+
   // Auth gate sits first: every non-public request must carry a valid
-  // session before any other middleware or route runs.
-  if (ctx.auth !== undefined) app.use("*", authMiddleware(ctx.auth));
+  // session before any route handler runs. Registered in place; Elysia
+  // mutates the instance, so the return need not be captured.
+  if (ctx.auth !== undefined) {
+    const auth = ctx.auth;
+    // The redirect is returned inline (not via an opaque helper call) so
+    // Elysia's compile-time analysis wires the beforeHandle short-circuit.
+    app.onBeforeHandle((c) => {
+      const path = new URL(c.request.url).pathname;
+      if (isPublicPath(path)) return;
+      const token = parse(c.request.headers.get("cookie") ?? "")[COOKIE_NAME];
+      if (token !== undefined && token !== "" && auth.isValidSession(token)) {
+        setSessionCookie(c, token);
+        return;
+      }
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: auth.isClaimed() ? "/auth/login" : "/auth/register",
+        },
+      });
+    });
+  }
 
   registerAssetRoutes(app, ctx);
   registerAuthRoutes(app, ctx);

@@ -12,8 +12,8 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { type } from "arktype";
-import { type Context, type MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { parse, serialize } from "cookie";
+import type { LooseContext } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -385,27 +385,28 @@ const isPublicPath = (path: string): boolean =>
 // proxy sends them; the app is passkey-gated, so a spoofed origin cannot forge
 // an assertion (the authenticator still enforces the RP binding).
 const firstForwardedValue = (
-  header: string | undefined,
+  header: string | null | undefined,
 ): string | undefined => {
-  if (header === undefined || header === "") return undefined;
+  if (header === null || header === undefined || header === "")
+    return undefined;
   const first = header.split(",")[0]?.trim();
   return first === undefined || first === "" ? undefined : first;
 };
 
-const resolveRequestUrl = (c: Context): URL => {
-  const url = new URL(c.req.url);
-  const host = firstForwardedValue(c.req.header("x-forwarded-host"));
+const resolveRequestUrl = (c: LooseContext): URL => {
+  const url = new URL(c.request.url);
+  const host = firstForwardedValue(c.request.headers.get("x-forwarded-host"));
   if (host !== undefined) url.host = host;
-  const proto = firstForwardedValue(c.req.header("x-forwarded-proto"));
+  const proto = firstForwardedValue(c.request.headers.get("x-forwarded-proto"));
   if (proto !== undefined) url.protocol = `${proto}:`;
   return url;
 };
 
-const setSessionCookie = (c: Context, token: string): void => {
+const setSessionCookie = (c: LooseContext, token: string): void => {
   const url = resolveRequestUrl(c);
-  setCookie(c, COOKIE_NAME, token, {
+  c.set.headers["set-cookie"] = serialize(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "Strict",
+    sameSite: "strict",
     secure: url.protocol === "https:",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
@@ -413,24 +414,25 @@ const setSessionCookie = (c: Context, token: string): void => {
 };
 
 const authMiddleware =
-  (auth: AuthService): MiddlewareHandler =>
-  async (c, next) => {
-    if (isPublicPath(c.req.path)) return next();
-    const token = getCookie(c, COOKIE_NAME);
-    if (token !== undefined && auth.isValidSession(token)) {
+  (auth: AuthService) =>
+  (c: LooseContext): Response | undefined => {
+    if (isPublicPath(new URL(c.request.url).pathname)) return undefined;
+    const token = parse(c.request.headers.get("cookie") ?? "")[COOKIE_NAME];
+    if (token !== undefined && token !== "" && auth.isValidSession(token)) {
       // Sliding window: re-issue the cookie so the browser expiry tracks
       // the just-refreshed DB session rather than the original login.
       setSessionCookie(c, token);
-      return next();
+      return undefined;
     }
     const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
-    return c.redirect(dest, 302);
+    return new Response(null, { status: 302, headers: { location: dest } });
   };
 
 export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
 export {
   authMiddleware,
   COOKIE_NAME,
+  isPublicPath,
   makeAuthService,
   resolveRequestUrl,
   setSessionCookie,

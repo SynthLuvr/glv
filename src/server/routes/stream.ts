@@ -1,12 +1,19 @@
-import { type Hono } from "hono";
-import { type SSEStreamingApi, streamSSE } from "hono/streaming";
+import { type Elysia } from "elysia";
 import { getSession, listMessages } from "../../db.js";
 import { type ParsedMessage, parseMessage } from "../../format/index.js";
 import { getHandle, isTerminalStatus } from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
-import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
+import { text } from "../http.js";
+import {
+  emit,
+  emitMeta,
+  emitStatus,
+  flushPreview,
+  type SseStream,
+  streamSSE,
+} from "../sse.js";
 
 type MessageDelta = { index: number; html: string };
 
@@ -50,7 +57,7 @@ const renderCatchup = (
 // Returns false once the stream should stop (client gone or session deleted);
 // the deleted case signals the client to close its EventSource.
 const pollDb = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -138,7 +145,7 @@ const pollDb = async (
 // Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
 // preview lines. Returns false once the stream should stop.
 const pollRunner = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -189,20 +196,20 @@ const pollRunner = async (
   return true;
 };
 
-const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerStreamRoutes = (app: Elysia, ctx: ServerContext): void => {
   // Unified session event stream. The DB is the source of truth for committed
   // messages; in-memory NDJSON lines are a transient preview shown below the
   // transcript while a run is active. The stream never closes itself — it
   // shifts from active polling (50 ms) to idle polling (tailPollMs) and stays
   // open until the client disconnects.
   app.get("/sessions/:id/events", (c) => {
-    const id = c.req.param("id");
+    const id = c.params.id;
     const initial = getSession(ctx.db, id);
-    if (initial === undefined) return c.text("Session not found", 404);
+    if (initial === undefined) return text(c, "Session not found", 404);
 
     const cursor = resumeCursor(
-      c.req.header("last-event-id") ?? "",
-      c.req.query("cursor"),
+      c.request.headers.get("last-event-id") ?? "",
+      c.query.cursor,
     );
 
     return streamSSE(c, async (stream) => {
