@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname } from "node:path";
 import { type Elysia } from "elysia";
+import { mime } from "elysia/universal/file";
 import { listSessions } from "../../db.js";
 import { BrowseDetail, BrowseError } from "../../views/Browse.js";
 import { listBrowseDir, resolveBrowsePath, subPathOf } from "../browse.js";
@@ -13,27 +14,24 @@ import { render } from "../render.js";
 const BROWSE_PREFIX = "/browse";
 const FILES_PREFIX = "/files";
 
-// A focused MIME table for the file viewer; unknown extensions fall back to a
+// Elysia ships a built-in extension→MIME map (`elysia/universal/file`), but it
+// omits markdown and never declares `charset=utf-8` on text types — without that
+// charset browsers can mis-decode UTF-8. Only those deltas are restated here;
+// every other extension resolves from the built-in table, falling back to a
 // generic binary type so browsers at least offer a download.
 const MIME: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".gif": "image/gif",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".pdf": "application/pdf",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".webp": "image/webp",
+  ...mime,
+  css: "text/css; charset=utf-8",
+  html: "text/html; charset=utf-8",
+  js: "application/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  md: "text/markdown; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
 };
 
+// The built-in table keys extensions without the leading dot, so strip it.
 const contentTypeFor = (rel: string): string =>
-  MIME[extname(rel).toLowerCase()] ?? "application/octet-stream";
+  MIME[extname(rel).toLowerCase().slice(1)] ?? "application/octet-stream";
 
 const browseTitle = (rel: string): string =>
   rel === "" ? "Browse ~ — GLV" : `Browse ~/${rel} — GLV`;
