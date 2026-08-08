@@ -22,9 +22,11 @@ migrate to ElysiaJS.
 
 To decide with evidence rather than intuition, we ran a complete,
 throwaway migration to Elysia (branch `chore/replace-hono-with-elysia`)
-and got it fully green: `pnpm build && pnpm lint && pnpm test` with 174
+and got it fully green: `pnpm build && pnpm lint && pnpm test` with 175
 integration tests passing. The findings below come from that spike, not
-from documentation.
+from documentation. After the initial migration, refactoring commits on
+the same branch resolved the SSE finding and shrank the JSX runtime; the
+findings below reflect the spike’s refined state.
 
 ## Decision
 
@@ -35,30 +37,45 @@ Stay with Hono.
 Elysia is a Bun-first framework. Its defining strength is end-to-end
 type safety (route schemas inferred through to a type-safe Eden client)
 and typebox-based validation. The spike confirmed Elysia can run on Node
-via `@elysiajs/node`, but the migration surfaced substantial friction
-against this codebase’s real workload.
+via `@elysiajs/node`, but the migration surfaced friction against this
+codebase’s real workload.
 
 ### Findings (each verified during the spike)
 
-1.  **No auto-escaping JSX.** Elysia’s JSX (`@kitajs/html`) compiles to
-    strings but does not escape dynamic children; it renders raw
-    `<script>` verbatim. Hono/jsx escapes by default. Because glv
-    renders user content everywhere, reproducing Hono’s security model
-    required a 179-line custom JSX runtime rather than hand-escaping
-    hundreds of interpolations.
-2.  **No built-in SSE.** Hono ships `streamSSE`; Elysia does not. The
-    spike reimplemented it over a `ReadableStream` (166 lines),
-    including disconnect detection.
+1.  **JSX does not auto-escape by default.** Elysia’s JSX
+    (`@kitajs/html`) compiles to strings but does not escape dynamic
+    children; it renders raw `<script>` verbatim. Hono/jsx escapes by
+    default. Because glv renders user content everywhere, reproducing
+    Hono’s security model required a custom JSX runtime. After
+    refinement, the runtime delegates escaping, attribute serialisation,
+    and void-tag detection to `@kitajs/html`’s `escapeHtml`,
+    `attributesToString`, and `isVoidElement` helpers (117 lines),
+    retaining auto-escape-by-default via a `RawHtml` marker that passes
+    trusted HTML through untouched. An integration test now asserts user
+    prompts are HTML-escaped.
+2.  **SSE — resolved during spike refinement.** The initial spike
+    reimplemented SSE over a `ReadableStream` (166 lines), including
+    disconnect detection, under the assumption that Elysia had no
+    built-in streaming helper. A subsequent refactor replaced this with
+    Elysia’s own `sse()` (`import { sse } from "elysia"`), which owns
+    the `text/event-stream` headers, framing, and client-disconnect
+    teardown. Net −155 lines across the SSE modules. Elysia does ship
+    SSE; this finding no longer stands.
 3.  **Content-Type defaulting.** Without its HTML plugin, Elysia serves
     every string body as `text/plain`, ignoring
     `set.headers['content-type']`. This silently broke CSS/JS assets and
     HTML pages alike. The remedy was to make every response helper
-    return an explicit `Response` (110 lines).
+    return an explicit `Response` (106 lines). The browse route now
+    reuses Elysia’s built-in extension-to-MIME map
+    (`elysia/universal/file`) as a base, restating only the deltas
+    (charset on text types, markdown), which the built-in table omits.
 4.  **`beforeHandle` only short-circuits on an inline return.** An auth
     gate written as an opaque call (`(c) => gate(c)`) does not redirect;
     only a textually inline `return new Response(...)` does. Elysia’s
     compile-time analysis wires the short-circuit solely when the
-    Response is visible in the handler body.
+    Response is visible in the handler body. This was re-verified during
+    cleanup: extracting the gate into a helper silently passed every
+    request through.
 5.  **Request body read once.** Calling `c.request.formData()` in a
     handler throws, because Elysia has already consumed the stream into
     `c.body`.
@@ -71,15 +88,17 @@ against this codebase’s real workload.
 | Area                 | Hono (today)                      | Elysia (spike)                                    |
 |----------------------|-----------------------------------|---------------------------------------------------|
 | Runtime dependencies | 0 (dependency-free)               | 4 direct + adapter (~59 more transitive packages) |
-| Auto-escaping JSX    | Built in (`hono/jsx`)             | 179-line custom runtime                           |
-| SSE streaming        | Built in (`hono/streaming`)       | 166-line custom implementation                    |
+| Auto-escaping JSX    | Built in (`hono/jsx`)             | 117-line wrapper over `@kitajs/html`              |
+| SSE streaming        | Built in (`hono/streaming`)       | Built in (`sse` from `elysia`)                    |
 | Cookie helpers       | Built in (`hono/cookie`)          | External `cookie` package                         |
-| Response helpers     | `Context` methods                 | 110 lines of `Response` builders                  |
+| Response helpers     | `Context` methods                 | 106 lines of `Response` builders                  |
 | Node adapter         | First-class (`@hono/node-server`) | `@elysiajs/node` (Bun is primary)                 |
 
-Net, the migration added roughly 450 lines of framework-replacement code
-that we would own and maintain, plus several behavioral workarounds, in
-exchange for removing one well-fitting dependency.
+The refactored spike halved the framework-replacement cost — roughly 225
+lines (down from ~450 in the initial migration), primarily by adopting
+Elysia’s built-in `sse()`. The remaining 225 lines plus four behavioral
+workarounds are all Elysia-on-Node quirks absent from Hono, and they tip
+the balance toward Hono for this workload.
 
 ## Consequences
 
@@ -103,4 +122,4 @@ offset the friction recorded above.
 ## References
 
 - Spike branch: `chore/replace-hono-with-elysia` (full Elysia migration;
-  `pnpm build && pnpm lint && pnpm test` green, 174 integration tests).
+  `pnpm build && pnpm lint && pnpm test` green, 175 integration tests).
