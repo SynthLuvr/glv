@@ -20,25 +20,45 @@ server-side workload is:
 The framework today is Hono. This decision records whether to keep it or
 migrate to ElysiaJS.
 
-To decide with evidence rather than intuition, we ran a complete,
-throwaway migration to Elysia (branch `chore/replace-hono-with-elysia`)
-and got it fully green: `pnpm build && pnpm lint && pnpm test` with 175
-integration tests passing. The findings below come from that spike, not
-from documentation. After the initial migration, refactoring commits on
-the same branch resolved the SSE finding and shrank the JSX runtime; the
-findings below reflect the spike’s refined state.
-
 ## Decision
 
 Stay with Hono.
 
+## Rationale
+
+The decision rests on a single observation: **Elysia’s strengths do not
+apply to this workload, so any migration cost is uncompensated
+overhead.**
+
+Elysia is a Bun-first framework whose headline feature is end-to-end
+type safety — route schemas inferred at compile time and projected onto
+a type-safe Eden client. Neither capability has a consumer in glv:
+
+- **No Bun.** glv runs on Node 26 via tsx. The spike proved Elysia can
+  run on Node through `@elysiajs/node`, but every piece of friction
+  documented below — the adapter itself, the Content-Type quirks, the
+  compile-time `beforeHandle` caveats — is Elysia-on-Node overhead that
+  would not exist on Bun. Adopting Elysia means committing to a
+  community-maintained Node adapter for a framework whose primary target
+  is a different runtime.
+- **No typed client.** glv is htmx-driven SSR. There is no API client,
+  typed or otherwise. Elysia’s schema validation and Eden type inference
+  have no consumer. We would be adopting a framework built around a
+  feature we cannot use.
+
+With no offsetting benefit, the migration’s cost — even after the
+spike’s refactors halved it — is pure overhead. Hono, by contrast, is
+dependency-free and its built-ins (JSX, streaming, cookies, node-server)
+map exactly onto this workload.
+
 ## Alternative considered: ElysiaJS
 
-Elysia is a Bun-first framework. Its defining strength is end-to-end
-type safety (route schemas inferred through to a type-safe Eden client)
-and typebox-based validation. The spike confirmed Elysia can run on Node
-via `@elysiajs/node`, but the migration surfaced friction against this
-codebase’s real workload.
+A complete, throwaway migration to Elysia (branch
+`chore/replace-hono-with-elysia`) was executed and brought to green:
+`pnpm build && pnpm lint && pnpm test` with 175 integration tests
+passing. After the initial migration, refactoring commits on the same
+branch resolved the SSE finding and shrank the JSX runtime; the findings
+below reflect the spike’s refined state.
 
 ### Findings (each verified during the spike)
 
@@ -87,7 +107,7 @@ codebase’s real workload.
 
 | Area                 | Hono (today)                      | Elysia (spike)                                    |
 |----------------------|-----------------------------------|---------------------------------------------------|
-| Runtime dependencies | 0 (dependency-free)               | 4 direct + adapter (~59 more transitive packages) |
+| Runtime dependencies | 0 (dependency-free)               | 4 direct + adapter (~65 more transitive packages) |
 | Auto-escaping JSX    | Built in (`hono/jsx`)             | 117-line wrapper over `@kitajs/html`              |
 | SSE streaming        | Built in (`hono/streaming`)       | Built in (`sse` from `elysia`)                    |
 | Cookie helpers       | Built in (`hono/cookie`)          | External `cookie` package                         |
@@ -97,27 +117,30 @@ codebase’s real workload.
 The refactored spike halved the framework-replacement cost — roughly 225
 lines (down from ~450 in the initial migration), primarily by adopting
 Elysia’s built-in `sse()`. The remaining 225 lines plus four behavioral
-workarounds are all Elysia-on-Node quirks absent from Hono, and they tip
-the balance toward Hono for this workload.
+workarounds are all Elysia-on-Node quirks absent from Hono. That cost is
+acceptable in isolation, but the rationale above makes it decisive: it
+buys nothing the codebase can use.
 
 ## Consequences
 
 - **Positive.** We keep a runtime-agnostic, dependency-free framework
   whose built-ins (JSX, streaming, cookies, node-server) map exactly
   onto a Node + htmx + SSR + SSE workload. No owned shims, no
-  Node-adapter workarounds.
+  Node-adapter workarounds, no paying for type-safety features we have
+  no consumer for.
 - **Negative.** We forgo Elysia’s end-to-end type-safe client story.
-  This is acceptable because glv has no typed client; it is htmx, so
-  that strength does not apply here.
+  This is a non-cost: glv has no typed client; it is htmx.
 - **Reversibility.** The decision carries no lock-in. The spike branch
-  remains as a reference implementation.
+  remains as a reference implementation and would be the starting point
+  if the revisit triggers below are met.
 
 ## When to revisit
 
 Reconsider Elysia if glv both (a) moves its runtime to Bun and (b)
 shifts from htmx to a typed API client. At that point Elysia’s native
 strengths (Bun `listen`, Eden type safety, schema validation) would
-offset the friction recorded above.
+offset the friction recorded above. Absent both conditions, the overhead
+documented here has no compensating benefit.
 
 ## References
 
