@@ -1,17 +1,8 @@
 #!/usr/bin/env node
-//
-// glv — cross-platform project setup
-//
-//   1. Verifies prerequisites (Node.js >= 24, pnpm >= 10)
-//   2. Installs Node dependencies  (pnpm install)
-//   3. Installs the `glv` launcher onto your PATH
-//        - Unix:    ~/.local/bin/glv  -> symlink to bin/glv.mjs
-//        - Windows: %USERPROFILE%\.local\bin\glv.cmd -> shim invoking node
-//
-// Plain Node ESM (no TypeScript/tsx) so it runs on a fresh clone *before*
-// dependencies are installed. Invoke with:  node scripts/setup.mjs
-// Re-running is safe — every step is idempotent.
-// (./setup.sh is retained as a thin Unix wrapper around this script.)
+// Cross-platform project setup: verifies prerequisites, installs deps, and
+// installs the `glv` launcher on the PATH (symlink on Unix, .cmd shim on
+// Windows). Plain Node ESM — no tsx — so it runs on a fresh clone before
+// dependencies are installed. Idempotent; safe to re-run.
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -31,7 +22,6 @@ const BIN_MJS = join(ROOT, "bin", "glv.mjs");
 const IS_WIN = platform() === "win32";
 const TTY = process.stdout.isTTY === true;
 
-// ─── Output helpers ───────────────────────────────────────────
 const codes = {
   bold: "\u001b[1m",
   green: "\u001b[32m",
@@ -57,7 +47,6 @@ const die = (msg) => {
   process.exit(1);
 };
 
-// ─── Steps ────────────────────────────────────────────────────
 const majorOf = (version) => {
   const match = /^v?(\d+)/.exec(version);
   return match === null ? 0 : Number(match[1]);

@@ -2,13 +2,8 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// The Node launcher (bin/glv.mjs) and the POSIX shell launcher (bin/glv) must
-// behave identically — bin/glv.mjs is the cross-platform entry point published
-// via package.json's "bin" field, while bin/glv is kept for direct Unix
-// invocation (the harness spawns it by path). These tests drive the Node
-// launcher end-to-end: they spawn the real file, which in turn spawns node +
-// the tsx loader + src/cli.ts, then assert parity with the shell launcher and
-// correct exit-code forwarding. No database is required.
+// bin/glv.mjs (Node, package.json "bin") and bin/glv (POSIX shell) must behave
+// identically. These spawn the real launchers end-to-end (no database needed).
 const SHELL_LAUNCHER = resolve("bin/glv");
 const NODE_LAUNCHER = resolve("bin/glv.mjs");
 
