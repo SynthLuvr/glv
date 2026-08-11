@@ -44,6 +44,8 @@ type SessionFilter = {
   includeArchived: boolean;
 };
 
+// goose may store its DB elsewhere on Windows; override with
+// GOOSE_SESSIONS_DB or --db when the default doesn't match.
 const resolveDbPath = (override?: string): string =>
   resolveDataPath(
     override,

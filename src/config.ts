@@ -1,8 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
 import { tryParseJson } from "./parse.js";
+
+const configRoot = (): string => {
+  if (platform() === "win32")
+    return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+
+  return join(homedir(), ".config");
+};
 
 const Config = type({
   "forwardHost?": "string",
@@ -15,7 +22,7 @@ const CONFIG_KEYS: readonly string[] = ["forwardHost"];
 // Lives outside the repo so per-machine secrets (e.g. a forward host) stay
 // uncommitted. Precedence mirrors the DB-path helpers: env override → default.
 const resolveConfigPath = (): string =>
-  process.env.GLV_CONFIG ?? join(homedir(), ".config", "glv", "config.json");
+  process.env.GLV_CONFIG ?? join(configRoot(), "glv", "config.json");
 
 const readRawConfig = (): Record<string, unknown> => {
   const path = resolveConfigPath();

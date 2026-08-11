@@ -120,7 +120,7 @@ program
 
 const configCmd = program
   .command("config")
-  .description("Read and set fields in ~/.config/glv/config.json")
+  .description("Read and set fields in the glv config file")
   .action(() => runConfigList());
 
 configCmd
@@ -177,9 +177,7 @@ const resolveForwardHost = (forward?: boolean): string | undefined => {
   if (!forward) return undefined;
   const { forwardHost } = readConfig();
   if (forwardHost === undefined)
-    throw new Error(
-      '--forward needs "forwardHost" set in ~/.config/glv/config.json',
-    );
+    throw new Error('--forward needs "forwardHost" set in the glv config file');
   return forwardHost;
 };
 
@@ -206,7 +204,7 @@ program
   )
   .option(
     "--forward",
-    "open an ssh reverse tunnel (host from ~/.config/glv/config.json)",
+    "open an ssh reverse tunnel (host from the glv config file)",
   )
   .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
   .action((opts: ServeOpts) => {
