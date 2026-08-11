@@ -4,8 +4,6 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 import { tryParseJson } from "./parse.js";
 
-// Platform-aware config root.  Unix follows XDG (~/.config); Windows uses
-// %LOCALAPPDATA% (AppData\Local), the conventional per-user settings dir.
 const configRoot = (): string => {
   if (platform() === "win32")
     return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");

@@ -2,8 +2,6 @@ import { mkdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 
-// Platform-aware data root.  Unix follows XDG (~/.local/share); Windows uses
-// %APPDATA% (AppData\Roaming), the conventional per-user application-data dir.
 const dataRoot = (): string => {
   if (platform() === "win32")
     return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");

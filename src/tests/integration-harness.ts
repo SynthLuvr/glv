@@ -508,9 +508,16 @@ export type { IntegrationEnv, SseEvent };
 export {
   authedFetch,
   collectSse,
+  findFreePort,
+  GLV,
   insertMessages,
   insertSessions,
+  mockGoose,
   parseSseData,
+  ROOT,
+  SESSIONS_SCHEMA,
   startIntegrationEnv,
+  stopProcess,
+  waitForHttp,
   withPage,
 };
