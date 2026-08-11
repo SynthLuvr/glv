@@ -155,6 +155,9 @@ type MockConfig = {
   captureCwd?: string;
   /** When set, writes goose's argv (JSON string[]) to this file path. */
   captureArgs?: string;
+  /** When set, goose spawns a long-lived descendant and writes its PID here,
+   * so session-stop tests can assert the whole process tree is reaped. */
+  spawnChild?: string;
 };
 
 type IntegrationEnv = {
@@ -308,6 +311,7 @@ const mockEnv = (mock: MockConfig): Record<string, string> => ({
   GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
   GOOSE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
   GOOSE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
+  GOOSE_MOCK_SPAWN_CHILD: mock.spawnChild ?? "",
 });
 
 const startIntegrationEnv = async (

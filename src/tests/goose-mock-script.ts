@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
@@ -126,6 +127,20 @@ const main = async (): Promise<void> => {
   const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
   if (captureArgs !== undefined && captureArgs !== "")
     writeFileSync(captureArgs, JSON.stringify(args));
+
+  // Optionally spawn a long-lived descendant that stays in this process's
+  // group, writing its PID to the given file. It survives a plain kill of
+  // this process but is reaped by a tree-wide kill (killDescendants / process
+  // group), so session-stop tests can assert the whole tree is torn down.
+  const spawnChildTo = process.env.GOOSE_MOCK_SPAWN_CHILD;
+  if (spawnChildTo !== undefined && spawnChildTo !== "") {
+    const child = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 2 ** 30)"],
+      { stdio: "ignore" },
+    );
+    if (child.pid !== undefined) writeFileSync(spawnChildTo, String(child.pid));
+  }
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

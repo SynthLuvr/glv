@@ -51,9 +51,6 @@ importers:
       '@ast-grep/cli':
         specifier: ^0.45.1
         version: 0.45.1
-      '@ast-grep/cli-linux-x64-gnu':
-        specifier: ^0.45.1
-        version: 0.45.1
       '@biomejs/biome':
         specifier: ^2.5.7
         version: 2.5.7
@@ -1997,7 +1994,8 @@ snapshots:
   '@ast-grep/cli-linux-arm64-gnu@0.45.1':
     optional: true
 
-  '@ast-grep/cli-linux-x64-gnu@0.45.1': {}
+  '@ast-grep/cli-linux-x64-gnu@0.45.1':
+    optional: true
 
   '@ast-grep/cli-win32-arm64-msvc@0.45.1':
     optional: true

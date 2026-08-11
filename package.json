@@ -33,7 +33,6 @@
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.45.1",
-    "@ast-grep/cli-linux-x64-gnu": "^0.45.1",
     "@biomejs/biome": "^2.5.7",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/cli": "^4.3.3",

@@ -65,6 +65,24 @@ describe("readGitInfo", () => {
     };
     expect(await readGitInfo("/nope", bomb)).toEqual({});
   });
+
+  // Windows git emits backslash paths; the prefix match normalises separators
+  // before comparing so worktree detection still works there.
+  it("matches a worktree path that uses backslash separators", async () => {
+    const worktrees = porcelain("worktree C:\\repo", "branch refs/heads/main");
+    expect(await readGitInfo("C:\\repo", fakeRunner(worktrees))).toEqual({
+      branch: "main",
+      worktree: "C:\\repo",
+    });
+  });
+
+  it("matches a subdirectory under a backslash worktree path", async () => {
+    const worktrees = porcelain("worktree C:\\repo", "branch refs/heads/main");
+    expect(await readGitInfo("C:\\repo\\sub", fakeRunner(worktrees))).toEqual({
+      branch: "main",
+      worktree: "C:\\repo",
+    });
+  });
 });
 
 describe("readWorktreeByBranch", () => {

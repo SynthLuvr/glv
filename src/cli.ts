@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
@@ -152,13 +152,23 @@ const parseMaxConcurrent = (value: string): number => {
 };
 
 const resolveGooseBinary = (value: string): string => {
-  if (value.includes("/")) {
+  // A `/` or `\` means the caller gave an explicit path, not a bare name.
+  if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))
       throw new InvalidArgumentError(`binary not found at "${value}"`);
     return value;
   }
+  // On Windows executables carry extensions (goose.exe, goose.cmd), so a bare
+  // name like "goose" is matched against PATHEXT when it is set.
+  const exts = (process.env.PATHEXT ?? "")
+    .split(delimiter)
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const candidates = exts.length === 0 ? [value] : exts.map((e) => value + e);
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const found = dirs.some((dir) => existsSync(`${dir}/${value}`));
+  const found = candidates.some((name) =>
+    dirs.some((dir) => existsSync(join(dir, name))),
+  );
   if (!found)
     throw new InvalidArgumentError(`binary "${value}" not found on PATH`);
   return value;
