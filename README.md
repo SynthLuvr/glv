@@ -91,11 +91,13 @@ web framework:
 ## Setup
 
 ``` bash
-./setup.sh
+node scripts/setup.mjs
 ```
 
-This installs dependencies and symlinks the `glv` launcher onto your
-PATH (`~/.local/bin/glv`). Re-running is safe.
+This installs dependencies and installs the `glv` launcher onto your
+PATH (`~/.local/bin/glv` on macOS/Linux,
+`%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh` remains as
+a thin Unix wrapper. Re-running is safe.
 
 ### Prerequisites
 
