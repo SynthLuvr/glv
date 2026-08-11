@@ -9,21 +9,6 @@ import type {
   SpawnFn,
 } from "./types.js";
 
-// Kill the whole process group so grandchildren (tool shells, stdio
-// extensions) are reaped too. Runs spawn detached, so the goose PID doubles as
-// the group leader ID.
-const killProcessGroup = (pid: number, signal: string = "SIGINT"): void => {
-  // -1 is the unknown-PID sentinel; negating it would target PID 1 (init).
-  if (pid <= 0) return;
-  try {
-    process.kill(-pid, signal);
-  } catch (err) {
-    // Usually the process already exited; surface at debug in case the
-    // failure is a permissions issue worth investigating.
-    console.debug("[glv:runner]", err);
-  }
-};
-
 const describeFailure = (result: ProcessResult): string => {
   if (result.signal !== undefined)
     return `goose killed by signal ${result.signal}`;
@@ -40,7 +25,10 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
     input: opts.stdin,
     cwd: opts.cwd,
-    detached: true,
+    // killDescendants makes execa reap the whole process tree on kill —
+    // process.kill(-pid) on Unix, taskkill /T /F on Windows — so goose's
+    // grandchildren (tool shells, stdio extensions) are torn down too.
+    killDescendants: true,
   });
   const pid = proc.pid ?? -1;
 
@@ -67,8 +55,8 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
-  const kill = (signal: string = "SIGINT"): void => {
-    killProcessGroup(pid, signal);
+  const kill = (signal: NodeJS.Signals = "SIGINT"): void => {
+    proc.kill(signal);
   };
 
   return { pid, kill, stdout, exit };

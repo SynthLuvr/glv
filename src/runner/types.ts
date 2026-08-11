@@ -131,7 +131,7 @@ type ProcessResult = {
 
 type SpawnedProcess = {
   pid: number;
-  kill: (signal?: string) => void;
+  kill: (signal?: NodeJS.Signals) => void;
   stdout: AsyncIterable<string>;
   exit: Promise<ProcessResult>;
 };

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
@@ -152,13 +152,22 @@ const parseMaxConcurrent = (value: string): number => {
 };
 
 const resolveGooseBinary = (value: string): string => {
-  if (value.includes("/")) {
+  if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))
       throw new InvalidArgumentError(`binary not found at "${value}"`);
     return value;
   }
+  // Windows executables carry extensions (.exe, .cmd); PATHEXT lists the ones
+  // to try, so a bare "goose" matches "goose.exe" there.
+  const exts = (process.env.PATHEXT ?? "")
+    .split(delimiter)
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const candidates = exts.length === 0 ? [value] : exts.map((e) => value + e);
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const found = dirs.some((dir) => existsSync(`${dir}/${value}`));
+  const found = candidates.some((name) =>
+    dirs.some((dir) => existsSync(join(dir, name))),
+  );
   if (!found)
     throw new InvalidArgumentError(`binary "${value}" not found on PATH`);
   return value;

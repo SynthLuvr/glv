@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
@@ -126,6 +127,18 @@ const main = async (): Promise<void> => {
   const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
   if (captureArgs !== undefined && captureArgs !== "")
     writeFileSync(captureArgs, JSON.stringify(args));
+
+  // Spawn a long-lived descendant so session-stop tests can verify the whole
+  // process tree (not just goose) is reaped. Its PID is written to the file.
+  const spawnChildTo = process.env.GOOSE_MOCK_SPAWN_CHILD;
+  if (spawnChildTo !== undefined && spawnChildTo !== "") {
+    const child = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 2 ** 30)"],
+      { stdio: "ignore" },
+    );
+    if (child.pid !== undefined) writeFileSync(spawnChildTo, String(child.pid));
+  }
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

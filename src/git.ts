@@ -73,16 +73,24 @@ const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
   return info;
 };
 
+// Normalise separators to forward slashes so the prefix check works on
+// Windows (git emits backslash paths there) as well as Unix.
+const normalizePath = (value: string): string =>
+  value.replace(/\\/g, "/").replace(/\/+$/, "");
+
 // A session may run in a subdirectory of a worktree, so pick the deepest
 // (most specific) enclosing path.
 const findWorktree = (
   blocks: readonly WorktreeBlock[],
   cwd: string,
 ): WorktreeBlock | undefined => {
-  const matches = blocks
-    .filter((b) => cwd === b.path || cwd.startsWith(`${b.path}/`))
-    .sort((a, b) => b.path.length - a.path.length);
-  return matches[0];
+  const target = normalizePath(cwd);
+  return blocks
+    .filter((b) => {
+      const base = normalizePath(b.path);
+      return target === base || target.startsWith(`${base}/`);
+    })
+    .sort((a, b) => b.path.length - a.path.length)[0];
 };
 
 // The launch dir's enclosing worktree.
