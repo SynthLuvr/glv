@@ -69,6 +69,12 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 // holding a runner slot and leaking its detached process group. proc.exit is
 // awaited once (not re-wrapped per window) so polling doesn't accumulate
 // dangling .then handlers on the same promise.
+//
+// Windows has no POSIX signals: per Node's docs, kill() with SIGINT, SIGTERM,
+// or SIGKILL unconditionally terminates the target at once, so the graceful
+// ladder below collapses into a single hard kill — sessions still stop, but
+// goose gets no chance to flush state. execa routes each kill() to the right
+// mechanism per platform, so no change is needed here.
 const awaitExit = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
