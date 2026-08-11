@@ -69,6 +69,15 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 // holding a runner slot and leaking its detached process group. proc.exit is
 // awaited once (not re-wrapped per window) so polling doesn't accumulate
 // dangling .then handlers on the same promise.
+//
+// Windows has no POSIX signals: per Node's docs, subprocess.kill() with
+// SIGINT, SIGTERM, or SIGKILL unconditionally terminates the target at once.
+// The graceful SIGINT -> SIGTERM -> SIGKILL ladder therefore collapses into
+// one hard kill. stopGraceMs buys no graceful-shutdown window there: the first
+// stop signal already ended goose, so the escalation below no-ops against a
+// dead process. Sessions still stop correctly, they just get no chance to
+// flush state on the way out. execa routes each proc.kill() to the right
+// mechanism per platform, so no code change is needed here.
 const awaitExit = async (
   proc: SpawnedProcess,
   handle: InternalHandle,

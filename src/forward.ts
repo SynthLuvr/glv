@@ -2,6 +2,11 @@ import { execa } from "execa";
 
 // ssh -R reverse tunnel: the remote bind forwards back to the local viewer
 // on the same port, so a request to the remote viewer port reaches here.
+//
+// Requires the `ssh` binary on PATH (OpenSSH client). On Linux/macOS it ships
+// with the OS; on Windows 10/11 it is an optional "OpenSSH Client" component
+// (Settings > Apps > Optional features). --forward is opt-in, so a missing ssh
+// is surfaced as an execa ENOENT when the flag is used, not at startup.
 const forwardArgs = (port: number, host: string): readonly string[] => [
   "-NT",
   "-o",

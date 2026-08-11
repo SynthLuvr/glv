@@ -108,6 +108,9 @@ a thin Unix wrapper. Re-running is safe.
   and PR status features.
 - **pandoc ≥ 3.1** (only needed for the Markdown lint/format check
   during development).
+- An **`ssh`** client (OpenSSH) on your `PATH` — only needed for the
+  `--forward` reverse-tunnel flag. It ships with Linux and macOS; on
+  Windows 10/11 install the optional **OpenSSH Client** feature.
 
 ## Running the web viewer
 
