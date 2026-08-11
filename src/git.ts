@@ -85,13 +85,12 @@ const findWorktree = (
   cwd: string,
 ): WorktreeBlock | undefined => {
   const target = normalizePath(cwd);
-  const matches = blocks
+  return blocks
     .filter((b) => {
       const base = normalizePath(b.path);
       return target === base || target.startsWith(`${base}/`);
     })
-    .sort((a, b) => b.path.length - a.path.length);
-  return matches[0];
+    .sort((a, b) => b.path.length - a.path.length)[0];
 };
 
 // The launch dir's enclosing worktree.

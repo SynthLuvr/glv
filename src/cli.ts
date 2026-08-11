@@ -152,14 +152,13 @@ const parseMaxConcurrent = (value: string): number => {
 };
 
 const resolveGooseBinary = (value: string): string => {
-  // A `/` or `\` means the caller gave an explicit path, not a bare name.
   if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))
       throw new InvalidArgumentError(`binary not found at "${value}"`);
     return value;
   }
-  // On Windows executables carry extensions (goose.exe, goose.cmd), so a bare
-  // name like "goose" is matched against PATHEXT when it is set.
+  // Windows executables carry extensions (.exe, .cmd); PATHEXT lists the ones
+  // to try, so a bare "goose" matches "goose.exe" there.
   const exts = (process.env.PATHEXT ?? "")
     .split(delimiter)
     .map((e) => e.trim())

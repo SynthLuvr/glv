@@ -128,10 +128,8 @@ const main = async (): Promise<void> => {
   if (captureArgs !== undefined && captureArgs !== "")
     writeFileSync(captureArgs, JSON.stringify(args));
 
-  // Optionally spawn a long-lived descendant that stays in this process's
-  // group, writing its PID to the given file. It survives a plain kill of
-  // this process but is reaped by a tree-wide kill (killDescendants / process
-  // group), so session-stop tests can assert the whole tree is torn down.
+  // Spawn a long-lived descendant so session-stop tests can verify the whole
+  // process tree (not just goose) is reaped. Its PID is written to the file.
   const spawnChildTo = process.env.GOOSE_MOCK_SPAWN_CHILD;
   if (spawnChildTo !== undefined && spawnChildTo !== "") {
     const child = spawn(

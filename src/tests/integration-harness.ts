@@ -155,8 +155,7 @@ type MockConfig = {
   captureCwd?: string;
   /** When set, writes goose's argv (JSON string[]) to this file path. */
   captureArgs?: string;
-  /** When set, goose spawns a long-lived descendant and writes its PID here,
-   * so session-stop tests can assert the whole process tree is reaped. */
+  /** When set, goose spawns a long-lived descendant and writes its PID here. */
   spawnChild?: string;
 };
 
