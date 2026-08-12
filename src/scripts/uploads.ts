@@ -47,10 +47,29 @@ const addFiles = (
   syncInput(input);
 };
 
+const filesEqual = (a: FileList | null, b: File[]): boolean => {
+  if (a === null) return b.length === 0;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < b.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
 const syncInput = (input: HTMLInputElement): void => {
-  const dt = new DataTransfer();
-  for (const file of selectedFiles) dt.items.add(file);
-  input.files = dt.files;
+  // Leave the native selection untouched whenever it already matches what we
+  // track. The OS-provided File handles — Android content:// URIs, iOS picked
+  // files — stay valid only while held by the input; File objects rebuilt
+  // through DataTransfer can lose that backing and then fail to serialize when
+  // htmx builds the multipart body, which silently kills the submit on mobile.
+  // Rebuild (best-effort) only when the tracked set differs from the input —
+  // e.g. after removing a chip or accumulating files across separate picks.
+  if (filesEqual(input.files, selectedFiles)) return;
+  try {
+    const dt = new DataTransfer();
+    for (const file of selectedFiles) dt.items.add(file);
+    input.files = dt.files;
+  } catch {
+    /* DataTransfer / input.files setter unavailable */
+  }
 };
 
 const createThumbnail = (file: File): HTMLElement => {
@@ -159,12 +178,21 @@ const wireForm = (form: HTMLFormElement): void => {
   selectedFiles = [];
   pastedImageCount = 0;
 
-  button.addEventListener("click", () => input.click());
+  // Reset the input on click — never inside the change handler — so the same
+  // file can be picked twice yet the OS-provided File objects are never
+  // destroyed after being set. Clearing in the change handler and then
+  // rebuilding the selection via DataTransfer breaks on mobile: the rebuilt
+  // File references lose their OS-provided backing (Android content:// URIs;
+  // iOS picked files) and then fail to serialize when htmx builds the multipart
+  // body, silently killing the session start.
+  button.addEventListener("click", () => {
+    input.value = "";
+    input.click();
+  });
 
   input.addEventListener("change", () => {
     if (input.files === null) return;
     const incoming = Array.from(input.files);
-    input.value = "";
     addFiles(incoming, input, chipsContainer, errorEl);
   });
 
