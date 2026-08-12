@@ -47,10 +47,26 @@ const addFiles = (
   syncInput(input);
 };
 
+const filesEqual = (a: FileList | null, b: File[]): boolean => {
+  if (a === null) return b.length === 0;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < b.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
 const syncInput = (input: HTMLInputElement): void => {
-  const dt = new DataTransfer();
-  for (const file of selectedFiles) dt.items.add(file);
-  input.files = dt.files;
+  // Preserve the native selection when it matches: File objects rebuilt via
+  // DataTransfer lose their OS backing (Android content:// URIs, iOS picks)
+  // and fail to serialize in the htmx multipart body, breaking the submit on
+  // mobile. Rebuild only when the tracked set differs — e.g. a removed chip.
+  if (filesEqual(input.files, selectedFiles)) return;
+  try {
+    const dt = new DataTransfer();
+    for (const file of selectedFiles) dt.items.add(file);
+    input.files = dt.files;
+  } catch {
+    // DataTransfer unavailable on iOS Safari — keep the native selection.
+  }
 };
 
 const createThumbnail = (file: File): HTMLElement => {
@@ -159,12 +175,17 @@ const wireForm = (form: HTMLFormElement): void => {
   selectedFiles = [];
   pastedImageCount = 0;
 
-  button.addEventListener("click", () => input.click());
+  // Reset on click, not in the change handler: clearing after the OS fills
+  // the input discards the native File objects, which can't be rebuilt on
+  // mobile (see syncInput). This also lets the same file be picked twice.
+  button.addEventListener("click", () => {
+    input.value = "";
+    input.click();
+  });
 
   input.addEventListener("change", () => {
     if (input.files === null) return;
     const incoming = Array.from(input.files);
-    input.value = "";
     addFiles(incoming, input, chipsContainer, errorEl);
   });
 
