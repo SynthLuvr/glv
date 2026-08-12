@@ -15,11 +15,10 @@ import {
   withPage,
 } from "./integration-harness";
 
-// iOS Safari does not let app code rebuild a file input's selection: the
-// DataTransfer API used to re-assign input.files is unavailable. Reproduce
-// that here so the new-session upload path is exercised the way a real iPhone
-// experiences it (the privileged native picker still works; only the JS
-// round-trip is blocked).
+// iOS Safari blocks app code from reassigning input.files — the DataTransfer
+// constructor throws. Simulate that here so the upload path is exercised the
+// way a real iPhone sees it: the native picker works, only the JS rebuild is
+// blocked.
 const SIMULATE_IOS_NO_DATATRANSFER = `
 globalThis.DataTransfer = class {
   constructor() { throw new TypeError("DataTransfer is not supported on this iOS build"); }
@@ -63,11 +62,6 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
-// Reproduces the reported mobile defect: on iOS Safari the programmatic
-// input.files rebuild (DataTransfer) is unavailable, so the old clear-then-
-// restore flow dropped the upload and the session started without it. With the
-// fix the OS-provided File objects are kept in the input, so goose receives the
-// attachment.
 describe("start session with upload under iOS-style DataTransfer limits", () => {
   it("passes the attached file through to goose", async () => {
     await withPage(env.context, async (page) => {

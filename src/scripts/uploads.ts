@@ -55,20 +55,17 @@ const filesEqual = (a: FileList | null, b: File[]): boolean => {
 };
 
 const syncInput = (input: HTMLInputElement): void => {
-  // Leave the native selection untouched whenever it already matches what we
-  // track. The OS-provided File handles — Android content:// URIs, iOS picked
-  // files — stay valid only while held by the input; File objects rebuilt
-  // through DataTransfer can lose that backing and then fail to serialize when
-  // htmx builds the multipart body, which silently kills the submit on mobile.
-  // Rebuild (best-effort) only when the tracked set differs from the input —
-  // e.g. after removing a chip or accumulating files across separate picks.
+  // Preserve the native selection when it matches: File objects rebuilt via
+  // DataTransfer lose their OS backing (Android content:// URIs, iOS picks)
+  // and fail to serialize in the htmx multipart body, breaking the submit on
+  // mobile. Rebuild only when the tracked set differs — e.g. a removed chip.
   if (filesEqual(input.files, selectedFiles)) return;
   try {
     const dt = new DataTransfer();
     for (const file of selectedFiles) dt.items.add(file);
     input.files = dt.files;
   } catch {
-    /* DataTransfer / input.files setter unavailable */
+    // DataTransfer unavailable on iOS Safari — keep the native selection.
   }
 };
 
@@ -178,13 +175,9 @@ const wireForm = (form: HTMLFormElement): void => {
   selectedFiles = [];
   pastedImageCount = 0;
 
-  // Reset the input on click — never inside the change handler — so the same
-  // file can be picked twice yet the OS-provided File objects are never
-  // destroyed after being set. Clearing in the change handler and then
-  // rebuilding the selection via DataTransfer breaks on mobile: the rebuilt
-  // File references lose their OS-provided backing (Android content:// URIs;
-  // iOS picked files) and then fail to serialize when htmx builds the multipart
-  // body, silently killing the session start.
+  // Reset on click, not in the change handler: clearing after the OS fills
+  // the input discards the native File objects, which can't be rebuilt on
+  // mobile (see syncInput). This also lets the same file be picked twice.
   button.addEventListener("click", () => {
     input.value = "";
     input.click();
