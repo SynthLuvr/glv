@@ -40,8 +40,16 @@ const VALID_LINE = JSON.stringify({
 // Non-JSON banner text claude may emit alongside structured output.
 const RAW_LINE = "claude is ready";
 
+// Legacy goose-shaped envelope: role/content at the top level with no
+// claude "message" wrapper. Support for this shape has been removed.
+const GOOSE_LINE = JSON.stringify({
+  role: "assistant",
+  content: [{ type: "text", text: "goose reply" }],
+});
+
 let envValid: IntegrationEnv;
 let envRaw: IntegrationEnv;
+let envGoose: IntegrationEnv;
 
 beforeAll(async () => {
   // sleepMs keeps each run alive long enough for the SSE to attach before the
@@ -54,10 +62,16 @@ beforeAll(async () => {
     lines: [RAW_LINE],
     sleepMs: 4000,
   });
+  envGoose = await startIntegrationEnv("glv-discard-goose-", {
+    lines: [GOOSE_LINE],
+    sleepMs: 4000,
+  });
   const validDir = envValid.scratchDir + "/p";
   const rawDir = envRaw.scratchDir + "/p";
+  const gooseDir = envGoose.scratchDir + "/p";
   mkdirSync(validDir, { recursive: true });
   mkdirSync(rawDir, { recursive: true });
+  mkdirSync(gooseDir, { recursive: true });
   insertSessions(envValid.dbs.projectsDir, [
     { id: "discard-1", name: "Discard Valid", workingDir: validDir },
   ]);
@@ -70,14 +84,21 @@ beforeAll(async () => {
   insertMessages(envRaw.dbs.projectsDir, "raw-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
-}, 120000);
+  insertSessions(envGoose.dbs.projectsDir, [
+    { id: "goose-1", name: "Discard Goose", workingDir: gooseDir },
+  ]);
+  insertMessages(envGoose.dbs.projectsDir, "goose-1", [
+    { role: "user", content: [{ type: "text", text: "seed" }] },
+  ]);
+}, 180000);
 
 afterAll(async () => {
   await envValid?.cleanup();
   await envRaw?.cleanup();
+  await envGoose?.cleanup();
 });
 
-describe("non-JSON stream lines are discarded", () => {
+describe("invalid stream lines are discarded", () => {
   it("renders a valid NDJSON message line as a preview", async () => {
     const stream = collectSse(
       envValid,
@@ -117,5 +138,28 @@ describe("non-JSON stream lines are discarded", () => {
     expect(collected.filter((e) => e.event === "preview")).toHaveLength(0);
     expect(collected.some((e) => e.data.includes("stream-raw"))).toBe(false);
     expect(collected.some((e) => e.data.includes(RAW_LINE))).toBe(false);
+  });
+
+  it("drops a goose-shaped top-level envelope with no preview", async () => {
+    const collected: SseEvent[] = [];
+    const collect = collectSse(
+      envGoose,
+      "/sessions/goose-1/events",
+      // Never satisfy: collect every event until the timeout so a late
+      // terminal-flush preview can't slip past an early resolve.
+      () => false,
+      8000,
+      (e) => collected.push(e),
+    );
+    await startRun(envGoose, "goose-1", "goose test");
+    try {
+      await collect;
+    } catch {
+      // expected timeout
+    }
+
+    expect(hasStatus(collected, "completed")).toBe(true);
+    expect(collected.filter((e) => e.event === "preview")).toHaveLength(0);
+    expect(collected.some((e) => e.data.includes("goose reply"))).toBe(false);
   });
 });
