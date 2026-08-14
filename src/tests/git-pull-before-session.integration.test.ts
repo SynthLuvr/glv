@@ -91,7 +91,7 @@ const startSessionIn = async (workingDir: string): Promise<void> => {
 };
 
 describe("git pull before a new session", () => {
-  it("pulls the latest commits into the working directory before goose starts", async () => {
+  it("pulls the latest commits into the working directory before claude starts", async () => {
     expect(existsSync(join(behindCloneDir, MARKER_FILE))).toBe(false);
 
     await startSessionIn(behindCloneDir);

@@ -15,7 +15,7 @@ let env: IntegrationEnv;
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-prgit-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "pr-sess",
       name: "PR Session",
@@ -27,18 +27,14 @@ beforeAll(async () => {
       workingDir: join(env.scratchDir, "plain"),
     },
   ]);
-  insertMessages(env.dbs.sessionsDb, "pr-sess", [
+  insertMessages(env.dbs.projectsDir, "pr-sess", [
     {
       role: "user",
       content: [
         {
-          type: "toolResponse",
-          toolResult: {
-            value: {
-              content: [{ type: "text", text: PR_URL }],
-              isError: false,
-            },
-          },
+          type: "tool_result",
+          content: [{ type: "text", text: PR_URL }],
+          is_error: false,
         },
       ],
     },

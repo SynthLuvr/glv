@@ -15,7 +15,7 @@ import { VIEWER_FILTER } from "./context.js";
 import { isHtmxRequest } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
-// Folds the goose session list and the viewer-owned group memberships into a
+// Folds the claude session list and the viewer-owned group memberships into a
 // single ordered entry list.  When the groups sidecar is absent the list is
 // purely flat — identical to today's experience.
 const sidebarEntries = (
@@ -164,7 +164,7 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
   render(
     c,
     ctx,
-    listSessions(ctx.db, VIEWER_FILTER),
+    listSessions(ctx.store, VIEWER_FILTER),
     undefined,
     <NotFoundDetail id={id} />,
     { status: 404, title: "Session not found — GLV" },

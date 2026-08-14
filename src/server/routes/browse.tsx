@@ -21,7 +21,7 @@ const renderBrowse = (
 ): Response | Promise<Response> => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
-  const sessions = listSessions(ctx.db, VIEWER_FILTER);
+  const sessions = listSessions(ctx.store, VIEWER_FILTER);
   if (!target.ok)
     return render(
       c,

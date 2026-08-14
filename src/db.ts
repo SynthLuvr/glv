@@ -1,191 +1,220 @@
-import { DatabaseSync } from "node:sqlite";
-import { type } from "arktype";
-import { resolveDataPath } from "./db-path";
-import { placeholders, validate, validateAll } from "./query";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import { truncate } from "./format/text.js";
+import {
+  archiveSessions as archiveMeta,
+  getMeta,
+  listMeta,
+  type MetaRow,
+  renameSession as renameMeta,
+} from "./store/meta.js";
+import {
+  findTranscript,
+  listSessionFiles,
+  parseTranscriptFile,
+  type SessionFile,
+  type Transcript,
+} from "./store/transcript.js";
+import { encodeWorkingDir } from "./store/working-dir.js";
 
-const sessionShape = {
-  id: "string",
-  name: "string",
-  user_set_name: "number | null",
-  description: "string",
-  session_type: "string",
-  working_dir: "string",
-  created_at: "string",
-  updated_at: "string",
-  total_tokens: "number | null",
-  provider_name: "string | null",
-  archived_at: "string | null",
-} as const;
+// The session store glv reads: claude Code's own transcript directory
+// (append-only JSONL the claude CLI writes as it runs) plus glv's
+// rename/archive sidecar. Browsing never writes to claude's files; the only
+// mutations are viewer-managed metadata routed through the sidecar, so it is
+// always safe while claude is running.
+type SessionStore = {
+  readonly root: string;
+  readonly meta: DatabaseSync;
+};
 
-const SessionRow = type(sessionShape);
+type SessionRow = {
+  id: string;
+  name: string;
+  user_set_name: number;
+  description: string;
+  session_type: string;
+  working_dir: string;
+  created_at: string;
+  updated_at: string;
+  total_tokens: number | null;
+  provider_name: string | null;
+  archived_at: string | null;
+};
 
-type SessionRow = typeof SessionRow.infer;
-
-const SESSION_COLS = Object.keys(sessionShape).join(", ");
-
-const messageShape = {
-  message_id: "string | null",
-  session_id: "string",
-  role: "string",
-  content_json: "string",
-  created_timestamp: "number",
-  timestamp: "string",
-} as const;
-
-const MessageRow = type(messageShape);
-
-type MessageRow = typeof MessageRow.infer;
-
-const MESSAGE_COLS = Object.keys(messageShape).join(", ");
+type MessageRow = {
+  message_id: string | null;
+  session_id: string;
+  role: string;
+  content_json: string;
+  created_timestamp: number;
+  timestamp: string;
+};
 
 type SessionFilter = {
-  type: string;
   limit: number;
   includeArchived: boolean;
 };
 
-// goose may store its DB elsewhere on Windows; override with
-// GOOSE_SESSIONS_DB or --db when the default doesn't match.
-const resolveDbPath = (override?: string): string =>
-  resolveDataPath(
-    override,
-    "GOOSE_SESSIONS_DB",
-    "goose",
-    "sessions",
-    "sessions.db",
-  );
+const DERIVED_NAME_MAX = 60;
 
-const openDb = (
-  dbPath: string,
-  { readOnly = true }: { readOnly?: boolean } = {},
-): DatabaseSync => {
-  try {
-    return new DatabaseSync(dbPath, { readOnly });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Could not open goose sessions database at ${dbPath}: ${detail}`,
-    );
-  }
+const isoFromMs = (ms: number): string => new Date(ms).toISOString();
+
+// claude encodes a working dir by dashing its separators; only used as a
+// fallback when no transcript line carries a cwd (e.g. a foreign file).
+const decodeWorkingDir = (path: string): string =>
+  basename(path).replaceAll("-", "/");
+
+// Naming precedence: a viewer-set name wins, then claude's own ai-title,
+// then a truncation of the first user prompt; empty when nothing is known.
+const deriveName = (meta: MetaRow | undefined, t: Transcript): string => {
+  if (meta !== undefined && meta.user_set_name === 1) return meta.name;
+  if (t.aiTitle !== undefined && t.aiTitle !== "") return t.aiTitle;
+  if (t.firstUserText === undefined) return "";
+  return truncate(
+    t.firstUserText.trim().replace(/\s+/g, " "),
+    DERIVED_NAME_MAX,
+  );
 };
+
+const sessionRow = (
+  file: SessionFile,
+  meta: MetaRow | undefined,
+  t: Transcript,
+): SessionRow => ({
+  id: file.id,
+  name: deriveName(meta, t),
+  user_set_name: meta !== undefined && meta.user_set_name === 1 ? 1 : 0,
+  description: "",
+  session_type: "user",
+  working_dir: t.cwd ?? decodeWorkingDir(dirname(file.path)),
+  created_at: t.firstTimestamp ?? isoFromMs(file.mtimeMs),
+  updated_at: t.lastTimestamp ?? isoFromMs(file.mtimeMs),
+  total_tokens: t.tokens,
+  provider_name: t.messages.length > 0 ? "claude" : null,
+  archived_at: meta?.archived_at ?? null,
+});
 
 const listSessions = (
-  db: DatabaseSync,
+  store: SessionStore,
   filter: SessionFilter,
 ): SessionRow[] => {
-  const clauses: string[] = [];
-  const params: (string | number)[] = [];
-  if (filter.type !== "all") {
-    clauses.push("session_type = ?");
-    params.push(filter.type);
+  const meta = listMeta(store.meta);
+  const out: SessionRow[] = [];
+  for (const file of listSessionFiles(store.root)) {
+    if (out.length >= filter.limit) break;
+    const m = meta.get(file.id);
+    const archived = m !== undefined && m.archived_at !== null;
+    if (archived && !filter.includeArchived) continue;
+    out.push(sessionRow(file, m, parseTranscriptFile(file.path)));
   }
-  if (!filter.includeArchived) clauses.push("archived_at IS NULL");
-  const parts = [`SELECT ${SESSION_COLS} FROM sessions`];
-  if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
-  parts.push("ORDER BY updated_at DESC", "LIMIT ?");
-  params.push(filter.limit);
-  return validateAll(SessionRow, db.prepare(parts.join(" ")).all(...params));
+  return out;
 };
 
-const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
-  validate(
-    SessionRow,
-    db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(id),
+const getSession = (
+  store: SessionStore,
+  id: string,
+): SessionRow | undefined => {
+  const path = findTranscript(store.root, id);
+  if (path === undefined) return undefined;
+  return sessionRow(
+    { id, path, mtimeMs: statSync(path).mtimeMs },
+    getMeta(store.meta, id),
+    parseTranscriptFile(path),
   );
-
-const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
-  validateAll(
-    MessageRow,
-    db
-      .prepare(
-        `SELECT ${MESSAGE_COLS} FROM messages
-           WHERE session_id = ?
-           ORDER BY created_timestamp ASC`,
-      )
-      .all(sessionId),
-  );
-
-const IdRow = type({ id: "string" });
-
-// Lets the new-session poll distinguish a freshly created session from
-// pre-existing ones in the same working dir. Selects only `id` with a lenient
-// schema so a half-written row still matches.
-const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] =>
-  validateAll(
-    IdRow,
-    db.prepare("SELECT id FROM sessions WHERE working_dir = ?").all(workingDir),
-  ).map((row) => row.id);
-
-const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
-  if (ids.length === 0) return;
-  db.prepare(
-    `UPDATE sessions SET archived_at = CURRENT_TIMESTAMP
-       WHERE id IN (${placeholders(ids.length)}) AND archived_at IS NULL`,
-  ).run(...ids);
 };
 
-// A blank name clears the user-set flag.
-const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
-  const name = rawName.trim();
-  db.prepare(
-    "UPDATE sessions SET name = ?, user_set_name = ? WHERE id = ?",
-  ).run(name, name === "" ? 0 : 1, id);
+const listMessages = (store: SessionStore, sessionId: string): MessageRow[] => {
+  const path = findTranscript(store.root, sessionId);
+  if (path === undefined) return [];
+  return parseTranscriptFile(path).messages.map((m) => ({
+    message_id: m.uuid,
+    session_id: sessionId,
+    role: m.role,
+    content_json: JSON.stringify(m.items),
+    created_timestamp: m.createdTimestamp,
+    timestamp: m.timestamp,
+  }));
 };
 
-// Cheap pre-filter for sidebar PR detection: only sessions whose raw message
-// content references a GitHub pull URL can resolve to a PR, so callers skip
-// parsing messages for the rest. Validates each row (half-written rows drop).
-const PrIdRow = type({ session_id: "string" });
+// Lets the new-session poll distinguish a freshly created transcript from
+// pre-existing ones in the same working dir.
+const sessionIdsInDir = (store: SessionStore, workingDir: string): string[] => {
+  let entries;
+  try {
+    entries = readdirSync(join(store.root, encodeWorkingDir(workingDir)), {
+      withFileTypes: true,
+    });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter(
+      (e) => e.isFile() && !e.name.startsWith(".") && e.name.endsWith(".jsonl"),
+    )
+    .map((e) => basename(e.name, ".jsonl"));
+};
 
-const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
-  if (ids.length === 0) return new Set();
-  const rows = validateAll(
-    PrIdRow,
-    db
-      .prepare(
-        `SELECT DISTINCT session_id FROM messages
-           WHERE session_id IN (${placeholders(ids.length)})
-             AND content_json LIKE ?`,
-      )
-      .all(...ids, "%/pull/%"),
-  );
-  return new Set(rows.map((row) => row.session_id));
+// Cheap pre-filter for sidebar PR detection: only transcripts whose raw
+// text references a GitHub pull URL can resolve to a PR, so callers skip
+// parsing messages for the rest.
+const prCandidateIds = (store: SessionStore, ids: string[]): Set<string> => {
+  const out = new Set<string>();
+  for (const id of ids) {
+    const path = findTranscript(store.root, id);
+    if (path === undefined) continue;
+    try {
+      if (readFileSync(path, "utf8").includes("/pull/")) out.add(id);
+    } catch {
+      // Unreadable — treat as a non-candidate.
+    }
+  }
+  return out;
 };
 
 // Used to name a freshly created group after its founding session — the one
-// whose first user prompt came earliest.  `undefined` when none of the
+// whose first user prompt came earliest. `undefined` when none of the
 // sessions have a user message yet.
 const firstPromptSessionName = (
-  db: DatabaseSync,
+  store: SessionStore,
   ids: string[],
 ): string | undefined => {
-  if (ids.length === 0) return undefined;
-  const row = validate(
-    type({ session_id: "string" }),
-    db
-      .prepare(
-        `SELECT session_id FROM messages
-           WHERE session_id IN (${placeholders(ids.length)})
-             AND role = 'user'
-           GROUP BY session_id
-           ORDER BY MIN(created_timestamp) ASC
-           LIMIT 1`,
-      )
-      .get(...ids),
-  );
-  return row === undefined ? undefined : getSession(db, row.session_id)?.name;
+  let bestId: string | undefined;
+  let bestTs = Number.POSITIVE_INFINITY;
+  for (const id of ids) {
+    const path = findTranscript(store.root, id);
+    if (path === undefined) continue;
+    const t = parseTranscriptFile(path);
+    if (t.firstUserTimestamp === undefined) continue;
+    if (t.firstUserTimestamp < bestTs) {
+      bestTs = t.firstUserTimestamp;
+      bestId = id;
+    }
+  }
+  return bestId === undefined ? undefined : getSession(store, bestId)?.name;
 };
 
-export type { MessageRow, SessionFilter, SessionRow };
+const archiveSessions = (store: SessionStore, ids: string[]): void => {
+  archiveMeta(store.meta, ids);
+};
+
+// A blank name clears the user-set flag so derived naming takes over again.
+const renameSession = (
+  store: SessionStore,
+  id: string,
+  rawName: string,
+): void => {
+  renameMeta(store.meta, id, rawName);
+};
+
+export type { MessageRow, SessionFilter, SessionRow, SessionStore };
 export {
   archiveSessions,
   firstPromptSessionName,
   getSession,
   listMessages,
   listSessions,
-  openDb,
   prCandidateIds,
   renameSession,
-  resolveDbPath,
   sessionIdsInDir,
 };

@@ -37,7 +37,7 @@ beforeAll(async () => {
   env = await startIntegrationEnv("glv-ux-audit-", { sleepMs: 8000 });
   for (const id of ["ux-sel", "ux-run"])
     mkdirSync(join(env.scratchDir, id), { recursive: true });
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "ux-sel",
       name: "Selected",
@@ -49,7 +49,7 @@ beforeAll(async () => {
       workingDir: join(env.scratchDir, "ux-run"),
     },
   ]);
-  insertMessages(env.dbs.sessionsDb, "ux-sel", [
+  insertMessages(env.dbs.projectsDir, "ux-sel", [
     { role: "user", content: [{ type: "text", text: "hello" }] },
     { role: "assistant", content: [{ type: "text", text: "hi there" }] },
   ]);

@@ -13,7 +13,7 @@ beforeAll(async () => {
   env = await startIntegrationEnv("glv-mobile-drag-");
   const ids = ["md-a", "md-b", "md-c"];
   insertSessions(
-    env.dbs.sessionsDb,
+    env.dbs.projectsDir,
     ids.map((id) => ({
       id,
       name: id.toUpperCase(),

@@ -36,7 +36,7 @@ would fail without your change.
 Do **not** mock functions, modules, or methods (`vi.fn`, `jest.fn`,
 monkey-patching, stubbing internals, etc.). Tests must run against the
 real implementation. The only exception is replacing an external process
-binary (e.g. the `goose` CLI) with a real script on `PATH`.
+binary (e.g. the `claude` CLI) with a real script on `PATH`.
 
 ### Test over localhost HTTP only
 

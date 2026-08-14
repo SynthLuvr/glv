@@ -5,7 +5,7 @@ import type { LineBuffer } from "./ring-buffer.js";
 
 type RunnerConfig = {
   maxConcurrent: number;
-  gooseBinary: string;
+  claudeBinary: string;
   /** Grace window (ms) after each stop signal before escalating it. */
   stopGraceMs: number;
   /** Max NDJSON lines retained per run before the oldest are dropped. */
@@ -20,7 +20,7 @@ const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
-  gooseBinary: "string >= 1",
+  claudeBinary: "string >= 1",
   stopGraceMs: "number.integer >= 1",
   maxLines: "number.integer >= 1",
   terminalRetentionMs: "number.integer >= 1",
@@ -28,7 +28,7 @@ const RunnerConfigSchema = type({
 
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   maxConcurrent: 6,
-  gooseBinary: "goose",
+  claudeBinary: "claude",
   stopGraceMs: DEFAULT_STOP_GRACE_MS,
   maxLines: DEFAULT_MAX_LINES,
   terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
@@ -36,14 +36,14 @@ const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
 
 const makeRunnerConfig = (
   maxConcurrent: number,
-  gooseBinary: string,
+  claudeBinary: string,
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
   maxLines: number = DEFAULT_MAX_LINES,
   terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
 ): RunnerConfig => {
   const result = RunnerConfigSchema({
     maxConcurrent,
-    gooseBinary,
+    claudeBinary,
     stopGraceMs,
     maxLines,
     terminalRetentionMs,
@@ -53,37 +53,32 @@ const makeRunnerConfig = (
   return result;
 };
 
-// goose reads instructions from stdin via `-i -` (the `-` is the stdin marker),
-// never as a `-t` argument — this sidesteps the OS argument-length limit and
-// all shell-quoting concerns, and works for arbitrarily long prompts.
-const STREAM_FLAGS = ["--output-format", "stream-json", "-i", "-"];
+// claude reads the prompt from stdin when `--print` is given no positional
+// prompt — this sidesteps the OS argument-length limit and all shell-quoting
+// concerns, and works for arbitrarily long prompts. `--verbose` is required
+// for stream-json to emit the full event stream rather than just the final
+// result record.
+const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
 
-// DESIGN DECISION: --system MUST be passed on every invocation, including
-// resume (`-r`) sessions — not just the first prompt of a new session.
+// DESIGN DECISION: --append-system-prompt is passed on every invocation,
+// including resume (`--resume`) sessions — not just the first prompt of a
+// new session. Like goose's --system, it is a per-invocation runtime
+// injection: always sending it guarantees the guardrails hold for every
+// follow-up regardless of whether claude persists the text into the stored
+// conversation. The token cost is negligible: ~240 tokens (156 words) vs.
+// the 10K–100K+ tokens of a typical resumed conversation — well under 1%
+// overhead.
 //
-// goose does NOT persist the --system flag across resume sessions. It is a
-// per-invocation runtime injection: goose applies it fresh on each `goose run`
-// but never writes it into the stored conversation history. This was verified
-// empirically against goose 1.45.0:
+// --append-system-prompt is used rather than --system-prompt because the
+// latter REPLACES claude's built-in system prompt, stripping out the tool
+// instructions and guardrails the coding agent depends on.
 //
-//   1. New session + --system "pirate persona" → response in pirate-speak ✓
-//   2. Resume WITHOUT --system                → normal English, persona lost ✗
-//   3. Resume WITH --system                   → pirate persona restored ✓
-//
-// The system-prompt text was also confirmed absent from the persisted session
-// database — only user/assistant/tool messages are stored, not the --system
-// value. Removing --system from resumeInvocation would silently strip the
-// guardrails from every follow-up, reverting the model to stock goose behaviour.
-//
-// The token cost is negligible: ~240 tokens (156 words) vs. the 10K–100K+
-// tokens of a typical resumed conversation — well under 1% overhead.
-//
-// The only alternative that would avoid per-invocation passing is setting the
-// prompt at the goose config level (~/.config/goose/config.yaml), but that
-// affects ALL goose usage system-wide, not just GLV-managed sessions.
-const SYSTEM_FLAGS = ["--system", DEFAULT_SYSTEM_PROMPT];
+// The only alternative that would avoid per-invocation passing is setting
+// the prompt at the claude config level (~/.claude/settings.json), but that
+// affects ALL claude usage system-wide, not just GLV-managed sessions.
+const SYSTEM_FLAGS = ["--append-system-prompt", DEFAULT_SYSTEM_PROMPT];
 
-type GooseInvocation = {
+type ClaudeInvocation = {
   args: string[];
   stdin: string;
 };
@@ -91,20 +86,21 @@ type GooseInvocation = {
 const resumeInvocation = (
   sessionId: string,
   prompt: string,
-): GooseInvocation => ({
+): ClaudeInvocation => ({
   args: [
-    "run",
-    "-r",
-    ...SYSTEM_FLAGS,
-    "--session-id",
+    "--print",
+    "--resume",
     sessionId,
-    ...STREAM_FLAGS,
+    ...SYSTEM_FLAGS,
+    "--output-format",
+    "stream-json",
+    "--verbose",
   ],
   stdin: prompt,
 });
 
-const newSessionInvocation = (prompt: string): GooseInvocation => ({
-  args: ["run", ...SYSTEM_FLAGS, ...STREAM_FLAGS],
+const newSessionInvocation = (prompt: string): ClaudeInvocation => ({
+  args: ["--print", ...SYSTEM_FLAGS, ...STREAM_FLAGS],
   stdin: prompt,
 });
 
@@ -136,7 +132,7 @@ type SpawnedProcess = {
   exit: Promise<ProcessResult>;
 };
 
-/** Subprocess factory; tests inject a fake to avoid spawning real goose. */
+/** Subprocess factory; tests inject a fake to avoid spawning real claude. */
 type SpawnFn = (
   binary: string,
   args: string[],
@@ -151,7 +147,7 @@ type InternalHandle = Omit<
   RunHandle,
   "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts"
 > & {
-  // Writable: rekeyed from the temp id to goose's real session id.
+  // Writable: rekeyed from the temp id to claude's real session id.
   sessionId: string;
   // Writable: updated as chained prompts advance.
   prompt: string;
@@ -172,8 +168,8 @@ type Runner = {
 };
 
 export type {
+  ClaudeInvocation,
   EnqueueOptions,
-  GooseInvocation,
   InternalHandle,
   ProcessResult,
   RunHandle,

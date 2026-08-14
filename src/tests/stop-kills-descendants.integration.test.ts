@@ -47,10 +47,10 @@ beforeAll(async () => {
   });
   const workingDir = join(env.scratchDir, "d");
   mkdirSync(workingDir, { recursive: true });
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "tree-1", name: "Tree Kill", workingDir },
   ]);
-  insertMessages(env.dbs.sessionsDb, "tree-1", [
+  insertMessages(env.dbs.projectsDir, "tree-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
 }, 120000);
@@ -63,7 +63,7 @@ afterAll(async () => {
 });
 
 describe("session stop reaps the whole process tree", () => {
-  it("kills a descendant spawned by goose when the session is stopped", async () => {
+  it("kills a descendant spawned by claude when the session is stopped", async () => {
     await startRun("spawn a child please");
 
     // The mock writes the descendant's PID before sleeping, so poll for it.

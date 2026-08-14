@@ -1,9 +1,9 @@
 import type { Socket } from "node:net";
-import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildScripts, buildStyles } from "../build.js";
+import type { SessionStore } from "../db.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import { setupLogging } from "../log.js";
@@ -100,26 +100,22 @@ const registerShutdown = (
   };
   emitter.on("SIGINT", onSignal);
   emitter.on("SIGTERM", onSignal);
-  // Thrown errors/rejections would otherwise leak goose processes and DB handles.
+  // Thrown errors/rejections would otherwise leak claude processes and DB handles.
   emitter.on("uncaughtException", onCrash);
   emitter.on("unhandledRejection", onCrash);
 };
 
-const runServe = (
-  db: DatabaseSync,
-  dbWritable: DatabaseSync,
-  opts: ServeOpts,
-): void => {
+const runServe = (store: SessionStore, opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildStyles();
   buildScripts();
-  // Created here so shutdown can reap detached goose processes.
+  // Created here so shutdown can reap detached claude processes.
   const runner = createRunner(opts.runner);
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
   const auth = makeAuthService(authDb);
-  const app = createApp(db, dbWritable, runner, {
+  const app = createApp(store, runner, {
     auth,
     prompts: promptsDb,
     groups: groupsDb,
@@ -136,15 +132,14 @@ const runServe = (
   const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
-    db.close();
-    dbWritable.close();
+    store.meta.close();
     authDb.close();
     promptsDb.close();
     groupsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
-  // SIGKILL, so detached goose children (and the ssh tunnel) are reaped even
+  // SIGKILL, so detached claude children (and the ssh tunnel) are reaped even
   // if the async shutdown above never started or finished.
   process.on("exit", () => {
     stopAll(runner);

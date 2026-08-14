@@ -1,5 +1,11 @@
-import { mkdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -25,10 +31,35 @@ const hasStatus = (events: SseEvent[], value: string): boolean =>
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// Follow-up runs spawn goose in the session's working dir, so the dir must
+// Follow-up runs spawn claude in the session's working dir, so the dir must
 // exist or execa rejects and the run errors out immediately.
 const ensureDir = (dir: string): void => {
   mkdirSync(dir, { recursive: true });
+};
+
+const sessionFile = (root: string, id: string): string | undefined => {
+  for (const dir of readdirSync(root, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+    const path = join(root, dir.name, `${id}.jsonl`);
+    if (existsSync(path)) return path;
+  }
+  return undefined;
+};
+
+// claude renames a session mid-run by appending an ai-title line — the tail
+// follows it the same way it followed claude's in-DB rename.
+const renameTo = (id: string, name: string): void => {
+  const path = sessionFile(env.dbs.projectsDir, id);
+  if (path === undefined) return;
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "ai-title",
+      aiTitle: name,
+      sessionId: id,
+      timestamp: new Date().toISOString(),
+    })}\n`,
+  );
 };
 
 const startRun = (
@@ -49,30 +80,30 @@ beforeAll(async () => {
   ensureDir(envSlow.scratchDir + "/r");
   ensureDir(envSlow.scratchDir + "/s");
   ensureDir(envErr.scratchDir + "/e");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "idle-1", name: "Idle", workingDir: env.scratchDir + "/i" },
     { id: "db-1", name: "Tail Me", workingDir: env.scratchDir + "/d" },
   ]);
-  insertMessages(env.dbs.sessionsDb, "idle-1", [
+  insertMessages(env.dbs.projectsDir, "idle-1", [
     { role: "user", content: [{ type: "text", text: "baseline prompt" }] },
   ]);
-  insertMessages(env.dbs.sessionsDb, "db-1", [
+  insertMessages(env.dbs.projectsDir, "db-1", [
     { role: "assistant", content: [{ type: "text", text: "first line" }] },
   ]);
-  insertSessions(envSlow.dbs.sessionsDb, [
+  insertSessions(envSlow.dbs.projectsDir, [
     { id: "rs-1", name: "Runner", workingDir: envSlow.scratchDir + "/r" },
     { id: "rs-2", name: "Stopper", workingDir: envSlow.scratchDir + "/s" },
   ]);
-  insertMessages(envSlow.dbs.sessionsDb, "rs-1", [
+  insertMessages(envSlow.dbs.projectsDir, "rs-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
-  insertMessages(envSlow.dbs.sessionsDb, "rs-2", [
+  insertMessages(envSlow.dbs.projectsDir, "rs-2", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
-  insertSessions(envErr.dbs.sessionsDb, [
+  insertSessions(envErr.dbs.projectsDir, [
     { id: "er-1", name: "Error", workingDir: envErr.scratchDir + "/e" },
   ]);
-  insertMessages(envErr.dbs.sessionsDb, "er-1", [
+  insertMessages(envErr.dbs.projectsDir, "er-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
 }, 120000);
@@ -114,10 +145,10 @@ describe("events stream — running run", () => {
     expect(hasStatus(events, "running")).toBe(true);
     expect(hasStatus(events, "completed")).toBe(true);
     const preview = events.find((e) => e.event === "preview");
-    expect(preview?.data).toContain("mock goose reply");
+    expect(preview?.data).toContain("mock claude reply");
   });
 
-  it("reports an error status when goose exits non-zero", async () => {
+  it("reports an error status when claude exits non-zero", async () => {
     const stream = collectSse(
       envErr,
       "/sessions/er-1/events",
@@ -130,7 +161,7 @@ describe("events stream — running run", () => {
   });
 });
 
-describe("events stream — database tail", () => {
+describe("events stream — transcript tail", () => {
   it("appends a newly written message", async () => {
     const stream = collectSse(
       env,
@@ -139,7 +170,7 @@ describe("events stream — database tail", () => {
       12000,
     );
     await delay(500);
-    insertMessages(env.dbs.sessionsDb, "db-1", [
+    insertMessages(env.dbs.projectsDir, "db-1", [
       {
         role: "assistant",
         content: [{ type: "text", text: "appended later" }],
@@ -152,11 +183,6 @@ describe("events stream — database tail", () => {
   });
 
   it("emits a rename when the session name changes", async () => {
-    const renameTo = (name: string): void => {
-      const db = new DatabaseSync(env.dbs.sessionsDb);
-      db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, "db-1");
-      db.close();
-    };
     // The rename must land after the stream snapshots its baseline name, or
     // the new name is the baseline and no rename delta is ever emitted.
     const events = await collectSse(
@@ -165,15 +191,15 @@ describe("events stream — database tail", () => {
       (evs) => evs.some((e) => e.event === "rename"),
       12000,
       (e) => {
-        if (e.event === "status") renameTo("Renamed Tail");
+        if (e.event === "status") renameTo("db-1", "Renamed Tail");
       },
     );
     const rename = events.find((e) => e.event === "rename");
     expect(parseSseData(rename?.data ?? "").name).toBe("Renamed Tail");
   });
 
-  it("emits a deleted status when the session is removed", async () => {
-    insertSessions(env.dbs.sessionsDb, [
+  it("emits a deleted status when the transcript is removed", async () => {
+    insertSessions(env.dbs.projectsDir, [
       { id: "del-1", name: "Delete Me", workingDir: env.scratchDir + "/x" },
     ]);
     const stream = collectSse(
@@ -183,9 +209,8 @@ describe("events stream — database tail", () => {
       12000,
     );
     await delay(500);
-    const db = new DatabaseSync(env.dbs.sessionsDb);
-    db.prepare("DELETE FROM sessions WHERE id = ?").run("del-1");
-    db.close();
+    const path = sessionFile(env.dbs.projectsDir, "del-1");
+    if (path !== undefined) rmSync(path);
     const events = await stream;
     expect(hasStatus(events, "deleted")).toBe(true);
   });

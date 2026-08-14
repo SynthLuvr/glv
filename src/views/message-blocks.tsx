@@ -112,9 +112,6 @@ const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
       <summary>
         <span class="block-icon">🔧</span>
         <span class="tool-name">{info.name}</span>
-        {info.extension !== null && (
-          <span class="tool-ext">{info.extension}</span>
-        )}
         <span class="block-preview">{preview}</span>
       </summary>
       <pre>

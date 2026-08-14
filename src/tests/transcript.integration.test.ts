@@ -13,14 +13,14 @@ let env: IntegrationEnv;
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-transcript-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "t-rich",
       name: "Rich Transcript",
       workingDir: join(env.scratchDir, "rich"),
     },
   ]);
-  insertMessages(env.dbs.sessionsDb, "t-rich", [
+  insertMessages(env.dbs.projectsDir, "t-rich", [
     { role: "user", content: [{ type: "text", text: "Build the project" }] },
     {
       role: "assistant",
@@ -33,12 +33,16 @@ beforeAll(async () => {
     {
       role: "assistant",
       content: [
+        { type: "tool_use", name: "shell", input: { command: "echo hi" } },
+      ],
+    },
+    {
+      role: "user",
+      content: [
         {
-          type: "toolRequest",
-          toolCall: {
-            value: { name: "shell", arguments: { command: "echo hi" } },
-          },
-          _meta: { goose_extension: "developer" },
+          type: "tool_result",
+          content: [{ type: "text", text: "ok" }],
+          is_error: false,
         },
       ],
     },
@@ -46,21 +50,9 @@ beforeAll(async () => {
       role: "user",
       content: [
         {
-          type: "toolResponse",
-          toolResult: {
-            value: { content: [{ type: "text", text: "ok" }], isError: false },
-          },
-        },
-      ],
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "toolResponse",
-          toolResult: {
-            value: { content: [{ type: "text", text: "boom" }], isError: true },
-          },
+          type: "tool_result",
+          content: [{ type: "text", text: "boom" }],
+          is_error: true,
         },
       ],
     },
@@ -104,13 +96,10 @@ describe("transcript readability", () => {
     });
   });
 
-  it("renders tool calls with name, extension and arguments", async () => {
+  it("renders tool calls with name and arguments", async () => {
     await open(async (page) => {
       await expect(page.locator(".block.tool-call .tool-name")).toHaveText(
         "shell",
-      );
-      await expect(page.locator(".block.tool-call .tool-ext")).toHaveText(
-        "developer",
       );
       await expect(page.locator(".block.tool-call pre")).toContainText(
         "echo hi",
@@ -129,7 +118,7 @@ describe("transcript readability", () => {
     });
   });
 
-  it("tags tool-response messages as tool activity, not prompts", async () => {
+  it("tags tool-result messages as tool activity, not prompts", async () => {
     await open(async (page) => {
       await expect(page.locator(".message.tool")).toHaveCount(2);
       await expect(

@@ -23,7 +23,7 @@ describe("sticky prompt bar", () => {
   it("stays flush to the bottom edge when scrolled to the end of a long transcript", async () => {
     // Regression: a non-zero wrapper padding-bottom lifts the sticky prompt bar
     // off the viewport's bottom edge — it must stay pegged flush to the end.
-    insertSessions(env.dbs.sessionsDb, [
+    insertSessions(env.dbs.projectsDir, [
       {
         id: "scroll-flush",
         name: "Scroll Flush",
@@ -31,7 +31,7 @@ describe("sticky prompt bar", () => {
       },
     ]);
     insertMessages(
-      env.dbs.sessionsDb,
+      env.dbs.projectsDir,
       "scroll-flush",
       Array.from({ length: 50 }, (_, i) => ({
         role: i % 2 === 0 ? "user" : "assistant",

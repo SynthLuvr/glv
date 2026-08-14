@@ -86,8 +86,8 @@ const NewSessionForm = ({
   <div class="detail-inner new-session">
     <h2>New Session</h2>
     <p class="new-session-sub">
-      Start a fresh goose run. The session appears in the sidebar the moment
-      goose creates it.
+      Start a fresh claude run. The session appears in the sidebar the moment
+      claude creates it.
     </p>
     <form
       class="new-session-form"
@@ -111,7 +111,7 @@ const NewSessionForm = ({
           name="prompt"
           class="form-input prompt-input"
           rows={5}
-          placeholder="What do you want goose to do?"
+          placeholder="What do you want claude to do?"
           autofocus
         />
       </label>

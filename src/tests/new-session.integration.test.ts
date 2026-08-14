@@ -26,7 +26,7 @@ beforeAll(async () => {
   // Seed a pre-existing session in a different working dir so the sidebar's
   // #session-list container exists for the out-of-band swap, without colliding
   // with new-session detection.
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "seed-session",
       name: "Seed Project",
@@ -49,7 +49,7 @@ describe("new session — working directory flow", () => {
     });
   });
 
-  it("starts a goose session from the form", async () => {
+  it("starts a claude session from the form", async () => {
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);
       await expect(page.locator("form.new-session-form")).toBeVisible();
@@ -58,7 +58,7 @@ describe("new session — working directory flow", () => {
       await page.locator('textarea[name="prompt"]').fill(PROMPT_TEXT);
       await page.locator("button.send-btn").click();
 
-      // The transcript replaces the form once goose creates the session and
+      // The transcript replaces the form once claude creates the session and
       // glv re-keys the run onto the real session id.
       await page
         .locator("button.archive-btn")

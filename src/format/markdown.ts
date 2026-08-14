@@ -8,8 +8,8 @@ const HtmlString = type("string");
 // One DOM window for the process — creating one per call leaks memory.
 const purify = createDOMPurify(new JSDOM("").window);
 
-// Markdown comes from a shared DB written by goose and tool output, so it
-// is untrusted; sanitize to prevent stored XSS.
+// Markdown comes from transcripts written by claude and from tool output,
+// so it is untrusted; sanitize to prevent stored XSS.
 const renderMarkdown = (md: string): string =>
   purify.sanitize(
     HtmlString.assert(marked.parse(md, { gfm: true, breaks: true })),

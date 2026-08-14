@@ -26,7 +26,7 @@ const workingDirChip = (page: Page) =>
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-copy-working-dir-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "t-copy-dir",
       name: "Copy Working Dir",

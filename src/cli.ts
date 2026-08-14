@@ -13,25 +13,22 @@ import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { readConfig } from "./config.js";
-import { openDb, resolveDbPath } from "./db.js";
+import type { SessionStore } from "./db.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
 import { makeRunnerConfig } from "./runner/index.js";
+import { openMetaDb, resolveMetaDbPath } from "./store/meta.js";
+import { resolveProjectsRoot } from "./store/working-dir.js";
 
 type SessionsOpts = {
-  type: string;
   all?: boolean;
-  limit: string;
-};
-
-type LimitOpts = {
   limit: string;
 };
 
 type ServeOpts = {
   port: string;
   maxConcurrent: number;
-  gooseBinary: string;
+  claudeBinary: string;
   rpName: string;
   rpId?: string;
   forward?: boolean;
@@ -42,17 +39,19 @@ const program = new Command();
 
 program
   .name("glv")
-  .description("View goose sessions, prompts/outputs, and --no-session logs")
-  .option("--db <path>", "goose sessions database path")
+  .description("View claude sessions, prompts/outputs, and live runs")
+  .option("--projects-dir <path>", "claude projects (transcripts) directory")
   .option("--auth-db <path>", "auth database path")
   .option("--prompts-db <path>", "saved prompts database path")
-  .option("--groups-db <path>", "session groups database path");
+  .option("--groups-db <path>", "session groups database path")
+  .option("--meta-db <path>", "viewer metadata database path");
 
 const GlobalOpts = type({
-  "db?": "string",
+  "projectsDir?": "string",
   "authDb?": "string",
   "promptsDb?": "string",
   "groupsDb?": "string",
+  "metaDb?": "string",
 });
 
 const globalOpts = () => {
@@ -62,51 +61,32 @@ const globalOpts = () => {
   return opts;
 };
 
-const getDbPath = (): string => resolveDbPath(globalOpts().db);
-
-const getAuthDbPath = (): string => resolveAuthDbPath(globalOpts().authDb);
-
-const getPromptsDbPath = (): string =>
-  resolvePromptsDbPath(globalOpts().promptsDb);
-
-const getGroupsDbPath = (): string =>
-  resolveGroupsDbPath(globalOpts().groupsDb);
-
-const useDb = (fn: (db: DatabaseSync) => void): void => {
-  const db = openDb(getDbPath());
+// Opens the glv-owned meta sidecar (creating it on first use) and pairs it
+// with claude's projects directory; the transcript files themselves stay
+// owned — and only ever written — by the claude CLI.
+const useStore = (fn: (store: SessionStore) => void): void => {
+  const meta: DatabaseSync = openMetaDb(resolveMetaDbPath(globalOpts().metaDb));
+  const store: SessionStore = {
+    root: resolveProjectsRoot(globalOpts().projectsDir),
+    meta,
+  };
   try {
-    fn(db);
+    fn(store);
   } finally {
-    db.close();
+    meta.close();
   }
 };
 
 program
   .command("sessions")
-  .description("List goose sessions (interactive user sessions)")
-  .option("--type <type>", "session type: user|hidden|sub_agent|all", "user")
+  .description("List claude sessions (interactive user sessions)")
   .option("--all", "include archived sessions")
   .option("-n, --limit <number>", "number of rows to list", "20")
   .action((opts: SessionsOpts) => {
-    useDb((db) =>
-      runList(db, {
-        type: opts.type,
+    useStore((store) =>
+      runList(store, {
         limit: Number(opts.limit),
         includeArchived: opts.all === true,
-      }),
-    );
-  });
-
-program
-  .command("logs")
-  .description("List sessions from goose run --no-session (hidden sessions)")
-  .option("-n, --limit <number>", "number of rows to list", "20")
-  .action((opts: LimitOpts) => {
-    useDb((db) =>
-      runList(db, {
-        type: "hidden",
-        limit: Number(opts.limit),
-        includeArchived: false,
       }),
     );
   });
@@ -115,7 +95,7 @@ program
   .command("view <sessionId>")
   .description("Show prompts and final outputs for a session")
   .action((sessionId: string) => {
-    useDb((db) => runView(db, sessionId));
+    useStore((store) => runView(store, sessionId));
   });
 
 const configCmd = program
@@ -151,14 +131,14 @@ const parseMaxConcurrent = (value: string): number => {
   return result;
 };
 
-const resolveGooseBinary = (value: string): string => {
+const resolveCliBinary = (value: string): string => {
   if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))
       throw new InvalidArgumentError(`binary not found at "${value}"`);
     return value;
   }
   // Windows executables carry extensions (.exe, .cmd); PATHEXT lists the ones
-  // to try, so a bare "goose" matches "goose.exe" there.
+  // to try, so a bare "claude" matches "claude.exe" there.
   const exts = (process.env.PATHEXT ?? "")
     .split(delimiter)
     .map((e) => e.trim())
@@ -183,19 +163,19 @@ const resolveForwardHost = (forward?: boolean): string | undefined => {
 
 program
   .command("serve")
-  .description("Start a local web viewer for goose sessions")
+  .description("Start a local web viewer for claude sessions")
   .option("-p, --port <number>", "port to listen on", "3000")
   .option(
     "-c, --max-concurrent <number>",
-    "max concurrent goose runs",
+    "max concurrent claude runs",
     parseMaxConcurrent,
     6,
   )
   .option(
-    "--goose-binary <path>",
-    "path to the goose binary",
-    resolveGooseBinary,
-    "goose",
+    "--claude-binary <path>",
+    "path to the claude binary",
+    resolveCliBinary,
+    "claude",
   )
   .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
   .option(
@@ -208,17 +188,19 @@ program
   )
   .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
   .action((opts: ServeOpts) => {
-    // Writable opens first: read-only mode can't create the file, so serve
-    // works before goose has ever run.
-    const dbWritable = openDb(getDbPath(), { readOnly: false });
-    dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
-    const db = openDb(getDbPath());
-    runServe(db, dbWritable, {
+    // The meta sidecar is glv-owned and writable, so serve works before
+    // claude has ever run; claude's transcript files stay read-only.
+    const meta = openMetaDb(resolveMetaDbPath(globalOpts().metaDb));
+    const store: SessionStore = {
+      root: resolveProjectsRoot(globalOpts().projectsDir),
+      meta,
+    };
+    runServe(store, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
-      authDbPath: getAuthDbPath(),
-      promptsDbPath: getPromptsDbPath(),
-      groupsDbPath: getGroupsDbPath(),
+      runner: makeRunnerConfig(opts.maxConcurrent, opts.claudeBinary),
+      authDbPath: resolveAuthDbPath(globalOpts().authDb),
+      promptsDbPath: resolvePromptsDbPath(globalOpts().promptsDb),
+      groupsDbPath: resolveGroupsDbPath(globalOpts().groupsDb),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
       forwardHost: resolveForwardHost(opts.forward),

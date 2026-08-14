@@ -6,7 +6,7 @@
 
 ## Context
 
-glv is a self-hosted web UI over goose session transcripts. Its
+glv is a self-hosted web UI over claude session transcripts. Its
 server-side workload is:
 
 - Node 26, launched via tsx (`bin/glv`). It is not Bun.

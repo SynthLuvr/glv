@@ -2,50 +2,27 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { openMetaDb } from "../store/meta.js";
+import { insertMessages, insertSessions } from "./integration-harness";
 
 const GLV = resolve("bin/glv");
-
-// Mirrors goose's sessions schema so the CLI has something to read. Seeded
-// directly because these tests drive the binary, not the server.
-const SCHEMA = `
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL DEFAULT '',
-  session_type TEXT NOT NULL DEFAULT 'user',
-  working_dir TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  total_tokens INTEGER,
-  provider_name TEXT,
-  user_set_name BOOLEAN DEFAULT FALSE,
-  archived_at TIMESTAMP
-);
-CREATE TABLE messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  message_id TEXT,
-  session_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  content_json TEXT NOT NULL,
-  created_timestamp INTEGER NOT NULL,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  tokens INTEGER,
-  metadata_json TEXT
-);
-`;
 
 type RunResult = { status: number; stdout: string; stderr: string };
 
 let dir: string;
-let dbPath: string;
+let projectsDir: string;
+let metaDb: string;
 
 const run = (args: string[], env: Record<string, string> = {}): RunResult => {
-  const result = spawnSync(GLV, ["--db", dbPath, ...args], {
-    env: { ...process.env, ...env },
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    GLV,
+    ["--projects-dir", projectsDir, "--meta-db", metaDb, ...args],
+    {
+      env: { ...process.env, ...env },
+      encoding: "utf-8",
+    },
+  );
   return {
     status: result.status ?? -1,
     stdout: result.stdout ?? "",
@@ -53,98 +30,43 @@ const run = (args: string[], env: Record<string, string> = {}): RunResult => {
   };
 };
 
+// Seeds claude-shaped transcripts the CLI can read. Seeded directly because
+// these tests drive the binary, not the server.
 const seed = (): void => {
-  const db = new DatabaseSync(dbPath);
-  db.exec(SCHEMA);
-  const insSession = db.prepare(
-    "INSERT INTO sessions (id, name, session_type, working_dir, updated_at, total_tokens, provider_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-  insSession.run(
-    "alpha",
-    "Alpha Session",
-    "user",
-    "/tmp/alpha",
-    "2026-07-13 10:00:00",
-    100,
-    "Anthropic",
-  );
-  insSession.run(
-    "beta",
-    "Beta Session",
-    "user",
-    "/tmp/beta",
-    "2026-07-13 11:00:00",
-    null,
-    null,
-  );
-  insSession.run(
-    "gamma",
-    "",
-    "hidden",
-    "/tmp/gamma",
-    "2026-07-13 09:00:00",
-    50,
-    null,
-  );
-  // An archived user session stays out of the default listing.
-  insSession.run(
-    "archived",
-    "Archived One",
-    "user",
-    "/tmp/arch",
-    "2026-07-12 08:00:00",
-    5,
-    null,
-  );
-  db.prepare(
-    "UPDATE sessions SET archived_at = datetime('now') WHERE id = 'archived'",
-  ).run();
-
-  const insMsg = db.prepare(
-    "INSERT INTO messages (message_id, session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?, ?)",
-  );
-  insMsg.run(
-    null,
-    "alpha",
-    "user",
-    JSON.stringify([{ type: "text", text: "Hello goose" }]),
-    1,
-  );
-  insMsg.run(
-    null,
-    "alpha",
-    "assistant",
-    JSON.stringify([{ type: "text", text: "Hi there" }]),
-    2,
-  );
-  // A tool response and a thinking block are skipped by `glv view`.
-  insMsg.run(
-    null,
-    "alpha",
-    "user",
-    JSON.stringify([
-      {
-        type: "toolResponse",
-        toolResult: {
-          value: { content: [{ type: "text", text: "tool out" }] },
+  insertSessions(projectsDir, [
+    { id: "alpha", name: "Alpha Session", workingDir: "/tmp/alpha" },
+    { id: "beta", name: "", workingDir: "/tmp/beta" },
+    { id: "archived", name: "Archived One", workingDir: "/tmp/arch" },
+  ]);
+  insertMessages(projectsDir, "alpha", [
+    { role: "user", content: [{ type: "text", text: "Hello claude" }] },
+    { role: "assistant", content: [{ type: "text", text: "Hi there" }] },
+    // A tool result and a thinking block are skipped by glv view.
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          content: [{ type: "text", text: "tool out" }],
+          is_error: false,
         },
-      },
-    ]),
-    3,
-  );
-  insMsg.run(
-    null,
-    "alpha",
-    "assistant",
-    JSON.stringify([{ type: "thinking", thinking: "private" }]),
-    4,
-  );
+      ],
+    },
+    { role: "assistant", content: [{ type: "thinking", thinking: "private" }] },
+  ]);
+
+  // Archive state lives in the glv-owned sidecar, not claude's transcripts.
+  const db = openMetaDb(metaDb);
+  db.prepare(
+    "INSERT INTO session_meta (id, archived_at) VALUES (?, CURRENT_TIMESTAMP)",
+  ).run("archived");
   db.close();
 };
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "glv-cli-"));
-  dbPath = join(dir, "sessions.db");
+  projectsDir = join(dir, "projects");
+  metaDb = join(dir, "meta.db");
   seed();
 });
 
@@ -153,19 +75,16 @@ afterAll(() => {
 });
 
 describe("glv sessions", () => {
-  it("lists user sessions, excluding hidden and archived ones", () => {
+  it("lists sessions, excluding archived ones", () => {
     const { status, stdout } = run(["sessions"]);
     expect(status).toBe(0);
     expect(stdout).toContain("Alpha Session");
-    expect(stdout).toContain("Beta Session");
-    expect(stdout).not.toContain("Gamma Session");
+    expect(stdout).toContain("(unnamed)");
     expect(stdout).not.toContain("Archived One");
     expect(stdout).toContain("2 session(s) listed.");
   });
 
-  it("renders an empty-name session as (unnamed)", () => {
-    // Beta has tokens=null and provider_name=null; the listing degrades
-    // gracefully ("-") rather than printing "null".
+  it("degrades gracefully for null tokens and provider", () => {
     const { stdout } = run(["sessions"]);
     expect(stdout).not.toContain("null");
   });
@@ -181,31 +100,22 @@ describe("glv sessions", () => {
   });
 });
 
-describe("glv logs", () => {
-  it("lists only hidden (--no-session) runs", () => {
-    const { stdout } = run(["logs"]);
-    expect(stdout).toContain("gamma");
-    expect(stdout).not.toContain("Alpha Session");
-  });
-});
-
 describe("glv view", () => {
   it("shows prompts and outputs, skipping tool/thinking messages", () => {
     const { status, stdout } = run(["view", "alpha"]);
     expect(status).toBe(0);
-    expect(stdout).toContain("Hello goose");
+    expect(stdout).toContain("Hello claude");
     expect(stdout).toContain("Hi there");
     expect(stdout).not.toContain("tool out");
     expect(stdout).not.toContain("private");
   });
 
-  it("surfaces the session header with id, name, dir and tokens", () => {
+  it("surfaces the session header with id, name and dir", () => {
     const { stdout } = run(["view", "alpha"]);
     expect(stdout).toContain("alpha");
     expect(stdout).toContain("Alpha Session");
     expect(stdout).toContain("/tmp/alpha");
-    expect(stdout).toContain("100");
-    expect(stdout).toContain("Anthropic");
+    expect(stdout).toContain("claude");
   });
 
   it("exits non-zero for an unknown session", () => {
@@ -269,10 +179,10 @@ describe("glv serve argument validation", () => {
     expect(stderr.toLowerCase()).toContain("positive integer");
   });
 
-  it("rejects a --goose-binary path that does not exist", () => {
+  it("rejects a --claude-binary path that does not exist", () => {
     const { status, stderr } = run([
       "serve",
-      "--goose-binary",
+      "--claude-binary",
       "/no/such/binary",
     ]);
     expect(status).not.toBe(0);

@@ -16,12 +16,15 @@ const LINE_TEXTS = [
 
 const LINE_COUNT = LINE_TEXTS.length;
 
-// NDJSON envelopes matching goose's stdout and DB shape, so the mock can both
-// stream them as a preview and commit them as message rows.
+// NDJSON events matching claude's stream-json stdout shape, so the mock can
+// both stream them as a preview and commit them as transcript lines.
 const STREAM_LINES = LINE_TEXTS.map((text) =>
   JSON.stringify({
-    role: "assistant",
-    content: [{ type: "text", text }],
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text }],
+    },
   }),
 );
 
@@ -56,7 +59,7 @@ describe("live log streaming", () => {
       await page.locator('textarea[name="prompt"]').fill("stream a response");
       await page.locator("button.send-btn").click();
 
-      // The transcript replaces the form once goose creates the session and
+      // The transcript replaces the form once claude creates the session and
       // glv re-keys the run onto the real session id.
       await page
         .locator("button.archive-btn")

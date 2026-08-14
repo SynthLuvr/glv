@@ -23,11 +23,11 @@ const delay = (ms: number): Promise<void> =>
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-status-", { sleepMs: 3000 });
   mkdirSync(env.scratchDir + "/s1", { recursive: true });
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "sf-1", name: "Status One", workingDir: env.scratchDir + "/s1" },
     { id: "sf-2", name: "Status Two", workingDir: env.scratchDir + "/s2" },
   ]);
-  insertMessages(env.dbs.sessionsDb, "sf-1", [
+  insertMessages(env.dbs.projectsDir, "sf-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
 }, 90000);

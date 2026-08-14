@@ -31,7 +31,7 @@ beforeAll(async () => {
   env = await startIntegrationEnv("glv-groups-");
   const ids = ["g-a", "g-b", "g-c", "g-d", "g-e", "g-f"];
   insertSessions(
-    env.dbs.sessionsDb,
+    env.dbs.projectsDir,
     ids.map((id) => ({
       id,
       name: id.toUpperCase(),

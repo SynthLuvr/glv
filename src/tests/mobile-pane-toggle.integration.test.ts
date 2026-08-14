@@ -14,14 +14,14 @@ const VIEWPORT = { width: 400, height: 800 };
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-mobile-pane-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "mp-a", name: "Pane A", workingDir: join(env.scratchDir, "a") },
     { id: "mp-b", name: "Pane B", workingDir: join(env.scratchDir, "b") },
   ]);
-  insertMessages(env.dbs.sessionsDb, "mp-a", [
+  insertMessages(env.dbs.projectsDir, "mp-a", [
     { role: "user", content: [{ type: "text", text: "seed a" }] },
   ]);
-  insertMessages(env.dbs.sessionsDb, "mp-b", [
+  insertMessages(env.dbs.projectsDir, "mp-b", [
     { role: "user", content: [{ type: "text", text: "seed b" }] },
   ]);
 }, 90000);

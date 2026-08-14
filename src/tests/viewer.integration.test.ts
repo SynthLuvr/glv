@@ -35,7 +35,7 @@ describe("web viewer shell", () => {
   });
 
   it("lists sessions in the sidebar once they exist", async () => {
-    insertSessions(env.dbs.sessionsDb, [
+    insertSessions(env.dbs.projectsDir, [
       {
         id: "viewer-alpha",
         name: "Alpha Session",
@@ -114,11 +114,11 @@ describe("htmx partials (HX-Request)", () => {
     });
     const html = await res.text();
     expect(html).toContain("new-session-form");
-    expect(html).not.toContain("Goose Sessions");
+    expect(html).not.toContain("Claude Sessions");
   });
 
   it("returns only the transcript fragment for a session", async () => {
-    insertMessages(env.dbs.sessionsDb, "viewer-alpha", [
+    insertMessages(env.dbs.projectsDir, "viewer-alpha", [
       { role: "user", content: [{ type: "text", text: "hello" }] },
     ]);
     const res = await authedFetch(env, "/sessions/viewer-alpha", {
@@ -126,7 +126,7 @@ describe("htmx partials (HX-Request)", () => {
     });
     const html = await res.text();
     expect(html).toContain("session-header");
-    expect(html).not.toContain("Goose Sessions");
+    expect(html).not.toContain("Claude Sessions");
   });
 
   it("refreshes the sidebar out-of-band when ?sidebar=1 is set", async () => {

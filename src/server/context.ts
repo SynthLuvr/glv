@@ -1,19 +1,18 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { AuthService } from "../auth/service.js";
-import type { SessionFilter } from "../db.js";
+import type { SessionFilter, SessionStore } from "../db.js";
 import type { GitRunner } from "../git.js";
 import type { CommandRunner } from "../pr-state.js";
 import type { Runner } from "../runner/index.js";
 import type { AssetBundle } from "./bundle.js";
 
 const VIEWER_FILTER: SessionFilter = {
-  type: "user",
   limit: 100,
   includeArchived: false,
 };
 
 const SESSION_TIMEOUT_ERROR =
-  "goose did not create a session in time. Is the goose binary available?";
+  "claude did not create a session in time. Is the claude binary available?";
 
 type ServerOptions = {
   tailPollMs?: number;
@@ -39,10 +38,10 @@ type ServerOptions = {
 // Everything a route handler needs, threaded in explicitly so route modules
 // stay free of shared mutable closure state.
 type ServerContext = {
-  // Browsing stays read-only so it never touches a row a live goose session
-  // is writing; archive/rename mutations go through `dbWritable`.
-  readonly db: DatabaseSync;
-  readonly dbWritable: DatabaseSync;
+  // claude's transcript files are only ever read — the store never writes
+  // to a file a live claude session is appending to; archive/rename
+  // mutations go through the viewer-owned meta sidecar inside `store`.
+  readonly store: SessionStore;
   readonly runner: Runner;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;

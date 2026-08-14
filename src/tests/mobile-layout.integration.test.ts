@@ -22,7 +22,7 @@ const VIEWPORT = { width: 400, height: 800 };
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-mobile-layout-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "mobile-tall",
       name: "Mobile Tall",
@@ -34,8 +34,8 @@ beforeAll(async () => {
       workingDir: join(env.scratchDir, "mobile-2"),
     },
   ]);
-  insertMessages(env.dbs.sessionsDb, "mobile-tall", TALL_MESSAGES);
-  insertMessages(env.dbs.sessionsDb, "mobile-tall-2", TALL_MESSAGES);
+  insertMessages(env.dbs.projectsDir, "mobile-tall", TALL_MESSAGES);
+  insertMessages(env.dbs.projectsDir, "mobile-tall-2", TALL_MESSAGES);
 }, 90000);
 
 afterAll(async () => {

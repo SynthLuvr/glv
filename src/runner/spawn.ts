@@ -1,7 +1,7 @@
 import { type } from "arktype";
 import { execa } from "execa";
 import type {
-  GooseInvocation,
+  ClaudeInvocation,
   InternalHandle,
   ProcessResult,
   Runner,
@@ -11,9 +11,9 @@ import type {
 
 const describeFailure = (result: ProcessResult): string => {
   if (result.signal !== undefined)
-    return `goose killed by signal ${result.signal}`;
-  if (result.exitCode === null) return "goose process exited unexpectedly";
-  return `goose exited with code ${result.exitCode}`;
+    return `claude killed by signal ${result.signal}`;
+  if (result.exitCode === null) return "claude process exited unexpectedly";
+  return `claude exited with code ${result.exitCode}`;
 };
 
 const ExecaError = type({
@@ -26,8 +26,8 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     input: opts.stdin,
     cwd: opts.cwd,
     // killDescendants makes execa reap the whole process tree on kill —
-    // process.kill(-pid) on Unix, taskkill /T /F on Windows — so goose's
-    // grandchildren (tool shells, stdio extensions) are torn down too.
+    // process.kill(-pid) on Unix, taskkill /T /F on Windows — so claude's
+    // grandchildren (tool shells, MCP servers) are torn down too.
     killDescendants: true,
   });
   const pid = proc.pid ?? -1;
@@ -73,7 +73,7 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 // Windows has no POSIX signals: per Node's docs, kill() with SIGINT, SIGTERM,
 // or SIGKILL unconditionally terminates the target at once, so the graceful
 // ladder below collapses into a single hard kill — sessions still stop, but
-// goose gets no chance to flush state. execa routes each kill() to the right
+// claude gets no chance to flush state. execa routes each kill() to the right
 // mechanism per platform, so no change is needed here.
 const awaitExit = async (
   proc: SpawnedProcess,
@@ -102,9 +102,9 @@ const awaitExit = async (
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
-  invocation: GooseInvocation,
+  invocation: ClaudeInvocation,
 ): Promise<void> => {
-  const proc = runner.spawn(runner.config.gooseBinary, invocation.args, {
+  const proc = runner.spawn(runner.config.claudeBinary, invocation.args, {
     stdin: invocation.stdin,
     cwd: handle.workingDir,
   });

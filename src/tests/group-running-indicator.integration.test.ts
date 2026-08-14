@@ -19,12 +19,12 @@ const post = (path: string, body: Record<string, string>): Promise<Response> =>
   });
 
 beforeAll(async () => {
-  // A long sleep keeps the mock goose running long enough to observe the
+  // A long sleep keeps the mock claude running long enough to observe the
   // running state, then it exits so the "done" transition is testable too.
   env = await startIntegrationEnv("glv-group-run-", { sleepMs: 6000 });
   for (const id of ["grp-a", "grp-b"])
     mkdirSync(env.scratchDir + "/" + id, { recursive: true });
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "grp-a",
       name: "Group Run A",

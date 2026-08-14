@@ -260,7 +260,7 @@ const PromptBar = ({
         <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
           name="prompt"
-          placeholder={busy ? "Queue a follow-up prompt…" : "Ask goose…"}
+          placeholder={busy ? "Queue a follow-up prompt…" : "Ask claude…"}
           class="prompt-input"
           rows={2}
           aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}

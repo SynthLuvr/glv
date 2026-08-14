@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
+  ClaudeInvocation,
   EnqueueOptions,
-  GooseInvocation,
   InternalHandle,
   RunHandle,
   Runner,
@@ -70,7 +70,7 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
 // glimpse the terminal status of the run that just finished.
-const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
+const advanceChain = (handle: InternalHandle): ClaudeInvocation | undefined => {
   if (handle.status === "stopped") {
     handle.pendingPrompts = [];
     return undefined;
@@ -87,7 +87,7 @@ const advanceChain = (handle: InternalHandle): GooseInvocation | undefined => {
 const enqueueInvocation = (
   runner: Runner,
   key: string,
-  invocation: GooseInvocation,
+  invocation: ClaudeInvocation,
   workingDir: string,
 ): RunHandle => {
   const existing = runner.registry.get(key);
@@ -113,7 +113,7 @@ const enqueueInvocation = (
   refreshQueuePositions(runner);
 
   void runner.queue.add(async () => {
-    let currentInvocation: GooseInvocation | undefined = invocation;
+    let currentInvocation: ClaudeInvocation | undefined = invocation;
     while (currentInvocation !== undefined) {
       if (handle.cancelled) return;
       handle.status = "running";
@@ -189,7 +189,7 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   return true;
 };
 
-// Prefixed so it can never collide with a real goose session id.
+// Prefixed so it can never collide with a real claude session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
 const stop = (runner: Runner, sessionId: string): boolean => {
@@ -219,7 +219,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   return false;
 };
 
-// Reaps all live goose processes on server shutdown.
+// Reaps all live claude processes on server shutdown.
 const stopAll = (runner: Runner): number => {
   let stopped = 0;
   for (const sessionId of runner.registry.keys())

@@ -75,7 +75,7 @@ const collectFiles = (raw: unknown): File[] => {
 };
 
 // Writes each file into a fresh per-batch directory. The real session id
-// isn't known until goose creates it, so the dir is named with a uuid and the
+// isn't known until claude creates it, so the dir is named with a uuid and the
 // caller tags it onto the session id later (tagDir).
 const saveUploads = async (files: File[]): Promise<SavedUpload> => {
   const dir = resolveUploadDir(randomUUID());
@@ -107,7 +107,7 @@ const saveUploads = async (files: File[]): Promise<SavedUpload> => {
   return { paths, dir };
 };
 
-// Appends an absolute-path reference section to the prompt so goose reads the
+// Appends an absolute-path reference section to the prompt so claude reads the
 // files regardless of its working directory.
 const buildUploadContext = (paths: string[]): string => {
   if (paths.length === 0) return "";
@@ -117,7 +117,7 @@ const buildUploadContext = (paths: string[]): string => {
 
 // Tags a managed directory with its owning session id via a marker file.
 // The dir keeps its uuid name because renaming would break the absolute
-// paths already handed to goose for the run's lifetime.
+// paths already handed to claude for the run's lifetime.
 const tagDir = (dir: string, sessionId: string): void => {
   writeFileSync(join(dir, SESSION_MARKER), sessionId);
 };

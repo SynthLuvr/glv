@@ -20,8 +20,8 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// The mock writes the argv file shortly after the session row is detected, so
-// retry until a complete, parseable array lands.
+// The mock writes the argv file shortly after the session transcript is
+// detected, so retry until a complete, parseable array lands.
 const waitForArgs = async (
   path: string,
   timeoutMs = 8000,
@@ -60,7 +60,7 @@ beforeAll(async () => {
   // Seed an existing session so the follow-up test can exercise the resume
   // path; its working dir must exist for the spawn.
   mkdirSync(join(env.scratchDir, "followup"), { recursive: true });
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "followup-1",
       name: "Follow Up",
@@ -74,8 +74,8 @@ afterAll(async () => {
   rmSync(argsDir, { recursive: true, force: true });
 });
 
-describe("system prompt — guardrails passed to every goose run", () => {
-  it("passes the built-in guardrails to a brand-new goose session", async () => {
+describe("system prompt — guardrails passed to every claude run", () => {
+  it("passes the built-in guardrails to a brand-new claude session", async () => {
     const workDir = join(env.scratchDir, "new");
     mkdirSync(workDir, { recursive: true });
     const res = await authedFetch(env, "/sessions", {
@@ -88,8 +88,10 @@ describe("system prompt — guardrails passed to every goose run", () => {
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
-    expect(args).not.toContain("--session-id");
-    expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(args).not.toContain("--resume");
+    expect(flagValue(args, "--append-system-prompt")).toBe(
+      DEFAULT_SYSTEM_PROMPT,
+    );
   });
 
   it("passes the guardrails to a follow-up (resume) run too", async () => {
@@ -103,7 +105,9 @@ describe("system prompt — guardrails passed to every goose run", () => {
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
-    expect(args).toContain("--session-id");
-    expect(flagValue(args, "--system")).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(args).toContain("--resume");
+    expect(flagValue(args, "--append-system-prompt")).toBe(
+      DEFAULT_SYSTEM_PROMPT,
+    );
   });
 });

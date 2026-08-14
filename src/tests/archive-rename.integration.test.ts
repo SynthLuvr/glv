@@ -13,9 +13,9 @@ import {
 let env: IntegrationEnv;
 
 const col = (id: string, name: string): unknown => {
-  const db = new DatabaseSync(env.dbs.sessionsDb, { readOnly: true });
+  const db = new DatabaseSync(env.dbs.metaDb, { readOnly: true });
   const row = db
-    .prepare("SELECT " + name + " AS v FROM sessions WHERE id = ?")
+    .prepare("SELECT " + name + " AS v FROM session_meta WHERE id = ?")
     .get(id) as { v: unknown } | undefined;
   db.close();
   return row?.v;
@@ -30,7 +30,7 @@ const post = (path: string, body: Record<string, string>): Promise<Response> =>
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-archive-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "ar-a", name: "Archive One", workingDir: join(env.scratchDir, "a") },
     { id: "ar-b", name: "Archive Two", workingDir: join(env.scratchDir, "b") },
     {

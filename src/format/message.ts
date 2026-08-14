@@ -10,7 +10,7 @@ type ContentItem = typeof ContentItem.infer;
 
 // ContentItem is intentionally permissive so any item type parses through.
 // The richer shapes below are asserted per-accessor (never cast) so the
-// viewer stays robust across schema drift between goose versions.
+// viewer stays robust across schema drift between claude versions.
 const ThinkingItem = type({
   type: "'thinking'",
   "thinking?": "string",
@@ -23,9 +23,6 @@ const ToolRequestItem = type({
       "name?": "string",
       "arguments?": "unknown",
     },
-  },
-  "_meta?": {
-    "goose_extension?": "string",
   },
 });
 
@@ -94,7 +91,6 @@ const thinkingText = (item: ContentItem): string | undefined => {
 type ToolCallInfo = {
   name: string;
   args: unknown;
-  extension: string | null;
 };
 
 const toolCallInfo = (item: ContentItem): ToolCallInfo | undefined => {
@@ -105,7 +101,6 @@ const toolCallInfo = (item: ContentItem): ToolCallInfo | undefined => {
   return {
     name: value?.name ?? "tool",
     args: value?.arguments ?? {},
-    extension: parsed._meta?.goose_extension ?? null,
   };
 };
 

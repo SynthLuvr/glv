@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect } from "@playwright/test";
@@ -13,14 +14,29 @@ import {
 let env: IntegrationEnv;
 
 // Opens a fresh read-only connection each call so the mutation's effect is
-// read straight from the sessions file, not server-cached state.
+// read straight from the sidecar file, not server-cached state.
 const col = (id: string, name: string): unknown => {
-  const db = new DatabaseSync(env.dbs.sessionsDb, { readOnly: true });
+  const db = new DatabaseSync(env.dbs.metaDb, { readOnly: true });
   const row = db
-    .prepare(`SELECT ${name} AS v FROM sessions WHERE id = ?`)
+    .prepare(`SELECT ${name} AS v FROM session_meta WHERE id = ?`)
     .get(id) as { v: unknown } | undefined;
   db.close();
   return row?.v;
+};
+
+// The transcript file claude owns for a session, found by scanning the
+// projects root — used to prove the viewer never writes into it.
+const transcriptOf = (id: string): string | undefined => {
+  for (const dir of readdirSync(env.dbs.projectsDir, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+    const path = join(env.dbs.projectsDir, dir.name, `${id}.jsonl`);
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      // not in this dir
+    }
+  }
+  return undefined;
 };
 
 const post = (path: string, body: Record<string, string>): Promise<Response> =>
@@ -32,7 +48,7 @@ const post = (path: string, body: Record<string, string>): Promise<Response> =>
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-readonly-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "ro-browse",
       name: "Browse Live",
@@ -50,14 +66,14 @@ afterAll(async () => {
   await env?.cleanup();
 });
 
-describe("read-only browsing connection", () => {
-  it("opens the sessions database read-only yet still sees live goose writes", async () => {
-    // A read-only browse connection must still see rows an external writer
-    // (goose) appends — SQLite WAL propagates them.
-    insertSessions(env.dbs.sessionsDb, [
+describe("read-only transcript browsing", () => {
+  it("reads transcripts without writing them, yet sees live claude writes", async () => {
+    // A transcript appended by an external writer (claude itself) must show
+    // up on the next browse — the store re-reads files on every request.
+    insertSessions(env.dbs.projectsDir, [
       {
         id: "ro-live",
-        name: "Live From Goose",
+        name: "Live From claude",
         workingDir: join(env.scratchDir, "live"),
       },
     ]);
@@ -65,14 +81,12 @@ describe("read-only browsing connection", () => {
       await page.goto(env.baseUrl);
       await expect(page.locator("#session-list")).toContainText("Browse Live");
       await expect(page.locator("#session-list")).toContainText(
-        "Live From Goose",
+        "Live From claude",
       );
     });
   });
 
-  it("routes archive/rename through the separate writable connection", async () => {
-    // These mutate, so they succeed only via the writable connection, then
-    // persist to the file and show up on the next read-only browse.
+  it("routes archive/rename through the glv-owned sidecar only", async () => {
     const renameRes = await post("/sessions/ro-mutate/rename", {
       name: "Renamed Safe",
       from: "header",
@@ -84,6 +98,12 @@ describe("read-only browsing connection", () => {
     const archiveRes = await post("/sessions/ro-mutate/archive", {});
     expect(archiveRes.status).toBe(200);
     expect(col("ro-mutate", "archived_at")).not.toBeNull();
+
+    // The rename lives only in the sidecar — claude's transcript file is
+    // never modified by the viewer.
+    const transcript = transcriptOf("ro-mutate");
+    expect(transcript).toBeDefined();
+    expect(transcript).not.toContain("Renamed Safe");
 
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);

@@ -24,14 +24,13 @@ const git = async (cwd: string, ...args: string[]): Promise<void> => {
   await execa("git", ["-C", cwd, ...args]);
 };
 
-// A tool response whose text is a bare PR URL is how detectPrUrl spots a
+// A tool result whose text is a bare PR URL is how detectPrUrl spots a
 // session-created PR.
 const prContent = (url: string): unknown => [
   {
-    type: "toolResponse",
-    toolResult: {
-      value: { content: [{ type: "text", text: url }], isError: false },
-    },
+    type: "tool_result",
+    content: [{ type: "text", text: url }],
+    is_error: false,
   },
 ];
 
@@ -48,7 +47,7 @@ beforeAll(async () => {
   worktreeDir = join(env.scratchDir, "wt-204");
   await git(repoDir, "worktree", "add", "-b", GIT_BRANCH, worktreeDir);
 
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "git-sess", name: "Git Session", workingDir: worktreeDir },
     { id: "repo-sess", name: "Repo Session", workingDir: repoDir },
     {
@@ -58,7 +57,7 @@ beforeAll(async () => {
     },
   ]);
 
-  insertMessages(env.dbs.sessionsDb, "git-sess", [
+  insertMessages(env.dbs.projectsDir, "git-sess", [
     { role: "user", content: prContent(GIT_PR_URL) },
   ]);
 }, 90000);

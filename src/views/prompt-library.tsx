@@ -244,7 +244,7 @@ const PromptSaveForm = ({
         name="body"
         class="form-input"
         rows={4}
-        placeholder="The prompt text goose will receive"
+        placeholder="The prompt text claude will receive"
         required
       >
         {body}

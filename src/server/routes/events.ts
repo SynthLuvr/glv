@@ -7,10 +7,10 @@ import { emit } from "../sse.js";
 import { activeStatuses, nameDeltas, statusDeltas } from "../status.js";
 
 // Snapshot every sidebar session's name — not just runner-managed ids —
-// because a CLI-started session is never registered, yet goose still renames
+// because a CLI-started session is never registered, yet claude still renames
 // it once it derives a title.
 const sidebarNames = (ctx: ServerContext): Map<string, string> =>
-  new Map(listSessions(ctx.db, VIEWER_FILTER).map((s) => [s.id, s.name]));
+  new Map(listSessions(ctx.store, VIEWER_FILTER).map((s) => [s.id, s.name]));
 
 // Streams status deltas for all active runs — not just the one the detail
 // pane watches — to drive the sidebar's running indicators and live session
@@ -19,7 +19,7 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/events/status", (c) =>
     streamSSE(c, async (stream) => {
       let last = activeStatuses(ctx.runner);
-      // Goose renames a session mid-run, so track names to push live updates.
+      // Claude renames a session mid-run, so track names to push live updates.
       let lastNames = sidebarNames(ctx);
       let polls = 0;
 

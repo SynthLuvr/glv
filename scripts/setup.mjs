@@ -165,7 +165,7 @@ const printNextSteps = () => {
     `\n${codes.bold}${codes.green}glv is ready to use!${codes.reset}\n`,
   );
   console.log("  Get started:\n");
-  console.log("    glv sessions            # list recent goose sessions");
+  console.log("    glv sessions            # list recent claude sessions");
   console.log(
     "    glv view <id>           # show prompts + outputs for a session",
   );

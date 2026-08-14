@@ -57,17 +57,17 @@ beforeAll(async () => {
   uploadFilePath = join(env.scratchDir, uploadFilename);
   writeFileSync(uploadFilePath, uploadContent);
 
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     { id: "followup-1", name: "Follow-up Project", workingDir: workDir },
     // A dedicated session for the destructive archive-cleanup case so it
     // never archives the session the other tests navigate to.
     { id: "followup-2", name: "Follow-up Cleanup", workingDir: workDir },
   ]);
-  insertMessages(env.dbs.sessionsDb, "followup-1", [
+  insertMessages(env.dbs.projectsDir, "followup-1", [
     { role: "user", content: [{ type: "text", text: "initial prompt" }] },
     { role: "assistant", content: [{ type: "text", text: "initial reply" }] },
   ]);
-  insertMessages(env.dbs.sessionsDb, "followup-2", [
+  insertMessages(env.dbs.projectsDir, "followup-2", [
     { role: "user", content: [{ type: "text", text: "initial prompt" }] },
     { role: "assistant", content: [{ type: "text", text: "initial reply" }] },
   ]);
@@ -110,7 +110,7 @@ describe("follow-up upload — attach button and chips", () => {
 });
 
 describe("follow-up upload — submitting with attachments", () => {
-  it("saves files to private storage and passes their paths to goose", async () => {
+  it("saves files to private storage and passes their paths to claude", async () => {
     await withPage(env.context, async (page) => {
       await page.goto(`${env.baseUrl}/sessions/followup-1`);
 
@@ -124,7 +124,7 @@ describe("follow-up upload — submitting with attachments", () => {
         .fill(FOLLOWUP_PROMPT);
       await page.locator("form.prompt-bar button.send-btn").click();
 
-      // goose (resume invocation) received the prompt with the appended file
+      // claude (resume invocation) received the prompt with the appended file
       // paths in its stdin.
       const captured = await waitForFile(capturePath);
       expect(captured).toContain(FOLLOWUP_PROMPT);

@@ -18,7 +18,7 @@ const HeadMeta = () => (
     />
     <meta
       name="description"
-      content="Browse goose session history, stream live runs, and launch new goose runs from your browser."
+      content="Browse claude session history, stream live runs, and launch new claude runs from your browser."
     />
   </>
 );

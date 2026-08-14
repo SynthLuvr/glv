@@ -28,14 +28,17 @@ const startRun = (
     headers: { "HX-Request": "true" },
   });
 
-// A valid NDJSON message line matching goose's stdout and DB shape.
+// A valid NDJSON event matching claude's stream-json stdout shape.
 const VALID_LINE = JSON.stringify({
-  role: "assistant",
-  content: [{ type: "text", text: "structured reply" }],
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [{ type: "text", text: "structured reply" }],
+  },
 });
 
-// Non-JSON banner text goose may emit alongside structured output.
-const RAW_LINE = "goose is ready";
+// Non-JSON banner text claude may emit alongside structured output.
+const RAW_LINE = "claude is ready";
 
 let envValid: IntegrationEnv;
 let envRaw: IntegrationEnv;
@@ -55,16 +58,16 @@ beforeAll(async () => {
   const rawDir = envRaw.scratchDir + "/p";
   mkdirSync(validDir, { recursive: true });
   mkdirSync(rawDir, { recursive: true });
-  insertSessions(envValid.dbs.sessionsDb, [
+  insertSessions(envValid.dbs.projectsDir, [
     { id: "discard-1", name: "Discard Valid", workingDir: validDir },
   ]);
-  insertMessages(envValid.dbs.sessionsDb, "discard-1", [
+  insertMessages(envValid.dbs.projectsDir, "discard-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
-  insertSessions(envRaw.dbs.sessionsDb, [
+  insertSessions(envRaw.dbs.projectsDir, [
     { id: "raw-1", name: "Discard Raw", workingDir: rawDir },
   ]);
-  insertMessages(envRaw.dbs.sessionsDb, "raw-1", [
+  insertMessages(envRaw.dbs.projectsDir, "raw-1", [
     { role: "user", content: [{ type: "text", text: "seed" }] },
   ]);
 }, 120000);

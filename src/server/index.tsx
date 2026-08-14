@@ -1,6 +1,6 @@
-import type { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { authMiddleware } from "../auth/service.js";
+import type { SessionStore } from "../db.js";
 import { type Runner } from "../runner/index.js";
 import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
@@ -18,14 +18,12 @@ import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 
 const createApp = (
-  db: DatabaseSync,
-  dbWritable: DatabaseSync,
+  store: SessionStore,
   runner: Runner,
   opts: ServerOptions = {},
 ): Hono => {
   const ctx: ServerContext = {
-    db,
-    dbWritable,
+    store,
     runner,
     auth: opts.auth,
     prompts: opts.prompts,

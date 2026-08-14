@@ -1,56 +1,56 @@
 # Guided Live Velocity
 
 A self-hosted web app that **increases your development speed with
-agentic coding**. Guided Live Velocity drives the
-[goose](https://github.com/block/goose) agentic engine from a fast
-browser UI: launch guided coding sessions, watch them stream live, and
-turn raw transcripts into navigable, searchable velocity.
+agentic coding**. Guided Live Velocity drives the [claude
+Code](https://claude.com/product/claude-code) engine from a fast browser
+UI: launch guided coding sessions, watch them stream live, and turn raw
+transcripts into navigable, searchable velocity.
 
-goose records every session — prompts, model responses, tool calls, and
-reasoning — in an on-disk SQLite database. **Guided Live Velocity** (or
-**glv**) turns that database into a fast, self-hosted web UI: browse
-past sessions, watch live runs stream in real time, kick off fresh runs,
-and even launch goose against a GitHub repository — all without leaving
-the browser.
+claude Code records every session — prompts, model responses, tool
+calls, and reasoning — as JSONL transcript files under `~/.claude`.
+**Guided Live Velocity** (or **glv**) turns those transcripts into a
+fast, self-hosted web UI: browse past sessions, watch live runs stream
+in real time, kick off fresh runs, and even launch claude against a
+GitHub repository — all without leaving the browser.
 
 ## Why
 
 - **Ship faster with agentic coding.** Guided Live Velocity puts the
-  goose agentic engine behind one fast UI, so you spend less time
-  juggling terminals and more time shipping guided, live-streamed
-  sessions.
-- **Make your session history navigable.** goose’s transcripts are rich
+  claude Code engine behind one fast UI, so you spend less time juggling
+  terminals and more time shipping guided, live-streamed sessions.
+- **Make your session history navigable.** claude’s transcripts are rich
   (markdown, tool calls, thinking blocks, token usage), but they live in
-  a database that is hard to read directly. glv renders them as a clean,
-  searchable web transcript.
-- **Run goose from a UI.** Instead of juggling terminals, start a new
-  `goose run` from a form, queue follow-up prompts, and watch the output
-  stream live — on one machine or many.
-- **Safe to use alongside goose.** Browsing is read-only, and the only
-  writes are viewer-side archive/rename metadata — never to the live
-  session data a running goose session is using.
+  JSONL files that are hard to read directly. glv renders them as a
+  clean, searchable web transcript.
+- **Run claude from a UI.** Instead of juggling terminals, start a new
+  `claude --print` run from a form, queue follow-up prompts, and watch
+  the output stream live — on one machine or many.
+- **Safe to use alongside claude.** Browsing is read-only, and the only
+  writes are viewer-side archive/rename metadata in glv’s own sidecar
+  database — never to the transcript files a running claude session is
+  appending to.
 - **Private by design.** The viewer is protected by passkey
   authentication and runs entirely on your own machine.
 
 ## Features
 
-- **Session browser.** A sidebar lists every goose session with its
-  name, working directory, provider, token count, and last-updated time.
-  Select one to read the full transcript of prompts and outputs.
+- **Session browser.** A sidebar lists every claude session with its
+  name, working directory, token count, and last-updated time. Select
+  one to read the full transcript of prompts and outputs.
 - **Live streaming.** Start a run in the viewer and its output streams
   in real time via Server-Sent Events. The session appears in the
-  sidebar the moment goose writes it.
-- **New sessions.** A `+` button opens a form to start a fresh goose
-  run. Pick a **working directory** on disk, or point goose at a
+  sidebar the moment claude writes it.
+- **New sessions.** A `+` button opens a form to start a fresh claude
+  run. Pick a **working directory** on disk, or point claude at a
   **GitHub repository** — glv clones the repo (using your existing `gh`
-  auth) and runs goose against it.
+  auth) and runs claude against it.
 - **Queued follow-ups.** While a session is running you can queue
   follow-up prompts that chain together once the current run finishes.
   Runs are governed by a concurrency-limited queue (six by default).
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
-  database and streams only the deltas, so you can keep an eye on a run
-  from anywhere.
+  projects directory and streams only the deltas, so you can keep an eye
+  on a run from anywhere.
 - **PR tracking.** When a session mentions a GitHub pull request, glv
   surfaces a link with a live open / merged / closed status badge (via
   `gh`).
@@ -65,28 +65,28 @@ the browser.
 glv is a single Node.js process built on the [Hono](https://hono.dev)
 web framework:
 
-- **Reads goose’s database directly.** Sessions are read from the goose
-  SQLite database at `~/.local/share/goose/sessions/sessions.db`.
-  Browsing opens the database **read-only** — the only writes are
-  viewer-managed archive and rename metadata, routed through a separate
-  writable connection, and they never touch the rows a running goose
-  session reads, so it is always safe while goose is running.
+- **Reads claude’s transcripts directly.** Sessions are read from the
+  JSONL files claude writes under `~/.claude/projects` — one file per
+  session, grouped by working directory. Browsing only ever reads those
+  files; the sole writes are viewer-managed archive and rename metadata,
+  kept in a separate glv-owned database, so it is always safe while
+  claude is running.
 - **Server-rendered with interactivity.** Pages are rendered server-side
   with `hono/jsx` and updated incrementally with
   [htmx](https://htmx.org) — there is no client-side SPA to build or
   ship. Styling is [Tailwind CSS v4](https://tailwindcss.com).
-- **A runner spawns goose.** When you start or resume a session, glv
-  spawns a `goose run` subprocess, feeds the prompt over stdin, and
-  parses the `stream-json` output. A `p-queue` caps how many goose
-  processes run at once; surplus prompts are queued and chained
-  automatically.
+- **A runner spawns claude.** When you start or resume a session, glv
+  spawns a `claude --print --output-format stream-json` subprocess,
+  feeds the prompt over stdin, and parses the NDJSON output. A `p-queue`
+  caps how many claude processes run at once; surplus prompts are queued
+  and chained automatically.
 - **Live updates over SSE.** Active runs stream through
   `/sessions/:id/stream`; sessions started elsewhere are followed via
-  `/sessions/:id/tail`, which polls the shared database for new and
+  `/sessions/:id/tail`, which polls the shared transcripts for new and
   edited messages.
-- **Sanitized output.** All model and tool output is rendered as GitHub-
-  Flavored Markdown and sanitized with DOMPurify before it reaches the
-  browser.
+- **Sanitized output.** All model and tool output is rendered as
+  GitHub-Flavored Markdown and sanitized with DOMPurify before it
+  reaches the browser.
 
 ## Setup
 
@@ -102,8 +102,8 @@ a thin Unix wrapper. Re-running is safe.
 ### Prerequisites
 
 - **Node.js ≥ 24** and **pnpm ≥ 10**.
-- The **`goose`** binary on your `PATH` (to start new runs from the
-  viewer).
+- The **`claude`** binary (claude Code ≥ 2.x) on your `PATH`,
+  authenticated, to start new runs from the viewer.
 - The **`gh`** CLI, authenticated, to use the GitHub repository source
   and PR status features.
 - **pandoc ≥ 3.1** (only needed for the Markdown lint/format check
@@ -125,14 +125,20 @@ Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
 
-- `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
+- `-c, --max-concurrent <number>` — maximum concurrent `claude` runs
   driven from the viewer (default `6`).
 
-- `--goose-binary <path>` — path to the `goose` binary used to run
-  prompts (default `goose` on `PATH`).
+- `--claude-binary <path>` — path to the `claude` binary used to run
+  prompts (default `claude` on `PATH`).
 
-- `--db <path>` — override the goose sessions database location (or
-  `GOOSE_SESSIONS_DB`).
+- `--projects-dir <path>` — override the claude transcripts directory
+  (default `~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects` when
+  `CLAUDE_CONFIG_DIR` is set — the same env var the claude CLI itself
+  honours).
+
+- `--meta-db <path>` — override the viewer metadata database location
+  (default `~/.local/share/glv/meta.db` on Linux/macOS
+  (`%APPDATA%\glv\meta.db` on Windows), or `GLV_META_DB`).
 
 - `--auth-db <path>` — override the auth database location (default
   `~/.local/share/glv/auth.db` on Linux/macOS (`%APPDATA%\glv\auth.db`
@@ -181,8 +187,8 @@ back in at any time with a quick passkey tap.
 - **Auth database** — passkey credentials and login sessions live in a
   separate SQLite database at `~/.local/share/glv/auth.db` on
   Linux/macOS (`%APPDATA%\glv\auth.db` on Windows), fully independent of
-  the goose sessions database. Override with `--auth-db <path>` or the
-  `GLV_AUTH_DB` environment variable.
+  claude’s transcript files and the viewer metadata sidecar. Override
+  with `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once
   an owner exists.
@@ -205,13 +211,13 @@ domain, and vice versa. To sign in from more than one origin — for
 example your local machine *and* a deployed host — register a separate
 passkey for each via the single-use **enrollment** flow:
 
-1.  Log in on an origin you already have a passkey for
-    (e.g. `http://localhost:3000`).
+1.  Log in on an origin you already have a passkey for (e.g.
+    `http://localhost:3000`).
 2.  Visit `/auth/devices` and click **Add a passkey for another device
     or domain**. The viewer mints a one-time enrollment link.
 3.  Open that link on the new domain — for another host, swap the
-    `localhost` part for your domain
-    (e.g. `https://your-host.example/auth/enroll/<token>`). Complete the
+    `localhost` part for your domain (e.g.
+    `https://your-host.example/auth/enroll/<token>`). Complete the
     passkey ceremony there; the credential is bound to that origin’s RP
     ID and attached to your existing owner account.
 4.  Sign in from either origin. The two passkeys coexist — there’s no
@@ -256,5 +262,4 @@ browser:
 ``` bash
 glv sessions              # list recent sessions
 glv view <id>             # show prompts + outputs for a session
-glv logs                  # list --no-session runs
 ```

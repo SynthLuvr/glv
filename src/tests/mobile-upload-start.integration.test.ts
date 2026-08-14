@@ -39,7 +39,7 @@ const waitForFile = async (path: string, timeoutMs = 8000): Promise<string> => {
 
 const PROMPT = "Summarize the attached notes.";
 const FILENAME = "notes.txt";
-const CONTENT = "important project notes for goose to read.";
+const CONTENT = "important project notes for claude to read.";
 
 let env: IntegrationEnv;
 let workDir: string;
@@ -63,7 +63,7 @@ afterAll(async () => {
 });
 
 describe("start session with upload under iOS-style DataTransfer limits", () => {
-  it("passes the attached file through to goose", async () => {
+  it("passes the attached file through to claude", async () => {
     await withPage(env.context, async (page) => {
       await page.addInitScript(SIMULATE_IOS_NO_DATATRANSFER);
       await page.goto(env.baseUrl);

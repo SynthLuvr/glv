@@ -1,6 +1,15 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,35 +19,8 @@ import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { tryParseJson } from "../parse.js";
-
-// Both tables must exist before the server starts: the sidebar queries them
-// and the mock goose inserts into them.
-const SESSIONS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL DEFAULT '',
-  session_type TEXT NOT NULL DEFAULT 'user',
-  working_dir TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  total_tokens INTEGER,
-  provider_name TEXT,
-  user_set_name BOOLEAN DEFAULT FALSE,
-  archived_at TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  message_id TEXT,
-  session_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  content_json TEXT NOT NULL,
-  created_timestamp INTEGER NOT NULL,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  tokens INTEGER,
-  metadata_json TEXT
-);
-`;
+import { openMetaDb } from "../store/meta.js";
+import { encodeWorkingDir } from "../store/working-dir.js";
 
 const AUTH_SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -62,22 +44,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 `;
 
-const INSERT_SESSION_SQL =
-  "INSERT INTO sessions (id, name, session_type, working_dir, created_at, updated_at) " +
-  "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'))";
-
-const INSERT_MESSAGE_SQL =
-  "INSERT INTO messages (message_id, session_id, role, content_json, " +
-  "created_timestamp, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))";
-
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const GLV = join(ROOT, "bin", "glv");
 
-// tsx is resolved to an absolute loader path because the mock goose runs from
-// a temp dir with no node_modules.
+// tsx is resolved to an absolute loader path because the mock claude runs
+// from a temp dir with no node_modules.
 const tsxLoader = createRequire(import.meta.url).resolve("tsx");
-const gooseMockScriptPath = fileURLToPath(
-  new URL("./goose-mock-script.ts", import.meta.url),
+const claudeMockScriptPath = fileURLToPath(
+  new URL("./claude-mock-script.ts", import.meta.url),
 );
 const ghMockScriptPath = fileURLToPath(
   new URL("./gh-mock-script.ts", import.meta.url),
@@ -119,8 +93,9 @@ const waitForHttp = async (url: string, timeoutMs = 20000): Promise<void> => {
 
 type SessionSeed = { id: string; name: string; workingDir: string };
 
-// A content_json string or an array of content items, written verbatim into the
-// message row so transcript-rendering tests can seed rich transcripts.
+// A content payload (plain string or claude content-block array), written
+// verbatim into the transcript so transcript-rendering tests can seed rich
+// transcripts.
 type MessageSeed = {
   role: string;
   content: unknown;
@@ -129,7 +104,8 @@ type MessageSeed = {
 };
 
 type Databases = {
-  sessionsDb: string;
+  projectsDir: string;
+  metaDb: string;
   authDb: string;
   promptsDb: string;
   groupsDb: string;
@@ -139,23 +115,23 @@ type Databases = {
 type MockConfig = {
   /** Delay (ms) before the mock emits output, keeping a run "running". */
   sleepMs?: number;
-  /** goose exit code; non-zero surfaces as a runner error. */
+  /** claude exit code; non-zero surfaces as a runner error. */
   exitCode?: number;
   /** NDJSON lines to emit (newline-joined); default is a single reply. */
   lines?: string[];
-  /** Name written into a new session row. */
+  /** Name written into a new session's ai-title line. */
   sessionName?: string;
   /** Pause (ms) between streamed lines so a tail fills incrementally. */
   lineDelayMs?: number;
-  /** When set, persist each line to the sessions DB as it is produced. */
+  /** When set, persist each line to the session transcript as produced. */
   writeDb?: boolean;
-  /** When set, writes goose's stdin (the full prompt) to this file path. */
+  /** When set, writes claude's stdin (the full prompt) to this file path. */
   captureStdin?: string;
-  /** When set, writes goose's working directory to this file path. */
+  /** When set, writes claude's working directory to this file path. */
   captureCwd?: string;
-  /** When set, writes goose's argv (JSON string[]) to this file path. */
+  /** When set, writes claude's argv (JSON string[]) to this file path. */
   captureArgs?: string;
-  /** When set, goose spawns a long-lived descendant and writes its PID here. */
+  /** When set, claude spawns a long-lived descendant and writes its PID here. */
   spawnChild?: string;
 };
 
@@ -174,18 +150,31 @@ type IntegrationEnv = {
   cleanup: () => Promise<void>;
 };
 
-// WAL lets a test process (or the mock goose) write while the server reads,
-// without SQLITE_BUSY. The auth row satisfies the WebAuthn gate without a
-// real passkey: the returned token becomes the glv_session cookie.
+// WAL-free: the projects dir is plain JSONL the mock claude appends to while
+// the server reads. The auth row satisfies the WebAuthn gate without a real
+// passkey: the returned token becomes the glv_session cookie.
 const createDatabases = (scratchDir: string): Databases => {
-  const sessionsDb = join(scratchDir, "sessions.db");
-  const sdb = new DatabaseSync(sessionsDb);
-  sdb.exec("PRAGMA journal_mode=WAL");
-  sdb.exec(SESSIONS_SCHEMA);
-  sdb.close();
+  const projectsDir = join(scratchDir, "projects");
+  mkdirSync(projectsDir, { recursive: true });
+
+  const metaDb = join(scratchDir, "meta.db");
+  openMetaDb(metaDb).close();
 
   const authDb = join(scratchDir, "auth.db");
-  const adb = new DatabaseSync(authDb);
+  const adb = openAuthDbSeed(authDb);
+
+  return {
+    projectsDir,
+    metaDb,
+    authDb,
+    promptsDb: join(scratchDir, "prompts.db"),
+    groupsDb: join(scratchDir, "groups.db"),
+    token: adb.token,
+  };
+};
+
+const openAuthDbSeed = (dbPath: string): { token: string } => {
+  const adb = new DatabaseSync(dbPath);
   adb.exec(AUTH_SCHEMA);
   const token = randomBytes(32).toString("base64url");
   adb
@@ -198,68 +187,114 @@ const createDatabases = (scratchDir: string): Databases => {
     )
     .run(token, "owner-1");
   adb.close();
-
-  return {
-    sessionsDb,
-    authDb,
-    promptsDb: join(scratchDir, "prompts.db"),
-    groupsDb: join(scratchDir, "groups.db"),
-    token,
-  };
+  return { token };
 };
 
-// The server reads fresh on every request, so sessions inserted here appear in
-// the sidebar on the next page load without a restart.
-const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
-  const stmt = db.prepare(INSERT_SESSION_SQL);
-  for (const s of sessions) stmt.run(s.id, s.name, s.workingDir);
-  db.close();
+// The server reads fresh on every request, so sessions seeded here appear in
+// the sidebar on the next page load without a restart. Staggered mtimes keep
+// the newest-first sidebar order deterministic.
+const insertSessions = (
+  projectsRoot: string,
+  sessions: SessionSeed[],
+): void => {
+  let ts = Date.now();
+  for (const s of sessions) {
+    const dir = join(projectsRoot, encodeWorkingDir(s.workingDir));
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${s.id}.jsonl`);
+    writeFileSync(
+      path,
+      `${JSON.stringify({
+        type: "ai-title",
+        aiTitle: s.name,
+        sessionId: s.id,
+        cwd: s.workingDir,
+        timestamp: new Date(ts).toISOString(),
+      })}\n`,
+    );
+    utimesSync(path, new Date(ts), new Date(ts));
+    ts += 1000;
+  }
 };
 
-// Seeds a transcript straight into the goose sessions DB the server reads
-// from. `content` may be a raw JSON string or an array of content items.
+const findSessionFile = (
+  projectsRoot: string,
+  sessionId: string,
+): string | undefined => {
+  let dirs;
+  try {
+    dirs = readdirSync(projectsRoot, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    const path = join(projectsRoot, dir.name, `${sessionId}.jsonl`);
+    if (existsSync(path)) return path;
+  }
+  return undefined;
+};
+
+// Seeds a transcript straight into the projects dir the server reads from.
+// `content` may be a plain string or a claude content-block array.
 const insertMessages = (
-  dbPath: string,
+  projectsRoot: string,
   sessionId: string,
   messages: MessageSeed[],
 ): void => {
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
-  const stmt = db.prepare(INSERT_MESSAGE_SQL);
+  let path = findSessionFile(projectsRoot, sessionId);
+  if (path === undefined) {
+    const dir = join(projectsRoot, encodeWorkingDir("/seeded"));
+    mkdirSync(dir, { recursive: true });
+    path = join(dir, `${sessionId}.jsonl`);
+    writeFileSync(
+      path,
+      `${JSON.stringify({
+        type: "ai-title",
+        aiTitle: "seed session",
+        sessionId,
+        cwd: "/seeded",
+        timestamp: new Date().toISOString(),
+      })}\n`,
+    );
+  }
   let ts = Date.now();
+  const parts: string[] = [];
   for (const m of messages) {
-    const contentJson =
-      typeof m.content === "string"
-        ? (m.content as string)
-        : JSON.stringify(m.content);
-    stmt.run(
-      m.messageId ?? null,
-      sessionId,
-      m.role,
-      contentJson,
-      m.createdTimestamp ?? ts,
+    const t = m.createdTimestamp ?? ts;
+    parts.push(
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: m.role === "user" ? "user" : "assistant",
+        message: { role: m.role, content: m.content },
+        uuid: m.messageId ?? randomUUID(),
+        timestamp: new Date(t).toISOString(),
+        sessionId,
+      }),
     );
     ts += 1000;
   }
-  db.close();
+  appendFileSync(path, `${parts.join("\n")}\n`);
+  utimesSync(path, new Date(), new Date(ts));
 };
 
 const serveArgs = (dbs: Databases, port: number): string[] => [
   "serve",
   "-p",
   String(port),
-  "--db",
-  dbs.sessionsDb,
+  "--projects-dir",
+  dbs.projectsDir,
+  "--meta-db",
+  dbs.metaDb,
   "--auth-db",
   dbs.authDb,
   "--prompts-db",
   dbs.promptsDb,
   "--groups-db",
   dbs.groupsDb,
-  "--goose-binary",
-  "goose",
+  "--claude-binary",
+  "claude",
 ];
 
 const stopProcess = (proc: ChildProcess): Promise<void> =>
@@ -277,8 +312,8 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
 const mockScript = (bin: string, file: string): Promise<() => void> =>
   mockBin(bin, `node --import ${tsxLoader}`, { file });
 
-const mockGoose = (): Promise<() => void> =>
-  mockScript("goose", gooseMockScriptPath);
+const mockClaude = (): Promise<() => void> =>
+  mockScript("claude", claudeMockScriptPath);
 
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or network.
 const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
@@ -301,16 +336,16 @@ const startServer = (
 };
 
 const mockEnv = (mock: MockConfig): Record<string, string> => ({
-  GOOSE_MOCK_SESSION_NAME: mock.sessionName ?? "",
-  GOOSE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
-  GOOSE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
-  GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
-  GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
-  GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
-  GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
-  GOOSE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
-  GOOSE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
-  GOOSE_MOCK_SPAWN_CHILD: mock.spawnChild ?? "",
+  CLAUDE_MOCK_SESSION_NAME: mock.sessionName ?? "",
+  CLAUDE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
+  CLAUDE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
+  CLAUDE_MOCK_LINES: (mock.lines ?? []).join("\n"),
+  CLAUDE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
+  CLAUDE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
+  CLAUDE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
+  CLAUDE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
+  CLAUDE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
+  CLAUDE_MOCK_SPAWN_CHILD: mock.spawnChild ?? "",
 });
 
 const startIntegrationEnv = async (
@@ -324,13 +359,13 @@ const startIntegrationEnv = async (
   mkdirSync(uploadsDir, { recursive: true });
   const tempDir = join(scratchDir, "tmp");
   mkdirSync(tempDir, { recursive: true });
-  const restoreGoosePath = await mockGoose();
+  const restoreClaudePath = await mockClaude();
   const restoreGhPath = await mockGh();
 
   const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
   const { proc, readStderr } = startServer(dbs, port, {
-    GOOSE_SESSIONS_DB: dbs.sessionsDb,
+    CLAUDE_MOCK_PROJECTS_DIR: dbs.projectsDir,
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? { HOME: homeDir } : {}),
@@ -357,7 +392,7 @@ const startIntegrationEnv = async (
     await context.close();
     await browser.close();
     await stopProcess(proc);
-    restoreGoosePath();
+    restoreClaudePath();
     restoreGhPath();
     const stderr = readStderr();
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
@@ -512,10 +547,9 @@ export {
   GLV,
   insertMessages,
   insertSessions,
-  mockGoose,
+  mockClaude,
   parseSseData,
   ROOT,
-  SESSIONS_SCHEMA,
   startIntegrationEnv,
   stopProcess,
   waitForHttp,

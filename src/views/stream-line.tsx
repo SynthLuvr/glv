@@ -9,14 +9,22 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const renderStreamLine = (line: string): string => {
   const parsed = tryParseJson(line);
-  // Only message records with a content array preview; raw stdout is discarded.
-  if (parsed === null || !isRecord(parsed) || !Array.isArray(parsed.content))
-    return "";
+  // Only message records with a content array preview; raw stdout is
+  // discarded. claude stream-json nests role/content under "message";
+  // goose-shaped top-level envelopes are still tolerated.
+  if (parsed === null || !isRecord(parsed)) return "";
+  const message = isRecord(parsed.message) ? parsed.message : parsed;
+  if (!Array.isArray(message.content)) return "";
 
-  const items = parseContent(JSON.stringify(parsed.content));
+  const items = parseContent(JSON.stringify(message.content));
   if (items.length === 0) return "";
 
-  const role = typeof parsed.role === "string" ? parsed.role : "assistant";
+  const role =
+    typeof message.role === "string"
+      ? message.role
+      : typeof parsed.role === "string"
+        ? parsed.role
+        : "assistant";
   const kind = messageKind(role, items);
   const blocks = items
     .map((item) => itemBlock(item, kind === "output"))

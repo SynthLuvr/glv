@@ -55,7 +55,7 @@ const pollDb = async (
   id: string,
   state: PollState,
 ): Promise<boolean> => {
-  const session = getSession(ctx.db, id);
+  const session = getSession(ctx.store, id);
   if (session === undefined) {
     await emit(
       stream,
@@ -66,7 +66,7 @@ const pollDb = async (
     return false;
   }
 
-  const rows = listMessages(ctx.db, id);
+  const rows = listMessages(ctx.store, id);
   const messages = rows.map(parseMessage);
   let metaChanged = false;
   state.previewCleared = false;
@@ -111,7 +111,7 @@ const pollDb = async (
   }
   state.snapshots = rows.map((row) => row.content_json);
 
-  // Goose derives a real title mid-run; follow the rename.
+  // Claude derives a real title mid-run; follow the rename.
   if (session.name !== state.lastName) {
     state.lastName = session.name;
     if (
@@ -197,7 +197,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
   // open until the client disconnects.
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    const initial = getSession(ctx.db, id);
+    const initial = getSession(ctx.store, id);
     if (initial === undefined) return c.text("Session not found", 404);
 
     const cursor = resumeCursor(
@@ -206,7 +206,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     );
 
     return streamSSE(c, async (stream) => {
-      const baselineRows = listMessages(ctx.db, id);
+      const baselineRows = listMessages(ctx.store, id);
       const state: PollState = {
         snapshots: baselineRows.map((row) => row.content_json),
         msgCursor: baselineRows.length,

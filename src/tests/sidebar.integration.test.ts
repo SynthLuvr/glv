@@ -32,7 +32,7 @@ describe("sidebar — session list visibility", () => {
   });
 
   it("shows sessions in the sidebar once they exist in the database", async () => {
-    insertSessions(env.dbs.sessionsDb, [
+    insertSessions(env.dbs.projectsDir, [
       {
         id: "sidebar-alpha",
         name: "Alpha Session",

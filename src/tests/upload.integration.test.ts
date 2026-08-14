@@ -28,7 +28,7 @@ let captureDir: string;
 let capturePath: string;
 let uploadFilePath: string;
 const uploadFilename = "project-notes.txt";
-const uploadContent = "These are important project notes for goose to read.";
+const uploadContent = "These are important project notes for claude to read.";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,7 +56,7 @@ beforeAll(async () => {
   uploadFilePath = join(env.scratchDir, uploadFilename);
   writeFileSync(uploadFilePath, uploadContent);
 
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "seed-session",
       name: "Seed Project",
@@ -102,7 +102,7 @@ describe("file upload — paperclip and chips", () => {
 });
 
 describe("file upload — session with attachments", () => {
-  it("starts a session, saves files to GLV private storage, and passes paths to goose", async () => {
+  it("starts a session, saves files to GLV private storage, and passes paths to claude", async () => {
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);
       await expect(page.locator("form.new-session-form")).toBeVisible();
@@ -137,7 +137,7 @@ describe("file upload — session with attachments", () => {
       expect(existsSync(savedPath)).toBe(true);
       expect(readFileSync(savedPath, "utf-8")).toBe(uploadContent);
 
-      // goose received the absolute file path in its stdin (the prompt).
+      // claude received the absolute file path in its stdin (the prompt).
       const captured = await waitForFile(capturePath);
       expect(captured).toContain(PROMPT_TEXT);
       expect(captured).toContain(savedPath);

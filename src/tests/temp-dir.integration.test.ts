@@ -50,7 +50,7 @@ beforeAll(async () => {
 
   // Seed a pre-existing session so the sidebar's #session-list exists for the
   // out-of-band swap, without colliding with new-session detection.
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.projectsDir, [
     {
       id: "seed-session",
       name: "Seed Project",
@@ -141,7 +141,7 @@ describe("temporary directory — session lifecycle", () => {
     expect(newDir).toBeTruthy();
     const tempDirPath = join(env.tempDir, newDir!.name);
 
-    // goose ran with the temp dir as its working directory (cwd).
+    // claude ran with the temp dir as its working directory (cwd).
     const capturedCwd = await waitForFile(cwdCapturePath);
     expect(capturedCwd.trim()).toBe(tempDirPath);
   });

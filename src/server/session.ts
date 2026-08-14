@@ -1,6 +1,10 @@
-import type { DatabaseSync } from "node:sqlite";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { getSession, type SessionRow, sessionIdsInDir } from "../db.js";
+import {
+  getSession,
+  type SessionRow,
+  type SessionStore,
+  sessionIdsInDir,
+} from "../db.js";
 import type { RunHandle } from "../runner/index.js";
 import {
   enqueueRun,
@@ -37,14 +41,16 @@ const withCreateLock = <T>(
 };
 
 const findNewSessionId = (
-  db: DatabaseSync,
+  store: SessionStore,
   workingDir: string,
   known: Set<string>,
 ): string | undefined =>
-  sessionIdsInDir(db, workingDir).find((id) => !known.has(id));
+  sessionIdsInDir(store, workingDir).find((id) => !known.has(id));
 
+// Waits for claude to create the new session's transcript file in the
+// project directory for the working dir.
 const pollForSessionId = async (
-  db: DatabaseSync,
+  store: SessionStore,
   workingDir: string,
   known: Set<string>,
   timeoutMs = 10000,
@@ -52,7 +58,7 @@ const pollForSessionId = async (
 ): Promise<string | undefined> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const found = findNewSessionId(db, workingDir, known);
+    const found = findNewSessionId(store, workingDir, known);
     if (found !== undefined) return found;
     await sleep(intervalMs);
   }
@@ -60,14 +66,14 @@ const pollForSessionId = async (
 };
 
 // `known` must be captured before enqueueing; otherwise a fast run could
-// write its session before the snapshot and hide it from findNewSessionId.
+// write its transcript before the snapshot and hide it from findNewSessionId.
 const prepareNewSession = (
   ctx: ServerContext,
   workingDir: string,
   prompt: string,
 ): { tempKey: string; known: Set<string> } => {
   const tempKey = generateTempKey();
-  const known = new Set(sessionIdsInDir(ctx.db, workingDir));
+  const known = new Set(sessionIdsInDir(ctx.store, workingDir));
   enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
     isNewSession: true,
   });
@@ -78,7 +84,7 @@ type EstablishOutcome =
   | { ok: true; realId: string; session: SessionRow }
   | { ok: false; status: ContentfulStatusCode; error: string };
 
-// Rekeys the temp run handle onto the real id and confirms the session row
+// Rekeys the temp run handle onto the real id and confirms the transcript
 // exists, stopping the run on either failure. `conflictError` localises the
 // 409 copy ("directory" vs "repository"). Safe inside an existing
 // withCreateLock task — this never acquires the lock itself.
@@ -92,7 +98,7 @@ const establishSession = (
     stop(ctx.runner, tempKey);
     return { ok: false, status: 409, error: conflictError };
   }
-  const session = getSession(ctx.db, realId);
+  const session = getSession(ctx.store, realId);
   if (session === undefined) {
     stop(ctx.runner, realId);
     return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };

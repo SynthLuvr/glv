@@ -5,8 +5,8 @@ import { ensureDbDir, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
-// in a glv-owned, read-write database (never the goose sessions DB, which is
-// opened read-only) so the library can persist alongside goose safely.
+// in a glv-owned, read-write database (never claude's transcript files,
+// which are only read) so the library can persist alongside claude safely.
 type SavedPrompt = {
   id: string;
   title: string;

@@ -16,8 +16,8 @@ const resolveDataPath = (
   ...segments: string[]
 ): string => override ?? process.env[envVar] ?? join(dataRoot(), ...segments);
 
-// Only glv-owned databases (auth, prompts, groups) need this; the goose
-// sessions DB is opened read-only and managed externally.
+// Only glv-owned databases (auth, prompts, groups, meta) need this;
+// claude's transcripts are plain JSONL files read straight from disk.
 const ensureDbDir = (dbPath: string): void => {
   mkdirSync(dirname(dbPath), { recursive: true });
 };

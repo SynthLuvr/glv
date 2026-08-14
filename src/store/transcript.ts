@@ -1,0 +1,235 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
+
+// One parsed message from a claude transcript, with content blocks already
+// normalized to the viewer's item model (text/thinking/toolRequest/
+// toolResponse) so the rendering layer never sees claude-specific shapes.
+type RawMessage = {
+  uuid: string | null;
+  role: string;
+  items: unknown[];
+  timestamp: string;
+  createdTimestamp: number;
+};
+
+// Metadata extracted from a transcript file while scanning it.
+type Transcript = {
+  cwd: string | undefined;
+  firstTimestamp: string | undefined;
+  lastTimestamp: string | undefined;
+  firstUserTimestamp: number | undefined;
+  firstUserText: string | undefined;
+  aiTitle: string | undefined;
+  tokens: number | null;
+  messages: RawMessage[];
+};
+
+type SessionFile = {
+  id: string;
+  path: string;
+  mtimeMs: number;
+};
+
+const SESSION_EXT = ".jsonl";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isSessionFile = (name: string): boolean =>
+  name.endsWith(SESSION_EXT) && !name.startsWith(".");
+
+// Sum of the usage counters claude reports per turn. The last one seen wins
+// so the sidebar shows the final context size rather than a running total
+// that would double-count input tokens on every turn.
+const usageTokens = (usage: unknown): number | undefined => {
+  if (!isRecord(usage)) return undefined;
+  const parts = [
+    usage.input_tokens,
+    usage.cache_creation_input_tokens,
+    usage.cache_read_input_tokens,
+    usage.output_tokens,
+  ].filter((v): v is number => typeof v === "number");
+  if (parts.length === 0) return undefined;
+  return parts.reduce((sum, n) => sum + n, 0);
+};
+
+// A claude content block → the viewer's item model. Unknown block types
+// pass through untouched; the transcript renderer stays permissive about
+// item types so schema drift degrades instead of breaking.
+const normalizeBlock = (block: unknown): unknown => {
+  if (typeof block === "string") return { type: "text", text: block };
+  if (!isRecord(block)) return block;
+  switch (block.type) {
+    case "text":
+      return { type: "text", text: block.text };
+    case "thinking":
+      return { type: "thinking", thinking: block.thinking };
+    case "tool_use":
+      return {
+        type: "toolRequest",
+        toolCall: { value: { name: block.name, arguments: block.input } },
+      };
+    case "tool_result":
+      return {
+        type: "toolResponse",
+        toolResult: {
+          value: { content: block.content, isError: block.is_error === true },
+        },
+      };
+    default:
+      return block;
+  }
+};
+
+const normalizeContent = (content: unknown): unknown[] =>
+  typeof content === "string"
+    ? [{ type: "text", text: content }]
+    : Array.isArray(content)
+      ? content.map(normalizeBlock)
+      : [];
+
+// Plain text of a content payload, used to derive a session name from the
+// first real user prompt when claude has not produced an ai-title yet.
+const contentText = (content: unknown): string | undefined => {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  const texts = content.flatMap((block) =>
+    isRecord(block) && block.type === "text" && typeof block.text === "string"
+      ? [block.text]
+      : [],
+  );
+  return texts.length === 0 ? undefined : texts.join("\n");
+};
+
+const parseTimestamp = (timestamp: string | undefined): number | undefined => {
+  if (timestamp === undefined) return undefined;
+  const ms = Date.parse(timestamp);
+  return Number.isNaN(ms) ? undefined : ms;
+};
+
+// A transcript is read whole in one pass; malformed lines are skipped the
+// way the old SQL layer dropped half-written rows.
+const parseTranscriptFile = (path: string): Transcript => {
+  const out: Transcript = {
+    cwd: undefined,
+    firstTimestamp: undefined,
+    lastTimestamp: undefined,
+    firstUserTimestamp: undefined,
+    firstUserText: undefined,
+    aiTitle: undefined,
+    tokens: null,
+    messages: [],
+  };
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return out;
+  }
+  for (const line of text.split("\n")) {
+    if (line === "") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed)) continue;
+    // Sub-agent (sidechain) turns belong to claude's internal task tool,
+    // not the main conversation the viewer renders.
+    if (parsed.isSidechain === true) continue;
+
+    if (out.cwd === undefined && typeof parsed.cwd === "string")
+      out.cwd = parsed.cwd;
+    if (typeof parsed.timestamp === "string") {
+      if (out.firstTimestamp === undefined)
+        out.firstTimestamp = parsed.timestamp;
+      out.lastTimestamp = parsed.timestamp;
+    }
+    if (parsed.type === "ai-title" && typeof parsed.aiTitle === "string")
+      out.aiTitle = parsed.aiTitle;
+
+    // Usage rides on assistant `message.usage` and on top-level `result`
+    // lines alike; either shape refreshes the token snapshot.
+    const tokens =
+      usageTokens(
+        isRecord(parsed.message) ? parsed.message.usage : undefined,
+      ) ?? usageTokens(parsed.usage);
+    if (tokens !== undefined) out.tokens = tokens;
+
+    if (parsed.type !== "user" && parsed.type !== "assistant") continue;
+    const message = isRecord(parsed.message) ? parsed.message : {};
+    const role = typeof message.role === "string" ? message.role : parsed.type;
+    const timestamp =
+      typeof parsed.timestamp === "string" ? parsed.timestamp : "";
+    const createdTimestamp = parseTimestamp(
+      typeof parsed.timestamp === "string" ? parsed.timestamp : undefined,
+    );
+    if (role === "user" && out.firstUserText === undefined) {
+      const text2 = contentText(message.content);
+      if (text2 !== undefined && text2.trim() !== "") {
+        out.firstUserText = text2;
+        out.firstUserTimestamp = createdTimestamp ?? 0;
+      }
+    }
+    out.messages.push({
+      uuid: typeof parsed.uuid === "string" ? parsed.uuid : null,
+      role,
+      items: normalizeContent(message.content),
+      timestamp,
+      createdTimestamp: createdTimestamp ?? out.messages.length,
+    });
+  }
+  return out;
+};
+
+// All transcript files across project directories, newest first — the file
+// mtime is claude's own "updated_at", so the sort matches the sidebar order.
+const listSessionFiles = (root: string): SessionFile[] => {
+  let dirs;
+  try {
+    dirs = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: SessionFile[] = [];
+  for (const dir of dirs) {
+    if (!dir.isDirectory() || dir.name.startsWith(".")) continue;
+    let entries;
+    try {
+      entries = readdirSync(join(root, dir.name), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !isSessionFile(entry.name)) continue;
+      const path = join(root, dir.name, entry.name);
+      try {
+        out.push({
+          id: basename(entry.name, SESSION_EXT),
+          path,
+          mtimeMs: statSync(path).mtimeMs,
+        });
+      } catch {
+        // Vanished between readdir and stat — skip it.
+      }
+    }
+  }
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out;
+};
+
+// Session ids come from URL path params, so refuse anything that could
+// traverse out of the projects root before scanning for it.
+const safeId = (id: string): boolean =>
+  id !== "" && !id.startsWith(".") && !id.includes("/") && !id.includes("\\");
+
+const findTranscript = (root: string, id: string): string | undefined => {
+  if (!safeId(id)) return undefined;
+  for (const file of listSessionFiles(root))
+    if (file.id === id) return file.path;
+  return undefined;
+};
+
+export type { RawMessage, SessionFile, Transcript };
+export { findTranscript, isSessionFile, listSessionFiles, parseTranscriptFile };

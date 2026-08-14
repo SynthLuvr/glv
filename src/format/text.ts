@@ -31,10 +31,10 @@ const formatDate = (epoch: number, now: number): string => {
   return date.toLocaleDateString("en-US", options);
 };
 
-// Goose timestamps are UTC but lack a zone suffix (SQLite CURRENT_TIMESTAMP),
-// so anchor zone-less values to UTC — otherwise Date.parse and the
-// <time datetime> attribute would read them as local time. An explicit
-// designator is honoured when present.
+// claude transcripts carry ISO-8601 timestamps with an explicit designator;
+// zone-less values (seeded or legacy data) are anchored to UTC so Date.parse
+// and the <time datetime> attribute never read them as local time. An
+// explicit designator is honoured when present.
 const toIso = (timestamp: string): string => {
   const iso = timestamp.replace(" ", "T");
   const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
