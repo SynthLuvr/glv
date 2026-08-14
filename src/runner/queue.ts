@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
   ClaudeInvocation,
-  EnqueueOptions,
   InternalHandle,
   RunHandle,
   Runner,
@@ -43,8 +41,8 @@ const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
 };
 
 // Schedules a terminal handle for eviction from the registry after a short
-// retention window. Identity-guarded: if the slot has since been re-enqueued
-// or rekeyed, the timer leaves the new handle untouched.
+// retention window. Identity-guarded: if the slot has since been re-enqueued,
+// the timer leaves the new handle untouched.
 const scheduleEviction = (runner: Runner, handle: InternalHandle): void => {
   if (handle.evictionTimer !== undefined) return;
   if (isActiveStatus(handle.status)) return;
@@ -70,7 +68,10 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
 // glimpse the terminal status of the run that just finished.
-const advanceChain = (handle: InternalHandle): ClaudeInvocation | undefined => {
+const advanceChain = (
+  handle: InternalHandle,
+  permissionMode: string,
+): ClaudeInvocation | undefined => {
   if (handle.status === "stopped") {
     handle.pendingPrompts = [];
     return undefined;
@@ -81,7 +82,7 @@ const advanceChain = (handle: InternalHandle): ClaudeInvocation | undefined => {
   handle.prompt = nextPrompt;
   handle.error = undefined;
   handle.status = "running";
-  return resumeInvocation(handle.sessionId, nextPrompt);
+  return resumeInvocation(handle.sessionId, nextPrompt, permissionMode);
 };
 
 const enqueueInvocation = (
@@ -127,7 +128,7 @@ const enqueueInvocation = (
       }
       handle.process = undefined;
 
-      currentInvocation = advanceChain(handle);
+      currentInvocation = advanceChain(handle, runner.config.permissionMode);
     }
     scheduleEviction(runner, handle);
   });
@@ -135,19 +136,32 @@ const enqueueInvocation = (
   return handle;
 };
 
-const enqueueRun = (
+// A brand-new run on a pre-assigned session id — claude honours
+// --session-id, so the id is known before the process starts.
+const enqueueNewSession = (
   runner: Runner,
-  key: string,
+  sessionId: string,
   prompt: string,
   workingDir: string,
-  opts: EnqueueOptions = {},
 ): RunHandle =>
   enqueueInvocation(
     runner,
-    key,
-    opts.isNewSession
-      ? newSessionInvocation(prompt)
-      : resumeInvocation(key, prompt),
+    sessionId,
+    newSessionInvocation(prompt, sessionId, runner.config.permissionMode),
+    workingDir,
+  );
+
+// A follow-up run on an existing session.
+const enqueueRun = (
+  runner: Runner,
+  sessionId: string,
+  prompt: string,
+  workingDir: string,
+): RunHandle =>
+  enqueueInvocation(
+    runner,
+    sessionId,
+    resumeInvocation(sessionId, prompt, runner.config.permissionMode),
     workingDir,
   );
 
@@ -156,7 +170,6 @@ const enqueueOrQueue = (
   sessionId: string,
   prompt: string,
   workingDir: string,
-  opts: EnqueueOptions = {},
 ): { handle: RunHandle; queued: boolean } => {
   const existing = runner.registry.get(sessionId);
   if (existing !== undefined && isActiveStatus(existing.status)) {
@@ -164,7 +177,7 @@ const enqueueOrQueue = (
     return { handle: existing, queued: true };
   }
   return {
-    handle: enqueueRun(runner, sessionId, prompt, workingDir, opts),
+    handle: enqueueRun(runner, sessionId, prompt, workingDir),
     queued: false,
   };
 };
@@ -177,20 +190,6 @@ const clearPending = (runner: Runner, sessionId: string): number => {
   handle.pendingPrompts = [];
   return count;
 };
-
-// Returns false rather than clobbering so callers can stop the orphaned run.
-const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
-  if (runner.registry.has(newKey)) return false;
-  const handle = runner.registry.get(oldKey);
-  if (handle === undefined) return false;
-  runner.registry.delete(oldKey);
-  handle.sessionId = newKey;
-  runner.registry.set(newKey, handle);
-  return true;
-};
-
-// Prefixed so it can never collide with a real claude session id.
-const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
 const stop = (runner: Runner, sessionId: string): boolean => {
   const handle = runner.registry.get(sessionId);
@@ -229,10 +228,9 @@ const stopAll = (runner: Runner): number => {
 
 export {
   clearPending,
+  enqueueNewSession,
   enqueueOrQueue,
   enqueueRun,
-  generateTempKey,
-  rekey,
   stop,
   stopAll,
 };

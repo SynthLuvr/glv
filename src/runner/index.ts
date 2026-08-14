@@ -1,9 +1,8 @@
 import {
   clearPending,
+  enqueueNewSession,
   enqueueOrQueue,
   enqueueRun,
-  generateTempKey,
-  rekey,
   stop,
   stopAll,
 } from "./queue.js";
@@ -22,6 +21,7 @@ import {
   DEFAULT_RUNNER_CONFIG,
   makeRunnerConfig,
   newSessionInvocation,
+  PERMISSION_MODES,
   resumeInvocation,
 } from "./types.js";
 
@@ -39,14 +39,14 @@ export {
   createRingBuffer,
   createRunner,
   DEFAULT_RUNNER_CONFIG,
+  enqueueNewSession,
   enqueueOrQueue,
   enqueueRun,
-  generateTempKey,
   getHandle,
   isTerminalStatus,
   makeRunnerConfig,
   newSessionInvocation,
-  rekey,
+  PERMISSION_MODES,
   resumeInvocation,
   stop,
   stopAll,

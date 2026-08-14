@@ -40,8 +40,8 @@ import {
   activeRunPrompt,
   type EstablishOutcome,
   establishSession,
-  pollForSessionId,
   prepareNewSession,
+  waitForTranscript,
   withCreateLock,
 } from "../session.js";
 import { activeSessionIds } from "../status.js";
@@ -181,28 +181,18 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       async (): Promise<EstablishOutcome> => {
         // Inside the per-directory lock so concurrent starts can't race the pull.
         await pullRepo(workingDir, ctx.runGit);
-        const { tempKey, known } = prepareNewSession(
-          ctx,
-          workingDir,
-          fullPrompt,
-        );
+        const sessionId = prepareNewSession(ctx, workingDir, fullPrompt);
 
-        const realId = await pollForSessionId(
+        const started = await waitForTranscript(
           ctx.store,
-          workingDir,
-          known,
+          sessionId,
           ctx.pollTimeoutMs,
         );
-        if (realId === undefined) {
-          stop(ctx.runner, tempKey);
+        if (!started) {
+          stop(ctx.runner, sessionId);
           return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
         }
-        return establishSession(
-          ctx,
-          tempKey,
-          realId,
-          "Another session is starting in that directory. Please try again.",
-        );
+        return establishSession(ctx, sessionId);
       },
     );
 

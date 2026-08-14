@@ -16,7 +16,7 @@ import { readConfig } from "./config.js";
 import type { SessionStore } from "./db.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
-import { makeRunnerConfig } from "./runner/index.js";
+import { makeRunnerConfig, PERMISSION_MODES } from "./runner/index.js";
 import { openMetaDb, resolveMetaDbPath } from "./store/meta.js";
 import { resolveProjectsRoot } from "./store/working-dir.js";
 
@@ -29,6 +29,7 @@ type ServeOpts = {
   port: string;
   maxConcurrent: number;
   claudeBinary: string;
+  permissionMode: string;
   rpName: string;
   rpId?: string;
   forward?: boolean;
@@ -153,6 +154,14 @@ const resolveCliBinary = (value: string): string => {
   return value;
 };
 
+const parsePermissionMode = (value: string): string => {
+  if (!PERMISSION_MODES.includes(value))
+    throw new InvalidArgumentError(
+      `must be one of: ${PERMISSION_MODES.join(", ")}`,
+    );
+  return value;
+};
+
 const resolveForwardHost = (forward?: boolean): string | undefined => {
   if (!forward) return undefined;
   const { forwardHost } = readConfig();
@@ -177,6 +186,12 @@ program
     resolveCliBinary,
     "claude",
   )
+  .option(
+    "--permission-mode <mode>",
+    "claude permission mode for glv-launched runs",
+    parsePermissionMode,
+    "acceptEdits",
+  )
   .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
   .option(
     "--rp-id <domain>",
@@ -197,7 +212,11 @@ program
     };
     runServe(store, {
       port: Number(opts.port),
-      runner: makeRunnerConfig(opts.maxConcurrent, opts.claudeBinary),
+      runner: makeRunnerConfig(
+        opts.maxConcurrent,
+        opts.claudeBinary,
+        opts.permissionMode,
+      ),
       authDbPath: resolveAuthDbPath(globalOpts().authDb),
       promptsDbPath: resolvePromptsDbPath(globalOpts().promptsDb),
       groupsDbPath: resolveGroupsDbPath(globalOpts().groupsDb),

@@ -109,7 +109,7 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
   if (group !== null) setGroupRunning(group);
 };
 
-// Goose derives a session name mid-run; the feed pushes it here so the card
+// claude derives a session name (ai-title) mid-run; the feed pushes it
 // updates live. Empty names render as "(unnamed)" to match displayName.
 const setSessionName = (sessionId: string, name: string): void => {
   const item = findSessionItem(sessionId);

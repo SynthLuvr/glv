@@ -50,8 +50,8 @@ const titleLine = (sessionId: string, title: string): string =>
 // Creates the session's transcript file the way claude does when a run
 // starts — before any output exists — so the server's file poll finds it.
 // A session name, when requested, rides along as an ai-title line.
-const createSession = (): string | undefined => {
-  const id = randomUUID();
+const createSession = (preassigned?: string): string | undefined => {
+  const id = preassigned ?? randomUUID();
   const path = transcriptPath(id);
   if (path === undefined) return id;
   mkdirSync(dirname(path), { recursive: true });
@@ -60,10 +60,12 @@ const createSession = (): string | undefined => {
   return id;
 };
 
-const sessionIdFromArgs = (args: string[]): string | undefined => {
-  const idx = args.indexOf("--resume");
+const argValue = (args: string[], flag: string): string | undefined => {
+  const idx = args.indexOf(flag);
   return idx >= 0 ? args[idx + 1] : undefined;
 };
+
+const isResume = (args: string[]): boolean => args.includes("--resume");
 
 // Persists a streamed NDJSON event as a transcript line, the way claude
 // appends to the session file as it runs.
@@ -116,11 +118,14 @@ const streamLines = async (
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
-  const isResume = args.includes("--resume");
 
-  // Create first so the server's session poll detects the file promptly even
+  // A --resume flag means a follow-up on an existing session; otherwise this
+  // is a new session whose id glv pre-assigned via --session-id. Create
+  // first so the server's transcript poll detects the file promptly even
   // when a long sleep keeps the process alive afterwards.
-  const sessionId = isResume ? sessionIdFromArgs(args) : createSession();
+  const sessionId = isResume(args)
+    ? argValue(args, "--resume")
+    : createSession(argValue(args, "--session-id"));
 
   // Optionally capture stdin (the full prompt including file-path context)
   // so upload tests can verify what claude received.

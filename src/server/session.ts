@@ -1,18 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import {
-  getSession,
-  type SessionRow,
-  type SessionStore,
-  sessionIdsInDir,
-} from "../db.js";
+import { getSession, type SessionRow, type SessionStore } from "../db.js";
 import type { RunHandle } from "../runner/index.js";
-import {
-  enqueueRun,
-  generateTempKey,
-  isTerminalStatus,
-  rekey,
-  stop,
-} from "../runner/index.js";
+import { enqueueNewSession, isTerminalStatus, stop } from "../runner/index.js";
+import { findTranscript } from "../store/transcript.js";
 import { SESSION_TIMEOUT_ERROR, type ServerContext } from "./context.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -40,77 +31,62 @@ const withCreateLock = <T>(
   return run;
 };
 
-const findNewSessionId = (
-  store: SessionStore,
-  workingDir: string,
-  known: Set<string>,
-): string | undefined =>
-  sessionIdsInDir(store, workingDir).find((id) => !known.has(id));
-
-// Waits for claude to create the new session's transcript file in the
-// project directory for the working dir.
-const pollForSessionId = async (
-  store: SessionStore,
-  workingDir: string,
-  known: Set<string>,
-  timeoutMs = 10000,
-  intervalMs = 50,
-): Promise<string | undefined> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const found = findNewSessionId(store, workingDir, known);
-    if (found !== undefined) return found;
-    await sleep(intervalMs);
-  }
-  return undefined;
-};
-
-// `known` must be captured before enqueueing; otherwise a fast run could
-// write its transcript before the snapshot and hide it from findNewSessionId.
+// claude supports pre-assigning the session id (--session-id <uuid>), so glv
+// generates the id itself and hands it to the run. The id is known before
+// the process starts — there is no discovery poll and no chance of
+// attributing an unrelated transcript (say, one started from a terminal in
+// the same directory) to this run.
 const prepareNewSession = (
   ctx: ServerContext,
   workingDir: string,
   prompt: string,
-): { tempKey: string; known: Set<string> } => {
-  const tempKey = generateTempKey();
-  const known = new Set(sessionIdsInDir(ctx.store, workingDir));
-  enqueueRun(ctx.runner, tempKey, prompt, workingDir, {
-    isNewSession: true,
-  });
-  return { tempKey, known };
+): string => {
+  const sessionId = randomUUID();
+  enqueueNewSession(ctx.runner, sessionId, prompt, workingDir);
+  return sessionId;
+};
+
+// Confirms claude actually created the pre-assigned session's transcript
+// within the timeout. Only this one specific file is checked, so a
+// misattribution is impossible by construction.
+const waitForTranscript = async (
+  store: SessionStore,
+  sessionId: string,
+  timeoutMs = 10000,
+  intervalMs = 50,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (findTranscript(store.root, sessionId) !== undefined) return true;
+    await sleep(intervalMs);
+  }
+  return false;
 };
 
 type EstablishOutcome =
   | { ok: true; realId: string; session: SessionRow }
   | { ok: false; status: ContentfulStatusCode; error: string };
 
-// Rekeys the temp run handle onto the real id and confirms the transcript
-// exists, stopping the run on either failure. `conflictError` localises the
-// 409 copy ("directory" vs "repository"). Safe inside an existing
-// withCreateLock task — this never acquires the lock itself.
+// Confirms the session's transcript is readable and returns it, stopping the
+// run on failure. Safe inside an existing withCreateLock task — this never
+// acquires the lock itself.
 const establishSession = (
   ctx: ServerContext,
-  tempKey: string,
-  realId: string,
-  conflictError: string,
+  sessionId: string,
 ): EstablishOutcome => {
-  if (!rekey(ctx.runner, tempKey, realId)) {
-    stop(ctx.runner, tempKey);
-    return { ok: false, status: 409, error: conflictError };
-  }
-  const session = getSession(ctx.store, realId);
+  const session = getSession(ctx.store, sessionId);
   if (session === undefined) {
-    stop(ctx.runner, realId);
+    stop(ctx.runner, sessionId);
     return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
   }
-  return { ok: true, realId, session };
+  return { ok: true, realId: sessionId, session };
 };
 
 export type { EstablishOutcome };
 export {
   activeRunPrompt,
   establishSession,
-  pollForSessionId,
   prepareNewSession,
+  waitForTranscript,
   withCreateLock,
 };

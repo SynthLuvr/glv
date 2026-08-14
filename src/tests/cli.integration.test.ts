@@ -189,6 +189,12 @@ describe("glv serve argument validation", () => {
     expect(stderr.toLowerCase()).toContain("not found");
   });
 
+  it("rejects an invalid --permission-mode", () => {
+    const { status, stderr } = run(["serve", "--permission-mode", "yolo"]);
+    expect(status).not.toBe(0);
+    expect(stderr.toLowerCase()).toContain("permission");
+  });
+
   it("documents the --forward flag in help", () => {
     const { stdout } = run(["serve", "--help"]);
     expect(stdout).toContain("--forward");

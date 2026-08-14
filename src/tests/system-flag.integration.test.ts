@@ -89,9 +89,14 @@ describe("system prompt — guardrails passed to every claude run", () => {
 
     const args = await waitForArgs(argsPath);
     expect(args).not.toContain("--resume");
+    // The session id is pre-assigned, not discovered after the fact.
+    expect(flagValue(args, "--session-id")).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(flagValue(args, "--append-system-prompt")).toBe(
       DEFAULT_SYSTEM_PROMPT,
     );
+    expect(flagValue(args, "--permission-mode")).toBe("acceptEdits");
   });
 
   it("passes the guardrails to a follow-up (resume) run too", async () => {
@@ -109,5 +114,6 @@ describe("system prompt — guardrails passed to every claude run", () => {
     expect(flagValue(args, "--append-system-prompt")).toBe(
       DEFAULT_SYSTEM_PROMPT,
     );
+    expect(flagValue(args, "--permission-mode")).toBe("acceptEdits");
   });
 });

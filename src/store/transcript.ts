@@ -20,6 +20,7 @@ type Transcript = {
   firstUserTimestamp: number | undefined;
   firstUserText: string | undefined;
   aiTitle: string | undefined;
+  model: string | undefined;
   tokens: number | null;
   messages: RawMessage[];
 };
@@ -107,9 +108,9 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
   return Number.isNaN(ms) ? undefined : ms;
 };
 
-// A transcript is read whole in one pass; malformed lines are skipped the
-// way the old SQL layer dropped half-written rows.
-const parseTranscriptFile = (path: string): Transcript => {
+// A transcript is parsed from its whole text in one pass; malformed lines
+// are skipped the way the old SQL layer dropped half-written rows.
+const parseTranscriptText = (text: string): Transcript => {
   const out: Transcript = {
     cwd: undefined,
     firstTimestamp: undefined,
@@ -117,15 +118,10 @@ const parseTranscriptFile = (path: string): Transcript => {
     firstUserTimestamp: undefined,
     firstUserText: undefined,
     aiTitle: undefined,
+    model: undefined,
     tokens: null,
     messages: [],
   };
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    return out;
-  }
   for (const line of text.split("\n")) {
     if (line === "") continue;
     let parsed: unknown;
@@ -151,24 +147,30 @@ const parseTranscriptFile = (path: string): Transcript => {
 
     // Usage rides on assistant `message.usage` and on top-level `result`
     // lines alike; either shape refreshes the token snapshot.
-    const tokens =
+    const usage =
       usageTokens(
         isRecord(parsed.message) ? parsed.message.usage : undefined,
       ) ?? usageTokens(parsed.usage);
-    if (tokens !== undefined) out.tokens = tokens;
+    if (usage !== undefined) out.tokens = usage;
 
     if (parsed.type !== "user" && parsed.type !== "assistant") continue;
     const message = isRecord(parsed.message) ? parsed.message : {};
     const role = typeof message.role === "string" ? message.role : parsed.type;
+    if (
+      parsed.type === "assistant" &&
+      typeof message.model === "string" &&
+      message.model !== ""
+    )
+      out.model = message.model;
     const timestamp =
       typeof parsed.timestamp === "string" ? parsed.timestamp : "";
     const createdTimestamp = parseTimestamp(
       typeof parsed.timestamp === "string" ? parsed.timestamp : undefined,
     );
     if (role === "user" && out.firstUserText === undefined) {
-      const text2 = contentText(message.content);
-      if (text2 !== undefined && text2.trim() !== "") {
-        out.firstUserText = text2;
+      const prompt = contentText(message.content);
+      if (prompt !== undefined && prompt.trim() !== "") {
+        out.firstUserText = prompt;
         out.firstUserTimestamp = createdTimestamp ?? 0;
       }
     }
@@ -182,6 +184,66 @@ const parseTranscriptFile = (path: string): Transcript => {
   }
   return out;
 };
+
+// The sidebar and the SSE tails poll the store every few seconds, and
+// transcripts can be megabytes — re-parsing every file on every call made
+// each poll O(total transcript bytes). Entries are keyed by path and
+// invalidated by (mtime, size), so any append or in-place edit — including
+// same-size rewrites with a bumped mtime — re-parses. A stat miss or read
+// error degrades to an empty transcript rather than throwing.
+type CacheEntry = {
+  mtimeMs: number;
+  size: number;
+  text: string;
+  transcript: Transcript;
+};
+
+const parseCache = new Map<string, CacheEntry>();
+const MAX_CACHE_ENTRIES = 500;
+
+const emptyEntry = (): CacheEntry => ({
+  mtimeMs: 0,
+  size: -1,
+  text: "",
+  transcript: parseTranscriptText(""),
+});
+
+const readTranscript = (path: string): CacheEntry => {
+  let stat;
+  try {
+    stat = statSync(path);
+  } catch {
+    return emptyEntry();
+  }
+  const hit = parseCache.get(path);
+  if (
+    hit !== undefined &&
+    hit.mtimeMs === stat.mtimeMs &&
+    hit.size === stat.size
+  )
+    return hit;
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return emptyEntry();
+  }
+  const entry: CacheEntry = {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    text,
+    transcript: parseTranscriptText(text),
+  };
+  if (parseCache.size >= MAX_CACHE_ENTRIES) parseCache.clear();
+  parseCache.set(path, entry);
+  return entry;
+};
+
+const parseTranscriptFile = (path: string): Transcript =>
+  readTranscript(path).transcript;
+
+// Raw text via the same cache, so PR-candidate scans avoid re-reading too.
+const readTranscriptText = (path: string): string => readTranscript(path).text;
 
 // All transcript files across project directories, newest first — the file
 // mtime is claude's own "updated_at", so the sort matches the sidebar order.
@@ -232,4 +294,10 @@ const findTranscript = (root: string, id: string): string | undefined => {
 };
 
 export type { RawMessage, SessionFile, Transcript };
-export { findTranscript, isSessionFile, listSessionFiles, parseTranscriptFile };
+export {
+  findTranscript,
+  isSessionFile,
+  listSessionFiles,
+  parseTranscriptFile,
+  readTranscriptText,
+};

@@ -131,6 +131,16 @@ Options:
 - `--claude-binary <path>` — path to the `claude` binary used to run
   prompts (default `claude` on `PATH`).
 
+- `--permission-mode <mode>` — claude permission mode for glv-launched
+  runs (default `acceptEdits`; one of `manual`, `acceptEdits`, `auto`,
+  `dontAsk`, `bypassPermissions`). Headless runs cannot show permission
+  prompts — with `manual`, tool calls that need approval are simply
+  denied — so glv defaults to `acceptEdits`: file edits proceed, and
+  everything else still follows your `~/.claude/settings.json`
+  allowlists. `bypassPermissions` grants full agency; treat enabling it
+  as handing out shell access, since glv spawns claude into arbitrary
+  working directories behind a single passkey.
+
 - `--projects-dir <path>` — override the claude transcripts directory
   (default `~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects` when
   `CLAUDE_CONFIG_DIR` is set — the same env var the claude CLI itself

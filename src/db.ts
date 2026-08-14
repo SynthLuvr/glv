@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { readdirSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { truncate } from "./format/text.js";
 import {
@@ -13,6 +13,7 @@ import {
   findTranscript,
   listSessionFiles,
   parseTranscriptFile,
+  readTranscriptText,
   type SessionFile,
   type Transcript,
 } from "./store/transcript.js";
@@ -60,11 +61,6 @@ const DERIVED_NAME_MAX = 60;
 
 const isoFromMs = (ms: number): string => new Date(ms).toISOString();
 
-// claude encodes a working dir by dashing its separators; only used as a
-// fallback when no transcript line carries a cwd (e.g. a foreign file).
-const decodeWorkingDir = (path: string): string =>
-  basename(path).replaceAll("-", "/");
-
 // Naming precedence: a viewer-set name wins, then claude's own ai-title,
 // then a truncation of the first user prompt; empty when nothing is known.
 const deriveName = (meta: MetaRow | undefined, t: Transcript): string => {
@@ -87,11 +83,14 @@ const sessionRow = (
   user_set_name: meta !== undefined && meta.user_set_name === 1 ? 1 : 0,
   description: "",
   session_type: "user",
-  working_dir: t.cwd ?? decodeWorkingDir(dirname(file.path)),
+  // Transcripts carry the true working dir on their lines. When a foreign
+  // file has none, "" is reported rather than guessing from the dashed
+  // directory name — a wrong path is worse than none.
+  working_dir: t.cwd ?? "",
   created_at: t.firstTimestamp ?? isoFromMs(file.mtimeMs),
   updated_at: t.lastTimestamp ?? isoFromMs(file.mtimeMs),
   total_tokens: t.tokens,
-  provider_name: t.messages.length > 0 ? "claude" : null,
+  provider_name: t.model ?? (t.messages.length > 0 ? "claude" : null),
   archived_at: meta?.archived_at ?? null,
 });
 
@@ -137,8 +136,8 @@ const listMessages = (store: SessionStore, sessionId: string): MessageRow[] => {
   }));
 };
 
-// Lets the new-session poll distinguish a freshly created transcript from
-// pre-existing ones in the same working dir.
+// Lets callers scope session lookups to one working directory (used by
+// tooling and tests; the new-session flow itself now pre-assigns ids).
 const sessionIdsInDir = (store: SessionStore, workingDir: string): string[] => {
   let entries;
   try {
@@ -163,11 +162,7 @@ const prCandidateIds = (store: SessionStore, ids: string[]): Set<string> => {
   for (const id of ids) {
     const path = findTranscript(store.root, id);
     if (path === undefined) continue;
-    try {
-      if (readFileSync(path, "utf8").includes("/pull/")) out.add(id);
-    } catch {
-      // Unreadable — treat as a non-candidate.
-    }
+    if (readTranscriptText(path).includes("/pull/")) out.add(id);
   }
   return out;
 };

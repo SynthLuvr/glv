@@ -6,6 +6,8 @@ import type { LineBuffer } from "./ring-buffer.js";
 type RunnerConfig = {
   maxConcurrent: number;
   claudeBinary: string;
+  /** claude --permission-mode passed on every glv-launched invocation. */
+  permissionMode: string;
   /** Grace window (ms) after each stop signal before escalating it. */
   stopGraceMs: number;
   /** Max NDJSON lines retained per run before the oldest are dropped. */
@@ -18,9 +20,29 @@ const DEFAULT_STOP_GRACE_MS = 5000;
 const DEFAULT_MAX_LINES = 5000;
 const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 
+// DESIGN DECISION: glv runs claude headless (--print), where permission
+// prompts cannot be shown — anything requiring approval is simply denied.
+// Verified empirically against claude 2.1.232: with the stock (manual)
+// mode a headless file-write is declined, which would make glv-launched
+// sessions read-only agents. glv therefore defaults to acceptEdits
+// (edits proceed; other tools still follow the user's
+// ~/.claude/settings.json allowlists) and exposes the mode list below for
+// stricter or looser postures. bypassPermissions grants full agency —
+// see the security note in the README before enabling it. ("plan" is
+// excluded: in --print mode it returns a plan instead of acting.)
+const DEFAULT_PERMISSION_MODE = "acceptEdits";
+const PERMISSION_MODES: readonly string[] = [
+  "acceptEdits",
+  "auto",
+  "bypassPermissions",
+  "dontAsk",
+  "manual",
+];
+
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   claudeBinary: "string >= 1",
+  permissionMode: "string >= 1",
   stopGraceMs: "number.integer >= 1",
   maxLines: "number.integer >= 1",
   terminalRetentionMs: "number.integer >= 1",
@@ -29,6 +51,7 @@ const RunnerConfigSchema = type({
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   maxConcurrent: 6,
   claudeBinary: "claude",
+  permissionMode: DEFAULT_PERMISSION_MODE,
   stopGraceMs: DEFAULT_STOP_GRACE_MS,
   maxLines: DEFAULT_MAX_LINES,
   terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
@@ -37,6 +60,7 @@ const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
 const makeRunnerConfig = (
   maxConcurrent: number,
   claudeBinary: string,
+  permissionMode: string = DEFAULT_PERMISSION_MODE,
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
   maxLines: number = DEFAULT_MAX_LINES,
   terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
@@ -44,12 +68,17 @@ const makeRunnerConfig = (
   const result = RunnerConfigSchema({
     maxConcurrent,
     claudeBinary,
+    permissionMode,
     stopGraceMs,
     maxLines,
     terminalRetentionMs,
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
+  if (!PERMISSION_MODES.includes(permissionMode))
+    throw new Error(
+      `Invalid permission mode "${permissionMode}": must be one of ${PERMISSION_MODES.join(", ")}`,
+    );
   return result;
 };
 
@@ -61,46 +90,67 @@ const makeRunnerConfig = (
 const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
-// including resume (`--resume`) sessions — not just the first prompt of a
+// including resume (--resume) sessions — not just the first prompt of a
 // new session. Like goose's --system, it is a per-invocation runtime
-// injection: always sending it guarantees the guardrails hold for every
-// follow-up regardless of whether claude persists the text into the stored
-// conversation. The token cost is negligible: ~240 tokens (156 words) vs.
-// the 10K–100K+ tokens of a typical resumed conversation — well under 1%
+// injection that claude does NOT persist into the stored conversation.
+// This was verified empirically against claude 2.1.232:
+//
+//   1. New session + --append-system-prompt "reply BANANA only" → "BANANA" ✓
+//   2. Resume WITHOUT the flag                          → "6" (persona lost) ✗
+//   3. Resume WITH the flag                             → "BANANA" ✓
+//
+// The token cost is negligible: ~240 tokens (156 words) vs. the
+// 10K–100K+ tokens of a typical resumed conversation — well under 1%
 // overhead.
 //
 // --append-system-prompt is used rather than --system-prompt because the
 // latter REPLACES claude's built-in system prompt, stripping out the tool
-// instructions and guardrails the coding agent depends on.
+// instructions the coding agent depends on.
 //
 // The only alternative that would avoid per-invocation passing is setting
-// the prompt at the claude config level (~/.claude/settings.json), but that
-// affects ALL claude usage system-wide, not just GLV-managed sessions.
+// the prompt at the claude config level (~/.claude/settings.json), but
+// that affects ALL claude usage system-wide, not just GLV-managed
+// sessions.
 const SYSTEM_FLAGS = ["--append-system-prompt", DEFAULT_SYSTEM_PROMPT];
+
+const permissionFlags = (mode: string): string[] => ["--permission-mode", mode];
 
 type ClaudeInvocation = {
   args: string[];
   stdin: string;
 };
 
-const resumeInvocation = (
-  sessionId: string,
+// glv pre-assigns the session id (verified: claude 2.1.232 honours
+// --session-id and names the transcript <uuid>.jsonl accordingly), so the
+// id is known before the process even starts — no discovery poll, no
+// chance of attributing an unrelated transcript to the new session.
+const newSessionInvocation = (
   prompt: string,
+  sessionId: string,
+  permissionMode: string = DEFAULT_PERMISSION_MODE,
 ): ClaudeInvocation => ({
   args: [
-    "--print",
-    "--resume",
+    "--session-id",
     sessionId,
     ...SYSTEM_FLAGS,
-    "--output-format",
-    "stream-json",
-    "--verbose",
+    ...permissionFlags(permissionMode),
+    ...STREAM_FLAGS,
   ],
   stdin: prompt,
 });
 
-const newSessionInvocation = (prompt: string): ClaudeInvocation => ({
-  args: ["--print", ...SYSTEM_FLAGS, ...STREAM_FLAGS],
+const resumeInvocation = (
+  sessionId: string,
+  prompt: string,
+  permissionMode: string = DEFAULT_PERMISSION_MODE,
+): ClaudeInvocation => ({
+  args: [
+    "--resume",
+    sessionId,
+    ...SYSTEM_FLAGS,
+    ...permissionFlags(permissionMode),
+    ...STREAM_FLAGS,
+  ],
   stdin: prompt,
 });
 
@@ -139,17 +189,12 @@ type SpawnFn = (
   opts: { stdin: string; cwd: string },
 ) => SpawnedProcess;
 
-type EnqueueOptions = {
-  isNewSession?: boolean;
-};
-
 type InternalHandle = Omit<
   RunHandle,
   "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts"
 > & {
-  // Writable: rekeyed from the temp id to claude's real session id.
-  sessionId: string;
   // Writable: updated as chained prompts advance.
+  sessionId: string;
   prompt: string;
   pendingPrompts: string[];
   startedPrompts: string[];
@@ -169,7 +214,6 @@ type Runner = {
 
 export type {
   ClaudeInvocation,
-  EnqueueOptions,
   InternalHandle,
   ProcessResult,
   RunHandle,
@@ -180,8 +224,10 @@ export type {
   SpawnFn,
 };
 export {
+  DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNNER_CONFIG,
   makeRunnerConfig,
   newSessionInvocation,
+  PERMISSION_MODES,
   resumeInvocation,
 };
