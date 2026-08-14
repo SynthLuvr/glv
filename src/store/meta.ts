@@ -3,9 +3,9 @@ import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
 
 // Viewer-owned sidecar for rename/archive metadata. Claude transcripts are
-// append-only JSONL written by the claude CLI itself, so — unlike with the
-// goose-era sessions DB — there is no writable sessions table to record viewer
-// state in; it lives here instead, keyed by claude session id.
+// append-only JSONL written by the claude CLI itself, so there is no
+// writable sessions table to record viewer state in; it lives here instead,
+// keyed by claude session id.
 const META_SCHEMA = `
 CREATE TABLE IF NOT EXISTS session_meta (
   id TEXT PRIMARY KEY,

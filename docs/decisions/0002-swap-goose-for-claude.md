@@ -64,9 +64,9 @@ changed with the engine.
 **Windows.** The project-directory name encoding (separators, dots,
 underscores → dashes) was probed on Linux only. The colon rule for drive
 letters is added by analogy but unverified on a Windows host. Exposure
-is minimal — after the `--session-id` change the encoding only affects
-directory-scoped lookups (`sessionIdsInDir`); working directories are
-never decoded from directory names.
+is minimal — after the `--session-id` change the encoding is only used
+to build transcript directory paths (mock claude and test harness);
+working directories are never decoded from directory names.
 
 **CLI surface.** `--db`/`GOOSE_SESSIONS_DB`, `--goose-binary`,
 `glv logs`, and `sessions --type` are removed — claude has no equivalent

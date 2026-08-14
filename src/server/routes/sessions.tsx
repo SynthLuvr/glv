@@ -201,19 +201,19 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
       return rejectForm(result.error, result.status);
     }
-    const { realId, session } = result;
+    const { sessionId, session } = result;
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.
-    if (uploadDir !== undefined) tagDir(uploadDir, realId);
-    if (tempWorkingDir !== undefined) tagDir(tempWorkingDir, realId);
+    if (uploadDir !== undefined) tagDir(uploadDir, sessionId);
+    if (tempWorkingDir !== undefined) tagDir(tempWorkingDir, sessionId);
 
     // A "Run" from a saved prompt tags the submit with the prompt id; bump
     // usage stats only once the run has actually been established.
     if (promptId !== "" && ctx.prompts !== undefined)
       bumpUsage(ctx.prompts, promptId);
 
-    return renderSession(c, realId, session, {
+    return renderSession(c, sessionId, session, {
       prompt,
       refreshSidebar: true,
     });

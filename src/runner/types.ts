@@ -91,9 +91,9 @@ const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
-// new session. Like goose's --system, it is a per-invocation runtime
-// injection that claude does NOT persist into the stored conversation.
-// This was verified empirically against claude 2.1.232:
+// new session. It is a per-invocation runtime injection that claude does
+// NOT persist into the stored conversation. This was verified empirically
+// against claude 2.1.232:
 //
 //   1. New session + --append-system-prompt "reply BANANA only" → "BANANA" ✓
 //   2. Resume WITHOUT the flag                          → "6" (persona lost) ✗
@@ -191,10 +191,9 @@ type SpawnFn = (
 
 type InternalHandle = Omit<
   RunHandle,
-  "sessionId" | "prompt" | "pendingPrompts" | "startedPrompts"
+  "prompt" | "pendingPrompts" | "startedPrompts"
 > & {
   // Writable: updated as chained prompts advance.
-  sessionId: string;
   prompt: string;
   pendingPrompts: string[];
   startedPrompts: string[];
@@ -224,7 +223,6 @@ export type {
   SpawnFn,
 };
 export {
-  DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNNER_CONFIG,
   makeRunnerConfig,
   newSessionInvocation,

@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
 import { resolveAuthDbPath } from "./auth/db.js";
@@ -65,16 +64,17 @@ const globalOpts = () => {
 // Opens the glv-owned meta sidecar (creating it on first use) and pairs it
 // with claude's projects directory; the transcript files themselves stay
 // owned — and only ever written — by the claude CLI.
+const openSessionStore = (): SessionStore => ({
+  root: resolveProjectsRoot(globalOpts().projectsDir),
+  meta: openMetaDb(resolveMetaDbPath(globalOpts().metaDb)),
+});
+
 const useStore = (fn: (store: SessionStore) => void): void => {
-  const meta: DatabaseSync = openMetaDb(resolveMetaDbPath(globalOpts().metaDb));
-  const store: SessionStore = {
-    root: resolveProjectsRoot(globalOpts().projectsDir),
-    meta,
-  };
+  const store = openSessionStore();
   try {
     fn(store);
   } finally {
-    meta.close();
+    store.meta.close();
   }
 };
 
@@ -203,13 +203,7 @@ program
   )
   .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
   .action((opts: ServeOpts) => {
-    // The meta sidecar is glv-owned and writable, so serve works before
-    // claude has ever run; claude's transcript files stay read-only.
-    const meta = openMetaDb(resolveMetaDbPath(globalOpts().metaDb));
-    const store: SessionStore = {
-      root: resolveProjectsRoot(globalOpts().projectsDir),
-      meta,
-    };
+    const store = openSessionStore();
     runServe(store, {
       port: Number(opts.port),
       runner: makeRunnerConfig(

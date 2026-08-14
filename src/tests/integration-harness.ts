@@ -150,8 +150,8 @@ type IntegrationEnv = {
   cleanup: () => Promise<void>;
 };
 
-// WAL-free: the projects dir is plain JSONL the mock claude appends to while
-// the server reads. The auth row satisfies the WebAuthn gate without a real
+// The projects dir is plain JSONL the mock claude appends to while the
+// server reads. The auth row satisfies the WebAuthn gate without a real
 // passkey: the returned token becomes the glv_session cookie.
 const createDatabases = (scratchDir: string): Databases => {
   const projectsDir = join(scratchDir, "projects");

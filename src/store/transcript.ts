@@ -108,81 +108,98 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
   return Number.isNaN(ms) ? undefined : ms;
 };
 
+const parseLine = (line: string): Record<string, unknown> | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const emptyTranscript = (): Transcript => ({
+  cwd: undefined,
+  firstTimestamp: undefined,
+  lastTimestamp: undefined,
+  firstUserTimestamp: undefined,
+  firstUserText: undefined,
+  aiTitle: undefined,
+  model: undefined,
+  tokens: null,
+  messages: [],
+});
+
+// Facts any line may carry, message or not: the working dir, the first and
+// last timestamps, claude's own title, and the freshest usage snapshot —
+// usage rides on assistant `message.usage` and top-level `result` lines
+// alike.
+const applyMetadata = (
+  transcript: Transcript,
+  parsed: Record<string, unknown>,
+): void => {
+  if (transcript.cwd === undefined && typeof parsed.cwd === "string")
+    transcript.cwd = parsed.cwd;
+  if (typeof parsed.timestamp === "string") {
+    if (transcript.firstTimestamp === undefined)
+      transcript.firstTimestamp = parsed.timestamp;
+    transcript.lastTimestamp = parsed.timestamp;
+  }
+  if (parsed.type === "ai-title" && typeof parsed.aiTitle === "string")
+    transcript.aiTitle = parsed.aiTitle;
+  const usage =
+    usageTokens(isRecord(parsed.message) ? parsed.message.usage : undefined) ??
+    usageTokens(parsed.usage);
+  if (usage !== undefined) transcript.tokens = usage;
+};
+
+// A user/assistant line → a normalized message. The first non-empty user
+// prompt also seeds the derived session name and its timestamp.
+const appendMessage = (
+  transcript: Transcript,
+  parsed: Record<string, unknown>,
+): void => {
+  if (parsed.type !== "user" && parsed.type !== "assistant") return;
+  const message = isRecord(parsed.message) ? parsed.message : {};
+  const role = typeof message.role === "string" ? message.role : parsed.type;
+  if (
+    parsed.type === "assistant" &&
+    typeof message.model === "string" &&
+    message.model !== ""
+  )
+    transcript.model = message.model;
+  const timestamp =
+    typeof parsed.timestamp === "string" ? parsed.timestamp : "";
+  const createdTimestamp = parseTimestamp(timestamp);
+  if (role === "user" && transcript.firstUserText === undefined) {
+    const prompt = contentText(message.content);
+    if (prompt !== undefined && prompt.trim() !== "") {
+      transcript.firstUserText = prompt;
+      transcript.firstUserTimestamp = createdTimestamp ?? 0;
+    }
+  }
+  transcript.messages.push({
+    uuid: typeof parsed.uuid === "string" ? parsed.uuid : null,
+    role,
+    items: normalizeContent(message.content),
+    timestamp,
+    createdTimestamp: createdTimestamp ?? transcript.messages.length,
+  });
+};
+
 // A transcript is parsed from its whole text in one pass; malformed lines
 // are skipped the way the old SQL layer dropped half-written rows.
 const parseTranscriptText = (text: string): Transcript => {
-  const out: Transcript = {
-    cwd: undefined,
-    firstTimestamp: undefined,
-    lastTimestamp: undefined,
-    firstUserTimestamp: undefined,
-    firstUserText: undefined,
-    aiTitle: undefined,
-    model: undefined,
-    tokens: null,
-    messages: [],
-  };
+  const transcript = emptyTranscript();
   for (const line of text.split("\n")) {
-    if (line === "") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isRecord(parsed)) continue;
+    const parsed = parseLine(line);
+    if (parsed === undefined) continue;
     // Sub-agent (sidechain) turns belong to claude's internal task tool,
     // not the main conversation the viewer renders.
     if (parsed.isSidechain === true) continue;
-
-    if (out.cwd === undefined && typeof parsed.cwd === "string")
-      out.cwd = parsed.cwd;
-    if (typeof parsed.timestamp === "string") {
-      if (out.firstTimestamp === undefined)
-        out.firstTimestamp = parsed.timestamp;
-      out.lastTimestamp = parsed.timestamp;
-    }
-    if (parsed.type === "ai-title" && typeof parsed.aiTitle === "string")
-      out.aiTitle = parsed.aiTitle;
-
-    // Usage rides on assistant `message.usage` and on top-level `result`
-    // lines alike; either shape refreshes the token snapshot.
-    const usage =
-      usageTokens(
-        isRecord(parsed.message) ? parsed.message.usage : undefined,
-      ) ?? usageTokens(parsed.usage);
-    if (usage !== undefined) out.tokens = usage;
-
-    if (parsed.type !== "user" && parsed.type !== "assistant") continue;
-    const message = isRecord(parsed.message) ? parsed.message : {};
-    const role = typeof message.role === "string" ? message.role : parsed.type;
-    if (
-      parsed.type === "assistant" &&
-      typeof message.model === "string" &&
-      message.model !== ""
-    )
-      out.model = message.model;
-    const timestamp =
-      typeof parsed.timestamp === "string" ? parsed.timestamp : "";
-    const createdTimestamp = parseTimestamp(
-      typeof parsed.timestamp === "string" ? parsed.timestamp : undefined,
-    );
-    if (role === "user" && out.firstUserText === undefined) {
-      const prompt = contentText(message.content);
-      if (prompt !== undefined && prompt.trim() !== "") {
-        out.firstUserText = prompt;
-        out.firstUserTimestamp = createdTimestamp ?? 0;
-      }
-    }
-    out.messages.push({
-      uuid: typeof parsed.uuid === "string" ? parsed.uuid : null,
-      role,
-      items: normalizeContent(message.content),
-      timestamp,
-      createdTimestamp: createdTimestamp ?? out.messages.length,
-    });
+    applyMetadata(transcript, parsed);
+    appendMessage(transcript, parsed);
   }
-  return out;
+  return transcript;
 };
 
 // The sidebar and the SSE tails poll the store every few seconds, and
@@ -205,7 +222,7 @@ const emptyEntry = (): CacheEntry => ({
   mtimeMs: 0,
   size: -1,
   text: "",
-  transcript: parseTranscriptText(""),
+  transcript: emptyTranscript(),
 });
 
 const readTranscript = (path: string): CacheEntry => {
@@ -293,10 +310,9 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
-export type { RawMessage, SessionFile, Transcript };
+export type { SessionFile, Transcript };
 export {
   findTranscript,
-  isSessionFile,
   listSessionFiles,
   parseTranscriptFile,
   readTranscriptText,

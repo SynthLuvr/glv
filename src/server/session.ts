@@ -64,7 +64,7 @@ const waitForTranscript = async (
 };
 
 type EstablishOutcome =
-  | { ok: true; realId: string; session: SessionRow }
+  | { ok: true; sessionId: string; session: SessionRow }
   | { ok: false; status: ContentfulStatusCode; error: string };
 
 // Confirms the session's transcript is readable and returns it, stopping the
@@ -79,7 +79,7 @@ const establishSession = (
     stop(ctx.runner, sessionId);
     return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
   }
-  return { ok: true, realId: sessionId, session };
+  return { ok: true, sessionId, session };
 };
 
 export type { EstablishOutcome };

@@ -1,5 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { statSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { truncate } from "./format/text.js";
 import {
@@ -17,7 +16,6 @@ import {
   type SessionFile,
   type Transcript,
 } from "./store/transcript.js";
-import { encodeWorkingDir } from "./store/working-dir.js";
 
 // The session store glv reads: claude Code's own transcript directory
 // (append-only JSONL the claude CLI writes as it runs) plus glv's
@@ -63,12 +61,16 @@ const isoFromMs = (ms: number): string => new Date(ms).toISOString();
 
 // Naming precedence: a viewer-set name wins, then claude's own ai-title,
 // then a truncation of the first user prompt; empty when nothing is known.
-const deriveName = (meta: MetaRow | undefined, t: Transcript): string => {
+const deriveName = (
+  meta: MetaRow | undefined,
+  transcript: Transcript,
+): string => {
   if (meta !== undefined && meta.user_set_name === 1) return meta.name;
-  if (t.aiTitle !== undefined && t.aiTitle !== "") return t.aiTitle;
-  if (t.firstUserText === undefined) return "";
+  if (transcript.aiTitle !== undefined && transcript.aiTitle !== "")
+    return transcript.aiTitle;
+  if (transcript.firstUserText === undefined) return "";
   return truncate(
-    t.firstUserText.trim().replace(/\s+/g, " "),
+    transcript.firstUserText.trim().replace(/\s+/g, " "),
     DERIVED_NAME_MAX,
   );
 };
@@ -76,21 +78,22 @@ const deriveName = (meta: MetaRow | undefined, t: Transcript): string => {
 const sessionRow = (
   file: SessionFile,
   meta: MetaRow | undefined,
-  t: Transcript,
+  transcript: Transcript,
 ): SessionRow => ({
   id: file.id,
-  name: deriveName(meta, t),
+  name: deriveName(meta, transcript),
   user_set_name: meta !== undefined && meta.user_set_name === 1 ? 1 : 0,
   description: "",
   session_type: "user",
   // Transcripts carry the true working dir on their lines. When a foreign
   // file has none, "" is reported rather than guessing from the dashed
   // directory name — a wrong path is worse than none.
-  working_dir: t.cwd ?? "",
-  created_at: t.firstTimestamp ?? isoFromMs(file.mtimeMs),
-  updated_at: t.lastTimestamp ?? isoFromMs(file.mtimeMs),
-  total_tokens: t.tokens,
-  provider_name: t.model ?? (t.messages.length > 0 ? "claude" : null),
+  working_dir: transcript.cwd ?? "",
+  created_at: transcript.firstTimestamp ?? isoFromMs(file.mtimeMs),
+  updated_at: transcript.lastTimestamp ?? isoFromMs(file.mtimeMs),
+  total_tokens: transcript.tokens,
+  provider_name:
+    transcript.model ?? (transcript.messages.length > 0 ? "claude" : null),
   archived_at: meta?.archived_at ?? null,
 });
 
@@ -102,10 +105,10 @@ const listSessions = (
   const out: SessionRow[] = [];
   for (const file of listSessionFiles(store.root)) {
     if (out.length >= filter.limit) break;
-    const m = meta.get(file.id);
-    const archived = m !== undefined && m.archived_at !== null;
+    const metaRow = meta.get(file.id);
+    const archived = metaRow !== undefined && metaRow.archived_at !== null;
     if (archived && !filter.includeArchived) continue;
-    out.push(sessionRow(file, m, parseTranscriptFile(file.path)));
+    out.push(sessionRow(file, metaRow, parseTranscriptFile(file.path)));
   }
   return out;
 };
@@ -126,32 +129,14 @@ const getSession = (
 const listMessages = (store: SessionStore, sessionId: string): MessageRow[] => {
   const path = findTranscript(store.root, sessionId);
   if (path === undefined) return [];
-  return parseTranscriptFile(path).messages.map((m) => ({
-    message_id: m.uuid,
+  return parseTranscriptFile(path).messages.map((message) => ({
+    message_id: message.uuid,
     session_id: sessionId,
-    role: m.role,
-    content_json: JSON.stringify(m.items),
-    created_timestamp: m.createdTimestamp,
-    timestamp: m.timestamp,
+    role: message.role,
+    content_json: JSON.stringify(message.items),
+    created_timestamp: message.createdTimestamp,
+    timestamp: message.timestamp,
   }));
-};
-
-// Lets callers scope session lookups to one working directory (used by
-// tooling and tests; the new-session flow itself now pre-assigns ids).
-const sessionIdsInDir = (store: SessionStore, workingDir: string): string[] => {
-  let entries;
-  try {
-    entries = readdirSync(join(store.root, encodeWorkingDir(workingDir)), {
-      withFileTypes: true,
-    });
-  } catch {
-    return [];
-  }
-  return entries
-    .filter(
-      (e) => e.isFile() && !e.name.startsWith(".") && e.name.endsWith(".jsonl"),
-    )
-    .map((e) => basename(e.name, ".jsonl"));
 };
 
 // Cheap pre-filter for sidebar PR detection: only transcripts whose raw
@@ -179,28 +164,24 @@ const firstPromptSessionName = (
   for (const id of ids) {
     const path = findTranscript(store.root, id);
     if (path === undefined) continue;
-    const t = parseTranscriptFile(path);
-    if (t.firstUserTimestamp === undefined) continue;
-    if (t.firstUserTimestamp < bestTs) {
-      bestTs = t.firstUserTimestamp;
+    const transcript = parseTranscriptFile(path);
+    if (transcript.firstUserTimestamp === undefined) continue;
+    if (transcript.firstUserTimestamp < bestTs) {
+      bestTs = transcript.firstUserTimestamp;
       bestId = id;
     }
   }
   return bestId === undefined ? undefined : getSession(store, bestId)?.name;
 };
 
-const archiveSessions = (store: SessionStore, ids: string[]): void => {
+const archiveSessions = (store: SessionStore, ids: string[]): void =>
   archiveMeta(store.meta, ids);
-};
 
-// A blank name clears the user-set flag so derived naming takes over again.
 const renameSession = (
   store: SessionStore,
   id: string,
   rawName: string,
-): void => {
-  renameMeta(store.meta, id, rawName);
-};
+): void => renameMeta(store.meta, id, rawName);
 
 export type { MessageRow, SessionFilter, SessionRow, SessionStore };
 export {
@@ -211,5 +192,4 @@ export {
   listSessions,
   prCandidateIds,
   renameSession,
-  sessionIdsInDir,
 };

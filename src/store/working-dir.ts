@@ -7,9 +7,10 @@ import { join } from "node:path";
 // colon replaced by a dash — the separator/dot/underscore mapping verified
 // empirically on Linux against claude 2.1.232:
 // /tmp/glv-enc.a_b/x → -tmp-glv-enc-a-b-x. The colon rule is unverified on
-// Windows (probing needs a Windows host); it only affects directory-name
-// lookups like sessionIdsInDir — session working directories themselves are
-// read from the cwd field on transcript lines, never decoded from the name.
+// Windows (probing needs a Windows host); it only matters when building a
+// transcript directory name from a known working dir — session working
+// directories themselves are read from the cwd field on transcript lines,
+// never decoded from the name.
 const encodeWorkingDir = (workingDir: string): string =>
   workingDir
     .replaceAll("/", "-")
