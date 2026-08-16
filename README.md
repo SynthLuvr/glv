@@ -241,11 +241,12 @@ pnpm lint     # lint all files
 
 The web viewer is styled with [Tailwind CSS
 v4](https://tailwindcss.com). The stylesheet source
-(`src/styles/app.css`) uses Tailwind’s CSS-first setup —
+(`src/goose/styles/app.css`) uses Tailwind’s CSS-first setup —
 `@import "tailwindcss"` plus a `@theme` block of design tokens — and is
-compiled to `dist/app.css` by `pnpm build:assets` (see `src/build.ts`).
-Browser client scripts are written as TypeScript in `src/scripts/` and
-compiled to minified `dist/*.js` by the same command.
+compiled to `dist/app.css` by `pnpm build:assets` (see
+`src/goose/build.ts`). Browser client scripts are written as TypeScript
+in `src/goose/scripts/` and compiled to minified `dist/*.js` by the same
+command.
 
 ## The CLI
 

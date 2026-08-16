@@ -71,7 +71,7 @@ const INSERT_MESSAGE_SQL =
   "INSERT INTO messages (message_id, session_id, role, content_json, " +
   "created_timestamp, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const GLV = join(ROOT, "bin", "glv");
 
 // tsx is resolved to an absolute loader path because the mock goose runs from

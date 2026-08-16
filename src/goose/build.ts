@@ -5,7 +5,7 @@ import { buildSync } from "esbuild";
 import { execaSync } from "execa";
 
 const SRC_DIR = fileURLToPath(new URL(".", import.meta.url));
-const PROJECT_ROOT = join(SRC_DIR, "..");
+const PROJECT_ROOT = join(SRC_DIR, "..", "..");
 const OUTPUT_DIR = join(PROJECT_ROOT, "dist");
 const CSS_INPUT = join(SRC_DIR, "styles", "app.css");
 const CSS_OUTPUT = join(OUTPUT_DIR, "app.css");
@@ -48,7 +48,7 @@ const buildScripts = (): void => {
   });
 };
 
-// Allows running directly via "tsx src/build.ts" (the build:assets script)
+// Allows running directly via "tsx src/goose/build.ts" (the build:assets script)
 // as well as being imported by the serve command.
 const isMain = (): boolean => {
   const entry = process.argv[1];
