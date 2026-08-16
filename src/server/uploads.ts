@@ -8,21 +8,21 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
-import { resolveDataPath } from "../db-path.js";
+import { DATA_DIR_NAME, resolveDataPath } from "../db-path.js";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file
 const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100 MB across all uploads
 const SESSION_MARKER = ".glv-session-id";
 
 const resolveUploadsBase = (): string =>
-  resolveDataPath(undefined, "GLV_UPLOADS_DIR", "glv", "uploads");
+  resolveDataPath(undefined, "GLV_UPLOADS_DIR", DATA_DIR_NAME, "uploads");
 
 const resolveUploadDir = (id: string): string => join(resolveUploadsBase(), id);
 
 // Temp working dirs live under GLV's data dir so the tag-and-sweep
 // lifecycle cleans them up on archive.
 const resolveTempBase = (): string =>
-  resolveDataPath(undefined, "GLV_TEMP_DIR", "glv", "tmp");
+  resolveDataPath(undefined, "GLV_TEMP_DIR", DATA_DIR_NAME, "tmp");
 
 // Strip path components and unsafe characters so a filename can never escape
 // the per-session upload dir.

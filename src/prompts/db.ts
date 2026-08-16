@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
@@ -30,7 +30,7 @@ type PromptInput = {
 type PromptSort = "order" | "usage";
 
 const resolvePromptsDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_PROMPTS_DB", "glv", "prompts.db");
+  resolveDataPath(override, "GLV_PROMPTS_DB", DATA_DIR_NAME, "prompts.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS saved_prompts (

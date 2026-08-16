@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
@@ -12,7 +12,7 @@ const SESSION_TTL_SECONDS = 86400;
 const SESSION_MAX_LIFETIME_SECONDS = 604800; // 7 days
 
 const resolveAuthDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_AUTH_DB", "glv", "auth.db");
+  resolveDataPath(override, "GLV_AUTH_DB", DATA_DIR_NAME, "auth.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (

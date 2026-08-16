@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // Viewer-owned sidecar, kept separate from goose's read-only sessions.db so
@@ -26,7 +26,7 @@ type GroupInput = {
 };
 
 const resolveGroupsDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_GROUPS_DB", "glv", "groups.db");
+  resolveDataPath(override, "GLV_GROUPS_DB", DATA_DIR_NAME, "groups.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS session_groups (
