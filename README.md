@@ -135,8 +135,8 @@ Options:
   `GOOSE_SESSIONS_DB`).
 
 - `--auth-db <path>` — override the auth database location (default
-  `~/.local/share/glv/auth.db` on Linux/macOS (`%APPDATA%\glv\auth.db`
-  on Windows), or `GLV_AUTH_DB`).
+  `~/.local/share/glv-goose/auth.db` on Linux/macOS
+  (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
@@ -158,8 +158,8 @@ it always serves current assets.
 ### Local config file
 
 Per-machine settings live outside the repo at
-`~/.config/glv/config.json` on Linux/macOS
-(`%LOCALAPPDATA%\glv\config.json` on Windows; override with the
+`~/.config/glv-goose/config.json` on Linux/macOS
+(`%LOCALAPPDATA%\glv-goose\config.json` on Windows; override with the
 `GLV_CONFIG` environment variable), so secrets like a forward host never
 get committed:
 
@@ -179,10 +179,10 @@ subsequent registration attempt is blocked. The authorized user can log
 back in at any time with a quick passkey tap.
 
 - **Auth database** — passkey credentials and login sessions live in a
-  separate SQLite database at `~/.local/share/glv/auth.db` on
-  Linux/macOS (`%APPDATA%\glv\auth.db` on Windows), fully independent of
-  the goose sessions database. Override with `--auth-db <path>` or the
-  `GLV_AUTH_DB` environment variable.
+  separate SQLite database at `~/.local/share/glv-goose/auth.db` on
+  Linux/macOS (`%APPDATA%\glv-goose\auth.db` on Windows), fully
+  independent of the goose sessions database. Override with
+  `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once
   an owner exists.

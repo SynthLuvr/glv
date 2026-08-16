@@ -118,7 +118,7 @@ const runServe = (
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
-  const auth = makeAuthService(authDb);
+  const auth = makeAuthService(authDb, opts.authDbPath);
   const app = createApp(db, dbWritable, runner, {
     auth,
     prompts: promptsDb,

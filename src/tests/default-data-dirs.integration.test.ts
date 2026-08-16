@@ -62,7 +62,7 @@ describe("platform-aware default data directory", () => {
 
     try {
       await waitForHttp(baseUrl);
-      const dataDir = join(homeDir, ".local", "share", "glv");
+      const dataDir = join(homeDir, ".local", "share", "glv-goose");
       expect(existsSync(join(dataDir, "auth.db"))).toBe(true);
       expect(existsSync(join(dataDir, "prompts.db"))).toBe(true);
       expect(existsSync(join(dataDir, "groups.db"))).toBe(true);
@@ -92,7 +92,7 @@ describe("platform-aware default config directory", () => {
     );
     expect(result.status).toBe(0);
 
-    const configPath = join(homeDir, ".config", "glv", "config.json");
+    const configPath = join(homeDir, ".config", "glv-goose", "config.json");
     expect(existsSync(configPath)).toBe(true);
 
     const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
