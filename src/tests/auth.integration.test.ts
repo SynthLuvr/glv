@@ -30,7 +30,7 @@ describe("auth gate", () => {
   it("redirects an invalid session cookie to the login page", async () => {
     const res = await fetch(`${env.baseUrl}/`, {
       redirect: "manual",
-      headers: { cookie: "glv_session=bogus" },
+      headers: { cookie: `${env.cookieName}=bogus` },
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/auth/login");
@@ -80,6 +80,6 @@ describe("device management gate", () => {
     expect(res.headers.get("location")).toBe("/auth/login");
     // The session cookie is overwritten with an empty value to expire it.
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie.toLowerCase()).toContain("glv_session=");
+    expect(setCookie.toLowerCase()).toContain(`${env.cookieName}=`);
   });
 });

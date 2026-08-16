@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type AuthenticationResponseJSON,
@@ -13,7 +14,7 @@ import {
 } from "@simplewebauthn/server";
 import { type } from "arktype";
 import { type Context, type MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -73,8 +74,10 @@ type AuthService = {
   isEnrollmentTokenValid: (token: string) => boolean;
   consumeEnrollmentToken: (token: string) => string | undefined;
   listCredentialSummaries: () => CredentialSummary[];
+  readSessionCookie: (c: Context) => string | undefined;
+  setSessionCookie: (c: Context, token: string) => void;
   isValidSession: (token: string | undefined) => boolean;
-  logout: (token: string | undefined) => void;
+  logout: (c: Context) => void;
 };
 
 // Stored transports are plain strings; validate each against the WebAuthn
@@ -163,8 +166,12 @@ type VerifiedCredential = {
   counter: number;
 };
 
-const makeAuthService = (authDb: DatabaseSync): AuthService => {
+const makeAuthService = (
+  authDb: DatabaseSync,
+  authDbPath: string,
+): AuthService => {
   const authority = makeChallengeAuthority();
+  const cookieName = sessionCookieName(authDbPath);
 
   const registrationOptions = (
     rp: RpConfig,
@@ -334,8 +341,24 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     return true;
   };
 
-  const logout = (token: string | undefined): void => {
+  const readSessionCookie = (c: Context): string | undefined =>
+    getCookie(c, cookieName);
+
+  const setSessionCookie = (c: Context, token: string): void => {
+    const url = resolveRequestUrl(c);
+    setCookie(c, cookieName, token, {
+      httpOnly: true,
+      sameSite: "Strict",
+      secure: url.protocol === "https:",
+      path: "/",
+      maxAge: SESSION_TTL_SECONDS,
+    });
+  };
+
+  const logout = (c: Context): void => {
+    const token = getCookie(c, cookieName);
     if (token !== undefined && token !== "") deleteSession(authDb, token);
+    deleteCookie(c, cookieName, { path: "/" });
   };
 
   const issueEnrollmentToken = (): string | undefined => {
@@ -359,12 +382,23 @@ const makeAuthService = (authDb: DatabaseSync): AuthService => {
     consumeEnrollmentToken: (token: string) =>
       consumeEnrollmentToken(authDb, token),
     listCredentialSummaries: () => listCredentialSummaries(authDb),
+    readSessionCookie,
+    setSessionCookie,
     isValidSession,
     logout,
   };
 };
 
-const COOKIE_NAME = "glv_session";
+// Browsers scope cookies by host and ignore the port (RFC 6265 has no port
+// isolation), so sibling viewers on localhost share one cookie jar entry;
+// with a fixed name, each login overwrites the other app's session. The
+// name is derived from the auth DB path so each token namespace gets its
+// own cookie; a shared auth DB shares the cookie, which is correct because
+// its tokens are mutually valid.
+const sessionCookieName = (authDbPath: string): string => {
+  const digest = createHash("sha256").update(resolve(authDbPath)).digest("hex");
+  return `glv-session-${digest.slice(0, 12)}`;
+};
 
 // Every static asset is served under a single prefix so the auth gate can
 // whitelist them as a group without naming each file individually.
@@ -401,26 +435,15 @@ const resolveRequestUrl = (c: Context): URL => {
   return url;
 };
 
-const setSessionCookie = (c: Context, token: string): void => {
-  const url = resolveRequestUrl(c);
-  setCookie(c, COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "Strict",
-    secure: url.protocol === "https:",
-    path: "/",
-    maxAge: SESSION_TTL_SECONDS,
-  });
-};
-
 const authMiddleware =
   (auth: AuthService): MiddlewareHandler =>
   async (c, next) => {
     if (isPublicPath(c.req.path)) return next();
-    const token = getCookie(c, COOKIE_NAME);
+    const token = auth.readSessionCookie(c);
     if (token !== undefined && auth.isValidSession(token)) {
       // Sliding window: re-issue the cookie so the browser expiry tracks
       // the just-refreshed DB session rather than the original login.
-      setSessionCookie(c, token);
+      auth.setSessionCookie(c, token);
       return next();
     }
     const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
@@ -430,8 +453,7 @@ const authMiddleware =
 export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
 export {
   authMiddleware,
-  COOKIE_NAME,
   makeAuthService,
   resolveRequestUrl,
-  setSessionCookie,
+  sessionCookieName,
 };

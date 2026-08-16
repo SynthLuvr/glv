@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
+import { sessionCookieName } from "../auth/service.js";
 import { tryParseJson } from "../parse.js";
 
 // Both tables must exist before the server starts: the sidebar queries them
@@ -163,6 +164,8 @@ type IntegrationEnv = {
   scratchDir: string;
   baseUrl: string;
   cookie: string;
+  /** Session cookie name this server reads (derived from its auth DB). */
+  cookieName: string;
   context: BrowserContext;
   dbs: Databases;
   /** GLV's private uploads directory (temp dir, cleaned up on test end). */
@@ -176,7 +179,7 @@ type IntegrationEnv = {
 
 // WAL lets a test process (or the mock goose) write while the server reads,
 // without SQLITE_BUSY. The auth row satisfies the WebAuthn gate without a
-// real passkey: the returned token becomes the glv_session cookie.
+// real passkey: the returned token becomes the session cookie.
 const createDatabases = (scratchDir: string): Databases => {
   const sessionsDb = join(scratchDir, "sessions.db");
   const sdb = new DatabaseSync(sessionsDb);
@@ -341,9 +344,10 @@ const startIntegrationEnv = async (
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
+  const cookieName = sessionCookieName(dbs.authDb);
   await context.addCookies([
     {
-      name: "glv_session",
+      name: cookieName,
       value: dbs.token,
       domain: "localhost",
       path: "/",
@@ -367,7 +371,8 @@ const startIntegrationEnv = async (
   return {
     scratchDir,
     baseUrl,
-    cookie: `glv_session=${dbs.token}`,
+    cookie: `${cookieName}=${dbs.token}`,
+    cookieName,
     context,
     dbs,
     uploadsDir,

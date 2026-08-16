@@ -1,11 +1,10 @@
 import { type Context, type Hono } from "hono";
-import { deleteCookie, getCookie } from "hono/cookie";
-import type { RpConfig, VerifyResult } from "../../auth/service.js";
-import {
-  COOKIE_NAME,
-  resolveRequestUrl,
-  setSessionCookie,
+import type {
+  AuthService,
+  RpConfig,
+  VerifyResult,
 } from "../../auth/service.js";
+import { resolveRequestUrl } from "../../auth/service.js";
 import { errorMessage } from "../../util.js";
 import {
   DevicesPage,
@@ -26,11 +25,12 @@ const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
 
 const finishAuth = (
   c: Context,
+  auth: AuthService,
   result: VerifyResult,
   fallbackError: string,
 ) => {
   if (result.verified && result.token !== undefined) {
-    setSessionCookie(c, result.token);
+    auth.setSessionCookie(c, result.token);
     return c.json({ verified: true });
   }
   return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
@@ -49,11 +49,12 @@ const jsonOrError = async <T,>(c: Context, run: () => Promise<T>) => {
 
 const verifyAndRespond = async (
   c: Context,
+  auth: AuthService,
   fallbackError: string,
   verify: () => Promise<VerifyResult>,
 ) => {
   try {
-    return finishAuth(c, await verify(), fallbackError);
+    return finishAuth(c, auth, await verify(), fallbackError);
   } catch (err) {
     return c.json({ verified: false, error: errorMessage(err) }, 400);
   }
@@ -84,7 +85,7 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/auth/register/verify", async (c) => {
     if (auth.isClaimed())
       return c.json({ verified: false, error: "Registration is closed." }, 403);
-    return verifyAndRespond(c, "Verification failed.", async () =>
+    return verifyAndRespond(c, auth, "Verification failed.", async () =>
       auth.verifyRegistration(rpFromContext(c, ctx), await c.req.json()),
     );
   });
@@ -94,7 +95,7 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   );
 
   app.post("/auth/login/verify", (c) =>
-    verifyAndRespond(c, "Login failed.", async () =>
+    verifyAndRespond(c, auth, "Login failed.", async () =>
       auth.verifyLogin(rpFromContext(c, ctx), await c.req.json()),
     ),
   );
@@ -146,7 +147,7 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
         { verified: false, error: "Enrollment link expired or already used." },
         400,
       );
-    return verifyAndRespond(c, "Enrollment failed.", async () => {
+    return verifyAndRespond(c, auth, "Enrollment failed.", async () => {
       const result = await auth.verifyEnrollment(
         rpFromContext(c, ctx),
         await c.req.json(),
@@ -159,8 +160,7 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   app.post("/auth/logout", (c) => {
-    auth.logout(getCookie(c, COOKIE_NAME));
-    deleteCookie(c, COOKIE_NAME, { path: "/" });
+    auth.logout(c);
     return c.redirect("/auth/login", 302);
   });
 };
