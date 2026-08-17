@@ -38,7 +38,7 @@ type ServeOpts = {
 const program = new Command();
 
 program
-  .name("glv")
+  .name("glv-claude")
   .description("View claude sessions, prompts/outputs, and live runs")
   .option("--projects-dir <path>", "claude projects (transcripts) directory")
   .option("--auth-db <path>", "auth database path")

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Cross-platform Node launcher, published via package.json's "bin" field.
-// bin/glv (POSIX shell) is retained for direct Unix invocation (test harness).
+// bin/glv-goose (POSIX shell) is retained for direct Unix invocation (test harness).
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import process from "node:process";

@@ -9,7 +9,7 @@
 glv is a self-hosted web UI over goose session transcripts. Its
 server-side workload is:
 
-- Node 26, launched via tsx (`bin/glv`). It is not Bun.
+- Node 26, launched via tsx (`bin/glv-goose`). It is not Bun.
 - htmx-driven: the UI is server-rendered HTML fragments swapped over the
   wire. There is no typed API client.
 - Server-side JSX that renders untrusted, user-controlled content

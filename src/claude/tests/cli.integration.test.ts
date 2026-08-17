@@ -41,7 +41,7 @@ const seed = (): void => {
   insertMessages(projectsDir, "alpha", [
     { role: "user", content: [{ type: "text", text: "Hello claude" }] },
     { role: "assistant", content: [{ type: "text", text: "Hi there" }] },
-    // A tool result and a thinking block are skipped by glv view.
+    // A tool result and a thinking block are skipped by glv-claude view.
     {
       role: "user",
       content: [
@@ -74,7 +74,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("glv sessions", () => {
+describe("glv-claude sessions", () => {
   it("lists sessions, excluding archived ones", () => {
     const { status, stdout } = run(["sessions"]);
     expect(status).toBe(0);
@@ -100,7 +100,7 @@ describe("glv sessions", () => {
   });
 });
 
-describe("glv view", () => {
+describe("glv-claude view", () => {
   it("shows prompts and outputs, skipping tool/thinking messages", () => {
     const { status, stdout } = run(["view", "alpha"]);
     expect(status).toBe(0);
@@ -124,7 +124,7 @@ describe("glv view", () => {
   });
 });
 
-describe("glv config", () => {
+describe("glv-claude config", () => {
   let cfgPath: string;
 
   beforeAll(() => {
@@ -166,7 +166,7 @@ describe("glv config", () => {
   });
 });
 
-describe("glv serve argument validation", () => {
+describe("glv-claude serve argument validation", () => {
   it("rejects a non-positive --max-concurrent", () => {
     const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
     expect(status).not.toBe(0);

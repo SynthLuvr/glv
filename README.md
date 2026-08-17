@@ -94,10 +94,10 @@ web framework:
 node scripts/setup.mjs
 ```
 
-This installs dependencies and installs the `glv` launcher onto your
-PATH (`~/.local/bin/glv` on macOS/Linux,
-`%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh` remains as
-a thin Unix wrapper. Re-running is safe.
+This installs dependencies and installs the `glv-goose` launcher onto
+your PATH (`~/.local/bin/glv-goose` on macOS/Linux,
+`%USERPROFILE%\.local\bin\glv-goose.cmd` on Windows). `./setup.sh`
+remains as a thin Unix wrapper. Re-running is safe.
 
 ### Prerequisites
 
@@ -115,7 +115,7 @@ a thin Unix wrapper. Re-running is safe.
 ## Running the web viewer
 
 ``` bash
-glv serve
+glv-goose serve
 ```
 
 Open the printed URL (e.g. <http://localhost:3000>). The first visitor
@@ -145,7 +145,7 @@ Options:
   the browser uses (defaults to the request host, e.g. `localhost`).
 
 - `--forward` — open an SSH reverse tunnel so the viewer is reachable on
-  a remote host. When set, `glv` runs
+  a remote host. When set, `glv-goose` runs
   `ssh -NT -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:<port>:127.0.0.1:<port> <host>`,
   binding the serve port on the remote host back to the local viewer.
   The tunnel host comes from your [local config
@@ -167,8 +167,8 @@ get committed:
 { "forwardHost": "91.98.17.2" }
 ```
 
-`glv serve --forward` uses `forwardHost` as the SSH tunnel target; the
-flag errors out if the key is missing or the file is malformed.
+`glv-goose serve --forward` uses `forwardHost` as the SSH tunnel target;
+the flag errors out if the key is missing or the file is malformed.
 
 ## Authentication
 
@@ -247,17 +247,17 @@ with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source
 compiled to `dist/<app>/app.css` by `pnpm build:assets` (see
 `src/<app>/build.ts`). Browser client scripts are written as TypeScript
 in `src/<app>/scripts/` and compiled to minified `dist/<app>/*.js` by
-the same command. The goose viewer is launched with `glv` and the claude
-viewer with `glv-claude`.
+the same command. The goose viewer is launched with `glv-goose` and the
+claude viewer with `glv-claude`.
 
 ## The CLI
 
-Everything above is driven by the `glv` command, which also offers a few
-lightweight terminal commands for quick lookups without opening a
+Everything above is driven by the `glv-goose` command, which also offers
+a few lightweight terminal commands for quick lookups without opening a
 browser:
 
 ``` bash
-glv sessions              # list recent sessions
-glv view <id>             # show prompts + outputs for a session
-glv logs                  # list --no-session runs
+glv-goose sessions      # list recent sessions
+glv-goose view <id>     # show prompts + outputs for a session
+glv-goose logs          # list --no-session runs
 ```

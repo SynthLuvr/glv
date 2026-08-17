@@ -11,8 +11,8 @@ const dataRoot = (): string => {
 
 // Distinct per glv build so two installs on one machine never share
 // SQLite files, uploads, or temp dirs. The claude-focused build
-// (SynthLuvr/glv) uses "glv-claude"; this goose-focused build uses
-// "glv-goose" so the two never collide.
+// (src/claude) uses "glv-claude"; this goose-focused build (src/goose)
+// uses "glv-goose" so the two never collide.
 const DATA_DIR_NAME = "glv-goose";
 
 // Precedence: explicit override → environment variable → platform default.

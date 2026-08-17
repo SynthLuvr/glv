@@ -125,7 +125,7 @@ const runServe = (store: SessionStore, opts: ServeOpts): void => {
   // Started once the port is bound so the -R bind targets the real listener.
   let tunnel: TunnelHandle | undefined;
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
-    console.log(`glv web viewer → http://localhost:${info.port}`);
+    console.log(`glv-claude web viewer → http://localhost:${info.port}`);
     if (opts.forwardHost !== undefined)
       tunnel = startForwardTunnel(info.port, opts.forwardHost);
   });

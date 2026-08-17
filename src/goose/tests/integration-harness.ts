@@ -72,7 +72,7 @@ const INSERT_MESSAGE_SQL =
   "created_timestamp, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const GLV = join(ROOT, "bin", "glv");
+const GLV = join(ROOT, "bin", "glv-goose");
 
 // tsx is resolved to an absolute loader path because the mock goose runs from
 // a temp dir with no node_modules.

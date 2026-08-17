@@ -6,7 +6,7 @@ const config = defineConfig({
     // Every test file boots a real server plus a headless browser; keep
     // parallel files modest so small CI runners don't starve them.
     maxWorkers: 4,
-    // Integration tests boot a real `glv serve` / `glv-claude serve`
+    // Integration tests boot a real `glv-goose serve` / `glv-claude serve`
     // subprocess and drive it with a headless browser, so they need
     // generous timeouts.
     testTimeout: 120000,

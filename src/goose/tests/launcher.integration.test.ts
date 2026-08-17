@@ -2,10 +2,11 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// bin/glv.mjs (Node, package.json "bin") and bin/glv (POSIX shell) must behave
-// identically. These spawn the real launchers end-to-end (no database needed).
-const SHELL_LAUNCHER = resolve("bin/glv");
-const NODE_LAUNCHER = resolve("bin/glv.mjs");
+// bin/glv-goose.mjs (Node, package.json "bin") and bin/glv-goose (POSIX
+// shell) must behave identically. These spawn the real launchers end-to-end
+// (no database needed).
+const SHELL_LAUNCHER = resolve("bin/glv-goose");
+const NODE_LAUNCHER = resolve("bin/glv-goose.mjs");
 
 type Out = { status: number; stdout: string };
 
@@ -21,14 +22,14 @@ const runNode = (args: string[]): Out => {
   return { status: result.status ?? -1, stdout: result.stdout ?? "" };
 };
 
-describe("bin/glv.mjs Node launcher", () => {
+describe("bin/glv-goose.mjs Node launcher", () => {
   it("loads cli.ts via tsx and prints serve help", () => {
     const { status, stdout } = runNode(["serve", "--help"]);
     expect(status).toBe(0);
     expect(stdout).toContain("--forward");
   });
 
-  it("produces output identical to the bin/glv shell launcher", () => {
+  it("produces output identical to the bin/glv-goose shell launcher", () => {
     expect(runNode(["serve", "--help"]).stdout).toBe(
       runShell(["serve", "--help"]).stdout,
     );
@@ -36,7 +37,7 @@ describe("bin/glv.mjs Node launcher", () => {
 
   it("prints the top-level program help", () => {
     const { stdout } = runNode(["--help"]);
-    expect(stdout).toContain("Usage: glv");
+    expect(stdout).toContain("Usage: glv-goose");
   });
 
   it("forwards argv and propagates a non-zero exit from commander", () => {

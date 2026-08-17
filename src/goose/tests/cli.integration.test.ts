@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const GLV = resolve("bin/glv");
+const GLV = resolve("bin/glv-goose");
 
 // Mirrors goose's sessions schema so the CLI has something to read. Seeded
 // directly because these tests drive the binary, not the server.
@@ -117,7 +117,7 @@ const seed = (): void => {
     JSON.stringify([{ type: "text", text: "Hi there" }]),
     2,
   );
-  // A tool response and a thinking block are skipped by `glv view`.
+  // A tool response and a thinking block are skipped by `glv-goose view`.
   insMsg.run(
     null,
     "alpha",
@@ -152,7 +152,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("glv sessions", () => {
+describe("glv-goose sessions", () => {
   it("lists user sessions, excluding hidden and archived ones", () => {
     const { status, stdout } = run(["sessions"]);
     expect(status).toBe(0);
@@ -181,7 +181,7 @@ describe("glv sessions", () => {
   });
 });
 
-describe("glv logs", () => {
+describe("glv-goose logs", () => {
   it("lists only hidden (--no-session) runs", () => {
     const { stdout } = run(["logs"]);
     expect(stdout).toContain("gamma");
@@ -189,7 +189,7 @@ describe("glv logs", () => {
   });
 });
 
-describe("glv view", () => {
+describe("glv-goose view", () => {
   it("shows prompts and outputs, skipping tool/thinking messages", () => {
     const { status, stdout } = run(["view", "alpha"]);
     expect(status).toBe(0);
@@ -214,7 +214,7 @@ describe("glv view", () => {
   });
 });
 
-describe("glv config", () => {
+describe("glv-goose config", () => {
   let cfgPath: string;
 
   beforeAll(() => {
@@ -256,7 +256,7 @@ describe("glv config", () => {
   });
 });
 
-describe("glv serve argument validation", () => {
+describe("glv-goose serve argument validation", () => {
   it("rejects a non-positive --max-concurrent", () => {
     const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
     expect(status).not.toBe(0);

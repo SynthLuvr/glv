@@ -2,8 +2,9 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// bin/glv-claude.mjs (Node, package.json "bin") and bin/glv-claude (POSIX shell)
-// identically. These spawn the real launchers end-to-end (no database needed).
+// bin/glv-claude.mjs (Node, package.json "bin") and bin/glv-claude (POSIX
+// shell) must behave identically. These spawn the real launchers end-to-end
+// (no database needed).
 const SHELL_LAUNCHER = resolve("bin/glv-claude");
 const NODE_LAUNCHER = resolve("bin/glv-claude.mjs");
 
@@ -36,7 +37,7 @@ describe("bin/glv-claude.mjs Node launcher", () => {
 
   it("prints the top-level program help", () => {
     const { stdout } = runNode(["--help"]);
-    expect(stdout).toContain("Usage: glv");
+    expect(stdout).toContain("Usage: glv-claude");
   });
 
   it("forwards argv and propagates a non-zero exit from commander", () => {
