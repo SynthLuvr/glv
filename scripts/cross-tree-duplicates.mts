@@ -9,15 +9,9 @@
  * jscpd's per-tree runs (lint:duplicates) see each tree in isolation, so
  * the two product trees could drift into near-identical copies without
  * tripping it. This check closes that gap: any clone pair spanning two
- * trees fails the build unless at least one of the two files is exempt:
- *
- *   - scripts/mirrored-exemptions.json — paths still mirrored across
- *     trees, tracked by the one-location rule; shrinks as files move
- *     into src/glv and is deleted once empty.
- *   - scripts/cross-tree-exemptions.json — files with pre-existing
- *     cross-tree clone fragments (the per-flavor mock agent scripts);
- *     shrinks as those fragments are consolidated and is deleted once
- *     empty.
+ * trees fails the build. The transitional exemption lists that covered
+ * pre-consolidation clones were removed once they emptied; every
+ * cross-tree clone now fails unconditionally.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

@@ -1,32 +1,13 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import {
-  authedFetch,
-  collectSse,
-  type Databases,
-  type FlavorAdapter,
-  type FlavorFixture,
-  findFreePort,
-  type IntegrationEnv,
-  type MessageSeed,
-  type MockConfig,
-  mockScript,
-  parseSseData,
-  ROOT,
-  type SessionSeed,
-  type SseEvent,
-  seedAuthDb,
-  startEnv,
-  stopProcess,
-  waitForHttp,
-  waitForJsonFile,
-  withPage,
-} from "../../glv/tests/harness.js";
+import * as harness from "../../glv/tests/harness.js";
 
 // The goose flavor of the shared test harness: everything generic (SSE,
 // browser, boot, auth seeding) lives in src/glv/tests/harness.ts; this file
-// binds it to goose's SQLite sessions DB, CLI flags, and mock agent.
+// binds it to goose's SQLite sessions DB, CLI flags, and mock agent, and
+// exports only the flavor-specific surface (shared helpers are imported
+// from the glv harness by their consumers).
 
 // Both tables must exist before the server starts: the sidebar queries them
 // and the mock goose inserts into them.
@@ -69,33 +50,23 @@ const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(ROOT, "bin", "glv-goose");
+const GLV = join(harness.ROOT, "bin", "glv-goose");
 
 const mockGoose = (): Promise<() => void> =>
-  mockScript("goose", gooseMockScriptPath);
+  harness.mockScript("goose", gooseMockScriptPath);
 
 // WAL lets a test process (or the mock goose) write while the server reads,
 // without SQLITE_BUSY.
-const createDatabases = (scratchDir: string): Databases => {
+const createDatabases = (scratchDir: string): harness.Databases => {
   const sessionsDb = join(scratchDir, "sessions.db");
   const sdb = new DatabaseSync(sessionsDb);
   sdb.exec("PRAGMA journal_mode=WAL");
   sdb.exec(SESSIONS_SCHEMA);
   sdb.close();
-
-  const authDb = join(scratchDir, "auth.db");
-  const token = seedAuthDb(authDb);
-
-  return {
-    authDb,
-    promptsDb: join(scratchDir, "prompts.db"),
-    groupsDb: join(scratchDir, "groups.db"),
-    token,
-    flavor: { sessionsDb },
-  };
+  return harness.baseDatabases(scratchDir, { sessionsDb });
 };
 
-const gooseAdapter: FlavorAdapter = {
+const gooseAdapter: harness.FlavorAdapter = {
   name: "goose",
   binPath: GLV,
   mockBinName: "goose",
@@ -105,12 +76,7 @@ const gooseAdapter: FlavorAdapter = {
   serveArgs: (dbs) => [
     "--db",
     dbs.flavor.sessionsDb,
-    "--auth-db",
-    dbs.authDb,
-    "--prompts-db",
-    dbs.promptsDb,
-    "--groups-db",
-    dbs.groupsDb,
+    ...harness.dbOverrideArgs(dbs),
     "--goose-binary",
     "goose",
   ],
@@ -119,7 +85,10 @@ const gooseAdapter: FlavorAdapter = {
 
 // The server reads fresh on every request, so sessions inserted here appear
 // in the sidebar on the next page load without a restart.
-const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
+const insertSessions = (
+  dbPath: string,
+  sessions: harness.SessionSeed[],
+): void => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
   const stmt = db.prepare(INSERT_SESSION_SQL);
@@ -132,7 +101,7 @@ const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
 const insertMessages = (
   dbPath: string,
   sessionId: string,
-  messages: MessageSeed[],
+  messages: harness.MessageSeed[],
 ): void => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
@@ -157,11 +126,12 @@ const insertMessages = (
 
 const startIntegrationEnv = (
   prefix: string,
-  mock: MockConfig = {},
+  mock: harness.MockConfig = {},
   homeDir?: string,
-): Promise<IntegrationEnv> => startEnv(gooseAdapter, prefix, mock, homeDir);
+): Promise<harness.IntegrationEnv> =>
+  harness.startEnv(gooseAdapter, prefix, mock, homeDir);
 
-const gooseFixture: FlavorFixture = {
+const gooseFixture: harness.FlavorFixture = {
   name: "goose",
   displayName: "Goose",
   binName: "glv-goose",
@@ -205,34 +175,32 @@ const gooseFixture: FlavorFixture = {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
     db.close();
   },
-  readSessionField: (env, field, id) => {
-    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
-      readOnly: true,
-    });
-    const row = db
-      .prepare(`SELECT ${field} AS v FROM sessions WHERE id = ?`)
-      .get(id) as { v: unknown } | undefined;
-    db.close();
-    return row?.v;
+  readSessionField: (env, field, id) =>
+    harness.readStoreField(env.dbs.flavor.sessionsDb, "sessions", field, id),
+  systemFlag: "--system",
+  resumeFlag: "--session-id",
+  binaryFlag: "--goose-binary",
+  binPath: GLV,
+  mockAgent: mockGoose,
+  // Prepares goose's sessions DB under the fake HOME (the CLI needs a store
+  // to read) and returns the serve argv pointing at it.
+  defaultServeArgs: (homeDir) => {
+    const sessionsDb = join(homeDir, "sessions.db");
+    const sdb = new DatabaseSync(sessionsDb);
+    sdb.exec("PRAGMA journal_mode=WAL");
+    sdb.exec(SESSIONS_SCHEMA);
+    sdb.close();
+    return ["--db", sessionsDb, "--goose-binary", "goose"];
   },
+  defaultDbFiles: ["auth.db", "prompts.db", "groups.db"],
 };
 
-export type { IntegrationEnv, MessageSeed, MockConfig, SessionSeed, SseEvent };
 export {
-  authedFetch,
-  collectSse,
-  findFreePort,
   GLV,
   gooseFixture,
   insertMessages,
   insertSessions,
   mockGoose,
-  parseSseData,
-  ROOT,
   SESSIONS_SCHEMA,
   startIntegrationEnv,
-  stopProcess,
-  waitForHttp,
-  waitForJsonFile,
-  withPage,
 };

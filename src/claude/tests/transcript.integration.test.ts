@@ -7,11 +7,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { authedFetch } from "../../glv/tests/harness.js";
+import { authedFetch, type IntegrationEnv } from "../../glv/tests/harness.js";
 import { runTranscriptSuite } from "../../glv/tests/suites/transcript.suite.js";
 import {
   claudeFixture,
-  type IntegrationEnv,
   insertMessages,
   insertSessions,
 } from "./integration-harness.js";

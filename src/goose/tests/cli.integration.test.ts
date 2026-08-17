@@ -1,9 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { makeRunner, runCliSuite } from "../../glv/tests/suites/cli.suite.js";
+import { gooseFixture } from "./integration-harness.js";
 
 const GLV = resolve("bin/glv-goose");
 
@@ -36,22 +37,8 @@ CREATE TABLE messages (
 );
 `;
 
-type RunResult = { status: number; stdout: string; stderr: string };
-
 let dir: string;
 let dbPath: string;
-
-const run = (args: string[], env: Record<string, string> = {}): RunResult => {
-  const result = spawnSync(GLV, ["--db", dbPath, ...args], {
-    env: { ...process.env, ...env },
-    encoding: "utf-8",
-  });
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-};
 
 const seed = (): void => {
   const db = new DatabaseSync(dbPath);
@@ -117,7 +104,7 @@ const seed = (): void => {
     JSON.stringify([{ type: "text", text: "Hi there" }]),
     2,
   );
-  // A tool response and a thinking block are skipped by `glv-goose view`.
+  // A tool response and a thinking block are skipped by view.
   insMsg.run(
     null,
     "alpha",
@@ -152,135 +139,28 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("glv-goose sessions", () => {
-  it("lists user sessions, excluding hidden and archived ones", () => {
-    const { status, stdout } = run(["sessions"]);
-    expect(status).toBe(0);
-    expect(stdout).toContain("Alpha Session");
-    expect(stdout).toContain("Beta Session");
-    expect(stdout).not.toContain("Gamma Session");
-    expect(stdout).not.toContain("Archived One");
-    expect(stdout).toContain("2 session(s) listed.");
-  });
+const run = makeRunner(GLV, () => ["--db", dbPath]);
 
-  it("renders an empty-name session as (unnamed)", () => {
-    // Beta has tokens=null and provider_name=null; the listing degrades
-    // gracefully ("-") rather than printing "null".
-    const { stdout } = run(["sessions"]);
-    expect(stdout).not.toContain("null");
-  });
-
-  it("respects --limit", () => {
-    const { stdout } = run(["sessions", "-n", "1"]);
-    expect(stdout).toContain("1 session(s) listed.");
-  });
-
-  it("includes archived sessions with --all", () => {
-    const { stdout } = run(["sessions", "--all"]);
-    expect(stdout).toContain("Archived One");
-  });
+runCliSuite(gooseFixture, {
+  run,
+  cfgDir: () => dir,
+  assertViewHeader: (stdout) => {
+    expect(stdout).toContain("100");
+    expect(stdout).toContain("Anthropic");
+  },
 });
 
-describe("glv-goose logs", () => {
-  it("lists only hidden (--no-session) runs", () => {
+// goose-only: hidden sessions stay out of listings and surface via logs.
+describe("glv-goose hidden sessions", () => {
+  it("excludes hidden sessions from the default listing", () => {
+    const { stdout } = run(["sessions"]);
+    expect(stdout).toContain("Beta Session");
+    expect(stdout).not.toContain("Gamma Session");
+  });
+
+  it("lists only hidden (--no-session) runs via logs", () => {
     const { stdout } = run(["logs"]);
     expect(stdout).toContain("gamma");
     expect(stdout).not.toContain("Alpha Session");
-  });
-});
-
-describe("glv-goose view", () => {
-  it("shows prompts and outputs, skipping tool/thinking messages", () => {
-    const { status, stdout } = run(["view", "alpha"]);
-    expect(status).toBe(0);
-    expect(stdout).toContain("Hello goose");
-    expect(stdout).toContain("Hi there");
-    expect(stdout).not.toContain("tool out");
-    expect(stdout).not.toContain("private");
-  });
-
-  it("surfaces the session header with id, name, dir and tokens", () => {
-    const { stdout } = run(["view", "alpha"]);
-    expect(stdout).toContain("alpha");
-    expect(stdout).toContain("Alpha Session");
-    expect(stdout).toContain("/tmp/alpha");
-    expect(stdout).toContain("100");
-    expect(stdout).toContain("Anthropic");
-  });
-
-  it("exits non-zero for an unknown session", () => {
-    const { status } = run(["view", "no-such-session"]);
-    expect(status).not.toBe(0);
-  });
-});
-
-describe("glv-goose config", () => {
-  let cfgPath: string;
-
-  beforeAll(() => {
-    cfgPath = join(dir, "config.json");
-  });
-
-  it("lists known keys with empty values when the file is absent", () => {
-    const { status, stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
-    expect(status).toBe(0);
-    expect(stdout).toContain("forwardHost=");
-  });
-
-  it("sets a field then reads it back", () => {
-    run(["config", "set", "forwardHost", "203.0.113.5"], {
-      GLV_CONFIG: cfgPath,
-    });
-    const { stdout } = run(["config", "get", "forwardHost"], {
-      GLV_CONFIG: cfgPath,
-    });
-    expect(stdout.trim()).toBe("203.0.113.5");
-  });
-
-  it("exits non-zero for an unknown key", () => {
-    const { status, stderr } = run(["config", "get", "bogus"], {
-      GLV_CONFIG: cfgPath,
-    });
-    expect(status).not.toBe(0);
-    expect(stderr).toContain("Unknown config key");
-  });
-
-  it("tolerates unknown keys preserved on disk when re-listing", () => {
-    writeFileSync(
-      cfgPath,
-      JSON.stringify({ forwardHost: "10.0.0.1", future: true }),
-    );
-    const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
-    expect(stdout).toContain("future=true");
-    expect(stdout).toContain("forwardHost=10.0.0.1");
-  });
-});
-
-describe("glv-goose serve argument validation", () => {
-  it("rejects a non-positive --max-concurrent", () => {
-    const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
-    expect(status).not.toBe(0);
-    expect(stderr.toLowerCase()).toContain("positive integer");
-  });
-
-  it("rejects a non-numeric --max-concurrent", () => {
-    const { status, stderr } = run(["serve", "--max-concurrent", "abc"]);
-    expect(status).not.toBe(0);
-    expect(stderr.toLowerCase()).toContain("positive integer");
-  });
-
-  it("rejects a --goose-binary path that does not exist", () => {
-    const { status, stderr } = run([
-      "serve",
-      "--goose-binary",
-      "/no/such/binary",
-    ]);
-    expect(status).not.toBe(0);
-    expect(stderr.toLowerCase()).toContain("not found");
-  });
-
-  it("documents the --forward flag in help", () => {
-    const { stdout } = run(["serve", "--help"]);
-    expect(stdout).toContain("--forward");
   });
 });

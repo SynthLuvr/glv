@@ -9,69 +9,39 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { openMetaDb } from "../../glv/session-meta.js";
-import {
-  authedFetch,
-  collectSse,
-  type Databases,
-  type FlavorAdapter,
-  type FlavorFixture,
-  findFreePort,
-  type IntegrationEnv,
-  type MessageSeed,
-  type MockConfig,
-  mockScript,
-  parseSseData,
-  ROOT,
-  type SessionSeed,
-  type SseEvent,
-  seedAuthDb,
-  startEnv,
-  stopProcess,
-  waitForHttp,
-  waitForJsonFile,
-  withPage,
-} from "../../glv/tests/harness.js";
+import * as harness from "../../glv/tests/harness.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
 
 // The claude flavor of the shared test harness: everything generic (SSE,
 // browser, boot, auth seeding) lives in src/glv/tests/harness.ts; this file
-// binds it to claude's transcript projects dir, meta sidecar, CLI flags, and
-// mock agent.
+// binds it to claude's transcript projects dir, meta sidecar, CLI flags,
+// and mock agent, and exports only the flavor-specific surface (shared
+// helpers are imported from the glv harness by their consumers).
 
 const claudeMockScriptPath = fileURLToPath(
   new URL("./claude-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(ROOT, "bin", "glv-claude");
+const GLV = join(harness.ROOT, "bin", "glv-claude");
 
 const mockClaude = (): Promise<() => void> =>
-  mockScript("claude", claudeMockScriptPath);
+  harness.mockScript("claude", claudeMockScriptPath);
 
 // The projects dir is plain JSONL the mock claude appends to while the
 // server reads.
-const createDatabases = (scratchDir: string): Databases => {
+const createDatabases = (scratchDir: string): harness.Databases => {
   const projectsDir = join(scratchDir, "projects");
   mkdirSync(projectsDir, { recursive: true });
 
   const metaDb = join(scratchDir, "meta.db");
   openMetaDb(metaDb).close();
 
-  const authDb = join(scratchDir, "auth.db");
-  const token = seedAuthDb(authDb);
-
-  return {
-    authDb,
-    promptsDb: join(scratchDir, "prompts.db"),
-    groupsDb: join(scratchDir, "groups.db"),
-    token,
-    flavor: { projectsDir, metaDb },
-  };
+  return harness.baseDatabases(scratchDir, { projectsDir, metaDb });
 };
 
-const claudeAdapter: FlavorAdapter = {
+const claudeAdapter: harness.FlavorAdapter = {
   name: "claude",
   binPath: GLV,
   mockBinName: "claude",
@@ -83,12 +53,7 @@ const claudeAdapter: FlavorAdapter = {
     dbs.flavor.projectsDir,
     "--meta-db",
     dbs.flavor.metaDb,
-    "--auth-db",
-    dbs.authDb,
-    "--prompts-db",
-    dbs.promptsDb,
-    "--groups-db",
-    dbs.groupsDb,
+    ...harness.dbOverrideArgs(dbs),
     "--claude-binary",
     "claude",
   ],
@@ -97,12 +62,12 @@ const claudeAdapter: FlavorAdapter = {
   }),
 };
 
-// The server reads fresh on every request, so sessions seeded here appear in
-// the sidebar on the next page load without a restart. Staggered mtimes keep
-// the newest-first sidebar order deterministic.
+// The server reads fresh on every request, so sessions seeded here appear
+// in the sidebar on the next page load without a restart. Staggered mtimes
+// keep the newest-first sidebar order deterministic.
 const insertSessions = (
   projectsRoot: string,
-  sessions: SessionSeed[],
+  sessions: harness.SessionSeed[],
 ): void => {
   let ts = Date.now();
   for (const s of sessions) {
@@ -147,7 +112,7 @@ const findSessionFile = (
 const insertMessages = (
   projectsRoot: string,
   sessionId: string,
-  messages: MessageSeed[],
+  messages: harness.MessageSeed[],
 ): void => {
   let path = findSessionFile(projectsRoot, sessionId);
   if (path === undefined) {
@@ -188,11 +153,12 @@ const insertMessages = (
 
 const startIntegrationEnv = (
   prefix: string,
-  mock: MockConfig = {},
+  mock: harness.MockConfig = {},
   homeDir?: string,
-): Promise<IntegrationEnv> => startEnv(claudeAdapter, prefix, mock, homeDir);
+): Promise<harness.IntegrationEnv> =>
+  harness.startEnv(claudeAdapter, prefix, mock, homeDir);
 
-const claudeFixture: FlavorFixture = {
+const claudeFixture: harness.FlavorFixture = {
   name: "claude",
   displayName: "Claude",
   binName: "glv-claude",
@@ -239,31 +205,42 @@ const claudeFixture: FlavorFixture = {
     const path = findSessionFile(env.dbs.flavor.projectsDir, id);
     if (path !== undefined) rmSync(path);
   },
-  readSessionField: (env, field, id) => {
-    const db = new DatabaseSync(env.dbs.flavor.metaDb, { readOnly: true });
-    const row = db
-      .prepare(`SELECT ${field} AS v FROM session_meta WHERE id = ?`)
-      .get(id) as { v: unknown } | undefined;
-    db.close();
-    return row?.v;
+  readSessionField: (env, field, id) =>
+    harness.readStoreField(env.dbs.flavor.metaDb, "session_meta", field, id),
+  systemFlag: "--append-system-prompt",
+  resumeFlag: "--resume",
+  binaryFlag: "--claude-binary",
+  binPath: GLV,
+  mockAgent: mockClaude,
+  defaultServeArgs: (homeDir) => [
+    "--projects-dir",
+    join(homeDir, ".claude", "projects"),
+    "--claude-binary",
+    "claude",
+  ],
+  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "meta.db"],
+  assertNewRunArgs: (args) => {
+    // The session id is pre-assigned, not discovered after the fact.
+    const id = args[args.indexOf("--session-id") + 1];
+    const uuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    if (id === undefined || !uuid.test(id))
+      throw new Error(`pre-assigned session id missing or malformed: ${id}`);
+    // Default "inherit": no flag, so claude honours settings.json.
+    if (args.includes("--permission-mode"))
+      throw new Error("default permission mode must not pass a flag");
+  },
+  assertResumeRunArgs: (args) => {
+    if (args.includes("--permission-mode"))
+      throw new Error("default permission mode must not pass a flag");
   },
 };
 
-export type { IntegrationEnv, MessageSeed, MockConfig, SessionSeed, SseEvent };
 export {
-  authedFetch,
   claudeFixture,
-  collectSse,
-  findFreePort,
   GLV,
   insertMessages,
   insertSessions,
   mockClaude,
-  parseSseData,
-  ROOT,
   startIntegrationEnv,
-  stopProcess,
-  waitForHttp,
-  waitForJsonFile,
-  withPage,
 };

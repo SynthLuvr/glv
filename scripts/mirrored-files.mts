@@ -6,9 +6,8 @@
  *   pnpm lint:mirrored -> tsx scripts/mirrored-files.mts
  *
  * A relative path present in two or more trees with IDENTICAL content is
- * "mirrored" consolidation debt. Existing mirrored files are listed in
- * scripts/mirrored-exemptions.json; that list only ever shrinks as files
- * are moved into src/glv, and it is deleted once empty.
+ * "mirrored" consolidation debt. The transitional exemption list that tracked this during the
+ * consolidation was removed once it emptied; the rule is now absolute.
  *
  * Same-path files with genuinely different content (flavor adapters,
  * profiles) are the intended end-state architecture — they are NOT flagged

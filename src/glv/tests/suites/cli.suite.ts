@@ -1,0 +1,164 @@
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { FlavorFixture } from "../harness.js";
+
+type RunResult = { status: number; stdout: string; stderr: string };
+
+type RunCli = (args: string[], env?: Record<string, string>) => RunResult;
+
+type CliDeps = {
+  readonly run: RunCli;
+  /** Temp dir for the config tests' GLV_CONFIG target. */
+  readonly cfgDir: () => string;
+  /** Flavor-specific `view` header assertions beyond id/name/dir. */
+  readonly assertViewHeader?: (stdout: string) => void;
+};
+
+// Builds the CLI runner each flavor wrapper uses: the launcher plus the
+// flavor's global store flags, so every subcommand runs against the seeded
+// store.
+const makeRunner = (bin: string, globalFlags: () => string[]): RunCli => {
+  const run = (args: string[], env: Record<string, string> = {}): RunResult => {
+    const result = spawnSync(bin, [...globalFlags(), ...args], {
+      env: { ...process.env, ...env },
+      encoding: "utf-8",
+    });
+    return {
+      status: result.status ?? -1,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
+  };
+  return run;
+};
+
+const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
+  const { run, cfgDir, assertViewHeader } = deps;
+
+  describe(`${fx.binName} sessions`, () => {
+    it("lists sessions, excluding archived ones", () => {
+      const { status, stdout } = run(["sessions"]);
+      expect(status).toBe(0);
+      expect(stdout).toContain("Alpha Session");
+      expect(stdout).not.toContain("Archived One");
+      expect(stdout).toContain("2 session(s) listed.");
+    });
+
+    it("degrades gracefully for null fields", () => {
+      const { stdout } = run(["sessions"]);
+      expect(stdout).not.toContain("null");
+    });
+
+    it("respects --limit", () => {
+      const { stdout } = run(["sessions", "-n", "1"]);
+      expect(stdout).toContain("1 session(s) listed.");
+    });
+
+    it("includes archived sessions with --all", () => {
+      const { stdout } = run(["sessions", "--all"]);
+      expect(stdout).toContain("Archived One");
+    });
+  });
+
+  describe(`${fx.binName} view`, () => {
+    it("shows prompts and outputs, skipping tool/thinking messages", () => {
+      const { status, stdout } = run(["view", "alpha"]);
+      expect(status).toBe(0);
+      expect(stdout).toContain(`Hello ${fx.name}`);
+      expect(stdout).toContain("Hi there");
+      expect(stdout).not.toContain("tool out");
+      expect(stdout).not.toContain("private");
+    });
+
+    it("surfaces the session header with id, name and dir", () => {
+      const { stdout } = run(["view", "alpha"]);
+      expect(stdout).toContain("alpha");
+      expect(stdout).toContain("Alpha Session");
+      expect(stdout).toContain("/tmp/alpha");
+      assertViewHeader?.(stdout);
+    });
+
+    it("exits non-zero for an unknown session", () => {
+      const { status } = run(["view", "no-such-session"]);
+      expect(status).not.toBe(0);
+    });
+  });
+
+  describe(`${fx.binName} config`, () => {
+    let cfgPath: string;
+
+    beforeAll(() => {
+      cfgPath = join(cfgDir(), "config.json");
+    });
+
+    it("lists known keys with empty values when the file is absent", () => {
+      const { status, stdout } = run(["config", "list"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(status).toBe(0);
+      expect(stdout).toContain("forwardHost=");
+    });
+
+    it("sets a field then reads it back", () => {
+      run(["config", "set", "forwardHost", "203.0.113.5"], {
+        GLV_CONFIG: cfgPath,
+      });
+      const { stdout } = run(["config", "get", "forwardHost"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(stdout.trim()).toBe("203.0.113.5");
+    });
+
+    it("exits non-zero for an unknown key", () => {
+      const { status, stderr } = run(["config", "get", "bogus"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("Unknown config key");
+    });
+
+    it("tolerates unknown keys preserved on disk when re-listing", () => {
+      writeFileSync(
+        cfgPath,
+        JSON.stringify({ forwardHost: "10.0.0.1", future: true }),
+      );
+      const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
+      expect(stdout).toContain("future=true");
+      expect(stdout).toContain("forwardHost=10.0.0.1");
+    });
+  });
+
+  describe(`${fx.binName} serve argument validation`, () => {
+    it("rejects a non-positive --max-concurrent", () => {
+      const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
+      expect(status).not.toBe(0);
+      expect(stderr.toLowerCase()).toContain("positive integer");
+    });
+
+    it("rejects a non-numeric --max-concurrent", () => {
+      const { status, stderr } = run(["serve", "--max-concurrent", "abc"]);
+      expect(status).not.toBe(0);
+      expect(stderr.toLowerCase()).toContain("positive integer");
+    });
+
+    it("rejects a binary path that does not exist", () => {
+      const { status, stderr } = run([
+        "serve",
+        fx.binaryFlag,
+        "/no/such/binary",
+      ]);
+      expect(status).not.toBe(0);
+      expect(stderr.toLowerCase()).toContain("not found");
+    });
+
+    it("documents the --forward flag in help", () => {
+      const { stdout } = run(["serve", "--help"]);
+      expect(stdout).toContain("--forward");
+    });
+  });
+};
+
+export type { CliDeps, RunCli, RunResult };
+export { makeRunner, runCliSuite };

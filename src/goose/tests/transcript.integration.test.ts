@@ -1,11 +1,10 @@
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { withPage } from "../../glv/tests/harness.js";
+import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
 import { runTranscriptSuite } from "../../glv/tests/suites/transcript.suite.js";
 import {
   gooseFixture,
-  type IntegrationEnv,
   insertMessages,
   insertSessions,
 } from "./integration-harness.js";

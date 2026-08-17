@@ -179,6 +179,32 @@ type IntegrationEnv = {
   cleanup: () => Promise<void>;
 };
 
+// The glv-owned databases every flavor creates under its scratch dir
+// (auth/prompts/groups), paired with the flavor's own store paths.
+const baseDatabases = (
+  scratchDir: string,
+  flavor: Record<string, string>,
+): Databases => {
+  const authDb = join(scratchDir, "auth.db");
+  return {
+    authDb,
+    promptsDb: join(scratchDir, "prompts.db"),
+    groupsDb: join(scratchDir, "groups.db"),
+    token: seedAuthDb(authDb),
+    flavor,
+  };
+};
+
+// The serve flags every flavor passes for its glv-owned databases.
+const dbOverrideArgs = (dbs: Databases): string[] => [
+  "--auth-db",
+  dbs.authDb,
+  "--prompts-db",
+  dbs.promptsDb,
+  "--groups-db",
+  dbs.groupsDb,
+];
+
 type SseEvent = { event: string; data: string; id: string | undefined };
 
 // What each flavor provides to the generic boot machinery.
@@ -247,6 +273,27 @@ type FlavorFixture = {
   ) => void;
   /** Deletes a session the way the flavor's agent would. */
   readonly deleteSession: (env: IntegrationEnv, id: string) => void;
+  /** The flag that injects the built-in system prompt on every run. */
+  readonly systemFlag: string;
+  /** The flag that marks a follow-up (resume) invocation. */
+  readonly resumeFlag: string;
+  /** The serve flag naming the agent binary ("--goose-binary", ...). */
+  readonly binaryFlag: string;
+  /** Absolute path to the flavor's launcher (bin/glv-*). */
+  readonly binPath: string;
+  /** Puts the mock agent binary on PATH; returns a restore closure. */
+  readonly mockAgent: () => Promise<() => void>;
+  /**
+   * Serve argv pointing at a store under the given (fake) HOME for the
+   * default-data-dirs suite; implementations may prepare the store first.
+   */
+  readonly defaultServeArgs: (homeDir: string) => string[];
+  /** glv-owned files expected to exist under the default data dir. */
+  readonly defaultDbFiles: readonly string[];
+  /** Flavor-specific extra assertions on a new run's captured argv. */
+  readonly assertNewRunArgs?: (args: string[]) => void;
+  /** Flavor-specific extra assertions on a resume run's captured argv. */
+  readonly assertResumeRunArgs?: (args: string[]) => void;
 };
 
 const stopProcess = (proc: ChildProcess): Promise<void> =>
@@ -388,6 +435,29 @@ const startEnv = async (
   };
 };
 
+// Starts a brand-new run over HTTP (the create-session form's endpoint).
+const postNewSession = (
+  env: IntegrationEnv,
+  workDir: string,
+  prompt: string,
+): Promise<Response> =>
+  authedFetch(env, "/sessions", {
+    method: "POST",
+    body: new URLSearchParams({ prompt, working_dir: workDir }),
+  });
+
+// Queues a follow-up prompt on an existing session over HTTP.
+const postFollowUp = (
+  env: IntegrationEnv,
+  sessionId: string,
+  prompt: string,
+): Promise<Response> =>
+  authedFetch(env, `/sessions/${sessionId}/prompt`, {
+    method: "POST",
+    body: new URLSearchParams({ prompt }),
+    headers: { "HX-Request": "true" },
+  });
+
 const withPage = async (
   context: BrowserContext,
   run: (page: Page) => Promise<void>,
@@ -417,6 +487,22 @@ const authedFetch = (
 
 const parseSseData = (data: string): Record<string, unknown> =>
   tryParseJson<Record<string, unknown>>(data) ?? {};
+
+// Reads one metadata column from a flavor's SQLite store table ("sessions"
+// for goose's agent DB, "session_meta" for claude's sidecar).
+const readStoreField = (
+  dbPath: string,
+  table: string,
+  field: string,
+  id: string,
+): unknown => {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const row = db
+    .prepare(`SELECT ${field} AS v FROM ${table} WHERE id = ?`)
+    .get(id) as { v: unknown } | undefined;
+  db.close();
+  return row?.v;
+};
 
 // Parses one SSE line: field lines update `current` in place; an empty line
 // (frame boundary) returns the accumulated event if one is in progress.
@@ -526,12 +612,17 @@ export type {
 };
 export {
   authedFetch,
+  baseDatabases,
   collectSse,
+  dbOverrideArgs,
   findFreePort,
   mockGh,
   mockScript,
   parseSseData,
+  postFollowUp,
+  postNewSession,
   ROOT,
+  readStoreField,
   seedAuthDb,
   startEnv,
   stopProcess,
