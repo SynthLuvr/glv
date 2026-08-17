@@ -13,8 +13,11 @@
     "node": "26"
   },
   "scripts": {
-    "build": "tsc && pnpm build:assets",
-    "build:assets": "tsx src/goose/build.ts && tsx src/claude/build.ts",
+    "build": "npm-run-all build:typecheck build:assets",
+    "build:typecheck": "tsc",
+    "build:assets": "npm-run-all build:assets:goose build:assets:claude",
+    "build:assets:goose": "tsx src/goose/build.ts",
+    "build:assets:claude": "tsx src/claude/build.ts",
     "format:arrows": "pnpm convert-to-arrow .",
     "format:biome": "pnpm biome format --write .",
     "format:braces": "pnpm strip-braces .",
@@ -24,7 +27,10 @@
     "lint:oxlint": "pnpm oxlint --deny-warnings .",
     "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates lint:mirrored lint:cross-tree",
     "lint:audit": "pnpm audit --prod",
-    "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 5 && pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 5 && pnpm exec jscpd src/glv --format typescript --min-lines 3 --threshold 5",
+    "lint:duplicates": "npm-run-all lint:duplicates:goose lint:duplicates:claude lint:duplicates:glv",
+    "lint:duplicates:goose": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 5",
+    "lint:duplicates:claude": "pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 5",
+    "lint:duplicates:glv": "pnpm exec jscpd src/glv --format typescript --min-lines 3 --threshold 5",
     "strip-braces": "pnpm exec ast-grep scan --rule .ast-grep/rules/strip-braces.yml -U",
     "lint:exports": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-inline-export.yml --error=no-inline-export --globs '!**/*.d.ts' .",
     "lint:functions": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-function-declaration.yml --error=no-function-declaration --globs '!**/*.d.ts' .",
@@ -34,7 +40,8 @@
     "lint:mirrored": "tsx scripts/mirrored-files.mts",
     "lint:cross-tree": "tsx scripts/cross-tree-duplicates.mts",
     "format:md": "tsx scripts/pandoc-md.mts --write",
-    "test": "pnpm build:assets && vitest run --coverage",
+    "test": "npm-run-all build:assets test:vitest",
+    "test:vitest": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {
