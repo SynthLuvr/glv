@@ -3,9 +3,9 @@ import { defineConfig } from "vitest/config";
 const config = defineConfig({
   test: {
     include: ["src/goose/tests/**/*.test.ts", "src/claude/tests/**/*.test.ts"],
-    // Every test file boots a real server plus a headless browser; cap
-    // parallel files so many-core machines don't starve them.
-    maxWorkers: 8,
+    // Every test file boots a real server plus a headless browser; keep
+    // parallel files modest so small CI runners don't starve them.
+    maxWorkers: 4,
     // Integration tests boot a real `glv serve` / `glv-claude serve`
     // subprocess and drive it with a headless browser, so they need
     // generous timeouts.
