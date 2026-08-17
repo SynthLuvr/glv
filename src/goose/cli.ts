@@ -41,7 +41,7 @@ type ServeOpts = {
 const program = new Command();
 
 program
-  .name("glv")
+  .name("glv-goose")
   .description("View goose sessions, prompts/outputs, and --no-session logs")
   .option("--db <path>", "goose sessions database path")
   .option("--auth-db <path>", "auth database path")

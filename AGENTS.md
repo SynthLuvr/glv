@@ -44,10 +44,10 @@ All assertions must be made by querying the running server over
 `http://localhost:<port>`. Use the helpers in
 `src/goose/tests/integration-harness.ts` or
 `src/claude/tests/integration-harness.ts` (`startIntegrationEnv`,
-`authedFetch`, `collectSse`, `withPage`) to boot a real `glv serve` or
-`glv-claude serve` process on a free localhost port and hit its
-endpoints over HTTP/SSE. Do not import server internals into a test or
-call handlers directly.
+`authedFetch`, `collectSse`, `withPage`) to boot a real
+`glv-goose serve` or `glv-claude serve` process on a free localhost port
+and hit its endpoints over HTTP/SSE. Do not import server internals into
+a test or call handlers directly.
 
 ## Coding Conventions (Enforced)
 

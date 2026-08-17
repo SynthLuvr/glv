@@ -59,8 +59,8 @@ describe("live log streaming", () => {
       await page.locator('textarea[name="prompt"]').fill("stream a response");
       await page.locator("button.send-btn").click();
 
-      // The transcript replaces the form once claude creates the session and
-      // glv re-keys the run onto the real session id.
+      // The transcript replaces the form once claude creates the session;
+      // glv pre-assigned its id before the run started.
       await page
         .locator("button.archive-btn")
         .waitFor({ state: "visible", timeout: 20000 });
