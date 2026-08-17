@@ -1,13 +1,19 @@
 import { statSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import { truncate } from "./format/text.js";
+import { truncate } from "../glv/format/text.js";
 import {
   archiveSessions as archiveMeta,
   getMeta,
   listMeta,
   type MetaRow,
   renameSession as renameMeta,
-} from "./store/meta.js";
+} from "../glv/session-meta.js";
+import type {
+  MessageRow,
+  SessionFilter,
+  SessionRow,
+  SessionStore,
+} from "../glv/sessions.js";
 import {
   findTranscript,
   listSessionFiles,
@@ -17,42 +23,14 @@ import {
   type Transcript,
 } from "./store/transcript.js";
 
-// The session store glv reads: claude Code's own transcript directory
-// (append-only JSONL the claude CLI writes as it runs) plus glv's
+// The data glv reads for the claude flavor: claude Code's own transcript
+// directory (append-only JSONL the claude CLI writes as it runs) plus glv's
 // rename/archive sidecar. Browsing never writes to claude's files; the only
 // mutations are viewer-managed metadata routed through the sidecar, so it is
 // always safe while claude is running.
-type SessionStore = {
+type ClaudeStoreData = {
   readonly root: string;
   readonly meta: DatabaseSync;
-};
-
-type SessionRow = {
-  id: string;
-  name: string;
-  user_set_name: number;
-  description: string;
-  session_type: string;
-  working_dir: string;
-  created_at: string;
-  updated_at: string;
-  total_tokens: number | null;
-  provider_name: string | null;
-  archived_at: string | null;
-};
-
-type MessageRow = {
-  message_id: string | null;
-  session_id: string;
-  role: string;
-  content_json: string;
-  created_timestamp: number;
-  timestamp: string;
-};
-
-type SessionFilter = {
-  limit: number;
-  includeArchived: boolean;
 };
 
 const DERIVED_NAME_MAX = 60;
@@ -98,7 +76,7 @@ const sessionRow = (
 });
 
 const listSessions = (
-  store: SessionStore,
+  store: ClaudeStoreData,
   filter: SessionFilter,
 ): SessionRow[] => {
   const meta = listMeta(store.meta);
@@ -114,7 +92,7 @@ const listSessions = (
 };
 
 const getSession = (
-  store: SessionStore,
+  store: ClaudeStoreData,
   id: string,
 ): SessionRow | undefined => {
   const path = findTranscript(store.root, id);
@@ -126,7 +104,10 @@ const getSession = (
   );
 };
 
-const listMessages = (store: SessionStore, sessionId: string): MessageRow[] => {
+const listMessages = (
+  store: ClaudeStoreData,
+  sessionId: string,
+): MessageRow[] => {
   const path = findTranscript(store.root, sessionId);
   if (path === undefined) return [];
   return parseTranscriptFile(path).messages.map((message) => ({
@@ -142,7 +123,7 @@ const listMessages = (store: SessionStore, sessionId: string): MessageRow[] => {
 // Cheap pre-filter for sidebar PR detection: only transcripts whose raw
 // text references a GitHub pull URL can resolve to a PR, so callers skip
 // parsing messages for the rest.
-const prCandidateIds = (store: SessionStore, ids: string[]): Set<string> => {
+const prCandidateIds = (store: ClaudeStoreData, ids: string[]): Set<string> => {
   const out = new Set<string>();
   for (const id of ids) {
     const path = findTranscript(store.root, id);
@@ -156,7 +137,7 @@ const prCandidateIds = (store: SessionStore, ids: string[]): Set<string> => {
 // whose first user prompt came earliest. `undefined` when none of the
 // sessions have a user message yet.
 const firstPromptSessionName = (
-  store: SessionStore,
+  store: ClaudeStoreData,
   ids: string[],
 ): string | undefined => {
   let bestId: string | undefined;
@@ -174,22 +155,19 @@ const firstPromptSessionName = (
   return bestId === undefined ? undefined : getSession(store, bestId)?.name;
 };
 
-const archiveSessions = (store: SessionStore, ids: string[]): void =>
-  archiveMeta(store.meta, ids);
-
-const renameSession = (
-  store: SessionStore,
-  id: string,
-  rawName: string,
-): void => renameMeta(store.meta, id, rawName);
-
-export type { MessageRow, SessionFilter, SessionRow, SessionStore };
-export {
-  archiveSessions,
-  firstPromptSessionName,
-  getSession,
-  listMessages,
-  listSessions,
-  prCandidateIds,
-  renameSession,
+// The claude storage adapter: transcripts are only ever read; viewer-managed
+// rename/archive metadata routes through the viewer-owned sidecar.
+const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
+  const store: ClaudeStoreData = { root, meta };
+  return {
+    listSessions: (filter) => listSessions(store, filter),
+    getSession: (id) => getSession(store, id),
+    listMessages: (sessionId) => listMessages(store, sessionId),
+    archiveSessions: (ids) => archiveMeta(store.meta, ids),
+    renameSession: (id, rawName) => renameMeta(store.meta, id, rawName),
+    firstPromptSessionName: (ids) => firstPromptSessionName(store, ids),
+    prCandidateIds: (ids) => prCandidateIds(store, ids),
+  };
 };
+
+export { createSessionStore };

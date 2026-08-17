@@ -1,16 +1,13 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, chromium, type Page } from "@playwright/test";
-import { mockBin } from "type-a-bin";
-import { sessionCookieName } from "../auth/service.js";
-import { tryParseJson } from "../parse.js";
+import * as harness from "../../glv/tests/harness.js";
+
+// The goose flavor of the shared test harness: everything generic (SSE,
+// browser, boot, auth seeding) lives in src/glv/tests/harness.ts; this file
+// binds it to goose's SQLite sessions DB, CLI flags, and mock agent, and
+// exports only the flavor-specific surface (shared helpers are imported
+// from the glv harness by their consumers).
 
 // Both tables must exist before the server starts: the sidebar queries them
 // and the mock goose inserts into them.
@@ -41,28 +38,6 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 `;
 
-const AUTH_SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id          TEXT PRIMARY KEY,
-  username    TEXT NOT NULL DEFAULT 'owner',
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS credentials (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  public_key  BLOB NOT NULL,
-  counter     INTEGER NOT NULL,
-  transports  TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  expires_at  TEXT NOT NULL,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-`;
-
 const INSERT_SESSION_SQL =
   "INSERT INTO sessions (id, name, session_type, working_dir, created_at, updated_at) " +
   "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'))";
@@ -71,149 +46,49 @@ const INSERT_MESSAGE_SQL =
   "INSERT INTO messages (message_id, session_id, role, content_json, " +
   "created_timestamp, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const GLV = join(ROOT, "bin", "glv-goose");
-
-// tsx is resolved to an absolute loader path because the mock goose runs from
-// a temp dir with no node_modules.
-const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
-const ghMockScriptPath = fileURLToPath(
-  new URL("./gh-mock-script.ts", import.meta.url),
-);
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const GLV = join(harness.ROOT, "bin", "glv-goose");
 
-const findFreePort = (): Promise<number> =>
-  new Promise((resolve, reject) => {
-    const server = createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      if (addr === null || typeof addr === "string") {
-        server.close(() => reject(new Error("could not bind a port")));
-        return;
-      }
-      const { port } = addr;
-      server.close(() => resolve(port));
-    });
-  });
-
-const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastErr: unknown;
-  while (Date.now() < deadline)
-    try {
-      const res = await fetch(url, { redirect: "manual" });
-      await res.arrayBuffer();
-      return;
-    } catch (err) {
-      lastErr = err;
-      await sleep(150);
-    }
-
-  throw new Error(`server at ${url} never responded: ${String(lastErr)}`);
-};
-
-type SessionSeed = { id: string; name: string; workingDir: string };
-
-// A content_json string or an array of content items, written verbatim into the
-// message row so transcript-rendering tests can seed rich transcripts.
-type MessageSeed = {
-  role: string;
-  content: unknown;
-  createdTimestamp?: number;
-  messageId?: string;
-};
-
-type Databases = {
-  sessionsDb: string;
-  authDb: string;
-  promptsDb: string;
-  groupsDb: string;
-  token: string;
-};
-
-type MockConfig = {
-  /** Delay (ms) before the mock emits output, keeping a run "running". */
-  sleepMs?: number;
-  /** goose exit code; non-zero surfaces as a runner error. */
-  exitCode?: number;
-  /** NDJSON lines to emit (newline-joined); default is a single reply. */
-  lines?: string[];
-  /** Name written into a new session row. */
-  sessionName?: string;
-  /** Pause (ms) between streamed lines so a tail fills incrementally. */
-  lineDelayMs?: number;
-  /** When set, persist each line to the sessions DB as it is produced. */
-  writeDb?: boolean;
-  /** When set, writes goose's stdin (the full prompt) to this file path. */
-  captureStdin?: string;
-  /** When set, writes goose's working directory to this file path. */
-  captureCwd?: string;
-  /** When set, writes goose's argv (JSON string[]) to this file path. */
-  captureArgs?: string;
-  /** When set, goose spawns a long-lived descendant and writes its PID here. */
-  spawnChild?: string;
-};
-
-type IntegrationEnv = {
-  scratchDir: string;
-  baseUrl: string;
-  cookie: string;
-  /** Session cookie name this server reads (derived from its auth DB). */
-  cookieName: string;
-  context: BrowserContext;
-  dbs: Databases;
-  /** GLV's private uploads directory (temp dir, cleaned up on test end). */
-  uploadsDir: string;
-  /** GLV's private temp working-directory area (cleaned up on test end). */
-  tempDir: string;
-  /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
-  serverStderr: () => string;
-  cleanup: () => Promise<void>;
-};
+const mockGoose = (): Promise<() => void> =>
+  harness.mockScript("goose", gooseMockScriptPath);
 
 // WAL lets a test process (or the mock goose) write while the server reads,
-// without SQLITE_BUSY. The auth row satisfies the WebAuthn gate without a
-// real passkey: the returned token becomes the session cookie.
-const createDatabases = (scratchDir: string): Databases => {
+// without SQLITE_BUSY.
+const createDatabases = (scratchDir: string): harness.Databases => {
   const sessionsDb = join(scratchDir, "sessions.db");
   const sdb = new DatabaseSync(sessionsDb);
   sdb.exec("PRAGMA journal_mode=WAL");
   sdb.exec(SESSIONS_SCHEMA);
   sdb.close();
-
-  const authDb = join(scratchDir, "auth.db");
-  const adb = new DatabaseSync(authDb);
-  adb.exec(AUTH_SCHEMA);
-  const token = randomBytes(32).toString("base64url");
-  adb
-    .prepare("INSERT INTO users (id, username) VALUES (?, 'owner')")
-    .run("owner-1");
-  adb
-    .prepare(
-      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
-        "VALUES (?, ?, datetime('now', '+1 day'), datetime('now'))",
-    )
-    .run(token, "owner-1");
-  adb.close();
-
-  return {
-    sessionsDb,
-    authDb,
-    promptsDb: join(scratchDir, "prompts.db"),
-    groupsDb: join(scratchDir, "groups.db"),
-    token,
-  };
+  return harness.baseDatabases(scratchDir, { sessionsDb });
 };
 
-// The server reads fresh on every request, so sessions inserted here appear in
-// the sidebar on the next page load without a restart.
-const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
+const gooseAdapter: harness.FlavorAdapter = {
+  name: "goose",
+  binPath: GLV,
+  mockBinName: "goose",
+  mockScriptPath: gooseMockScriptPath,
+  mockEnvPrefix: "GOOSE",
+  createDatabases,
+  serveArgs: (dbs) => [
+    "--db",
+    dbs.flavor.sessionsDb,
+    ...harness.dbOverrideArgs(dbs),
+    "--goose-binary",
+    "goose",
+  ],
+  serverEnv: (dbs) => ({ GOOSE_SESSIONS_DB: dbs.flavor.sessionsDb }),
+};
+
+// The server reads fresh on every request, so sessions inserted here appear
+// in the sidebar on the next page load without a restart.
+const insertSessions = (
+  dbPath: string,
+  sessions: harness.SessionSeed[],
+): void => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
   const stmt = db.prepare(INSERT_SESSION_SQL);
@@ -226,7 +101,7 @@ const insertSessions = (dbPath: string, sessions: SessionSeed[]): void => {
 const insertMessages = (
   dbPath: string,
   sessionId: string,
-  messages: MessageSeed[],
+  messages: harness.MessageSeed[],
 ): void => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
@@ -249,290 +124,83 @@ const insertMessages = (
   db.close();
 };
 
-const serveArgs = (dbs: Databases, port: number): string[] => [
-  "serve",
-  "-p",
-  String(port),
-  "--db",
-  dbs.sessionsDb,
-  "--auth-db",
-  dbs.authDb,
-  "--prompts-db",
-  dbs.promptsDb,
-  "--groups-db",
-  dbs.groupsDb,
-  "--goose-binary",
-  "goose",
-];
-
-const stopProcess = (proc: ChildProcess): Promise<void> =>
-  new Promise((resolve) => {
-    if (proc.exitCode !== null) return resolve();
-    const timer = setTimeout(() => proc.kill("SIGKILL"), 5000);
-    proc.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    proc.kill("SIGTERM");
-  });
-
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
-const mockScript = (bin: string, file: string): Promise<() => void> =>
-  mockBin(bin, `node --import ${tsxLoader}`, { file });
-
-const mockGoose = (): Promise<() => void> =>
-  mockScript("goose", gooseMockScriptPath);
-
-// Lets pr-state/git-info tests exercise `gh pr view` without a token or network.
-const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
-
-const startServer = (
-  dbs: Databases,
-  port: number,
-  extraEnv: Record<string, string> = {},
-): { proc: ChildProcess; readStderr: () => string } => {
-  let stderr = "";
-  const proc = spawn(GLV, serveArgs(dbs, port), {
-    cwd: ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...extraEnv },
-  });
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
-  return { proc, readStderr: () => stderr };
-};
-
-const mockEnv = (mock: MockConfig): Record<string, string> => ({
-  GOOSE_MOCK_SESSION_NAME: mock.sessionName ?? "",
-  GOOSE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
-  GOOSE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
-  GOOSE_MOCK_LINES: (mock.lines ?? []).join("\n"),
-  GOOSE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
-  GOOSE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
-  GOOSE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
-  GOOSE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
-  GOOSE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
-  GOOSE_MOCK_SPAWN_CHILD: mock.spawnChild ?? "",
-});
-
-const startIntegrationEnv = async (
+const startIntegrationEnv = (
   prefix: string,
-  mock: MockConfig = {},
+  mock: harness.MockConfig = {},
   homeDir?: string,
-): Promise<IntegrationEnv> => {
-  const scratchDir = mkdtempSync(join(tmpdir(), prefix));
-  const dbs = createDatabases(scratchDir);
-  const uploadsDir = join(scratchDir, "uploads");
-  mkdirSync(uploadsDir, { recursive: true });
-  const tempDir = join(scratchDir, "tmp");
-  mkdirSync(tempDir, { recursive: true });
-  const restoreGoosePath = await mockGoose();
-  const restoreGhPath = await mockGh();
+): Promise<harness.IntegrationEnv> =>
+  harness.startEnv(gooseAdapter, prefix, mock, homeDir);
 
-  const port = await findFreePort();
-  const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(dbs, port, {
-    GOOSE_SESSIONS_DB: dbs.sessionsDb,
-    GLV_UPLOADS_DIR: uploadsDir,
-    GLV_TEMP_DIR: tempDir,
-    ...(homeDir !== undefined ? { HOME: homeDir } : {}),
-    ...mockEnv(mock),
-  });
-
-  try {
-    await waitForHttp(baseUrl);
-  } catch (err) {
-    await stopProcess(proc);
-    restoreGoosePath();
-    restoreGhPath();
-    rmSync(scratchDir, { recursive: true, force: true });
-    throw new Error(
-      `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
-    );
-  }
-
-  const browser = await chromium.launch();
-  const context = await browser.newContext();
-  const cookieName = sessionCookieName(dbs.authDb);
-  await context.addCookies([
-    {
-      name: cookieName,
-      value: dbs.token,
-      domain: "localhost",
-      path: "/",
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
+const gooseFixture: harness.FlavorFixture = {
+  name: "goose",
+  displayName: "Goose",
+  binName: "glv-goose",
+  mockReply: "mock goose reply",
+  startEnv: startIntegrationEnv,
+  seedSessions: (env, seeds) =>
+    insertSessions(env.dbs.flavor.sessionsDb, seeds),
+  seedMessages: (env, sessionId, messages) =>
+    insertMessages(env.dbs.flavor.sessionsDb, sessionId, messages),
+  toolRequest: (name, args) => ({
+    type: "toolRequest",
+    toolCall: { value: { name, arguments: args } },
+  }),
+  toolResponse: (text, isError) => ({
+    type: "toolResponse",
+    toolResult: {
+      value: { content: [{ type: "text", text }], isError },
     },
-  ]);
-
-  const cleanup = async (): Promise<void> => {
-    await context.close();
-    await browser.close();
-    await stopProcess(proc);
-    restoreGoosePath();
-    restoreGhPath();
-    const stderr = readStderr();
-    if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
-    rmSync(scratchDir, { recursive: true, force: true });
-  };
-
-  return {
-    scratchDir,
-    baseUrl,
-    cookie: `${cookieName}=${dbs.token}`,
-    cookieName,
-    context,
-    dbs,
-    uploadsDir,
-    tempDir,
-    serverStderr: readStderr,
-    cleanup,
-  };
+  }),
+  streamLine: (text) =>
+    JSON.stringify({
+      role: "assistant",
+      content: [{ type: "text", text }],
+    }),
+  // The foreign dialect for goose is claude's message-nested envelope.
+  foreignLine: JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "foreign reply" }],
+    },
+  }),
+  rawBanner: "goose is ready",
+  renameSession: (env, id, name) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, id);
+    db.close();
+  },
+  deleteSession: (env, id) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+    db.close();
+  },
+  readSessionField: (env, field, id) =>
+    harness.readStoreField(env.dbs.flavor.sessionsDb, "sessions", field, id),
+  systemFlag: "--system",
+  resumeFlag: "--session-id",
+  binaryFlag: "--goose-binary",
+  binPath: GLV,
+  mockAgent: mockGoose,
+  // Prepares goose's sessions DB under the fake HOME (the CLI needs a store
+  // to read) and returns the serve argv pointing at it.
+  defaultServeArgs: (homeDir) => {
+    const sessionsDb = join(homeDir, "sessions.db");
+    const sdb = new DatabaseSync(sessionsDb);
+    sdb.exec("PRAGMA journal_mode=WAL");
+    sdb.exec(SESSIONS_SCHEMA);
+    sdb.close();
+    return ["--db", sessionsDb, "--goose-binary", "goose"];
+  },
+  defaultDbFiles: ["auth.db", "prompts.db", "groups.db"],
 };
 
-const withPage = async (
-  context: BrowserContext,
-  run: (page: Page) => Promise<void>,
-): Promise<void> => {
-  const page = await context.newPage();
-  try {
-    await run(page);
-  } finally {
-    await page.close();
-  }
-};
-
-const authedFetch = (
-  env: IntegrationEnv,
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> => {
-  const headers: Record<string, string> = { cookie: env.cookie };
-  const extra = init.headers as Record<string, string> | undefined;
-  if (extra !== undefined) Object.assign(headers, extra);
-  return fetch(`${env.baseUrl}${path}`, {
-    ...init,
-    headers,
-    redirect: "manual",
-  });
-};
-
-type SseEvent = { event: string; data: string; id: string | undefined };
-
-const parseSseData = (data: string): Record<string, unknown> =>
-  tryParseJson<Record<string, unknown>>(data) ?? {};
-
-// Parses one SSE line: field lines update `current` in place; an empty line
-// (frame boundary) returns the accumulated event if one is in progress.
-const parseSseLine = (
-  line: string,
-  current: Partial<SseEvent>,
-): SseEvent | undefined => {
-  if (line === "") {
-    if (current.event === undefined) return undefined;
-    return {
-      event: current.event,
-      data: current.data ?? "",
-      id: current.id,
-    };
-  }
-  if (line.startsWith("event:")) current.event = line.slice(6).trim();
-  else if (line.startsWith("data:"))
-    current.data = (current.data ?? "") + line.slice(5).trim();
-  else if (line.startsWith("id:")) current.id = line.slice(3).trim();
-  return undefined;
-};
-
-const readSseStream = async (
-  reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
-  until: (events: SseEvent[]) => boolean,
-  events: SseEvent[],
-  onEvent?: (event: SseEvent) => void,
-): Promise<void> => {
-  const decoder = new TextDecoder();
-  let buf = "";
-  let current: Partial<SseEvent> = {};
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl = buf.indexOf("\n");
-    while (nl >= 0) {
-      const line = buf.slice(0, nl).replace(/\r$/, "");
-      buf = buf.slice(nl + 1);
-      nl = buf.indexOf("\n");
-      const event = parseSseLine(line, current);
-      if (line === "") {
-        current = {};
-        if (event !== undefined) {
-          events.push(event);
-          onEvent?.(event);
-        }
-        if (until(events)) return;
-      }
-    }
-  }
-};
-
-// Reads an SSE endpoint until `until` is satisfied or `timeoutMs` elapses.
-// The server keeps streams open indefinitely, so the reader is always released.
-const collectSse = async (
-  env: IntegrationEnv,
-  path: string,
-  until: (events: SseEvent[]) => boolean,
-  timeoutMs = 10000,
-  onEvent?: (event: SseEvent) => void,
-): Promise<SseEvent[]> =>
-  new Promise((resolve, reject) => {
-    const events: SseEvent[] = [];
-    let reader:
-      | ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>
-      | undefined;
-
-    const timer = setTimeout(() => {
-      reader?.cancel().catch(() => undefined);
-      reject(
-        new Error(
-          `timed out after ${timeoutMs}ms; got ${events.length} events`,
-        ),
-      );
-    }, timeoutMs);
-
-    const finish = (): void => {
-      clearTimeout(timer);
-      reader?.cancel().catch(() => undefined);
-      resolve(events);
-    };
-
-    void authedFetch(env, path, { headers: { accept: "text/event-stream" } })
-      .then(async (res) => {
-        if (res.body === null) throw new Error("no response body");
-        reader = res.body.getReader();
-        await readSseStream(reader, until, events, onEvent);
-        finish();
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-
-export type { IntegrationEnv, SseEvent };
 export {
-  authedFetch,
-  collectSse,
-  findFreePort,
   GLV,
+  gooseFixture,
   insertMessages,
   insertSessions,
   mockGoose,
-  parseSseData,
-  ROOT,
   SESSIONS_SCHEMA,
   startIntegrationEnv,
-  stopProcess,
-  waitForHttp,
-  withPage,
 };

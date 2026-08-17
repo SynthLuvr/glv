@@ -1,15 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "@playwright/test";
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  authedFetch,
   type IntegrationEnv,
-  insertSessions,
-  startIntegrationEnv,
+  postFollowUp,
+  postNewSession,
   waitForJsonFile,
-} from "./integration-harness";
+} from "../../glv/tests/harness.js";
+import { claudeFixture } from "./integration-harness.js";
 
 // A synthetic CLAUDE_CODE_* var only the inherited environment can supply —
 // proof the spawn extends that environment rather than replacing it.
@@ -31,17 +30,16 @@ beforeAll(async () => {
   // "0" rather than silently passing on an ambient value.
   process.env.CLAUDE_CODE_SANDBOXED = "0";
   process.env[PROBE] = PROBE_VALUE;
-  env = await startIntegrationEnv("glv-sandboxed-", { captureEnv: envPath });
+  env = await claudeFixture.startEnv("glv-sandboxed-", {
+    captureEnv: envPath,
+  });
 
-  // Seed an existing session so the follow-up test can exercise the resume
-  // path; its working dir must exist for the spawn.
-  mkdirSync(join(env.scratchDir, "followup"), { recursive: true });
-  insertSessions(env.dbs.projectsDir, [
-    {
-      id: "followup-1",
-      name: "Follow Up",
-      workingDir: join(env.scratchDir, "followup"),
-    },
+  // A resumable session for the follow-up test; its working dir must exist
+  // for the spawn.
+  const resumeDir = join(env.scratchDir, "resume-dir");
+  mkdirSync(resumeDir, { recursive: true });
+  claudeFixture.seedSessions(env, [
+    { id: "resume-1", name: "Resume Target", workingDir: resumeDir },
   ]);
 }, 120000);
 
@@ -59,13 +57,7 @@ describe("sandboxed env — trust gate bypassed for unseen directories", () => {
   it("sets CLAUDE_CODE_SANDBOXED on a brand-new session in a fresh dir", async () => {
     const workDir = join(env.scratchDir, "never-seen-before");
     mkdirSync(workDir, { recursive: true });
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "inspect the project",
-        working_dir: workDir,
-      }),
-    });
+    const res = await postNewSession(env, workDir, "inspect the project");
     expect(res.status).toBe(200);
 
     const claudeEnv = await waitForJsonFile(envPath, isEnv);
@@ -76,11 +68,7 @@ describe("sandboxed env — trust gate bypassed for unseen directories", () => {
   it("sets CLAUDE_CODE_SANDBOXED on a follow-up (resume) run too", async () => {
     // Drop the file from the prior run so the wait below sees this one.
     rmSync(envPath, { force: true });
-    const res = await authedFetch(env, "/sessions/followup-1/prompt", {
-      method: "POST",
-      body: new URLSearchParams({ prompt: "follow up now" }),
-      headers: { "HX-Request": "true" },
-    });
+    const res = await postFollowUp(env, "resume-1", "follow up now");
     expect(res.status).toBe(200);
 
     const claudeEnv = await waitForJsonFile(envPath, isEnv);

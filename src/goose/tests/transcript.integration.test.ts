@@ -1,143 +1,56 @@
 import { join } from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
+import { runTranscriptSuite } from "../../glv/tests/suites/transcript.suite.js";
 import {
-  type IntegrationEnv,
+  gooseFixture,
   insertMessages,
   insertSessions,
-  startIntegrationEnv,
-  withPage,
-} from "./integration-harness";
+} from "./integration-harness.js";
 
-let env: IntegrationEnv;
+describe("transcript", () => runTranscriptSuite(gooseFixture));
 
-beforeAll(async () => {
-  env = await startIntegrationEnv("glv-transcript-");
-  insertSessions(env.dbs.sessionsDb, [
-    {
-      id: "t-rich",
-      name: "Rich Transcript",
-      workingDir: join(env.scratchDir, "rich"),
-    },
-  ]);
-  insertMessages(env.dbs.sessionsDb, "t-rich", [
-    { role: "user", content: [{ type: "text", text: "Build the project" }] },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "Done. It is **bold** now." }],
-    },
-    {
-      role: "assistant",
-      content: [{ type: "thinking", thinking: "Let me consider the steps" }],
-    },
-    {
-      role: "assistant",
-      content: [
-        {
-          type: "toolRequest",
-          toolCall: {
-            value: { name: "shell", arguments: { command: "echo hi" } },
+// goose-specific: the tool-extension badge renders _meta.goose_extension,
+// which claude transcripts never carry.
+describe("tool extension badge", () => {
+  let env: IntegrationEnv;
+
+  beforeAll(async () => {
+    env = await gooseFixture.startEnv("glv-transcript-ext-");
+    insertSessions(env.dbs.flavor.sessionsDb, [
+      {
+        id: "t-ext",
+        name: "Extension Probe",
+        workingDir: join(env.scratchDir, "ext"),
+      },
+    ]);
+    insertMessages(env.dbs.flavor.sessionsDb, "t-ext", [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolRequest",
+            toolCall: {
+              value: { name: "shell", arguments: { command: "echo hi" } },
+            },
+            _meta: { goose_extension: "developer" },
           },
-          _meta: { goose_extension: "developer" },
-        },
-      ],
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "toolResponse",
-          toolResult: {
-            value: { content: [{ type: "text", text: "ok" }], isError: false },
-          },
-        },
-      ],
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "toolResponse",
-          toolResult: {
-            value: { content: [{ type: "text", text: "boom" }], isError: true },
-          },
-        },
-      ],
-    },
-  ]);
-}, 90000);
-
-afterAll(async () => {
-  await env?.cleanup();
-});
-
-const open = async (run: (page: Page) => Promise<void>): Promise<void> =>
-  withPage(env.context, async (page) => {
-    await page.goto(env.baseUrl + "/sessions/t-rich");
-    await run(page);
+        ],
+      },
+    ]);
   });
 
-describe("transcript readability", () => {
-  it("renders assistant text as sanitized markdown", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".markdown").first()).toContainText("bold");
-      expect(await page.locator("#messages").innerHTML()).not.toContain(
-        "<script>",
-      );
-    });
+  afterAll(async () => {
+    await env?.cleanup();
   });
 
-  it("adds a copy-as-markdown button to the user prompt", async () => {
-    await open(async (page) => {
-      await expect(
-        page.locator('.copy-md-btn[data-md="Build the project"]'),
-      ).toBeVisible();
-    });
-  });
-
-  it("surfaces reasoning in collapsible thinking blocks", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".block.thinking")).toContainText("Thinking");
-      await expect(
-        page.locator(".block.thinking .block-content"),
-      ).toContainText("Let me consider the steps");
-    });
-  });
-
-  it("renders tool calls with name, extension and arguments", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".block.tool-call .tool-name")).toHaveText(
-        "shell",
-      );
+  it("renders the extension badge on tool calls", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(`${env.baseUrl}/sessions/t-ext`);
       await expect(page.locator(".block.tool-call .tool-ext")).toHaveText(
         "developer",
       );
-      await expect(page.locator(".block.tool-call pre")).toContainText(
-        "echo hi",
-      );
-    });
-  });
-
-  it("renders tool results and flags error results distinctly", async () => {
-    await open(async (page) => {
-      const success = page.locator(".block.tool-result:not(.is-error)");
-      await expect(success.first()).toContainText("Result");
-      await expect(success.first().locator("pre")).toContainText("ok");
-      const errorResult = page.locator(".block.tool-result.is-error");
-      await expect(errorResult.first()).toContainText("Error result");
-      await expect(errorResult.first().locator("pre")).toContainText("boom");
-    });
-  });
-
-  it("tags tool-response messages as tool activity, not prompts", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".message.tool")).toHaveCount(2);
-      await expect(
-        page.locator(".message.tool .tag.tool").first(),
-      ).toContainText("TOOL");
-      await expect(page.locator(".message.prompt")).toHaveCount(1);
-      const outputs = await page.locator(".message.output").count();
-      expect(outputs).toBeGreaterThanOrEqual(2);
     });
   });
 });

@@ -133,9 +133,36 @@ formats all files 4. `biome check` — applies lint auto-fixes
 
 ## Project Structure
 
-- Source code lives in `src/goose/` (goose) and `src/claude/` (claude)
-- Tests live in `src/goose/tests/` and `src/claude/tests/` (filenames
-  end in `.test.ts`)
+- Shared product code lives in `src/glv/` — the glv core: views, client
+  scripts, server, runner, styles, format, git/PR support, and the test
+  harness with shared scenario suites
+- Each flavor directory holds only what genuinely differs: `src/goose/`
+  and `src/claude/` contain `cli.ts`, `db.ts` (storage adapter),
+  `agent.ts` (invocation builder), `launch.ts` (new-session strategy),
+  `profile.ts`, and a 3-line `build.ts` wrapper; `src/claude/` also
+  keeps its `store/` transcript readers
+- Integration tests live in `src/goose/tests/` and `src/claude/tests/`:
+  thin wrappers binding shared suites from `src/glv/tests/suites/` to
+  the flavor fixture, plus genuinely flavor-specific tests (filenames
+  end in `.integration.test.ts`)
 - TypeScript is type-check only (`noEmit: true`) — use `tsx` for dev
   execution
 - ESM only (`"type": "module"`)
+
+## One-location rule (enforced)
+
+A source file may live in `src/goose/`, `src/claude/`, or `src/glv/` —
+never in more than one of them. `pnpm lint` fails on either:
+
+- a path existing in two trees with identical content (`lint:mirrored`),
+  or
+- a code clone spanning two trees (`lint:cross-tree`, jscpd across all
+  of `src/`; enforced floor ≥3 lines and ≥50 tokens — byte-identical
+  copies of any size fail `lint:mirrored`).
+
+Same-path files with genuinely different content (the flavor adapters,
+profiles, and CLIs) are the intended end state and are not mirrors; any
+code fragment shared between them belongs once in `src/glv/`, and the
+cross-tree clone check enforces that. The transitional exemption lists
+that tracked the consolidation were deleted when they emptied; the rule
+is absolute.

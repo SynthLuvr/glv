@@ -2,7 +2,11 @@ import { defineConfig } from "vitest/config";
 
 const config = defineConfig({
   test: {
-    include: ["src/goose/tests/**/*.test.ts", "src/claude/tests/**/*.test.ts"],
+    include: [
+      "src/glv/tests/**/*.test.ts",
+      "src/goose/tests/**/*.test.ts",
+      "src/claude/tests/**/*.test.ts",
+    ],
     // Every test file boots a real server plus a headless browser; keep
     // parallel files modest so small CI runners don't starve them.
     maxWorkers: 4,
@@ -14,13 +18,17 @@ const config = defineConfig({
     coverage: {
       provider: "v8",
       include: [
+        "src/glv/**/*.ts",
         "src/goose/**/*.ts",
+        "src/glv/**/*.tsx",
         "src/goose/**/*.tsx",
         "src/claude/**/*.ts",
         "src/claude/**/*.tsx",
       ],
       exclude: [
+        "src/glv/tests/**",
         "src/goose/tests/**",
+        "src/glv/scripts/**",
         "src/goose/scripts/**",
         "src/claude/tests/**",
         "src/claude/scripts/**",

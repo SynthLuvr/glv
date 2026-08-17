@@ -1,24 +1,20 @@
-import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import {
+  captureStdinTo,
+  captureTo,
+  linesFromEnv,
+  sleep,
+  spawnLongChild,
+  streamLines,
+} from "../../glv/tests/mock-common.js";
 
 // Stand-in for the real goose binary. A `--session-id` flag means a resume
 // (follow-up), so no new session row is inserted. Behaviour is driven by env
 // vars (sleep, exit code, output lines), read fresh per invocation.
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 const DEFAULT_LINE = JSON.stringify({
   role: "assistant",
   content: [{ type: "text", text: "mock goose reply" }],
 });
-
-const linesFromEnv = (): string[] => {
-  const custom = process.env.GOOSE_MOCK_LINES ?? "";
-  return (custom === "" ? [DEFAULT_LINE] : custom.split("\n")).filter(
-    (line) => line !== "",
-  );
-};
 
 // Returns the new session's id so emitted lines can be committed to it.
 const insertSession = (): string | undefined => {
@@ -65,25 +61,8 @@ const commitMessage = (
   ).run(null, sessionId, role, content, ts);
 };
 
-// Prints each line to stdout, spacing them by `delay` so a tailing consumer
-// sees them arrive one at a time rather than in a single burst. `commit`
-// persists each line as a DB row when writing to the sessions DB.
-const streamLines = async (
-  lines: string[],
-  delay: number,
-  commit?: (line: string, ts: number) => void,
-): Promise<void> => {
-  let ts = Date.now();
-  for (const line of lines) {
-    console.log(line);
-    commit?.(line, ts);
-    ts += 1000;
-    if (delay > 0) await sleep(delay);
-  }
-};
-
-// Streams each line to stdout while persisting it to the sessions DB, the way
-// goose writes its transcript incrementally.
+// Streams each line to stdout while persisting it to the sessions DB, the
+// way goose writes its transcript incrementally.
 const streamAndCommit = async (
   sessionId: string,
   lines: string[],
@@ -107,43 +86,15 @@ const main = async (): Promise<void> => {
   // when a long sleep keeps the process alive afterwards.
   const sessionId = isResume ? sessionIdFromArgs(args) : insertSession();
 
-  // Optionally capture stdin (the full prompt including file-path context)
-  // so upload tests can verify what goose received.
-  const captureTo = process.env.GOOSE_MOCK_CAPTURE_STDIN;
-  if (captureTo !== undefined && captureTo !== "") {
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-    writeFileSync(captureTo, Buffer.concat(chunks));
-  }
-
-  // Optionally capture the working directory goose was spawned in so temp-dir
-  // tests can verify the session ran in the expected location.
-  const captureCwd = process.env.GOOSE_MOCK_CAPTURE_CWD;
-  if (captureCwd !== undefined && captureCwd !== "")
-    writeFileSync(captureCwd, process.cwd());
-
-  // Optionally capture goose's argv so --system tests can verify the flags
-  // passed to it.
-  const captureArgs = process.env.GOOSE_MOCK_CAPTURE_ARGS;
-  if (captureArgs !== undefined && captureArgs !== "")
-    writeFileSync(captureArgs, JSON.stringify(args));
-
-  // Spawn a long-lived descendant so session-stop tests can verify the whole
-  // process tree (not just goose) is reaped. Its PID is written to the file.
-  const spawnChildTo = process.env.GOOSE_MOCK_SPAWN_CHILD;
-  if (spawnChildTo !== undefined && spawnChildTo !== "") {
-    const child = spawn(
-      process.execPath,
-      ["-e", "setInterval(() => {}, 2 ** 30)"],
-      { stdio: "ignore" },
-    );
-    if (child.pid !== undefined) writeFileSync(spawnChildTo, String(child.pid));
-  }
+  await captureStdinTo("GOOSE_MOCK_CAPTURE_STDIN");
+  captureTo("GOOSE_MOCK_CAPTURE_CWD", process.cwd());
+  captureTo("GOOSE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
+  spawnLongChild("GOOSE_MOCK_SPAWN_CHILD");
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);
 
-  const lines = linesFromEnv();
+  const lines = linesFromEnv("GOOSE", DEFAULT_LINE);
   const delay = Number(process.env.GOOSE_MOCK_LINE_DELAY_MS ?? 0);
 
   if (process.env.GOOSE_MOCK_WRITE_DB === "1" && sessionId !== undefined)
