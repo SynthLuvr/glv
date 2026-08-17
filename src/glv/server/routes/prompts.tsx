@@ -1,5 +1,5 @@
 import { type Hono } from "hono";
-import type { PromptInput, PromptSort } from "../../../glv/prompts/db.js";
+import type { PromptInput, PromptSort } from "../../prompts/db.js";
 import {
   createPrompt,
   deletePrompt,
@@ -8,13 +8,13 @@ import {
   listPrompts,
   reorderPrompts,
   updatePrompt,
-} from "../../../glv/prompts/db.js";
+} from "../../prompts/db.js";
 import {
   PromptCard,
   PromptEditForm,
   PromptLibrary,
   PromptSaveForm,
-} from "../../../glv/views/prompt-library.js";
+} from "../../views/prompt-library.js";
 import type { ServerContext } from "../context.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";

@@ -1,9 +1,9 @@
 import type { SSEStreamingApi } from "hono/streaming";
-import { fmtRelative } from "../../glv/format/index.js";
-import type { StreamEnvelope } from "../../glv/profile.js";
-import type { LineBuffer, RunHandle } from "../../glv/runner/index.js";
-import type { SessionRow } from "../../glv/sessions.js";
-import { renderStreamLine } from "../../glv/views/stream-line.js";
+import { fmtRelative } from "../format/index.js";
+import type { StreamEnvelope } from "../profile.js";
+import type { LineBuffer, RunHandle } from "../runner/index.js";
+import type { SessionRow } from "../sessions.js";
+import { renderStreamLine } from "../views/stream-line.js";
 
 // Minimal structural shape emit()/flushPreview() touch, so tests can supply a
 // fake stream without asserting the full SSEStreamingApi interface.

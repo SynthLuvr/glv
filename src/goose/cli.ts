@@ -9,6 +9,7 @@ import {
   runConfigSet,
 } from "../glv/commands/config.js";
 import { runList } from "../glv/commands/list.js";
+import { runServe } from "../glv/commands/serve.js";
 import { runView } from "../glv/commands/view.js";
 import { readConfig } from "../glv/config.js";
 import { resolveGroupsDbPath } from "../glv/groups/db.js";
@@ -16,7 +17,6 @@ import { resolvePromptsDbPath } from "../glv/prompts/db.js";
 import { makeRunnerConfig } from "../glv/runner/index.js";
 import type { SessionStore } from "../glv/sessions.js";
 import { makeGooseAgent } from "./agent.js";
-import { runServe } from "./commands/serve.js";
 import { createSessionStore, openDb, resolveDbPath } from "./db.js";
 import { makeGooseLauncher } from "./launch.js";
 import { gooseProfile } from "./profile.js";

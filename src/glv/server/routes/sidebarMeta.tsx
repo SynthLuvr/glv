@@ -1,10 +1,10 @@
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
-import { parseMessage } from "../../../glv/format/index.js";
-import { type GitRunner, readGitInfo } from "../../../glv/git.js";
-import { detectPrUrl } from "../../../glv/pr.js";
-import type { SessionRow, SessionStore } from "../../../glv/sessions.js";
-import { BranchChip, PrChip } from "../../../glv/views/chips.js";
+import { parseMessage } from "../../format/index.js";
+import { type GitRunner, readGitInfo } from "../../git.js";
+import { detectPrUrl } from "../../pr.js";
+import type { SessionRow, SessionStore } from "../../sessions.js";
+import { BranchChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { activeSessionIds } from "../status.js";

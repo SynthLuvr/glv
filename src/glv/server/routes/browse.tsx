@@ -1,12 +1,8 @@
 import { homedir } from "node:os";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, type Hono } from "hono";
-import {
-  listBrowseDir,
-  resolveBrowsePath,
-  subPathOf,
-} from "../../../glv/server/browse.js";
-import { BrowseDetail, BrowseError } from "../../../glv/views/Browse.js";
+import { BrowseDetail, BrowseError } from "../../views/Browse.js";
+import { listBrowseDir, resolveBrowsePath, subPathOf } from "../browse.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { render } from "../render.js";

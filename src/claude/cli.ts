@@ -10,6 +10,7 @@ import {
   runConfigSet,
 } from "../glv/commands/config.js";
 import { runList } from "../glv/commands/list.js";
+import { runServe } from "../glv/commands/serve.js";
 import { runView } from "../glv/commands/view.js";
 import { readConfig } from "../glv/config.js";
 import { resolveGroupsDbPath } from "../glv/groups/db.js";
@@ -18,7 +19,6 @@ import { makeRunnerConfig } from "../glv/runner/index.js";
 import { openMetaDb, resolveMetaDbPath } from "../glv/session-meta.js";
 import type { SessionStore } from "../glv/sessions.js";
 import { makeClaudeAgent, PERMISSION_MODES } from "./agent.js";
-import { runServe } from "./commands/serve.js";
 import { createSessionStore } from "./db.js";
 import { makeClaudeLauncher } from "./launch.js";
 import { claudeProfile } from "./profile.js";

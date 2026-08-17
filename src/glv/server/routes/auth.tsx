@@ -3,15 +3,15 @@ import type {
   AuthService,
   RpConfig,
   VerifyResult,
-} from "../../../glv/auth/service.js";
-import { resolveRequestUrl } from "../../../glv/auth/service.js";
-import { errorMessage } from "../../../glv/util.js";
+} from "../../auth/service.js";
+import { resolveRequestUrl } from "../../auth/service.js";
+import { errorMessage } from "../../util.js";
 import {
   DevicesPage,
   EnrollPage,
   LoginPage,
   RegisterPage,
-} from "../../../glv/views/Auth.js";
+} from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {

@@ -1,9 +1,9 @@
 import { type Hono } from "hono";
-import { parseMessage } from "../../../glv/format/index.js";
-import { readWorktreeByBranch } from "../../../glv/git.js";
-import { detectPrUrl } from "../../../glv/pr.js";
-import { resolvePrBranch } from "../../../glv/pr-state.js";
-import { BranchChip, WorktreeChip } from "../../../glv/views/chips.js";
+import { parseMessage } from "../../format/index.js";
+import { readWorktreeByBranch } from "../../git.js";
+import { detectPrUrl } from "../../pr.js";
+import { resolvePrBranch } from "../../pr-state.js";
+import { BranchChip, WorktreeChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 
 // Resolve branch + worktree from the PR the session created and swap in chips

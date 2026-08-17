@@ -1,17 +1,17 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { listGroups } from "../../glv/groups/db.js";
-import type { ListEntry } from "../../glv/groups/model.js";
-import { buildEntries } from "../../glv/groups/model.js";
-import { listCategories, listPrompts } from "../../glv/prompts/db.js";
-import { isHtmxRequest } from "../../glv/server/http.js";
-import type { SessionRow } from "../../glv/sessions.js";
-import { Layout } from "../../glv/views/Layout.js";
-import { NewSessionForm, NotFoundDetail } from "../../glv/views/new-session.js";
-import { SessionList, Sidebar } from "../../glv/views/Sidebar.js";
+import { listGroups } from "../groups/db.js";
+import type { ListEntry } from "../groups/model.js";
+import { buildEntries } from "../groups/model.js";
+import { listCategories, listPrompts } from "../prompts/db.js";
+import type { SessionRow } from "../sessions.js";
+import { Layout } from "../views/Layout.js";
+import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
+import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
+import { isHtmxRequest } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
 // Folds the session list and the viewer-owned group memberships into a

@@ -1,22 +1,22 @@
 import type { Socket } from "node:net";
 import { serve } from "@hono/node-server";
-import { openAuthDb } from "../../glv/auth/db.js";
-import { makeAuthService } from "../../glv/auth/service.js";
-import { buildAssets } from "../../glv/build.js";
-import { startForwardTunnel, type TunnelHandle } from "../../glv/forward.js";
-import { openGroupsDb } from "../../glv/groups/db.js";
-import type { SessionLauncher } from "../../glv/launch.js";
-import { setupLogging } from "../../glv/log.js";
-import type { FlavorProfile } from "../../glv/profile.js";
-import { openPromptsDb } from "../../glv/prompts/db.js";
+import { openAuthDb } from "../auth/db.js";
+import { makeAuthService } from "../auth/service.js";
+import { buildAssets } from "../build.js";
+import { startForwardTunnel, type TunnelHandle } from "../forward.js";
+import { openGroupsDb } from "../groups/db.js";
+import type { SessionLauncher } from "../launch.js";
+import { setupLogging } from "../log.js";
+import type { FlavorProfile } from "../profile.js";
+import { openPromptsDb } from "../prompts/db.js";
 import {
   createRunner,
   type Runner,
   type RunnerConfig,
   stopAll,
-} from "../../glv/runner/index.js";
-import type { SessionStore } from "../../glv/sessions.js";
+} from "../runner/index.js";
 import { createApp } from "../server/index.js";
+import type { SessionStore } from "../sessions.js";
 
 type ServeOpts = {
   port: number;

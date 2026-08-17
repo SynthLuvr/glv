@@ -1,5 +1,5 @@
-import type { Runner, RunStatus } from "../../glv/runner/index.js";
-import { isTerminalStatus } from "../../glv/runner/index.js";
+import type { Runner, RunStatus } from "../runner/index.js";
+import { isTerminalStatus } from "../runner/index.js";
 
 // Terminal handles linger in the registry; this filters them out so the
 // sidebar only shows sessions that are queued or running.

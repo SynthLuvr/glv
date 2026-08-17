@@ -1,12 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { AuthService } from "../../glv/auth/service.js";
-import type { GitRunner } from "../../glv/git.js";
-import type { SessionLauncher } from "../../glv/launch.js";
-import type { CommandRunner } from "../../glv/pr-state.js";
-import type { FlavorProfile } from "../../glv/profile.js";
-import type { Runner } from "../../glv/runner/index.js";
-import type { AssetBundle } from "../../glv/server/bundle.js";
-import type { SessionFilter, SessionStore } from "../../glv/sessions.js";
+import type { AuthService } from "../auth/service.js";
+import type { GitRunner } from "../git.js";
+import type { SessionLauncher } from "../launch.js";
+import type { CommandRunner } from "../pr-state.js";
+import type { FlavorProfile } from "../profile.js";
+import type { Runner } from "../runner/index.js";
+import type { SessionFilter, SessionStore } from "../sessions.js";
+import type { AssetBundle } from "./bundle.js";
 
 const VIEWER_FILTER: SessionFilter = {
   type: "user",

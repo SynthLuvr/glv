@@ -1,11 +1,11 @@
 import { Hono } from "hono";
-import { authMiddleware } from "../../glv/auth/service.js";
-import type { SessionLauncher } from "../../glv/launch.js";
-import { type Runner } from "../../glv/runner/index.js";
-import { buildAssetBundle } from "../../glv/server/bundle.js";
-import { expandHome, listHomeDirs } from "../../glv/server/paths.js";
-import type { SessionStore } from "../../glv/sessions.js";
+import { authMiddleware } from "../auth/service.js";
+import type { SessionLauncher } from "../launch.js";
+import { type Runner } from "../runner/index.js";
+import type { SessionStore } from "../sessions.js";
+import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
+import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBrowseRoutes } from "./routes/browse.js";

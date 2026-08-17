@@ -2,19 +2,32 @@ import { existsSync } from "node:fs";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { displayName, parseMessage } from "../../../glv/format/index.js";
-import { pullRepo } from "../../../glv/git.js";
-import { type EstablishOutcome, withCreateLock } from "../../../glv/launch.js";
-import type { SavedPrompt } from "../../../glv/prompts/db.js";
-import { bumpUsage, listPrompts } from "../../../glv/prompts/db.js";
+import { displayName, parseMessage } from "../../format/index.js";
+import { pullRepo } from "../../git.js";
+import { type EstablishOutcome, withCreateLock } from "../../launch.js";
+import type { SavedPrompt } from "../../prompts/db.js";
+import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
   clearPending,
   enqueueOrQueue,
   getHandle,
   stop,
-} from "../../../glv/runner/index.js";
-import { extractIds, isHtmxRequest } from "../../../glv/server/http.js";
-import { expandHome } from "../../../glv/server/paths.js";
+} from "../../runner/index.js";
+import type { SessionRow } from "../../sessions.js";
+import { SessionTitleWrap } from "../../views/Rename.js";
+import { SessionList } from "../../views/Sidebar.js";
+import { PromptBar, Transcript } from "../../views/transcript.js";
+import { ServerContext, VIEWER_FILTER } from "../context.js";
+import { extractIds, isHtmxRequest } from "../http.js";
+import { expandHome } from "../paths.js";
+import {
+  newSessionDetail,
+  render,
+  renderNotFound,
+  sidebarEntries,
+} from "../render.js";
+import { activeRunPrompt } from "../session.js";
+import { activeSessionIds } from "../status.js";
 import {
   buildUploadContext,
   collectFiles,
@@ -25,20 +38,7 @@ import {
   saveUploads,
   tagDir,
   uploadErrorMessage,
-} from "../../../glv/server/uploads.js";
-import type { SessionRow } from "../../../glv/sessions.js";
-import { SessionTitleWrap } from "../../../glv/views/Rename.js";
-import { SessionList } from "../../../glv/views/Sidebar.js";
-import { PromptBar, Transcript } from "../../../glv/views/transcript.js";
-import { ServerContext, VIEWER_FILTER } from "../context.js";
-import {
-  newSessionDetail,
-  render,
-  renderNotFound,
-  sidebarEntries,
-} from "../render.js";
-import { activeRunPrompt } from "../session.js";
-import { activeSessionIds } from "../status.js";
+} from "../uploads.js";
 
 // parseBody({ all: true }) returns an array per field; take the first string.
 const firstString = (val: unknown): string => {
