@@ -6,149 +6,40 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { expect, type Page } from "@playwright/test";
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { authedFetch } from "../../glv/tests/harness.js";
+import { runTranscriptSuite } from "../../glv/tests/suites/transcript.suite.js";
 import {
-  authedFetch,
+  claudeFixture,
   type IntegrationEnv,
   insertMessages,
   insertSessions,
-  startIntegrationEnv,
-  withPage,
-} from "./integration-harness";
+} from "./integration-harness.js";
 
-let env: IntegrationEnv;
+describe("transcript", () => runTranscriptSuite(claudeFixture));
 
-beforeAll(async () => {
-  env = await startIntegrationEnv("glv-transcript-");
-  insertSessions(env.dbs.projectsDir, [
-    {
-      id: "t-rich",
-      name: "Rich Transcript",
-      workingDir: join(env.scratchDir, "rich"),
-    },
-  ]);
-  insertMessages(env.dbs.projectsDir, "t-rich", [
-    { role: "user", content: [{ type: "text", text: "Build the project" }] },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "Done. It is **bold** now." }],
-    },
-    {
-      role: "assistant",
-      content: [{ type: "thinking", thinking: "Let me consider the steps" }],
-    },
-    {
-      role: "assistant",
-      content: [
-        { type: "tool_use", name: "shell", input: { command: "echo hi" } },
-      ],
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          content: [{ type: "text", text: "ok" }],
-          is_error: false,
-        },
-      ],
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          content: [{ type: "text", text: "boom" }],
-          is_error: true,
-        },
-      ],
-    },
-  ]);
-}, 90000);
-
-afterAll(async () => {
-  await env?.cleanup();
-});
-
-const open = async (run: (page: Page) => Promise<void>): Promise<void> =>
-  withPage(env.context, async (page) => {
-    await page.goto(env.baseUrl + "/sessions/t-rich");
-    await run(page);
-  });
-
-describe("transcript readability", () => {
-  it("renders assistant text as sanitized markdown", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".markdown").first()).toContainText("bold");
-      expect(await page.locator("#messages").innerHTML()).not.toContain(
-        "<script>",
-      );
-    });
-  });
-
-  it("adds a copy-as-markdown button to the user prompt", async () => {
-    await open(async (page) => {
-      await expect(
-        page.locator('.copy-md-btn[data-md="Build the project"]'),
-      ).toBeVisible();
-    });
-  });
-
-  it("surfaces reasoning in collapsible thinking blocks", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".block.thinking")).toContainText("Thinking");
-      await expect(
-        page.locator(".block.thinking .block-content"),
-      ).toContainText("Let me consider the steps");
-    });
-  });
-
-  it("renders tool calls with name and arguments", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".block.tool-call .tool-name")).toHaveText(
-        "shell",
-      );
-      await expect(page.locator(".block.tool-call pre")).toContainText(
-        "echo hi",
-      );
-    });
-  });
-
-  it("renders tool results and flags error results distinctly", async () => {
-    await open(async (page) => {
-      const success = page.locator(".block.tool-result:not(.is-error)");
-      await expect(success.first()).toContainText("Result");
-      await expect(success.first().locator("pre")).toContainText("ok");
-      const errorResult = page.locator(".block.tool-result.is-error");
-      await expect(errorResult.first()).toContainText("Error result");
-      await expect(errorResult.first().locator("pre")).toContainText("boom");
-    });
-  });
-
-  it("tags tool-result messages as tool activity, not prompts", async () => {
-    await open(async (page) => {
-      await expect(page.locator(".message.tool")).toHaveCount(2);
-      await expect(
-        page.locator(".message.tool .tag.tool").first(),
-      ).toContainText("TOOL");
-      await expect(page.locator(".message.prompt")).toHaveCount(1);
-      const outputs = await page.locator(".message.output").count();
-      expect(outputs).toBeGreaterThanOrEqual(2);
-    });
-  });
-});
-
+// claude-specific: transcripts are plain files the agent may rewrite in
+// place; the store must notice same-size edits (no stale parse cache).
 describe("transcript re-reads", () => {
+  let env: IntegrationEnv;
+
+  beforeAll(async () => {
+    env = await claudeFixture.startEnv("glv-transcript-cache-");
+  });
+
+  afterAll(async () => {
+    await env?.cleanup();
+  });
+
   it("picks up an in-place, same-size edit (no stale parse cache)", async () => {
-    insertSessions(env.dbs.projectsDir, [
+    insertSessions(env.dbs.flavor.projectsDir, [
       {
         id: "t-cache",
         name: "Cache Probe",
         workingDir: join(env.scratchDir, "cache"),
       },
     ]);
-    insertMessages(env.dbs.projectsDir, "t-cache", [
+    insertMessages(env.dbs.flavor.projectsDir, "t-cache", [
       {
         role: "assistant",
         content: [{ type: "text", text: "rich text alpha" }],
@@ -160,11 +51,11 @@ describe("transcript re-reads", () => {
     // Same-length rewrite plus an explicit mtime bump: the parse cache is
     // keyed on (mtime, size), so this must register as a change.
     let file: string | undefined;
-    for (const dir of readdirSync(env.dbs.projectsDir, {
+    for (const dir of readdirSync(env.dbs.flavor.projectsDir, {
       withFileTypes: true,
     })) {
       if (!dir.isDirectory()) continue;
-      const path = join(env.dbs.projectsDir, dir.name, "t-cache.jsonl");
+      const path = join(env.dbs.flavor.projectsDir, dir.name, "t-cache.jsonl");
       if (existsSync(path)) file = path;
     }
     if (file === undefined) throw new Error("t-cache transcript not found");

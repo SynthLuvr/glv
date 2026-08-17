@@ -1,9 +1,1 @@
-[
-  "tests/auth.integration.test.ts",
-  "tests/browse.integration.test.ts",
-  "tests/cookie-isolation.integration.test.ts",
-  "tests/gh-mock-script.ts",
-  "tests/git.test.ts",
-  "tests/prompts.integration.test.ts",
-  "tests/structured-logger.integration.test.ts"
-]
+[]

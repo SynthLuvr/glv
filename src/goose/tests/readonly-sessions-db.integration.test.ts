@@ -15,7 +15,7 @@ let env: IntegrationEnv;
 // Opens a fresh read-only connection each call so the mutation's effect is
 // read straight from the sessions file, not server-cached state.
 const col = (id: string, name: string): unknown => {
-  const db = new DatabaseSync(env.dbs.sessionsDb, { readOnly: true });
+  const db = new DatabaseSync(env.dbs.flavor.sessionsDb, { readOnly: true });
   const row = db
     .prepare(`SELECT ${name} AS v FROM sessions WHERE id = ?`)
     .get(id) as { v: unknown } | undefined;
@@ -32,7 +32,7 @@ const post = (path: string, body: Record<string, string>): Promise<Response> =>
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-readonly-");
-  insertSessions(env.dbs.sessionsDb, [
+  insertSessions(env.dbs.flavor.sessionsDb, [
     {
       id: "ro-browse",
       name: "Browse Live",
@@ -54,7 +54,7 @@ describe("read-only browsing connection", () => {
   it("opens the sessions database read-only yet still sees live goose writes", async () => {
     // A read-only browse connection must still see rows an external writer
     // (goose) appends — SQLite WAL propagates them.
-    insertSessions(env.dbs.sessionsDb, [
+    insertSessions(env.dbs.flavor.sessionsDb, [
       {
         id: "ro-live",
         name: "Live From Goose",

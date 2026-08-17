@@ -16,7 +16,7 @@ let env: IntegrationEnv;
 // Opens a fresh read-only connection each call so the mutation's effect is
 // read straight from the sidecar file, not server-cached state.
 const col = (id: string, name: string): unknown => {
-  const db = new DatabaseSync(env.dbs.metaDb, { readOnly: true });
+  const db = new DatabaseSync(env.dbs.flavor.metaDb, { readOnly: true });
   const row = db
     .prepare(`SELECT ${name} AS v FROM session_meta WHERE id = ?`)
     .get(id) as { v: unknown } | undefined;
@@ -27,9 +27,11 @@ const col = (id: string, name: string): unknown => {
 // The transcript file claude owns for a session, found by scanning the
 // projects root — used to prove the viewer never writes into it.
 const transcriptOf = (id: string): string | undefined => {
-  for (const dir of readdirSync(env.dbs.projectsDir, { withFileTypes: true })) {
+  for (const dir of readdirSync(env.dbs.flavor.projectsDir, {
+    withFileTypes: true,
+  })) {
     if (!dir.isDirectory()) continue;
-    const path = join(env.dbs.projectsDir, dir.name, `${id}.jsonl`);
+    const path = join(env.dbs.flavor.projectsDir, dir.name, `${id}.jsonl`);
     try {
       return readFileSync(path, "utf8");
     } catch {
@@ -48,7 +50,7 @@ const post = (path: string, body: Record<string, string>): Promise<Response> =>
 
 beforeAll(async () => {
   env = await startIntegrationEnv("glv-readonly-");
-  insertSessions(env.dbs.projectsDir, [
+  insertSessions(env.dbs.flavor.projectsDir, [
     {
       id: "ro-browse",
       name: "Browse Live",
@@ -70,7 +72,7 @@ describe("read-only transcript browsing", () => {
   it("reads transcripts without writing them, yet sees live claude writes", async () => {
     // A transcript appended by an external writer (claude itself) must show
     // up on the next browse — the store re-reads files on every request.
-    insertSessions(env.dbs.projectsDir, [
+    insertSessions(env.dbs.flavor.projectsDir, [
       {
         id: "ro-live",
         name: "Live From claude",

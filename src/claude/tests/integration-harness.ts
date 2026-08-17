@@ -1,182 +1,57 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, chromium, type Page } from "@playwright/test";
-import { mockBin } from "type-a-bin";
-import { sessionCookieName } from "../../glv/auth/service.js";
-import { tryParseJson } from "../../glv/parse.js";
 import { openMetaDb } from "../../glv/session-meta.js";
+import {
+  authedFetch,
+  collectSse,
+  type Databases,
+  type FlavorAdapter,
+  type FlavorFixture,
+  findFreePort,
+  type IntegrationEnv,
+  type MessageSeed,
+  type MockConfig,
+  mockScript,
+  parseSseData,
+  ROOT,
+  type SessionSeed,
+  type SseEvent,
+  seedAuthDb,
+  startEnv,
+  stopProcess,
+  waitForHttp,
+  waitForJsonFile,
+  withPage,
+} from "../../glv/tests/harness.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
 
-const AUTH_SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id          TEXT PRIMARY KEY,
-  username    TEXT NOT NULL DEFAULT 'owner',
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS credentials (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  public_key  BLOB NOT NULL,
-  counter     INTEGER NOT NULL,
-  transports  TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  expires_at  TEXT NOT NULL,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-`;
+// The claude flavor of the shared test harness: everything generic (SSE,
+// browser, boot, auth seeding) lives in src/glv/tests/harness.ts; this file
+// binds it to claude's transcript projects dir, meta sidecar, CLI flags, and
+// mock agent.
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const GLV = join(ROOT, "bin", "glv-claude");
-
-// tsx is resolved to an absolute loader path because the mock claude runs
-// from a temp dir with no node_modules.
-const tsxLoader = createRequire(import.meta.url).resolve("tsx");
 const claudeMockScriptPath = fileURLToPath(
   new URL("./claude-mock-script.ts", import.meta.url),
 );
-const ghMockScriptPath = fileURLToPath(
-  new URL("./gh-mock-script.ts", import.meta.url),
-);
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const GLV = join(ROOT, "bin", "glv-claude");
 
-const findFreePort = (): Promise<number> =>
-  new Promise((resolve, reject) => {
-    const server = createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      if (addr === null || typeof addr === "string") {
-        server.close(() => reject(new Error("could not bind a port")));
-        return;
-      }
-      const { port } = addr;
-      server.close(() => resolve(port));
-    });
-  });
-
-// A capture file written by the claude mock can be read mid-write, so poll
-// until it parses into a value the caller recognises.
-const waitForJsonFile = async <T>(
-  path: string,
-  accept: (value: unknown) => value is T,
-  timeoutMs = 8000,
-): Promise<T> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (existsSync(path)) {
-      const parsed = tryParseJson(readFileSync(path, "utf-8"));
-      if (accept(parsed)) return parsed;
-    }
-    await sleep(50);
-  }
-  throw new Error(`json file ${path} not written within ${timeoutMs}ms`);
-};
-
-const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastErr: unknown;
-  while (Date.now() < deadline)
-    try {
-      const res = await fetch(url, { redirect: "manual" });
-      await res.arrayBuffer();
-      return;
-    } catch (err) {
-      lastErr = err;
-      await sleep(150);
-    }
-
-  throw new Error(`server at ${url} never responded: ${String(lastErr)}`);
-};
-
-type SessionSeed = { id: string; name: string; workingDir: string };
-
-// A content payload (plain string or claude content-block array), written
-// verbatim into the transcript so transcript-rendering tests can seed rich
-// transcripts.
-type MessageSeed = {
-  role: string;
-  content: unknown;
-  createdTimestamp?: number;
-  messageId?: string;
-};
-
-type Databases = {
-  projectsDir: string;
-  metaDb: string;
-  authDb: string;
-  promptsDb: string;
-  groupsDb: string;
-  token: string;
-};
-
-type MockConfig = {
-  /** Delay (ms) before the mock emits output, keeping a run "running". */
-  sleepMs?: number;
-  /** claude exit code; non-zero surfaces as a runner error. */
-  exitCode?: number;
-  /** NDJSON lines to emit (newline-joined); default is a single reply. */
-  lines?: string[];
-  /** Name written into a new session's ai-title line. */
-  sessionName?: string;
-  /** Pause (ms) between streamed lines so a tail fills incrementally. */
-  lineDelayMs?: number;
-  /** When set, persist each line to the session transcript as produced. */
-  writeDb?: boolean;
-  /** When set, writes claude's stdin (the full prompt) to this file path. */
-  captureStdin?: string;
-  /** When set, writes claude's working directory to this file path. */
-  captureCwd?: string;
-  /** When set, writes claude's argv (JSON string[]) to this file path. */
-  captureArgs?: string;
-  /** When set, writes claude's CLAUDE_CODE_* env (JSON) to this file path. */
-  captureEnv?: string;
-  /** When set, claude spawns a long-lived descendant and writes its PID here. */
-  spawnChild?: string;
-};
-
-type IntegrationEnv = {
-  scratchDir: string;
-  baseUrl: string;
-  cookie: string;
-  /** Session cookie name this server reads (derived from its auth DB). */
-  cookieName: string;
-  context: BrowserContext;
-  dbs: Databases;
-  /** GLV's private uploads directory (temp dir, cleaned up on test end). */
-  uploadsDir: string;
-  /** GLV's private temp working-directory area (cleaned up on test end). */
-  tempDir: string;
-  /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
-  serverStderr: () => string;
-  cleanup: () => Promise<void>;
-};
+const mockClaude = (): Promise<() => void> =>
+  mockScript("claude", claudeMockScriptPath);
 
 // The projects dir is plain JSONL the mock claude appends to while the
-// server reads. The auth row satisfies the WebAuthn gate without a real
-// passkey: the returned token becomes the session cookie.
+// server reads.
 const createDatabases = (scratchDir: string): Databases => {
   const projectsDir = join(scratchDir, "projects");
   mkdirSync(projectsDir, { recursive: true });
@@ -185,33 +60,41 @@ const createDatabases = (scratchDir: string): Databases => {
   openMetaDb(metaDb).close();
 
   const authDb = join(scratchDir, "auth.db");
-  const adb = openAuthDbSeed(authDb);
+  const token = seedAuthDb(authDb);
 
   return {
-    projectsDir,
-    metaDb,
     authDb,
     promptsDb: join(scratchDir, "prompts.db"),
     groupsDb: join(scratchDir, "groups.db"),
-    token: adb.token,
+    token,
+    flavor: { projectsDir, metaDb },
   };
 };
 
-const openAuthDbSeed = (dbPath: string): { token: string } => {
-  const adb = new DatabaseSync(dbPath);
-  adb.exec(AUTH_SCHEMA);
-  const token = randomBytes(32).toString("base64url");
-  adb
-    .prepare("INSERT INTO users (id, username) VALUES (?, 'owner')")
-    .run("owner-1");
-  adb
-    .prepare(
-      "INSERT INTO sessions (id, user_id, expires_at, created_at) " +
-        "VALUES (?, ?, datetime('now', '+1 day'), datetime('now'))",
-    )
-    .run(token, "owner-1");
-  adb.close();
-  return { token };
+const claudeAdapter: FlavorAdapter = {
+  name: "claude",
+  binPath: GLV,
+  mockBinName: "claude",
+  mockScriptPath: claudeMockScriptPath,
+  mockEnvPrefix: "CLAUDE",
+  createDatabases,
+  serveArgs: (dbs) => [
+    "--projects-dir",
+    dbs.flavor.projectsDir,
+    "--meta-db",
+    dbs.flavor.metaDb,
+    "--auth-db",
+    dbs.authDb,
+    "--prompts-db",
+    dbs.promptsDb,
+    "--groups-db",
+    dbs.groupsDb,
+    "--claude-binary",
+    "claude",
+  ],
+  serverEnv: (dbs) => ({
+    CLAUDE_MOCK_PROJECTS_DIR: dbs.flavor.projectsDir,
+  }),
 };
 
 // The server reads fresh on every request, so sessions seeded here appear in
@@ -303,282 +186,73 @@ const insertMessages = (
   utimesSync(path, new Date(), new Date(ts));
 };
 
-const serveArgs = (dbs: Databases, port: number): string[] => [
-  "serve",
-  "-p",
-  String(port),
-  "--projects-dir",
-  dbs.projectsDir,
-  "--meta-db",
-  dbs.metaDb,
-  "--auth-db",
-  dbs.authDb,
-  "--prompts-db",
-  dbs.promptsDb,
-  "--groups-db",
-  dbs.groupsDb,
-  "--claude-binary",
-  "claude",
-];
-
-const stopProcess = (proc: ChildProcess): Promise<void> =>
-  new Promise((resolve) => {
-    if (proc.exitCode !== null) return resolve();
-    const timer = setTimeout(() => proc.kill("SIGKILL"), 5000);
-    proc.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    proc.kill("SIGTERM");
-  });
-
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
-const mockScript = (bin: string, file: string): Promise<() => void> =>
-  mockBin(bin, `node --import ${tsxLoader}`, { file });
-
-const mockClaude = (): Promise<() => void> =>
-  mockScript("claude", claudeMockScriptPath);
-
-// Lets pr-state/git-info tests exercise `gh pr view` without a token or network.
-const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
-
-const startServer = (
-  dbs: Databases,
-  port: number,
-  extraEnv: Record<string, string> = {},
-): { proc: ChildProcess; readStderr: () => string } => {
-  let stderr = "";
-  const proc = spawn(GLV, serveArgs(dbs, port), {
-    cwd: ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...extraEnv },
-  });
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
-  return { proc, readStderr: () => stderr };
-};
-
-const mockEnv = (mock: MockConfig): Record<string, string> => ({
-  CLAUDE_MOCK_SESSION_NAME: mock.sessionName ?? "",
-  CLAUDE_MOCK_SLEEP_MS: String(mock.sleepMs ?? 0),
-  CLAUDE_MOCK_EXIT_CODE: String(mock.exitCode ?? 0),
-  CLAUDE_MOCK_LINES: (mock.lines ?? []).join("\n"),
-  CLAUDE_MOCK_LINE_DELAY_MS: String(mock.lineDelayMs ?? 0),
-  CLAUDE_MOCK_WRITE_DB: mock.writeDb === true ? "1" : "",
-  CLAUDE_MOCK_CAPTURE_STDIN: mock.captureStdin ?? "",
-  CLAUDE_MOCK_CAPTURE_CWD: mock.captureCwd ?? "",
-  CLAUDE_MOCK_CAPTURE_ARGS: mock.captureArgs ?? "",
-  CLAUDE_MOCK_CAPTURE_ENV: mock.captureEnv ?? "",
-  CLAUDE_MOCK_SPAWN_CHILD: mock.spawnChild ?? "",
-});
-
-const startIntegrationEnv = async (
+const startIntegrationEnv = (
   prefix: string,
   mock: MockConfig = {},
   homeDir?: string,
-): Promise<IntegrationEnv> => {
-  const scratchDir = mkdtempSync(join(tmpdir(), prefix));
-  const dbs = createDatabases(scratchDir);
-  const uploadsDir = join(scratchDir, "uploads");
-  mkdirSync(uploadsDir, { recursive: true });
-  const tempDir = join(scratchDir, "tmp");
-  mkdirSync(tempDir, { recursive: true });
-  const restoreClaudePath = await mockClaude();
-  const restoreGhPath = await mockGh();
+): Promise<IntegrationEnv> => startEnv(claudeAdapter, prefix, mock, homeDir);
 
-  const port = await findFreePort();
-  const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(dbs, port, {
-    CLAUDE_MOCK_PROJECTS_DIR: dbs.projectsDir,
-    GLV_UPLOADS_DIR: uploadsDir,
-    GLV_TEMP_DIR: tempDir,
-    ...(homeDir !== undefined ? { HOME: homeDir } : {}),
-    ...mockEnv(mock),
-  });
-
-  try {
-    await waitForHttp(baseUrl);
-  } catch (err) {
-    await stopProcess(proc);
-    restoreClaudePath();
-    restoreGhPath();
-    rmSync(scratchDir, { recursive: true, force: true });
-    throw new Error(
-      `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
+const claudeFixture: FlavorFixture = {
+  name: "claude",
+  displayName: "Claude",
+  binName: "glv-claude",
+  mockReply: "mock claude reply",
+  startEnv: startIntegrationEnv,
+  seedSessions: (env, seeds) =>
+    insertSessions(env.dbs.flavor.projectsDir, seeds),
+  seedMessages: (env, sessionId, messages) =>
+    insertMessages(env.dbs.flavor.projectsDir, sessionId, messages),
+  toolRequest: (name, args) => ({ type: "tool_use", name, input: args }),
+  toolResponse: (text, isError) => ({
+    type: "tool_result",
+    content: [{ type: "text", text }],
+    is_error: isError,
+  }),
+  streamLine: (text) =>
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text }],
+      },
+    }),
+  // The foreign dialect for claude is goose's top-level envelope.
+  foreignLine: JSON.stringify({
+    role: "assistant",
+    content: [{ type: "text", text: "foreign reply" }],
+  }),
+  rawBanner: "claude is ready",
+  renameSession: (env, id, name) => {
+    const path = findSessionFile(env.dbs.flavor.projectsDir, id);
+    if (path === undefined) return;
+    appendFileSync(
+      path,
+      `${JSON.stringify({
+        type: "ai-title",
+        aiTitle: name,
+        sessionId: id,
+        timestamp: new Date().toISOString(),
+      })}\n`,
     );
-  }
-
-  const browser = await chromium.launch();
-  const context = await browser.newContext();
-  const cookieName = sessionCookieName(dbs.authDb);
-  await context.addCookies([
-    {
-      name: cookieName,
-      value: dbs.token,
-      domain: "localhost",
-      path: "/",
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
-
-  const cleanup = async (): Promise<void> => {
-    await context.close();
-    await browser.close();
-    await stopProcess(proc);
-    restoreClaudePath();
-    restoreGhPath();
-    const stderr = readStderr();
-    if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
-    rmSync(scratchDir, { recursive: true, force: true });
-  };
-
-  return {
-    scratchDir,
-    baseUrl,
-    cookie: `${cookieName}=${dbs.token}`,
-    cookieName,
-    context,
-    dbs,
-    uploadsDir,
-    tempDir,
-    serverStderr: readStderr,
-    cleanup,
-  };
+  },
+  deleteSession: (env, id) => {
+    const path = findSessionFile(env.dbs.flavor.projectsDir, id);
+    if (path !== undefined) rmSync(path);
+  },
+  readSessionField: (env, field, id) => {
+    const db = new DatabaseSync(env.dbs.flavor.metaDb, { readOnly: true });
+    const row = db
+      .prepare(`SELECT ${field} AS v FROM session_meta WHERE id = ?`)
+      .get(id) as { v: unknown } | undefined;
+    db.close();
+    return row?.v;
+  },
 };
 
-const withPage = async (
-  context: BrowserContext,
-  run: (page: Page) => Promise<void>,
-): Promise<void> => {
-  const page = await context.newPage();
-  try {
-    await run(page);
-  } finally {
-    await page.close();
-  }
-};
-
-const authedFetch = (
-  env: IntegrationEnv,
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> => {
-  const headers: Record<string, string> = { cookie: env.cookie };
-  const extra = init.headers as Record<string, string> | undefined;
-  if (extra !== undefined) Object.assign(headers, extra);
-  return fetch(`${env.baseUrl}${path}`, {
-    ...init,
-    headers,
-    redirect: "manual",
-  });
-};
-
-type SseEvent = { event: string; data: string; id: string | undefined };
-
-const parseSseData = (data: string): Record<string, unknown> =>
-  tryParseJson<Record<string, unknown>>(data) ?? {};
-
-// Parses one SSE line: field lines update `current` in place; an empty line
-// (frame boundary) returns the accumulated event if one is in progress.
-const parseSseLine = (
-  line: string,
-  current: Partial<SseEvent>,
-): SseEvent | undefined => {
-  if (line === "") {
-    if (current.event === undefined) return undefined;
-    return {
-      event: current.event,
-      data: current.data ?? "",
-      id: current.id,
-    };
-  }
-  if (line.startsWith("event:")) current.event = line.slice(6).trim();
-  else if (line.startsWith("data:"))
-    current.data = (current.data ?? "") + line.slice(5).trim();
-  else if (line.startsWith("id:")) current.id = line.slice(3).trim();
-  return undefined;
-};
-
-const readSseStream = async (
-  reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
-  until: (events: SseEvent[]) => boolean,
-  events: SseEvent[],
-  onEvent?: (event: SseEvent) => void,
-): Promise<void> => {
-  const decoder = new TextDecoder();
-  let buf = "";
-  let current: Partial<SseEvent> = {};
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl = buf.indexOf("\n");
-    while (nl >= 0) {
-      const line = buf.slice(0, nl).replace(/\r$/, "");
-      buf = buf.slice(nl + 1);
-      nl = buf.indexOf("\n");
-      const event = parseSseLine(line, current);
-      if (line === "") {
-        current = {};
-        if (event !== undefined) {
-          events.push(event);
-          onEvent?.(event);
-        }
-        if (until(events)) return;
-      }
-    }
-  }
-};
-
-// Reads an SSE endpoint until `until` is satisfied or `timeoutMs` elapses.
-// The server keeps streams open indefinitely, so the reader is always released.
-const collectSse = async (
-  env: IntegrationEnv,
-  path: string,
-  until: (events: SseEvent[]) => boolean,
-  timeoutMs = 10000,
-  onEvent?: (event: SseEvent) => void,
-): Promise<SseEvent[]> =>
-  new Promise((resolve, reject) => {
-    const events: SseEvent[] = [];
-    let reader:
-      | ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>
-      | undefined;
-
-    const timer = setTimeout(() => {
-      reader?.cancel().catch(() => undefined);
-      reject(
-        new Error(
-          `timed out after ${timeoutMs}ms; got ${events.length} events`,
-        ),
-      );
-    }, timeoutMs);
-
-    const finish = (): void => {
-      clearTimeout(timer);
-      reader?.cancel().catch(() => undefined);
-      resolve(events);
-    };
-
-    void authedFetch(env, path, { headers: { accept: "text/event-stream" } })
-      .then(async (res) => {
-        if (res.body === null) throw new Error("no response body");
-        reader = res.body.getReader();
-        await readSseStream(reader, until, events, onEvent);
-        finish();
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-
-export type { IntegrationEnv, SseEvent };
+export type { IntegrationEnv, MessageSeed, MockConfig, SessionSeed, SseEvent };
 export {
   authedFetch,
+  claudeFixture,
   collectSse,
   findFreePort,
   GLV,

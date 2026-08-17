@@ -4,7 +4,7 @@ import {
   pullRepo,
   readGitInfo,
   readWorktreeByBranch,
-} from "../../glv/git.js";
+} from "../git.js";
 
 // A fake GitRunner returning canned porcelain output so the parsing and
 // lookup logic in git.ts can be exercised without a real repo.

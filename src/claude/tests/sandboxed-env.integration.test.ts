@@ -36,7 +36,7 @@ beforeAll(async () => {
   // Seed an existing session so the follow-up test can exercise the resume
   // path; its working dir must exist for the spawn.
   mkdirSync(join(env.scratchDir, "followup"), { recursive: true });
-  insertSessions(env.dbs.projectsDir, [
+  insertSessions(env.dbs.flavor.projectsDir, [
     {
       id: "followup-1",
       name: "Follow Up",
