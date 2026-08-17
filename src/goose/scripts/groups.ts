@@ -276,3 +276,5 @@ document.addEventListener("htmx:afterSwap", (e) => {
 
 // Script is deferred, so the DOM is ready.
 applyCollapsedState();
+
+export {};

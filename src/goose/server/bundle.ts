@@ -14,7 +14,7 @@ type AssetBundle = {
   readonly uploads: string;
 };
 
-// Resolved relative to this file (src/goose/server/) so dist/ is three levels up.
+// Resolved relative to this file (src/goose/server/) so dist/goose is three levels up.
 const readAsset = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 
@@ -24,15 +24,15 @@ const buildAssetBundle = (): AssetBundle => ({
     fileURLToPath(import.meta.resolve("htmx.org/dist/htmx.min.js")),
     "utf8",
   ),
-  appCss: readAsset("../../../dist/app.css"),
-  sidebar: readAsset("../../../dist/sidebar.js"),
-  stream: readAsset("../../../dist/stream.js"),
-  rename: readAsset("../../../dist/rename.js"),
-  ui: readAsset("../../../dist/ui.js"),
-  prompts: readAsset("../../../dist/prompts.js"),
-  groups: readAsset("../../../dist/groups.js"),
-  passkey: readAsset("../../../dist/passkey.js"),
-  uploads: readAsset("../../../dist/uploads.js"),
+  appCss: readAsset("../../../dist/goose/app.css"),
+  sidebar: readAsset("../../../dist/goose/sidebar.js"),
+  stream: readAsset("../../../dist/goose/stream.js"),
+  rename: readAsset("../../../dist/goose/rename.js"),
+  ui: readAsset("../../../dist/goose/ui.js"),
+  prompts: readAsset("../../../dist/goose/prompts.js"),
+  groups: readAsset("../../../dist/goose/groups.js"),
+  passkey: readAsset("../../../dist/goose/passkey.js"),
+  uploads: readAsset("../../../dist/goose/uploads.js"),
 });
 
 export type { AssetBundle };

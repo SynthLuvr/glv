@@ -26,3 +26,5 @@ const main = (): void => {
 };
 
 main();
+
+export {};

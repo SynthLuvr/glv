@@ -234,3 +234,5 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   if (target?.id === "detail-pane" || target?.hasAttribute("data-prompt-bar"))
     initUploadForms();
 });
+
+export {};

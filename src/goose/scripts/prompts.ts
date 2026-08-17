@@ -391,3 +391,5 @@ import { fillPromptInput } from "./shared.js";
   document.addEventListener("drop", onDrop);
   document.addEventListener("dragend", onDragEnd);
 })();
+
+export {};

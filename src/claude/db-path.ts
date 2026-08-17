@@ -1,0 +1,29 @@
+import { mkdirSync } from "node:fs";
+import { homedir, platform } from "node:os";
+import { dirname, join } from "node:path";
+
+const dataRoot = (): string => {
+  if (platform() === "win32")
+    return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+
+  return join(homedir(), ".local", "share");
+};
+
+// Distinct per glv build so two installs on one machine never share
+// SQLite files, uploads, or temp dirs.
+const DATA_DIR_NAME = "glv-claude";
+
+// Precedence: explicit override → environment variable → platform default.
+const resolveDataPath = (
+  override: string | undefined,
+  envVar: string,
+  ...segments: string[]
+): string => override ?? process.env[envVar] ?? join(dataRoot(), ...segments);
+
+// Only glv-owned databases (auth, prompts, groups, meta) need this;
+// claude's transcripts are plain JSONL files read straight from disk.
+const ensureDbDir = (dbPath: string): void => {
+  mkdirSync(dirname(dbPath), { recursive: true });
+};
+
+export { DATA_DIR_NAME, ensureDbDir, resolveDataPath };

@@ -332,3 +332,5 @@ document.addEventListener("htmx:afterSwap", (e) => {
   if (!(e instanceof CustomEvent)) return;
   if (e.detail?.target?.id === "session-list") applyUnread();
 });
+
+export {};

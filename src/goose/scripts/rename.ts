@@ -97,3 +97,5 @@ document.addEventListener("focusout", (e) => {
   }
   submitRename(input.form);
 });
+
+export {};

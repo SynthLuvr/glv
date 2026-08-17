@@ -89,3 +89,5 @@ const init = (): void => {
 };
 
 init();
+
+export {};

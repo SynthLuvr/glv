@@ -384,3 +384,5 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   // The prompt-bar swap landed — restore any captured draft.
   if (pendingBarDraft !== undefined) restoreBarDraft();
 });
+
+export {};

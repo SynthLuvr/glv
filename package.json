@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Self-hosted web UI that increases development speed with agentic coding",
-  "bin": { "glv": "bin/glv.mjs" },
+  "bin": { "glv": "bin/glv.mjs", "glv-claude": "bin/glv-claude.mjs" },
   "type": "module",
   "packageManager": "pnpm@11.15.0",
   "engines": {
@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "tsc && pnpm build:assets",
-    "build:assets": "tsx src/goose/build.ts",
+    "build:assets": "tsx src/goose/build.ts && tsx src/claude/build.ts",
     "format:arrows": "pnpm convert-to-arrow .",
     "format:biome": "pnpm biome format --write .",
     "format:braces": "pnpm strip-braces .",
@@ -21,7 +21,7 @@
     "lint:oxlint": "pnpm oxlint --deny-warnings .",
     "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates",
     "lint:audit": "pnpm audit --prod",
-    "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 5",
+    "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 5 && pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 5",
     "strip-braces": "pnpm exec ast-grep scan --rule .ast-grep/rules/strip-braces.yml -U",
     "lint:exports": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-inline-export.yml --error=no-inline-export --globs '!**/*.d.ts' .",
     "lint:functions": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-function-declaration.yml --error=no-function-declaration --globs '!**/*.d.ts' .",
