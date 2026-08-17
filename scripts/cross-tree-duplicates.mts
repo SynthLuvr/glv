@@ -12,9 +12,7 @@
  * trees fails the build. The enforced floor is at least 3 lines AND 50
  * tokens — jscpd's defaults, passed explicitly in runJscpd so the bar is
  * deliberate rather than inherited. Byte-identical copies of ANY size are
- * still caught by lint:mirrored. The transitional exemption lists that covered
- * pre-consolidation clones were removed once they emptied; every
- * cross-tree clone now fails unconditionally.
+ * still caught by lint:mirrored.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -23,8 +21,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const MIRRORED_EXEMPTIONS = join(ROOT, "scripts", "mirrored-exemptions.json");
-const CLONE_EXEMPTIONS = join(ROOT, "scripts", "cross-tree-exemptions.json");
 const TREES = new Set(["goose", "claude", "glv"]);
 // typescript + tsx mirror lint:duplicates' scope plus the .tsx views; css
 // covers styles/, markdown the shared system prompt.
@@ -39,13 +35,6 @@ type Clone = {
 
 type Report = { duplicates: Clone[] };
 
-const loadPaths = (path: string): Set<string> =>
-  new Set(
-    existsSync(path)
-      ? (JSON.parse(readFileSync(path, "utf8")) as string[])
-      : [],
-  );
-
 // Report names are relative to the scan root (src/), e.g. "goose/db.ts",
 // and may carry a ":format" suffix (e.g. "goose/system-prompt.md:markdown").
 const cleanName = (scanned: string): string => {
@@ -57,9 +46,6 @@ const treeOf = (path: string): string | undefined => {
   const head = path.split("/")[0];
   return TREES.has(head) ? head : undefined;
 };
-
-// "goose/db.ts" -> "db.ts", the tree-relative path used by exemptions.
-const withinTree = (path: string): string => path.slice(path.indexOf("/") + 1);
 
 const runJscpd = (outDir: string): Report => {
   const result = spawnSync(
@@ -103,26 +89,18 @@ const runJscpd = (outDir: string): Report => {
 };
 
 const checkCrossTree = (): void => {
-  const exempted = loadPaths(MIRRORED_EXEMPTIONS);
-  const cloneExempted = loadPaths(CLONE_EXEMPTIONS);
   const outDir = mkdtempSync(join(tmpdir(), "glv-cross-tree-"));
   try {
     const report = runJscpd(outDir);
     const violations = report.duplicates.filter((clone) => {
-      const aName = cleanName(clone.firstFile.name);
-      const bName = cleanName(clone.secondFile.name);
-      const a = treeOf(aName);
-      const b = treeOf(bName);
-      if (a === undefined || b === undefined || a === b) return false;
-      return ![aName, bName].some((name) => {
-        const rel = withinTree(name);
-        return exempted.has(rel) || cloneExempted.has(rel);
-      });
+      const a = treeOf(cleanName(clone.firstFile.name));
+      const b = treeOf(cleanName(clone.secondFile.name));
+      return a !== undefined && b !== undefined && a !== b;
     });
 
     if (violations.length === 0) {
       console.log(
-        `No cross-tree duplication outside the exemption lists ` +
+        `No cross-tree duplication ` +
           `(${report.duplicates.length} clone pair(s) scanned).`,
       );
       return;

@@ -152,7 +152,7 @@ const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
 };
 
 // Used to name a freshly created group after its founding session — the one
-// whose first user prompt came earliest.  `undefined` when none of the
+// whose first user prompt came earliest. `undefined` when none of the
 // sessions have a user message yet.
 const firstPromptSessionName = (
   db: DatabaseSync,

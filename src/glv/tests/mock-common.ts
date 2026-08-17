@@ -27,7 +27,6 @@ const captureStdinTo = async (envVar: string): Promise<void> => {
   writeFileSync(captureTo, Buffer.concat(chunks));
 };
 
-// Writes `content` to the capture file named by the env var, when set.
 const captureTo = (envVar: string, content: string): void => {
   const path = process.env[envVar];
   if (path !== undefined && path !== "") writeFileSync(path, content);

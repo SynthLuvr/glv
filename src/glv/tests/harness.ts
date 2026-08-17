@@ -251,8 +251,7 @@ type FlavorFixture = {
   readonly toolResponse: (text: string, isError: boolean) => unknown;
   /** One NDJSON preview line in the flavor's stream dialect. */
   readonly streamLine: (text: string) => string;
-  /** One NDJSON line in the FOREIGN dialect (must be dropped by the
-   * viewer — the deliberately-pinned strictness). */
+  /** One NDJSON line in the foreign envelope — the viewer must drop it. */
   readonly foreignLine: string;
   /** Non-JSON banner text the flavor's agent may emit. */
   readonly rawBanner: string;
@@ -383,9 +382,7 @@ const startEnv = async (
     ...mockEnv(adapter.mockEnvPrefix, mock),
   });
 
-  try {
-    await waitForHttp(baseUrl);
-  } catch (err) {
+  const abortBoot = async (err: unknown): Promise<never> => {
     await stopProcess(proc);
     restoreAgentPath();
     restoreGhPath();
@@ -393,6 +390,12 @@ const startEnv = async (
     throw new Error(
       `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
     );
+  };
+
+  try {
+    await waitForHttp(baseUrl);
+  } catch (err) {
+    await abortBoot(err);
   }
 
   const browser = await chromium.launch();
@@ -616,14 +619,12 @@ export {
   collectSse,
   dbOverrideArgs,
   findFreePort,
-  mockGh,
   mockScript,
   parseSseData,
   postFollowUp,
   postNewSession,
   ROOT,
   readStoreField,
-  seedAuthDb,
   startEnv,
   stopProcess,
   waitForHttp,

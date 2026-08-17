@@ -18,8 +18,4 @@ type FlavorProfile = {
 
 type StreamEnvelope = "top-level" | "message";
 
-// Per-flavor facts the core receives as data. A difference between the
-// flavors that is a name, path, or message belongs here — never in a
-// core branch. (Phase 3 extends this with runner and branding data.)
-
 export type { FlavorProfile, StreamEnvelope };

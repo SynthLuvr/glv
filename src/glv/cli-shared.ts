@@ -64,8 +64,6 @@ const resolveForwardHost = (
   return forwardHost;
 };
 
-// Registers the shared `config` command tree (get/set/list) bound to the
-// flavor's data directory.
 const registerConfigCommands = (
   program: Command,
   profile: FlavorProfile,
@@ -95,8 +93,6 @@ const registerConfigCommands = (
   return configCmd;
 };
 
-// Reads and validates the program's global options against the flavor's
-// arktype schema.
 const readGlobalOpts = <T>(
   program: Command,
   schema: (raw: unknown) => T | type.errors,
@@ -107,7 +103,6 @@ const readGlobalOpts = <T>(
   return opts;
 };
 
-// The shared `view` command: identical in every flavor.
 const registerViewCommand = (
   program: Command,
   run: (sessionId: string) => void,
@@ -132,8 +127,6 @@ const addServeTailOptions = (cmd: Command): Command =>
     )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
-// The shared tail of every serve wiring: relaying party config, tunnel
-// host, and debug flag.
 type ServeTailOpts = {
   rpName: string;
   rpId?: string;
