@@ -21,4 +21,4 @@ cd "$PROJECT_ROOT" || {
   exit 1
 }
 
-exec node --import "$PROJECT_ROOT/node_modules/tsx/dist/loader.mjs" "$PROJECT_ROOT/src/cli.ts" "$@"
+exec node --import "$PROJECT_ROOT/node_modules/tsx/dist/loader.mjs" "$PROJECT_ROOT/src/goose/cli.ts" "$@"

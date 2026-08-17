@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tsxLoader = join(root, "node_modules", "tsx", "dist", "loader.mjs");
-const cli = join(root, "src", "cli.ts");
+const cli = join(root, "src", "goose", "cli.ts");
 const args = ["--import", tsxLoader, cli, ...process.argv.slice(2)];
 
 const { error, status } = spawnSync(process.execPath, args, {

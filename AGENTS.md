@@ -28,8 +28,8 @@ All three must pass with zero errors.
 Every new feature or behavior change **must** ship with an integration
 test that exercises the real code path end-to-end. Pure unit tests are
 **forbidden**. If you add an endpoint, a UI flow, or a data change, add
-a test in `src/tests/` (filenames end in `.integration.test.ts`) that
-would fail without your change.
+a test in `src/goose/tests/` (filenames end in `.integration.test.ts`)
+that would fail without your change.
 
 ### No function mocks
 
@@ -42,7 +42,7 @@ binary (e.g. the `goose` CLI) with a real script on `PATH`.
 
 All assertions must be made by querying the running server over
 `http://localhost:<port>`. Use the helpers in
-`src/tests/integration-harness.ts` (`startIntegrationEnv`,
+`src/goose/tests/integration-harness.ts` (`startIntegrationEnv`,
 `authedFetch`, `collectSse`, `withPage`) to boot a real `glv serve`
 process on a free localhost port and hit its endpoints over HTTP/SSE. Do
 not import server internals into a test or call handlers directly.
@@ -131,8 +131,8 @@ formats all files 4. `biome check` — applies lint auto-fixes
 
 ## Project Structure
 
-- Source code lives in `src/`
-- Tests live in `src/tests/` (filenames end in `.test.ts`)
+- Source code lives in `src/goose/`
+- Tests live in `src/goose/tests/` (filenames end in `.test.ts`)
 - TypeScript is type-check only (`noEmit: true`) — use `tsx` for dev
   execution
 - ESM only (`"type": "module"`)
