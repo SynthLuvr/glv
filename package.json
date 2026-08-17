@@ -22,7 +22,7 @@
     "format": "npm-run-all format:arrows format:braces format:biome format:check format:md",
     "lint:biome": "pnpm biome check .",
     "lint:oxlint": "pnpm oxlint --deny-warnings .",
-    "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates",
+    "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates lint:mirrored lint:cross-tree",
     "lint:audit": "pnpm audit --prod",
     "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 5 && pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 5",
     "strip-braces": "pnpm exec ast-grep scan --rule .ast-grep/rules/strip-braces.yml -U",
@@ -31,6 +31,8 @@
     "lint:file-comment": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-file-comment.yml --error=no-file-comment --globs '!**/*.d.ts' .",
     "lint:md": "tsx scripts/pandoc-md.mts --check",
     "lint:peer-deps": "tsx scripts/peer-deps.mts",
+    "lint:mirrored": "tsx scripts/mirrored-files.mts",
+    "lint:cross-tree": "tsx scripts/cross-tree-duplicates.mts",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "pnpm build:assets && vitest run --coverage",
     "test:watch": "vitest"

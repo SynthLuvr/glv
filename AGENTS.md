@@ -139,3 +139,20 @@ formats all files 4. `biome check` — applies lint auto-fixes
 - TypeScript is type-check only (`noEmit: true`) — use `tsx` for dev
   execution
 - ESM only (`"type": "module"`)
+
+## One-location rule (enforced)
+
+A source file may live in `src/goose/`, `src/claude/`, or `src/glv/` —
+never in more than one of them. `pnpm lint` fails on either:
+
+- a path that exists in two trees (`lint:mirrored`), or
+- a code clone spanning two trees (`lint:cross-tree`, jscpd across all
+  of `src/`).
+
+Files still mirrored from before the `src/glv/` consolidation are listed
+in `scripts/mirrored-exemptions.json`. The list only shrinks: remove
+entries as you consolidate files into `src/glv/`; never add them. A
+stale entry fails lint too, so consolidation cannot silently regress. A
+second, equally shrinking list, `scripts/cross-tree-exemptions.json`,
+exempts files with pre-existing cross-tree clone fragments (the
+per-flavor mock agent scripts) from `lint:cross-tree`.
