@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
+import { type GitRunner, readGitInfo } from "../../../glv/git.js";
 import {
   getSession,
   listMessages,
@@ -9,7 +10,6 @@ import {
   type SessionRow,
 } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
-import { type GitRunner, readGitInfo } from "../../git.js";
 import { detectPrUrl } from "../../pr.js";
 import { BranchChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";

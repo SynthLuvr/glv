@@ -1,14 +1,14 @@
-import type { SessionRow } from "../db.js";
-import type { ListEntry } from "../groups/model.js";
-import { GroupEntry } from "./GroupEntry.js";
-import { SessionItem } from "./SessionItem.js";
 import {
   BrowseFilesButton,
   BulkActionBar,
   LogoutButton,
   NewSessionButton,
   ThemeToggle,
-} from "./SidebarControls.js";
+} from "../../glv/views/SidebarControls.js";
+import type { SessionRow } from "../db.js";
+import type { ListEntry } from "../groups/model.js";
+import { GroupEntry } from "./GroupEntry.js";
+import { SessionItem } from "./SessionItem.js";
 
 type SidebarProps = {
   sessions: SessionRow[];

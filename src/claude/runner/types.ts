@@ -1,7 +1,7 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
-import { DEFAULT_SYSTEM_PROMPT } from "../system.js";
-import type { LineBuffer } from "./ring-buffer.js";
+import type { LineBuffer } from "../../glv/runner/ring-buffer.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../../glv/system.js";
 
 type RunnerConfig = {
   maxConcurrent: number;

@@ -1,6 +1,7 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { isHtmxRequest } from "../../glv/server/http.js";
 import type { SessionRow } from "../db.js";
 import { listSessions } from "../db.js";
 import { listGroups } from "../groups/db.js";
@@ -12,7 +13,6 @@ import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
-import { isHtmxRequest } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
 // Folds the claude session list and the viewer-owned group memberships into a

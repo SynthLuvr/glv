@@ -1,6 +1,6 @@
 import { type Hono } from "hono";
+import { serveAsset } from "../../../glv/server/http.js";
 import type { ServerContext } from "../context.js";
-import { serveAsset } from "../http.js";
 
 const contentTypeFor = (path: string): string =>
   path.endsWith(".css")

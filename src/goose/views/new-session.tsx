@@ -1,7 +1,7 @@
+import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import { shortenHome } from "../format/index.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import { PromptLibrarySection } from "./prompt-library.js";
-import { PaperclipButton, UploadFields } from "./uploads.js";
 
 const WorkingDirBody = ({
   workingDir,

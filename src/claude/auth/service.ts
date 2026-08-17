@@ -15,7 +15,7 @@ import {
 import { type } from "arktype";
 import { type Context, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { errorMessage } from "../util.js";
+import { errorMessage } from "../../glv/util.js";
 import {
   addCredential,
   type CredentialSummary,

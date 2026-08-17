@@ -1,4 +1,4 @@
-import { parseJson } from "./shared.js";
+import { parseJson } from "./shared";
 
 const getChecks = (): HTMLInputElement[] => [
   ...document.querySelectorAll<HTMLInputElement>(".session-check"),
@@ -109,7 +109,7 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
   if (group !== null) setGroupRunning(group);
 };
 
-// Goose derives a session name mid-run; the feed pushes it here so the card
+// The agent derives a session name mid-run; the feed pushes it here
 // updates live. Empty names render as "(unnamed)" to match displayName.
 const setSessionName = (sessionId: string, name: string): void => {
   const item = findSessionItem(sessionId);

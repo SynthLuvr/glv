@@ -1,4 +1,4 @@
-import { createRingBuffer } from "./ring-buffer.js";
+import { createRingBuffer } from "../../glv/runner/ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
   ClaudeInvocation,

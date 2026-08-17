@@ -1,8 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import {
+  placeholders,
+  transaction,
+  validate,
+  validateAll,
+} from "../../glv/query.js";
 import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
-import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
 

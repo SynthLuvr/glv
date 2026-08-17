@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { tryParseJson } from "./parse.js";
+import { tryParseJson } from "../glv/parse.js";
+import { execGh } from "../glv/shell.js";
 import { PR_URL } from "./pr.js";
-import { execGh } from "./shell.js";
 
 type PrState = "open" | "merged" | "closed" | "unknown";
 

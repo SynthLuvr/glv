@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { transaction, validate, validateAll } from "../../glv/query.js";
 import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
-import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
 // in a glv-owned, read-write database (never claude's transcript files,

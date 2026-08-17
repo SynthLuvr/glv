@@ -1,6 +1,6 @@
+import { tryParseJson } from "../glv/parse.js";
 import type { ParsedMessage } from "./format/index.js";
 import { thinkingText, toolResultInfo } from "./format/index.js";
-import { tryParseJson } from "./parse.js";
 
 // Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
 // collides with issues and changelog noise.

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { transaction, validate, validateAll } from "../../glv/query.js";
 import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
-import { transaction, validate, validateAll } from "../query.js";
 
 // Viewer-owned sidecar, kept separate from goose's read-only sessions.db so
 // schema migrations never touch this data.  Archiving a session hides it from

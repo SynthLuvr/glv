@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { DEFAULT_SYSTEM_PROMPT } from "../system.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../../glv/system.js";
 import {
   authedFetch,
   type IntegrationEnv,

@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { placeholders, validate, validateAll } from "../glv/query.js";
 import { resolveDataPath } from "./db-path";
-import { placeholders, validate, validateAll } from "./query";
 
 const sessionShape = {
   id: "string",

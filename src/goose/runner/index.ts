@@ -1,3 +1,5 @@
+import type { LineBuffer } from "../../glv/runner/ring-buffer.js";
+import { createRingBuffer } from "../../glv/runner/ring-buffer.js";
 import {
   clearPending,
   enqueueOrQueue,
@@ -7,8 +9,6 @@ import {
   stop,
   stopAll,
 } from "./queue.js";
-import type { LineBuffer } from "./ring-buffer.js";
-import { createRingBuffer } from "./ring-buffer.js";
 import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
 import type {
   ProcessResult,

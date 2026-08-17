@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { GitRunner } from "../../glv/git.js";
 import type { AuthService } from "../auth/service.js";
 import type { SessionFilter } from "../db.js";
-import type { GitRunner } from "../git.js";
 import type { CommandRunner } from "../pr-state.js";
 import type { Runner } from "../runner/index.js";
 import type { AssetBundle } from "./bundle.js";

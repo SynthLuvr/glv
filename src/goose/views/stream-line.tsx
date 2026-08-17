@@ -1,7 +1,7 @@
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
+import { tryParseJson } from "../../glv/parse.js";
 import { messageKind, parseContent } from "../format/index.js";
-import { tryParseJson } from "../parse.js";
 import { itemBlock, tagFor } from "./message-blocks.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

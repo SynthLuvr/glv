@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
+import { tryParseJson } from "../glv/parse.js";
 import { DATA_DIR_NAME } from "./db-path.js";
-import { tryParseJson } from "./parse.js";
 
 const configRoot = (): string => {
   if (platform() === "win32")

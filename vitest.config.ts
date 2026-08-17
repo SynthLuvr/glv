@@ -14,13 +14,17 @@ const config = defineConfig({
     coverage: {
       provider: "v8",
       include: [
+        "src/glv/**/*.ts",
         "src/goose/**/*.ts",
+        "src/glv/**/*.tsx",
         "src/goose/**/*.tsx",
         "src/claude/**/*.ts",
         "src/claude/**/*.tsx",
       ],
       exclude: [
+        "src/glv/tests/**",
         "src/goose/tests/**",
+        "src/glv/scripts/**",
         "src/goose/scripts/**",
         "src/claude/tests/**",
         "src/claude/scripts/**",

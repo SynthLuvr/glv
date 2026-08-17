@@ -1,10 +1,10 @@
 import { Hono } from "hono";
+import { expandHome, listHomeDirs } from "../../glv/server/paths.js";
 import { authMiddleware } from "../auth/service.js";
 import type { SessionStore } from "../db.js";
 import { type Runner } from "../runner/index.js";
 import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
-import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBrowseRoutes } from "./routes/browse.js";

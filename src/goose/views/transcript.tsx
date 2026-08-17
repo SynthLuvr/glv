@@ -1,4 +1,5 @@
 import { renderToString } from "hono/jsx/dom/server";
+import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format/index.js";
 import { fmtRelative, shortenHome, truncateMiddle } from "../format/index.js";
@@ -8,7 +9,6 @@ import type { RunHandle } from "../runner/index.js";
 import { PrChip } from "./chips.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
-import { PaperclipButton, UploadFields } from "./uploads.js";
 
 // Icons are toggled via the `.copied` class that ui.ts's delegated handler
 // adds after a clipboard write — no per-button wiring needed.
