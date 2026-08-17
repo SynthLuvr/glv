@@ -1,7 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
+import { resolveDataPath } from "../glv/db-path.js";
 import { placeholders, validate, validateAll } from "../glv/query.js";
-import { resolveDataPath } from "./db-path";
+import type {
+  MessageRow,
+  SessionFilter,
+  SessionRow,
+  SessionStore,
+} from "../glv/sessions.js";
 
 const sessionShape = {
   id: "string",
@@ -17,9 +23,7 @@ const sessionShape = {
   archived_at: "string | null",
 } as const;
 
-const SessionRow = type(sessionShape);
-
-type SessionRow = typeof SessionRow.infer;
+const SessionRowModel = type(sessionShape);
 
 const SESSION_COLS = Object.keys(sessionShape).join(", ");
 
@@ -32,17 +36,9 @@ const messageShape = {
   timestamp: "string",
 } as const;
 
-const MessageRow = type(messageShape);
-
-type MessageRow = typeof MessageRow.infer;
+const MessageRowModel = type(messageShape);
 
 const MESSAGE_COLS = Object.keys(messageShape).join(", ");
-
-type SessionFilter = {
-  type: string;
-  limit: number;
-  includeArchived: boolean;
-};
 
 // goose may store its DB elsewhere on Windows; override with
 // GOOSE_SESSIONS_DB or --db when the default doesn't match.
@@ -84,18 +80,21 @@ const listSessions = (
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
   parts.push("ORDER BY updated_at DESC", "LIMIT ?");
   params.push(filter.limit);
-  return validateAll(SessionRow, db.prepare(parts.join(" ")).all(...params));
+  return validateAll(
+    SessionRowModel,
+    db.prepare(parts.join(" ")).all(...params),
+  );
 };
 
 const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
   validate(
-    SessionRow,
+    SessionRowModel,
     db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(id),
   );
 
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
   validateAll(
-    MessageRow,
+    MessageRowModel,
     db
       .prepare(
         `SELECT ${MESSAGE_COLS} FROM messages
@@ -176,16 +175,26 @@ const firstPromptSessionName = (
   return row === undefined ? undefined : getSession(db, row.session_id)?.name;
 };
 
-export type { MessageRow, SessionFilter, SessionRow };
+// The goose storage adapter: browsing stays read-only so it never touches a
+// row a live goose session is writing; viewer-managed archive/rename
+// mutations go through the writable handle.
+const createSessionStore = (
+  db: DatabaseSync,
+  dbWritable: DatabaseSync,
+): SessionStore => ({
+  listSessions: (filter) => listSessions(db, filter),
+  getSession: (id) => getSession(db, id),
+  listMessages: (sessionId) => listMessages(db, sessionId),
+  archiveSessions: (ids) => archiveSessions(dbWritable, ids),
+  renameSession: (id, rawName) => renameSession(dbWritable, id, rawName),
+  firstPromptSessionName: (ids) => firstPromptSessionName(db, ids),
+  prCandidateIds: (ids) => prCandidateIds(db, ids),
+});
+
 export {
-  archiveSessions,
-  firstPromptSessionName,
+  createSessionStore,
   getSession,
-  listMessages,
-  listSessions,
   openDb,
-  prCandidateIds,
-  renameSession,
   resolveDbPath,
   sessionIdsInDir,
 };

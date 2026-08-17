@@ -1,22 +1,26 @@
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
-import { resolveAuthDbPath } from "./auth/db.js";
+import { resolveAuthDbPath } from "../glv/auth/db.js";
 import {
   runConfigGet,
   runConfigList,
   runConfigSet,
-} from "./commands/config.js";
+} from "../glv/commands/config.js";
+import { readConfig } from "../glv/config.js";
+import { resolveGroupsDbPath } from "../glv/groups/db.js";
+import { resolvePromptsDbPath } from "../glv/prompts/db.js";
+import { openMetaDb, resolveMetaDbPath } from "../glv/session-meta.js";
+import type { SessionStore } from "../glv/sessions.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import { readConfig } from "./config.js";
-import type { SessionStore } from "./db.js";
-import { resolveGroupsDbPath } from "./groups/db.js";
-import { resolvePromptsDbPath } from "./prompts/db.js";
+import { createSessionStore } from "./db.js";
+import { makeClaudeLauncher } from "./launch.js";
+import { claudeProfile } from "./profile.js";
 import { makeRunnerConfig, PERMISSION_MODES } from "./runner/index.js";
-import { openMetaDb, resolveMetaDbPath } from "./store/meta.js";
 import { resolveProjectsRoot } from "./store/working-dir.js";
 
 type SessionsOpts = {
@@ -64,15 +68,24 @@ const globalOpts = () => {
 // Opens the glv-owned meta sidecar (creating it on first use) and pairs it
 // with claude's projects directory; the transcript files themselves stay
 // owned — and only ever written — by the claude CLI.
-const openSessionStore = (): SessionStore => ({
-  root: resolveProjectsRoot(globalOpts().projectsDir),
-  meta: openMetaDb(resolveMetaDbPath(globalOpts().metaDb)),
-});
+type ClaudeSessionStore = {
+  readonly root: string;
+  readonly meta: DatabaseSync;
+  readonly sessions: SessionStore;
+};
 
-const useStore = (fn: (store: SessionStore) => void): void => {
+const openSessionStore = (): ClaudeSessionStore => {
+  const root = resolveProjectsRoot(globalOpts().projectsDir);
+  const meta = openMetaDb(
+    resolveMetaDbPath(claudeProfile.dataDirName, globalOpts().metaDb),
+  );
+  return { root, meta, sessions: createSessionStore(root, meta) };
+};
+
+const useStore = (fn: (sessions: SessionStore) => void): void => {
   const store = openSessionStore();
   try {
-    fn(store);
+    fn(store.sessions);
   } finally {
     store.meta.close();
   }
@@ -84,8 +97,9 @@ program
   .option("--all", "include archived sessions")
   .option("-n, --limit <number>", "number of rows to list", "20")
   .action((opts: SessionsOpts) => {
-    useStore((store) =>
-      runList(store, {
+    useStore((sessions) =>
+      runList(sessions, {
+        type: "user",
         limit: Number(opts.limit),
         includeArchived: opts.all === true,
       }),
@@ -96,28 +110,30 @@ program
   .command("view <sessionId>")
   .description("Show prompts and final outputs for a session")
   .action((sessionId: string) => {
-    useStore((store) => runView(store, sessionId));
+    useStore((sessions) => runView(sessions, sessionId));
   });
 
 const configCmd = program
   .command("config")
   .description("Read and set fields in the glv config file")
-  .action(() => runConfigList());
+  .action(() => runConfigList(claudeProfile.dataDirName));
 
 configCmd
   .command("get <key>")
   .description("Print the value of a config field")
-  .action((key: string) => runConfigGet(key));
+  .action((key: string) => runConfigGet(claudeProfile.dataDirName, key));
 
 configCmd
   .command("set <key> <value>")
   .description("Set a config field to a value")
-  .action((key: string, value: string) => runConfigSet(key, value));
+  .action((key: string, value: string) =>
+    runConfigSet(claudeProfile.dataDirName, key, value),
+  );
 
 configCmd
   .command("list")
   .description("List all config fields")
-  .action(() => runConfigList());
+  .action(() => runConfigList(claudeProfile.dataDirName));
 
 const MaxConcurrent = type("string.numeric.parse").pipe(
   type("number.integer > 0"),
@@ -164,7 +180,7 @@ const parsePermissionMode = (value: string): string => {
 
 const resolveForwardHost = (forward?: boolean): string | undefined => {
   if (!forward) return undefined;
-  const { forwardHost } = readConfig();
+  const { forwardHost } = readConfig(claudeProfile.dataDirName);
   if (forwardHost === undefined)
     throw new Error('--forward needs "forwardHost" set in the glv config file');
   return forwardHost;
@@ -204,16 +220,34 @@ program
   .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)")
   .action((opts: ServeOpts) => {
     const store = openSessionStore();
-    runServe(store, {
+    runServe(store.sessions, {
       port: Number(opts.port),
+      profile: claudeProfile,
       runner: makeRunnerConfig(
         opts.maxConcurrent,
         opts.claudeBinary,
         opts.permissionMode,
       ),
-      authDbPath: resolveAuthDbPath(globalOpts().authDb),
-      promptsDbPath: resolvePromptsDbPath(globalOpts().promptsDb),
-      groupsDbPath: resolveGroupsDbPath(globalOpts().groupsDb),
+      makeLauncher: (runner) =>
+        makeClaudeLauncher(
+          store.root,
+          store.sessions,
+          runner,
+          claudeProfile.sessionTimeoutError,
+        ),
+      closeStore: () => store.meta.close(),
+      authDbPath: resolveAuthDbPath(
+        claudeProfile.dataDirName,
+        globalOpts().authDb,
+      ),
+      promptsDbPath: resolvePromptsDbPath(
+        claudeProfile.dataDirName,
+        globalOpts().promptsDb,
+      ),
+      groupsDbPath: resolveGroupsDbPath(
+        claudeProfile.dataDirName,
+        globalOpts().groupsDb,
+      ),
       rpName: opts.rpName,
       rpIdOverride: opts.rpId,
       forwardHost: resolveForwardHost(opts.forward),

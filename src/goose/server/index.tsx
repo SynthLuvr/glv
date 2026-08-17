@@ -1,7 +1,8 @@
-import type { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
+import { authMiddleware } from "../../glv/auth/service.js";
+import type { SessionLauncher } from "../../glv/launch.js";
 import { expandHome, listHomeDirs } from "../../glv/server/paths.js";
-import { authMiddleware } from "../auth/service.js";
+import type { SessionStore } from "../../glv/sessions.js";
 import { type Runner } from "../runner/index.js";
 import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
@@ -18,15 +19,16 @@ import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 
 const createApp = (
-  db: DatabaseSync,
-  dbWritable: DatabaseSync,
+  sessions: SessionStore,
+  launcher: SessionLauncher,
   runner: Runner,
-  opts: ServerOptions = {},
+  opts: ServerOptions,
 ): Hono => {
   const ctx: ServerContext = {
-    db,
-    dbWritable,
+    sessions,
+    launcher,
     runner,
+    profile: opts.profile,
     auth: opts.auth,
     prompts: opts.prompts,
     groups: opts.groups,

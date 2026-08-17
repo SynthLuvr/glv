@@ -1,6 +1,5 @@
 import { type Hono } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
-import { getSession, listMessages } from "../../db.js";
 import { type ParsedMessage, parseMessage } from "../../format/index.js";
 import { getHandle, isTerminalStatus } from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
@@ -55,7 +54,7 @@ const pollDb = async (
   id: string,
   state: PollState,
 ): Promise<boolean> => {
-  const session = getSession(ctx.store, id);
+  const session = ctx.sessions.getSession(id);
   if (session === undefined) {
     await emit(
       stream,
@@ -66,7 +65,7 @@ const pollDb = async (
     return false;
   }
 
-  const rows = listMessages(ctx.store, id);
+  const rows = ctx.sessions.listMessages(id);
   const messages = rows.map(parseMessage);
   let metaChanged = false;
   state.previewCleared = false;
@@ -111,7 +110,7 @@ const pollDb = async (
   }
   state.snapshots = rows.map((row) => row.content_json);
 
-  // Claude derives a real title mid-run; follow the rename.
+  // The agent derives a real title mid-run; follow the rename.
   if (session.name !== state.lastName) {
     state.lastName = session.name;
     if (
@@ -197,7 +196,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
   // open until the client disconnects.
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    const initial = getSession(ctx.store, id);
+    const initial = ctx.sessions.getSession(id);
     if (initial === undefined) return c.text("Session not found", 404);
 
     const cursor = resumeCursor(
@@ -206,7 +205,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     );
 
     return streamSSE(c, async (stream) => {
-      const baselineRows = listMessages(ctx.store, id);
+      const baselineRows = ctx.sessions.listMessages(id);
       const state: PollState = {
         snapshots: baselineRows.map((row) => row.content_json),
         msgCursor: baselineRows.length,

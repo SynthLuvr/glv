@@ -1,5 +1,5 @@
 import { type Hono } from "hono";
-import type { PromptInput, PromptSort } from "../../prompts/db.js";
+import type { PromptInput, PromptSort } from "../../../glv/prompts/db.js";
 import {
   createPrompt,
   deletePrompt,
@@ -8,7 +8,7 @@ import {
   listPrompts,
   reorderPrompts,
   updatePrompt,
-} from "../../prompts/db.js";
+} from "../../../glv/prompts/db.js";
 import {
   PromptCard,
   PromptEditForm,

@@ -1,10 +1,5 @@
 import { type Context, type Hono } from "hono";
 import {
-  archiveSessions,
-  firstPromptSessionName,
-  listSessions,
-} from "../../db.js";
-import {
   addMember,
   createGroup,
   getGroup,
@@ -13,7 +8,7 @@ import {
   pruneBelowThreshold,
   removeMember,
   renameGroup,
-} from "../../groups/db.js";
+} from "../../../glv/groups/db.js";
 import { SessionList } from "../../views/Sidebar.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
@@ -27,7 +22,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
   if (groups === undefined) return;
 
   const renderList = (c: Context) => {
-    const sessions = listSessions(ctx.db, VIEWER_FILTER);
+    const sessions = ctx.sessions.listSessions(VIEWER_FILTER);
     return c.html(
       <SessionList
         entries={sidebarEntries(ctx, sessions)}
@@ -40,7 +35,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
   // Session ids currently shown in the sidebar — the threshold the prune rule
   // checks against.
   const visibleIds = (): Set<string> =>
-    new Set(listSessions(ctx.db, VIEWER_FILTER).map((s) => s.id));
+    new Set(ctx.sessions.listSessions(VIEWER_FILTER).map((s) => s.id));
 
   // Join an existing group, or create one when groupId is empty.
   app.post("/sessions/:id/group", async (c) => {
@@ -52,7 +47,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
       addMember(groups, groupId, id);
       pruneBelowThreshold(groups, visibleIds(), new Set([groupId]));
     } else {
-      const name = firstPromptSessionName(ctx.db, [id]);
+      const name = ctx.sessions.firstPromptSessionName([id]);
       const group = createGroup(groups, { name });
       addMember(groups, group.id, id);
       pruneBelowThreshold(groups, visibleIds(), new Set([group.id]));
@@ -79,7 +74,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
       const targetId =
         existing ??
         createGroup(groups, {
-          name: firstPromptSessionName(ctx.db, [id, otherId]),
+          name: ctx.sessions.firstPromptSessionName([id, otherId]),
         }).id;
       if (existing === undefined) addMember(groups, targetId, otherId);
       addMember(groups, targetId, id);
@@ -100,7 +95,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/groups/:id/archive", (c) => {
     const id = c.req.param("id");
     if (getGroup(groups, id) === undefined) return c.notFound();
-    archiveSessions(ctx.dbWritable, memberIdsOf(groups, id));
+    ctx.sessions.archiveSessions(memberIdsOf(groups, id));
     return renderList(c);
   });
 };

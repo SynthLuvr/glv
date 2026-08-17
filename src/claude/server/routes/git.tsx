@@ -1,6 +1,5 @@
 import { type Hono } from "hono";
 import { readWorktreeByBranch } from "../../../glv/git.js";
-import { getSession, listMessages } from "../../db.js";
 import { parseMessage } from "../../format/index.js";
 import { detectPrUrl } from "../../pr.js";
 import { resolvePrBranch } from "../../pr-state.js";
@@ -13,9 +12,9 @@ import type { ServerContext } from "../context.js";
 const registerGitRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/git-info", async (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return c.html("");
-    const prUrl = detectPrUrl(listMessages(ctx.store, id).map(parseMessage));
+    const prUrl = detectPrUrl(ctx.sessions.listMessages(id).map(parseMessage));
     if (prUrl === undefined) return c.html("");
     const branch = await resolvePrBranch(prUrl, ctx.runPrState);
     if (branch === undefined) return c.html("");

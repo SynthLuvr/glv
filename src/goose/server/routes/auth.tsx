@@ -1,11 +1,11 @@
 import { type Context, type Hono } from "hono";
-import { errorMessage } from "../../../glv/util.js";
 import type {
   AuthService,
   RpConfig,
   VerifyResult,
-} from "../../auth/service.js";
-import { resolveRequestUrl } from "../../auth/service.js";
+} from "../../../glv/auth/service.js";
+import { resolveRequestUrl } from "../../../glv/auth/service.js";
+import { errorMessage } from "../../../glv/util.js";
 import {
   DevicesPage,
   EnrollPage,

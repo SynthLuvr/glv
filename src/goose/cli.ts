@@ -1,21 +1,23 @@
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
-import { resolveAuthDbPath } from "./auth/db.js";
+import { resolveAuthDbPath } from "../glv/auth/db.js";
 import {
   runConfigGet,
   runConfigList,
   runConfigSet,
-} from "./commands/config.js";
+} from "../glv/commands/config.js";
+import { readConfig } from "../glv/config.js";
+import { resolveGroupsDbPath } from "../glv/groups/db.js";
+import { resolvePromptsDbPath } from "../glv/prompts/db.js";
+import type { SessionStore } from "../glv/sessions.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import { readConfig } from "./config.js";
-import { openDb, resolveDbPath } from "./db.js";
-import { resolveGroupsDbPath } from "./groups/db.js";
-import { resolvePromptsDbPath } from "./prompts/db.js";
+import { createSessionStore, openDb, resolveDbPath } from "./db.js";
+import { makeGooseLauncher } from "./launch.js";
+import { gooseProfile } from "./profile.js";
 import { makeRunnerConfig } from "./runner/index.js";
 
 type SessionsOpts = {
@@ -64,18 +66,20 @@ const globalOpts = () => {
 
 const getDbPath = (): string => resolveDbPath(globalOpts().db);
 
-const getAuthDbPath = (): string => resolveAuthDbPath(globalOpts().authDb);
+const getAuthDbPath = (): string =>
+  resolveAuthDbPath(gooseProfile.dataDirName, globalOpts().authDb);
 
 const getPromptsDbPath = (): string =>
-  resolvePromptsDbPath(globalOpts().promptsDb);
+  resolvePromptsDbPath(gooseProfile.dataDirName, globalOpts().promptsDb);
 
 const getGroupsDbPath = (): string =>
-  resolveGroupsDbPath(globalOpts().groupsDb);
+  resolveGroupsDbPath(gooseProfile.dataDirName, globalOpts().groupsDb);
 
-const useDb = (fn: (db: DatabaseSync) => void): void => {
+// List/view only read; one read-only handle safely backs both store roles.
+const useSessions = (fn: (sessions: SessionStore) => void): void => {
   const db = openDb(getDbPath());
   try {
-    fn(db);
+    fn(createSessionStore(db, db));
   } finally {
     db.close();
   }
@@ -88,8 +92,8 @@ program
   .option("--all", "include archived sessions")
   .option("-n, --limit <number>", "number of rows to list", "20")
   .action((opts: SessionsOpts) => {
-    useDb((db) =>
-      runList(db, {
+    useSessions((sessions) =>
+      runList(sessions, {
         type: opts.type,
         limit: Number(opts.limit),
         includeArchived: opts.all === true,
@@ -102,8 +106,8 @@ program
   .description("List sessions from goose run --no-session (hidden sessions)")
   .option("-n, --limit <number>", "number of rows to list", "20")
   .action((opts: LimitOpts) => {
-    useDb((db) =>
-      runList(db, {
+    useSessions((sessions) =>
+      runList(sessions, {
         type: "hidden",
         limit: Number(opts.limit),
         includeArchived: false,
@@ -115,28 +119,30 @@ program
   .command("view <sessionId>")
   .description("Show prompts and final outputs for a session")
   .action((sessionId: string) => {
-    useDb((db) => runView(db, sessionId));
+    useSessions((sessions) => runView(sessions, sessionId));
   });
 
 const configCmd = program
   .command("config")
   .description("Read and set fields in the glv config file")
-  .action(() => runConfigList());
+  .action(() => runConfigList(gooseProfile.dataDirName));
 
 configCmd
   .command("get <key>")
   .description("Print the value of a config field")
-  .action((key: string) => runConfigGet(key));
+  .action((key: string) => runConfigGet(gooseProfile.dataDirName, key));
 
 configCmd
   .command("set <key> <value>")
   .description("Set a config field to a value")
-  .action((key: string, value: string) => runConfigSet(key, value));
+  .action((key: string, value: string) =>
+    runConfigSet(gooseProfile.dataDirName, key, value),
+  );
 
 configCmd
   .command("list")
   .description("List all config fields")
-  .action(() => runConfigList());
+  .action(() => runConfigList(gooseProfile.dataDirName));
 
 const MaxConcurrent = type("string.numeric.parse").pipe(
   type("number.integer > 0"),
@@ -175,7 +181,7 @@ const resolveGooseBinary = (value: string): string => {
 
 const resolveForwardHost = (forward?: boolean): string | undefined => {
   if (!forward) return undefined;
-  const { forwardHost } = readConfig();
+  const { forwardHost } = readConfig(gooseProfile.dataDirName);
   if (forwardHost === undefined)
     throw new Error('--forward needs "forwardHost" set in the glv config file');
   return forwardHost;
@@ -213,9 +219,17 @@ program
     const dbWritable = openDb(getDbPath(), { readOnly: false });
     dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
     const db = openDb(getDbPath());
-    runServe(db, dbWritable, {
+    const sessions = createSessionStore(db, dbWritable);
+    runServe(sessions, {
       port: Number(opts.port),
+      profile: gooseProfile,
       runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
+      makeLauncher: (runner) =>
+        makeGooseLauncher(db, runner, gooseProfile.sessionTimeoutError),
+      closeStore: () => {
+        db.close();
+        dbWritable.close();
+      },
       authDbPath: getAuthDbPath(),
       promptsDbPath: getPromptsDbPath(),
       groupsDbPath: getGroupsDbPath(),

@@ -1,4 +1,4 @@
-import type { SessionRow } from "../db.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import { extractTexts, type ParsedMessage } from "./message.js";
 import { fmtTokens, truncate } from "./text.js";
 

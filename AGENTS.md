@@ -149,10 +149,14 @@ never in more than one of them. `pnpm lint` fails on either:
 - a code clone spanning two trees (`lint:cross-tree`, jscpd across all
   of `src/`).
 
-Files still mirrored from before the `src/glv/` consolidation are listed
-in `scripts/mirrored-exemptions.json`. The list only shrinks: remove
-entries as you consolidate files into `src/glv/`; never add them. A
-stale entry fails lint too, so consolidation cannot silently regress. A
-second, equally shrinking list, `scripts/cross-tree-exemptions.json`,
-exempts files with pre-existing cross-tree clone fragments (the
-per-flavor mock agent scripts) from `lint:cross-tree`.
+Files still mirrored byte-identically from before the `src/glv/`
+consolidation are listed in `scripts/mirrored-exemptions.json`. The list
+only shrinks: remove entries as you consolidate files into `src/glv/`;
+never add them. A stale entry fails lint too, so consolidation cannot
+silently regress. Same-path files with genuinely different content (the
+flavor adapters and profiles) are the intended end state and are not
+mirrored files; shared code fragments between them are policed by
+`lint:cross-tree`, whose exemption list
+(`scripts/cross-tree-exemptions.json`) tracks pre-existing cross-tree
+clone fragments and shrinks as the remaining near-duplicates are
+consolidated.

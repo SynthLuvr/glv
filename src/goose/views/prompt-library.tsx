@@ -1,4 +1,4 @@
-import type { PromptSort, SavedPrompt } from "../prompts/db.js";
+import type { PromptSort, SavedPrompt } from "../../glv/prompts/db.js";
 
 const PromptCategoryDatalist = ({ categories }: { categories: string[] }) => (
   <datalist id="prompt-categories">

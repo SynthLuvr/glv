@@ -1,5 +1,5 @@
 import { type } from "arktype";
-import type { MessageRow } from "../db.js";
+import type { MessageRow } from "../../glv/sessions.js";
 
 const ContentItem = type({
   type: "string",

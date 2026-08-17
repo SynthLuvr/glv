@@ -1,7 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { AuthService } from "../../glv/auth/service.js";
 import type { GitRunner } from "../../glv/git.js";
-import type { AuthService } from "../auth/service.js";
-import type { SessionFilter } from "../db.js";
+import type { SessionLauncher } from "../../glv/launch.js";
+import type { FlavorProfile } from "../../glv/profile.js";
+import type { SessionFilter, SessionStore } from "../../glv/sessions.js";
 import type { CommandRunner } from "../pr-state.js";
 import type { Runner } from "../runner/index.js";
 import type { AssetBundle } from "./bundle.js";
@@ -12,17 +14,15 @@ const VIEWER_FILTER: SessionFilter = {
   includeArchived: false,
 };
 
-const SESSION_TIMEOUT_ERROR =
-  "goose did not create a session in time. Is the goose binary available?";
-
 type ServerOptions = {
+  profile: FlavorProfile;
   tailPollMs?: number;
   /** Bounds poll iterations so tests can drain the stream. */
   maxTailPolls?: number;
   pollTimeoutMs?: number;
   /** Poll interval (ms) for the global status feed. */
   statusPollMs?: number;
-  /** Bounds status-feed poll iterations so tests can drain the stream. */
+  /** Bounds status-feed poll iterations so tests can drain the feed. */
   maxStatusPolls?: number;
   listDirs?: () => string[];
   auth?: AuthService;
@@ -39,11 +39,13 @@ type ServerOptions = {
 // Everything a route handler needs, threaded in explicitly so route modules
 // stay free of shared mutable closure state.
 type ServerContext = {
-  // Browsing stays read-only so it never touches a row a live goose session
-  // is writing; archive/rename mutations go through `dbWritable`.
-  readonly db: DatabaseSync;
-  readonly dbWritable: DatabaseSync;
+  // Storage boundary: browsing is read-only against agent-owned data;
+  // viewer-managed rename/archive mutations route through the same store.
+  readonly sessions: SessionStore;
+  // New-session strategy for this flavor (see glv/launch.ts).
+  readonly launcher: SessionLauncher;
   readonly runner: Runner;
+  readonly profile: FlavorProfile;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;
   readonly groups: DatabaseSync | undefined;
@@ -62,4 +64,4 @@ type ServerContext = {
 };
 
 export type { ServerContext, ServerOptions };
-export { SESSION_TIMEOUT_ERROR, VIEWER_FILTER };
+export { VIEWER_FILTER };

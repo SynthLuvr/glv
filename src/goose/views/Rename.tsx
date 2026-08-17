@@ -1,5 +1,5 @@
 import type { Child } from "hono/jsx";
-import type { SessionRow } from "../db.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import { displayName } from "../format/index.js";
 
 const icon = (children: Child): Child => (

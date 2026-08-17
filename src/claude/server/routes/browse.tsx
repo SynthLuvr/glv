@@ -7,7 +7,6 @@ import {
   subPathOf,
 } from "../../../glv/server/browse.js";
 import { BrowseDetail, BrowseError } from "../../../glv/views/Browse.js";
-import { listSessions } from "../../db.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { render } from "../render.js";
@@ -25,7 +24,7 @@ const renderBrowse = (
 ): Response | Promise<Response> => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
-  const sessions = listSessions(ctx.store, VIEWER_FILTER);
+  const sessions = ctx.sessions.listSessions(VIEWER_FILTER);
   if (!target.ok)
     return render(
       c,

@@ -9,23 +9,20 @@ const dataRoot = (): string => {
   return join(homedir(), ".local", "share");
 };
 
-// Distinct per glv build so two installs on one machine never share
-// SQLite files, uploads, or temp dirs. The claude-focused build
-// (src/claude) uses "glv-claude"; this goose-focused build (src/goose)
-// uses "glv-goose" so the two never collide.
-const DATA_DIR_NAME = "glv-goose";
-
 // Precedence: explicit override → environment variable → platform default.
+// Callers pass their flavor's data directory name as the first segment so
+// two glv builds installed on one machine never share SQLite files,
+// uploads, or temp dirs.
 const resolveDataPath = (
   override: string | undefined,
   envVar: string,
   ...segments: string[]
 ): string => override ?? process.env[envVar] ?? join(dataRoot(), ...segments);
 
-// Only glv-owned databases (auth, prompts, groups) need this; the goose
-// sessions DB is opened read-only and managed externally.
+// Only glv-owned databases need this; agent-owned session data is opened
+// read-only and managed externally.
 const ensureDbDir = (dbPath: string): void => {
   mkdirSync(dirname(dbPath), { recursive: true });
 };
 
-export { DATA_DIR_NAME, ensureDbDir, resolveDataPath };
+export { ensureDbDir, resolveDataPath };

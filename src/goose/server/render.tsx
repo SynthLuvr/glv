@@ -1,13 +1,12 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { listGroups } from "../../glv/groups/db.js";
+import type { ListEntry } from "../../glv/groups/model.js";
+import { buildEntries } from "../../glv/groups/model.js";
+import { listCategories, listPrompts } from "../../glv/prompts/db.js";
 import { isHtmxRequest } from "../../glv/server/http.js";
-import type { SessionRow } from "../db.js";
-import { listSessions } from "../db.js";
-import { listGroups } from "../groups/db.js";
-import type { ListEntry } from "../groups/model.js";
-import { buildEntries } from "../groups/model.js";
-import { listCategories, listPrompts } from "../prompts/db.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import { Layout } from "../views/Layout.js";
 import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
@@ -15,7 +14,7 @@ import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { activeSessionIds } from "./status.js";
 
-// Folds the goose session list and the viewer-owned group memberships into a
+// Folds the session list and the viewer-owned group memberships into a
 // single ordered entry list.  When the groups sidecar is absent the list is
 // purely flat — identical to today's experience.
 const sidebarEntries = (
@@ -164,7 +163,7 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
   render(
     c,
     ctx,
-    listSessions(ctx.db, VIEWER_FILTER),
+    ctx.sessions.listSessions(VIEWER_FILTER),
     undefined,
     <NotFoundDetail id={id} />,
     { status: 404, title: "Session not found — GLV" },

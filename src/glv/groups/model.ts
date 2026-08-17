@@ -1,4 +1,4 @@
-import type { SessionRow } from "../db.js";
+import type { SessionRow } from "../sessions.js";
 import type { GroupWithMembers } from "./db.js";
 
 // A sidebar entry is either a standalone session or a collapsible group.  A

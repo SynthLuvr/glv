@@ -1,19 +1,18 @@
-import type { DatabaseSync } from "node:sqlite";
-import { getSession, listMessages } from "../db.js";
+import type { SessionStore } from "../../glv/sessions.js";
 import {
   formatSessionHeader,
   formatTranscript,
   parseMessage,
 } from "../format/index.js";
 
-const runView = (db: DatabaseSync, sessionId: string): void => {
-  const session = getSession(db, sessionId);
+const runView = (sessions: SessionStore, sessionId: string): void => {
+  const session = sessions.getSession(sessionId);
   if (session === undefined) {
     console.error(`Session not found: ${sessionId}`);
     process.exitCode = 1;
     return;
   }
-  const messages = listMessages(db, sessionId).map(parseMessage);
+  const messages = sessions.listMessages(sessionId).map(parseMessage);
   console.log(formatSessionHeader(session));
   console.log("");
   console.log(formatTranscript(messages));

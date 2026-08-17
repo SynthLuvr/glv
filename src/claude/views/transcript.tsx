@@ -1,10 +1,10 @@
 import { renderToString } from "hono/jsx/dom/server";
+import type { SavedPrompt } from "../../glv/prompts/db.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
-import type { SessionRow } from "../db.js";
 import type { ParsedMessage } from "../format/index.js";
 import { fmtRelative, shortenHome, truncateMiddle } from "../format/index.js";
 import { detectPrUrl } from "../pr.js";
-import type { SavedPrompt } from "../prompts/db.js";
 import type { RunHandle } from "../runner/index.js";
 import { PrChip } from "./chips.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";

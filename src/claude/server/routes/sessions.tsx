@@ -3,48 +3,11 @@ import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { pullRepo } from "../../../glv/git.js";
+import { type EstablishOutcome, withCreateLock } from "../../../glv/launch.js";
+import type { SavedPrompt } from "../../../glv/prompts/db.js";
+import { bumpUsage, listPrompts } from "../../../glv/prompts/db.js";
 import { extractIds, isHtmxRequest } from "../../../glv/server/http.js";
 import { expandHome } from "../../../glv/server/paths.js";
-import {
-  archiveSessions,
-  getSession,
-  listMessages,
-  listSessions,
-  renameSession,
-  type SessionRow,
-} from "../../db.js";
-import { displayName, parseMessage } from "../../format/index.js";
-import type { SavedPrompt } from "../../prompts/db.js";
-import { bumpUsage, listPrompts } from "../../prompts/db.js";
-import {
-  clearPending,
-  enqueueOrQueue,
-  getHandle,
-  stop,
-} from "../../runner/index.js";
-import { SessionTitleWrap } from "../../views/Rename.js";
-import { SessionList } from "../../views/Sidebar.js";
-import { PromptBar, Transcript } from "../../views/transcript.js";
-import {
-  SESSION_TIMEOUT_ERROR,
-  ServerContext,
-  VIEWER_FILTER,
-} from "../context.js";
-import {
-  newSessionDetail,
-  render,
-  renderNotFound,
-  sidebarEntries,
-} from "../render.js";
-import {
-  activeRunPrompt,
-  type EstablishOutcome,
-  establishSession,
-  prepareNewSession,
-  waitForTranscript,
-  withCreateLock,
-} from "../session.js";
-import { activeSessionIds } from "../status.js";
 import {
   buildUploadContext,
   collectFiles,
@@ -55,7 +18,27 @@ import {
   saveUploads,
   tagDir,
   uploadErrorMessage,
-} from "../uploads.js";
+} from "../../../glv/server/uploads.js";
+import type { SessionRow } from "../../../glv/sessions.js";
+import { displayName, parseMessage } from "../../format/index.js";
+import {
+  clearPending,
+  enqueueOrQueue,
+  getHandle,
+  stop,
+} from "../../runner/index.js";
+import { SessionTitleWrap } from "../../views/Rename.js";
+import { SessionList } from "../../views/Sidebar.js";
+import { PromptBar, Transcript } from "../../views/transcript.js";
+import { ServerContext, VIEWER_FILTER } from "../context.js";
+import {
+  newSessionDetail,
+  render,
+  renderNotFound,
+  sidebarEntries,
+} from "../render.js";
+import { activeRunPrompt } from "../session.js";
+import { activeSessionIds } from "../status.js";
 
 // parseBody({ all: true }) returns an array per field; take the first string.
 const firstString = (val: unknown): string => {
@@ -65,7 +48,7 @@ const firstString = (val: unknown): string => {
 };
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
-  const sessionsAll = () => listSessions(ctx.store, VIEWER_FILTER);
+  const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
   // The saved-prompt library powers the follow-up bar picker; empty when the
   // prompts store is disabled so the picker shows its "no prompts" message.
   const libraryPrompts = (): SavedPrompt[] =>
@@ -92,7 +75,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       uploadError?: string;
     } = {},
   ) => {
-    const messages = listMessages(ctx.store, id).map(parseMessage);
+    const messages = ctx.sessions.listMessages(id).map(parseMessage);
     return render(
       c,
       ctx,
@@ -159,16 +142,19 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     )
       return rejectForm("That working directory does not exist.", 422);
 
-    const tempWorkingDir = sessionMode === "temp" ? createTempDir() : undefined;
+    const tempWorkingDir =
+      sessionMode === "temp"
+        ? createTempDir(ctx.profile.dataDirName)
+        : undefined;
     const workingDir = tempWorkingDir ?? submittedWorkingDir;
 
     // Save uploaded files into GLV's private storage and append their
-    // absolute paths to the prompt so claude can read them.
+    // absolute paths to the prompt so the agent can read them.
     let uploadDir: string | undefined;
     let fullPrompt = prompt;
     if (files.length > 0)
       try {
-        const saved = await saveUploads(files);
+        const saved = await saveUploads(files, ctx.profile.dataDirName);
         fullPrompt = prompt + buildUploadContext(saved.paths);
         uploadDir = saved.dir;
       } catch (err) {
@@ -181,18 +167,26 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       async (): Promise<EstablishOutcome> => {
         // Inside the per-directory lock so concurrent starts can't race the pull.
         await pullRepo(workingDir, ctx.runGit);
-        const sessionId = prepareNewSession(ctx, workingDir, fullPrompt);
+        const handle = ctx.launcher.startNew(workingDir, fullPrompt);
 
-        const started = await waitForTranscript(
-          ctx.store,
-          sessionId,
+        const sessionId = await ctx.launcher.awaitNew(
+          handle,
+          workingDir,
           ctx.pollTimeoutMs,
         );
-        if (!started) {
-          stop(ctx.runner, sessionId);
-          return { ok: false, status: 502, error: SESSION_TIMEOUT_ERROR };
+        if (sessionId === undefined) {
+          stop(ctx.runner, handle);
+          return {
+            ok: false,
+            status: 502,
+            error: ctx.profile.sessionTimeoutError,
+          };
         }
-        return establishSession(ctx, sessionId);
+        return ctx.launcher.establish(
+          handle,
+          sessionId,
+          "Another session is starting in that directory. Please try again.",
+        );
       },
     );
 
@@ -221,7 +215,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.get("/sessions/:id", (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     // ?sidebar=1 (set by the stream's done handler) requests an out-of-band
     // sidebar refresh so a freshly renamed session no longer shows the stale
@@ -235,7 +229,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // client swap just the form — not the whole transcript — when a run ends.
   app.get("/sessions/:id/prompt-bar", (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     const run = getHandle(ctx.runner, id);
     return c.html(
@@ -250,9 +244,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
-    archiveSessions(ctx.store, [id]);
-    deleteUploads(id);
-    deleteTempDir(id);
+    ctx.sessions.archiveSessions([id]);
+    deleteUploads(ctx.profile.dataDirName, id);
+    deleteTempDir(ctx.profile.dataDirName, id);
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,
       title: NEW_SESSION_TITLE,
@@ -264,8 +258,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const body = await c.req.parseBody();
     const name = typeof body.name === "string" ? body.name : "";
     const from = body.from === "sidebar" ? "sidebar" : "header";
-    renameSession(ctx.store, id, name);
-    const updated = getSession(ctx.store, id);
+    ctx.sessions.renameSession(id, name);
+    const updated = ctx.sessions.getSession(id);
     if (updated === undefined) return renderNotFound(c, ctx, id);
     const sessions = sessionsAll();
     if (from === "sidebar")
@@ -292,7 +286,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/archive", async (c) => {
     const body = await c.req.parseBody({ all: true });
-    archiveSessions(ctx.store, extractIds(body.id));
+    ctx.sessions.archiveSessions(extractIds(body.id));
     const sessions = sessionsAll();
     return c.html(
       <SessionList
@@ -307,7 +301,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/prompt", async (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
     const body = await c.req.parseBody({ all: true });
@@ -319,7 +313,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     let uploadError: string | undefined;
     if (files.length > 0)
       try {
-        const saved = await saveUploads(files);
+        const saved = await saveUploads(files, ctx.profile.dataDirName);
         fullPrompt = prompt + buildUploadContext(saved.paths);
         tagDir(saved.dir, id);
       } catch (err) {
@@ -352,7 +346,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/queue/cancel", (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
 
     clearPending(ctx.runner, id);
@@ -363,7 +357,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/sessions/:id/stop", (c) => {
     const id = c.req.param("id");
     stop(ctx.runner, id);
-    const session = getSession(ctx.store, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     return renderSession(c, id, session, { includeRun: false });
   });

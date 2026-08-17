@@ -1,5 +1,5 @@
 import type { SSEStreamingApi } from "hono/streaming";
-import type { SessionRow } from "../db.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import { fmtRelative } from "../format/index.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
 import { renderStreamLine } from "../views/stream-line.js";

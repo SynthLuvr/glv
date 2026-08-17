@@ -12,22 +12,22 @@ const assertKnownKey = (key: string): void => {
     );
 };
 
-const runConfigGet = (key: string): void => {
+const runConfigGet = (dataDirName: string, key: string): void => {
   assertKnownKey(key);
-  const value = readRawConfig()[key];
+  const value = readRawConfig(dataDirName)[key];
   if (value !== undefined) console.log(formatValue(value));
 };
 
-const runConfigSet = (key: string, raw: string): void => {
+const runConfigSet = (dataDirName: string, key: string, raw: string): void => {
   assertKnownKey(key);
-  const config = readRawConfig();
+  const config = readRawConfig(dataDirName);
   config[key] = raw;
-  writeConfig(config);
+  writeConfig(dataDirName, config);
   console.log(`${key}=${formatValue(config[key])}`);
 };
 
-const runConfigList = (): void => {
-  const config = readRawConfig();
+const runConfigList = (dataDirName: string): void => {
+  const config = readRawConfig(dataDirName);
   const keys = [...new Set([...CONFIG_KEYS, ...Object.keys(config)])];
   for (const key of keys) console.log(`${key}=${formatValue(config[key])}`);
 };

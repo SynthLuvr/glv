@@ -1,17 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * One-location rule: a source file may live in src/goose/, src/claude/, or
- * src/glv/ — never in more than one of them.
+ * One-location rule: byte-identical source may exist in only ONE of
+ * src/goose/, src/claude/, or src/glv/.
  *
  *   pnpm lint:mirrored -> tsx scripts/mirrored-files.mts
  *
- * A relative path that exists in two or more of the three trees is
- * "mirrored". Mirrored files pre-dating the glv-core consolidation are
- * listed in scripts/mirrored-exemptions.json; that list only ever shrinks
- * as files are moved into src/glv, and it is deleted once empty.
+ * A relative path present in two or more trees with IDENTICAL content is
+ * "mirrored" consolidation debt. Existing mirrored files are listed in
+ * scripts/mirrored-exemptions.json; that list only ever shrinks as files
+ * are moved into src/glv, and it is deleted once empty.
+ *
+ * Same-path files with genuinely different content (flavor adapters,
+ * profiles) are the intended end-state architecture — they are NOT flagged
+ * here; shared code fragments between them are caught by lint:cross-tree.
  *
  * Fails when:
- *   - a mirrored path is not on the exemption list (new duplication), or
+ *   - an identical-content mirror is not on the exemption list, or
  *   - an exempted path is no longer mirrored (a stale entry to remove).
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -28,21 +32,27 @@ const walk = (dir: string, base = ""): string[] =>
     return entry.isDirectory() ? walk(join(dir, entry.name), rel) : [rel];
   });
 
+// relpath -> trees holding it, plus whether every copy is byte-identical.
 const mirroredPaths = (): Map<string, string[]> => {
-  const locations = new Map<string, string[]>();
+  const contents = new Map<string, Map<string, Buffer>>();
   for (const tree of TREES) {
     const dir = join(ROOT, "src", tree);
     if (!existsSync(dir)) continue;
     for (const rel of walk(dir)) {
-      const trees = locations.get(rel) ?? [];
-      trees.push(tree);
-      locations.set(rel, trees);
+      const byTree = contents.get(rel) ?? new Map<string, Buffer>();
+      byTree.set(tree, readFileSync(join(dir, rel)));
+      contents.set(rel, byTree);
     }
   }
   return new Map(
-    [...locations.entries()]
-      .filter(([, trees]) => trees.length > 1)
-      .sort(([a], [b]) => a.localeCompare(b)),
+    [...contents.entries()]
+      .filter(([, byTree]) => {
+        if (byTree.size < 2) return false;
+        const [first, ...rest] = [...byTree.values()];
+        return rest.every((buf) => buf.equals(first));
+      })
+      .map(([rel, byTree]) => [rel, [...byTree.keys()]])
+      .sort(([a], [b]) => a.localeCompare(b)) as [string, string[]][],
   );
 };
 
@@ -61,7 +71,7 @@ const checkOneLocation = (): void => {
 
   if (unlisted.length > 0)
     throw new Error(
-      "New mirrored file(s) — a path may exist in only ONE of " +
+      "New mirrored file(s) — identical content may exist in only ONE of " +
         "src/goose, src/claude, or src/glv:\n  " +
         unlisted.join("\n  ") +
         "\n\nPut the shared copy in src/glv, or make the two flavors " +
@@ -70,14 +80,15 @@ const checkOneLocation = (): void => {
 
   if (stale.length > 0)
     throw new Error(
-      "Stale exemption(s) — no longer mirrored, so remove them from " +
-        "scripts/mirrored-exemptions.json (the list only shrinks):\n  " +
+      "Stale exemption(s) — no longer identical-content mirrors, so remove " +
+        "them from scripts/mirrored-exemptions.json (the list only " +
+        "shrinks):\n  " +
         stale.join("\n  "),
     );
 
   console.log(
-    `One-location rule holds: ${mirrored.size} exempted mirrored ` +
-      "path(s), none unlisted, none stale.",
+    `One-location rule holds: ${mirrored.size} exempted identical ` +
+      "mirror(s), none unlisted, none stale.",
   );
 };
 

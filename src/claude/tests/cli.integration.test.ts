@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { openMetaDb } from "../store/meta.js";
+import { openMetaDb } from "../../glv/session-meta.js";
 import { insertMessages, insertSessions } from "./integration-harness";
 
 const GLV = resolve("bin/glv-claude");

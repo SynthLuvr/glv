@@ -19,9 +19,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
+import { sessionCookieName } from "../../glv/auth/service.js";
 import { tryParseJson } from "../../glv/parse.js";
-import { sessionCookieName } from "../auth/service.js";
-import { openMetaDb } from "../store/meta.js";
+import { openMetaDb } from "../../glv/session-meta.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
 
 const AUTH_SCHEMA = `

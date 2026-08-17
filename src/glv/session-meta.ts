@@ -1,11 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
+import { ensureDbDir, resolveDataPath } from "./db-path.js";
 
-// Viewer-owned sidecar for rename/archive metadata. Claude transcripts are
-// append-only JSONL written by the claude CLI itself, so there is no
-// writable sessions table to record viewer state in; it lives here instead,
-// keyed by claude session id.
+// Viewer-owned sidecar for rename/archive metadata. Agents that only
+// expose append-only session data (transcripts) have no writable sessions
+// table to record viewer state in; it lives here instead, keyed by
+// session id.
 const META_SCHEMA = `
 CREATE TABLE IF NOT EXISTS session_meta (
   id TEXT PRIMARY KEY,
@@ -24,11 +24,12 @@ const MetaRow = type({
 
 type MetaRow = typeof MetaRow.infer;
 
-const resolveMetaDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_META_DB", DATA_DIR_NAME, "meta.db");
+const resolveMetaDbPath = (dataDirName: string, override?: string): string =>
+  resolveDataPath(override, "GLV_META_DB", dataDirName, "meta.db");
 
 // Writable by design: glv owns every table in here, so it always creates
-// the schema on open (safe to run before claude has ever written anything).
+// the schema on open (safe to run before the agent has ever written
+// anything).
 const openMetaDb = (dbPath: string): DatabaseSync => {
   ensureDbDir(dbPath);
   const db = new DatabaseSync(dbPath);
@@ -61,12 +62,13 @@ const listMeta = (db: DatabaseSync): Map<string, MetaRow> =>
       .map((row) => [row.id, row]),
   );
 
-// Archiving never deletes anything — claude still owns the transcript file.
+// Archiving never deletes anything — the agent still owns the underlying
+// session data.
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   const stmt = db.prepare(
     "INSERT INTO session_meta (id, archived_at) VALUES (?, CURRENT_TIMESTAMP) " +
-      "ON CONFLICT (id) DO UPDATE SET archived_at = excluded.archived_at",
+      "ON CONFLICT(id) DO UPDATE SET archived_at = excluded.archived_at",
   );
   for (const id of ids) stmt.run(id);
 };
@@ -76,7 +78,7 @@ const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
   db.prepare(
     "INSERT INTO session_meta (id, name, user_set_name) VALUES (?, ?, ?) " +
-      "ON CONFLICT (id) DO UPDATE " +
+      "ON CONFLICT(id) DO UPDATE " +
       "SET name = excluded.name, user_set_name = excluded.user_set_name",
   ).run(id, name, name === "" ? 0 : 1);
 };

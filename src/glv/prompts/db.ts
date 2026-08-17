@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { transaction, validate, validateAll } from "../../glv/query.js";
-import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
+import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
-// in a glv-owned, read-write database (never claude's transcript files,
-// which are only read) so the library can persist alongside claude safely.
+// in a glv-owned, read-write database (never agent-owned session data, which
+// is only read) so the library can persist alongside the agent safely.
 type SavedPrompt = {
   id: string;
   title: string;
@@ -29,8 +29,8 @@ type PromptInput = {
 // "usage" surfaces frequently-run prompts first for the power-user toggle.
 type PromptSort = "order" | "usage";
 
-const resolvePromptsDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_PROMPTS_DB", DATA_DIR_NAME, "prompts.db");
+const resolvePromptsDbPath = (dataDirName: string, override?: string): string =>
+  resolveDataPath(override, "GLV_PROMPTS_DB", dataDirName, "prompts.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS saved_prompts (

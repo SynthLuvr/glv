@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { transaction, validate, validateAll } from "../../glv/query.js";
-import { DATA_DIR_NAME, ensureDbDir, resolveDataPath } from "../db-path.js";
+import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { transaction, validate, validateAll } from "../query.js";
 
-// Viewer-owned sidecar, kept separate from goose's read-only sessions.db so
+// Viewer-owned sidecar, kept separate from agent-owned session data so
 // schema migrations never touch this data.  Archiving a session hides it from
 // the sidebar but keeps its membership here, so un-archiving restores the group
 // once ≥ 2 members are visible again.
@@ -25,8 +25,8 @@ type GroupInput = {
   name?: string;
 };
 
-const resolveGroupsDbPath = (override?: string): string =>
-  resolveDataPath(override, "GLV_GROUPS_DB", DATA_DIR_NAME, "groups.db");
+const resolveGroupsDbPath = (dataDirName: string, override?: string): string =>
+  resolveDataPath(override, "GLV_GROUPS_DB", dataDirName, "groups.db");
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS session_groups (

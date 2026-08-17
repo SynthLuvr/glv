@@ -9,8 +9,8 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
+import { sessionCookieName } from "../../glv/auth/service.js";
 import { tryParseJson } from "../../glv/parse.js";
-import { sessionCookieName } from "../auth/service.js";
 
 // Both tables must exist before the server starts: the sidebar queries them
 // and the mock goose inserts into them.

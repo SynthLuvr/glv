@@ -1,5 +1,8 @@
-import type { SessionFilter, SessionRow, SessionStore } from "../db.js";
-import { listSessions } from "../db.js";
+import type {
+  SessionFilter,
+  SessionRow,
+  SessionStore,
+} from "../../glv/sessions.js";
 import { fmtTokens, renderTable } from "../format/index.js";
 
 const HEADERS = ["ID", "Name", "Working Dir", "Updated", "Tokens"];
@@ -12,8 +15,8 @@ const sessionToCells = (s: SessionRow): string[] => [
   fmtTokens(s.total_tokens),
 ];
 
-const runList = (store: SessionStore, filter: SessionFilter): void => {
-  const rows = listSessions(store, filter);
+const runList = (sessions: SessionStore, filter: SessionFilter): void => {
+  const rows = sessions.listSessions(filter);
   if (rows.length === 0) {
     console.log("No sessions found.");
     return;

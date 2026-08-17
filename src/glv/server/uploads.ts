@@ -8,21 +8,22 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
-import { DATA_DIR_NAME, resolveDataPath } from "../db-path.js";
+import { resolveDataPath } from "../db-path.js";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file
 const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100 MB across all uploads
 const SESSION_MARKER = ".glv-session-id";
 
-const resolveUploadsBase = (): string =>
-  resolveDataPath(undefined, "GLV_UPLOADS_DIR", DATA_DIR_NAME, "uploads");
+const resolveUploadsBase = (dataDirName: string): string =>
+  resolveDataPath(undefined, "GLV_UPLOADS_DIR", dataDirName, "uploads");
 
-const resolveUploadDir = (id: string): string => join(resolveUploadsBase(), id);
+const resolveUploadDir = (dataDirName: string, id: string): string =>
+  join(resolveUploadsBase(dataDirName), id);
 
 // Temp working dirs live under GLV's data dir so the tag-and-sweep
 // lifecycle cleans them up on archive.
-const resolveTempBase = (): string =>
-  resolveDataPath(undefined, "GLV_TEMP_DIR", DATA_DIR_NAME, "tmp");
+const resolveTempBase = (dataDirName: string): string =>
+  resolveDataPath(undefined, "GLV_TEMP_DIR", dataDirName, "tmp");
 
 // Strip path components and unsafe characters so a filename can never escape
 // the per-session upload dir.
@@ -75,10 +76,13 @@ const collectFiles = (raw: unknown): File[] => {
 };
 
 // Writes each file into a fresh per-batch directory. The real session id
-// isn't known until claude creates it, so the dir is named with a uuid and the
+// isn't known until the agent creates it, so the dir is named with a uuid and the
 // caller tags it onto the session id later (tagDir).
-const saveUploads = async (files: File[]): Promise<SavedUpload> => {
-  const dir = resolveUploadDir(randomUUID());
+const saveUploads = async (
+  files: File[],
+  dataDirName: string,
+): Promise<SavedUpload> => {
+  const dir = resolveUploadDir(dataDirName, randomUUID());
   mkdirSync(dir, { recursive: true });
 
   let totalSize = 0;
@@ -107,7 +111,7 @@ const saveUploads = async (files: File[]): Promise<SavedUpload> => {
   return { paths, dir };
 };
 
-// Appends an absolute-path reference section to the prompt so claude reads the
+// Appends an absolute-path reference section to the prompt so the agent reads the
 // files regardless of its working directory.
 const buildUploadContext = (paths: string[]): string => {
   if (paths.length === 0) return "";
@@ -117,7 +121,7 @@ const buildUploadContext = (paths: string[]): string => {
 
 // Tags a managed directory with its owning session id via a marker file.
 // The dir keeps its uuid name because renaming would break the absolute
-// paths already handed to claude for the run's lifetime.
+// paths already handed to the agent for the run's lifetime.
 const tagDir = (dir: string, sessionId: string): void => {
   writeFileSync(join(dir, SESSION_MARKER), sessionId);
 };
@@ -135,17 +139,17 @@ const deleteTaggedDir = (base: string, sessionId: string): void => {
   }
 };
 
-const deleteUploads = (sessionId: string): void =>
-  deleteTaggedDir(resolveUploadsBase(), sessionId);
+const deleteUploads = (dataDirName: string, sessionId: string): void =>
+  deleteTaggedDir(resolveUploadsBase(dataDirName), sessionId);
 
-const createTempDir = (): string => {
-  const dir = join(resolveTempBase(), randomUUID());
+const createTempDir = (dataDirName: string): string => {
+  const dir = join(resolveTempBase(dataDirName), randomUUID());
   mkdirSync(dir, { recursive: true });
   return dir;
 };
 
-const deleteTempDir = (sessionId: string): void =>
-  deleteTaggedDir(resolveTempBase(), sessionId);
+const deleteTempDir = (dataDirName: string, sessionId: string): void =>
+  deleteTaggedDir(resolveTempBase(dataDirName), sessionId);
 
 // Pre-tag failure cleanup — the sweep can only find tagged directories.
 const removeDir = (dir: string): void => {

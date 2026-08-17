@@ -1,20 +1,31 @@
 import type { Socket } from "node:net";
-import type { DatabaseSync } from "node:sqlite";
 import { serve } from "@hono/node-server";
+import { openAuthDb } from "../../glv/auth/db.js";
+import { makeAuthService } from "../../glv/auth/service.js";
 import { startForwardTunnel, type TunnelHandle } from "../../glv/forward.js";
+import { openGroupsDb } from "../../glv/groups/db.js";
+import type { SessionLauncher } from "../../glv/launch.js";
 import { setupLogging } from "../../glv/log.js";
-import { openAuthDb } from "../auth/db.js";
-import { makeAuthService } from "../auth/service.js";
+import type { FlavorProfile } from "../../glv/profile.js";
+import { openPromptsDb } from "../../glv/prompts/db.js";
+import type { SessionStore } from "../../glv/sessions.js";
 import { buildScripts, buildStyles } from "../build.js";
-import { openGroupsDb } from "../groups/db.js";
-import { openPromptsDb } from "../prompts/db.js";
-import type { RunnerConfig } from "../runner/index.js";
-import { createRunner, stopAll } from "../runner/index.js";
+import {
+  createRunner,
+  type Runner,
+  type RunnerConfig,
+  stopAll,
+} from "../runner/index.js";
 import { createApp } from "../server/index.js";
 
 type ServeOpts = {
   port: number;
+  profile: FlavorProfile;
   runner: RunnerConfig;
+  /** Binds the flavor's new-session strategy once the runner exists. */
+  makeLauncher: (runner: Runner) => SessionLauncher;
+  /** Closes the flavor's storage handles on shutdown. */
+  closeStore: () => void;
   authDbPath: string;
   promptsDbPath: string;
   groupsDbPath: string;
@@ -100,26 +111,25 @@ const registerShutdown = (
   };
   emitter.on("SIGINT", onSignal);
   emitter.on("SIGTERM", onSignal);
-  // Thrown errors/rejections would otherwise leak goose processes and DB handles.
+  // Thrown errors/rejections would otherwise leak agent processes and DB
+  // handles.
   emitter.on("uncaughtException", onCrash);
   emitter.on("unhandledRejection", onCrash);
 };
 
-const runServe = (
-  db: DatabaseSync,
-  dbWritable: DatabaseSync,
-  opts: ServeOpts,
-): void => {
+const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildStyles();
   buildScripts();
-  // Created here so shutdown can reap detached goose processes.
+  // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
+  const launcher = opts.makeLauncher(runner);
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
   const auth = makeAuthService(authDb, opts.authDbPath);
-  const app = createApp(db, dbWritable, runner, {
+  const app = createApp(sessions, launcher, runner, {
+    profile: opts.profile,
     auth,
     prompts: promptsDb,
     groups: groupsDb,
@@ -129,22 +139,23 @@ const runServe = (
   // Started once the port is bound so the -R bind targets the real listener.
   let tunnel: TunnelHandle | undefined;
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
-    console.log(`glv-goose web viewer → http://localhost:${info.port}`);
+    console.log(
+      `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
+    );
     if (opts.forwardHost !== undefined)
       tunnel = startForwardTunnel(info.port, opts.forwardHost);
   });
   const destroyConnections = trackConnections(server);
 
   const closeDbs = (): void => {
-    db.close();
-    dbWritable.close();
+    opts.closeStore();
     authDb.close();
     promptsDb.close();
     groupsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
-  // SIGKILL, so detached goose children (and the ssh tunnel) are reaped even
+  // SIGKILL, so detached agent children (and the ssh tunnel) are reaped even
   // if the async shutdown above never started or finished.
   process.on("exit", () => {
     stopAll(runner);

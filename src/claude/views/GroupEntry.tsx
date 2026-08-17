@@ -1,4 +1,4 @@
-import type { ListEntry } from "../groups/model.js";
+import type { ListEntry } from "../../glv/groups/model.js";
 import { icon } from "./Rename.js";
 import { SessionItem } from "./SessionItem.js";
 

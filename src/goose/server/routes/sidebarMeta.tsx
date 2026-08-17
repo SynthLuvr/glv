@@ -1,14 +1,7 @@
-import type { DatabaseSync } from "node:sqlite";
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import { type GitRunner, readGitInfo } from "../../../glv/git.js";
-import {
-  getSession,
-  listMessages,
-  listSessions,
-  prCandidateIds,
-  type SessionRow,
-} from "../../db.js";
+import type { SessionRow, SessionStore } from "../../../glv/sessions.js";
 import { parseMessage } from "../../format/index.js";
 import { detectPrUrl } from "../../pr.js";
 import { BranchChip, PrChip } from "../../views/chips.js";
@@ -38,20 +31,17 @@ const resolveBranches = async (
   return result;
 };
 
-// A SQL pre-filter trims to sessions that mention a pull URL, so only those
-// few get their messages parsed.
+// A store pre-filter trims to sessions that mention a pull URL, so only
+// those few get their messages parsed.
 const resolvePrUrls = (
-  db: DatabaseSync,
+  store: SessionStore,
   sessions: readonly SessionRow[],
 ): Map<string, string> => {
-  const candidates = prCandidateIds(
-    db,
-    sessions.map((s) => s.id),
-  );
+  const candidates = store.prCandidateIds(sessions.map((s) => s.id));
   const result = new Map<string, string>();
   for (const session of sessions) {
     if (!candidates.has(session.id)) continue;
-    const url = detectPrUrl(listMessages(db, session.id).map(parseMessage));
+    const url = detectPrUrl(store.listMessages(session.id).map(parseMessage));
     if (url !== undefined) result.set(session.id, url);
   }
   return result;
@@ -82,20 +72,20 @@ const renderMeta = (
 const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/sessions/:id/sidebar-meta", async (c) => {
     const id = c.req.param("id");
-    const session = getSession(ctx.db, id);
+    const session = ctx.sessions.getSession(id);
     if (session === undefined) return c.notFound();
     const branches = await resolveBranches([session], ctx.runGit);
     const prUrl = activeSessionIds(ctx.runner).has(id)
       ? undefined
-      : resolvePrUrls(ctx.db, [session]).get(id);
+      : resolvePrUrls(ctx.sessions, [session]).get(id);
     return c.html(renderMeta(session, branches.get(id), prUrl));
   });
 
   app.get("/sessions/sidebar-meta", async (c) => {
-    const sessions = listSessions(ctx.db, VIEWER_FILTER);
+    const sessions = ctx.sessions.listSessions(VIEWER_FILTER);
     const runningIds = activeSessionIds(ctx.runner);
     const branches = await resolveBranches(sessions, ctx.runGit);
-    const prUrls = resolvePrUrls(ctx.db, sessions);
+    const prUrls = resolvePrUrls(ctx.sessions, sessions);
     return c.html(
       <Fragment>
         {sessions.map((session) => {

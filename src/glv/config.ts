@@ -2,8 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
-import { tryParseJson } from "../glv/parse.js";
-import { DATA_DIR_NAME } from "./db-path.js";
+import { tryParseJson } from "./parse.js";
 
 const configRoot = (): string => {
   if (platform() === "win32")
@@ -22,11 +21,11 @@ const CONFIG_KEYS: readonly string[] = ["forwardHost"];
 
 // Lives outside the repo so per-machine secrets (e.g. a forward host) stay
 // uncommitted. Precedence mirrors the DB-path helpers: env override → default.
-const resolveConfigPath = (): string =>
-  process.env.GLV_CONFIG ?? join(configRoot(), DATA_DIR_NAME, "config.json");
+const resolveConfigPath = (dataDirName: string): string =>
+  process.env.GLV_CONFIG ?? join(configRoot(), dataDirName, "config.json");
 
-const readRawConfig = (): Record<string, unknown> => {
-  const path = resolveConfigPath();
+const readRawConfig = (dataDirName: string): Record<string, unknown> => {
+  const path = resolveConfigPath(dataDirName);
   if (!existsSync(path)) return {};
   const parsed = tryParseJson(readFileSync(path, "utf-8"));
   if (parsed === null || typeof parsed !== "object")
@@ -41,11 +40,15 @@ const validateConfig = (config: Record<string, unknown>): GlvConfig => {
   return result;
 };
 
-const readConfig = (): GlvConfig => validateConfig(readRawConfig());
+const readConfig = (dataDirName: string): GlvConfig =>
+  validateConfig(readRawConfig(dataDirName));
 
-const writeConfig = (config: Record<string, unknown>): void => {
+const writeConfig = (
+  dataDirName: string,
+  config: Record<string, unknown>,
+): void => {
   validateConfig(config);
-  const path = resolveConfigPath();
+  const path = resolveConfigPath(dataDirName);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };

@@ -1,3 +1,5 @@
+import type { ListEntry } from "../../glv/groups/model.js";
+import type { SessionRow } from "../../glv/sessions.js";
 import {
   BrowseFilesButton,
   BulkActionBar,
@@ -5,8 +7,6 @@ import {
   NewSessionButton,
   ThemeToggle,
 } from "../../glv/views/SidebarControls.js";
-import type { SessionRow } from "../db.js";
-import type { ListEntry } from "../groups/model.js";
 import { GroupEntry } from "./GroupEntry.js";
 import { SessionItem } from "./SessionItem.js";
 
