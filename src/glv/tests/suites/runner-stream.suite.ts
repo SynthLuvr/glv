@@ -171,15 +171,23 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       fx.seedSessions(env, [
         { id: "del-1", name: "Delete Me", workingDir: env.scratchDir + "/x" },
       ]);
-      const stream = collectSse(
+      // The deletion must land after the stream has observed the session
+      // (its first status event): if the session is gone before the
+      // handler's first poll, no deleted delta is ever emitted — the
+      // same attach-then-mutate rule the rename test above follows.
+      let removed = false;
+      const events = await collectSse(
         env,
         "/sessions/del-1/events",
         (evs) => hasStatus(evs, "deleted"),
         12000,
+        (e) => {
+          if (!removed && e.event === "status") {
+            removed = true;
+            fx.deleteSession(env, "del-1");
+          }
+        },
       );
-      await delay(500);
-      fx.deleteSession(env, "del-1");
-      const events = await stream;
       expect(hasStatus(events, "deleted")).toBe(true);
     });
   });
