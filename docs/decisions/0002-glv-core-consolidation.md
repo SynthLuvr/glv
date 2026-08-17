@@ -49,8 +49,10 @@ Three rules governed the migration:
 Guardrails make drift impossible to reintroduce: `lint:mirrored` fails
 on any file with identical content in two trees, and `lint:cross-tree`
 runs jscpd across all of `src/` so any clone pair spanning trees fails
-the build. Transitional exemption lists tracked the migration debt and
-were deleted once empty.
+the build (floor: at least 3 lines and 50 tokens — jscpd’s defaults,
+pinned explicitly in the script; smaller byte-identical copies are still
+caught by `lint:mirrored`). Transitional exemption lists tracked the
+migration debt and were deleted once empty.
 
 ## Rationale
 

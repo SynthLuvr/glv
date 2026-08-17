@@ -157,7 +157,8 @@ never in more than one of them. `pnpm lint` fails on either:
 - a path existing in two trees with identical content (`lint:mirrored`),
   or
 - a code clone spanning two trees (`lint:cross-tree`, jscpd across all
-  of `src/`).
+  of `src/`; enforced floor ≥3 lines and ≥50 tokens — byte-identical
+  copies of any size fail `lint:mirrored`).
 
 Same-path files with genuinely different content (the flavor adapters,
 profiles, and CLIs) are the intended end state and are not mirrors; any

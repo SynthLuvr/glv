@@ -9,7 +9,10 @@
  * jscpd's per-tree runs (lint:duplicates) see each tree in isolation, so
  * the two product trees could drift into near-identical copies without
  * tripping it. This check closes that gap: any clone pair spanning two
- * trees fails the build. The transitional exemption lists that covered
+ * trees fails the build. The enforced floor is at least 3 lines AND 50
+ * tokens — jscpd's defaults, passed explicitly in runJscpd so the bar is
+ * deliberate rather than inherited. Byte-identical copies of ANY size are
+ * still caught by lint:mirrored. The transitional exemption lists that covered
  * pre-consolidation clones were removed once they emptied; every
  * cross-tree clone now fails unconditionally.
  */
@@ -69,6 +72,15 @@ const runJscpd = (outDir: string): Report => {
       FORMATS,
       "--min-lines",
       "3",
+      // jscpd's default token floor, passed explicitly: it is the real
+      // bar, not an accident. Below 50 tokens the matches are trivial
+      // structural overlap between genuinely different adapter code
+      // (parallel option lists, interface fields, test helpers) — a
+      // clean tree already reports dozens of cross-tree pairs at
+      // min-tokens 20, so lowering this floods the build. Byte-identical
+      // copies of any size fail lint:mirrored instead.
+      "--min-tokens",
+      "50",
       // Percentage thresholds are meaningless here; violations are decided
       // below from the parsed report.
       "--threshold",
