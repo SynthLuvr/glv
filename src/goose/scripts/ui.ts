@@ -292,3 +292,5 @@ document.addEventListener("click", (e) => {
     uiApplyPane("detail");
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });
+
+export {};

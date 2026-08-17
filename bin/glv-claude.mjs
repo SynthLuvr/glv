@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+// Cross-platform Node launcher for the claude viewer, published via
+// package.json's "bin" field. bin/glv-claude (POSIX shell) is retained for
+// direct Unix invocation (test harness).
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const tsxLoader = join(root, "node_modules", "tsx", "dist", "loader.mjs");
+const cli = join(root, "src", "claude", "cli.ts");
+const args = ["--import", tsxLoader, cli, ...process.argv.slice(2)];
+
+const { error, status } = spawnSync(process.execPath, args, {
+  stdio: "inherit",
+});
+
+if (error) console.error(error);
+// null status means the child was killed by a signal — surface as non-zero.
+process.exitCode = error ? 1 : (status ?? 1);

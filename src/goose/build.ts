@@ -6,7 +6,7 @@ import { execaSync } from "execa";
 
 const SRC_DIR = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(SRC_DIR, "..", "..");
-const OUTPUT_DIR = join(PROJECT_ROOT, "dist");
+const OUTPUT_DIR = join(PROJECT_ROOT, "dist", "goose");
 const CSS_INPUT = join(SRC_DIR, "styles", "app.css");
 const CSS_OUTPUT = join(OUTPUT_DIR, "app.css");
 const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");

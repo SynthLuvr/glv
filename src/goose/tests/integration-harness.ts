@@ -102,7 +102,7 @@ const findFreePort = (): Promise<number> =>
     });
   });
 
-const waitForHttp = async (url: string, timeoutMs = 20000): Promise<void> => {
+const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
   while (Date.now() < deadline)
@@ -340,7 +340,17 @@ const startIntegrationEnv = async (
     ...mockEnv(mock),
   });
 
-  await waitForHttp(baseUrl);
+  try {
+    await waitForHttp(baseUrl);
+  } catch (err) {
+    await stopProcess(proc);
+    restoreGoosePath();
+    restoreGhPath();
+    rmSync(scratchDir, { recursive: true, force: true });
+    throw new Error(
+      `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
+    );
+  }
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
