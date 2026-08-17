@@ -2,10 +2,17 @@ import { existsSync } from "node:fs";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { displayName, parseMessage } from "../../../glv/format/index.js";
 import { pullRepo } from "../../../glv/git.js";
 import { type EstablishOutcome, withCreateLock } from "../../../glv/launch.js";
 import type { SavedPrompt } from "../../../glv/prompts/db.js";
 import { bumpUsage, listPrompts } from "../../../glv/prompts/db.js";
+import {
+  clearPending,
+  enqueueOrQueue,
+  getHandle,
+  stop,
+} from "../../../glv/runner/index.js";
 import { extractIds, isHtmxRequest } from "../../../glv/server/http.js";
 import { expandHome } from "../../../glv/server/paths.js";
 import {
@@ -20,16 +27,9 @@ import {
   uploadErrorMessage,
 } from "../../../glv/server/uploads.js";
 import type { SessionRow } from "../../../glv/sessions.js";
-import { displayName, parseMessage } from "../../format/index.js";
-import {
-  clearPending,
-  enqueueOrQueue,
-  getHandle,
-  stop,
-} from "../../runner/index.js";
-import { SessionTitleWrap } from "../../views/Rename.js";
-import { SessionList } from "../../views/Sidebar.js";
-import { PromptBar, Transcript } from "../../views/transcript.js";
+import { SessionTitleWrap } from "../../../glv/views/Rename.js";
+import { SessionList } from "../../../glv/views/Sidebar.js";
+import { PromptBar, Transcript } from "../../../glv/views/transcript.js";
 import { ServerContext, VIEWER_FILTER } from "../context.js";
 import {
   newSessionDetail,
@@ -82,6 +82,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       sessionsAll(),
       id,
       <Transcript
+        agentName={ctx.profile.agentName}
         session={session}
         messages={messages}
         run={includeRun ? getHandle(ctx.runner, id) : undefined}
@@ -234,6 +235,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const run = getHandle(ctx.runner, id);
     return c.html(
       <PromptBar
+        agentName={ctx.profile.agentName}
         sessionId={id}
         run={run}
         prompts={libraryPrompts()}

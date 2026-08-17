@@ -1,13 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SessionLauncher } from "../glv/launch.js";
-import { getSession, sessionIdsInDir } from "./db.js";
 import {
-  enqueueRun,
+  enqueueNewSession,
   generateTempKey,
   type Runner,
   rekey,
   stop,
-} from "./runner/index.js";
+} from "../glv/runner/index.js";
+import { getSession, sessionIdsInDir } from "./db.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,7 +27,7 @@ const makeGooseLauncher = (
     startNew: (workingDir, prompt) => {
       const tempKey = generateTempKey();
       knownIds.set(tempKey, new Set(sessionIdsInDir(db, workingDir)));
-      enqueueRun(runner, tempKey, prompt, workingDir, { isNewSession: true });
+      enqueueNewSession(runner, tempKey, prompt, workingDir);
       return tempKey;
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {

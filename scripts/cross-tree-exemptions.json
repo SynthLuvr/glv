@@ -1,13 +1,6 @@
 [
   "build.ts",
   "cli.ts",
-  "format/markdown.ts",
-  "format/message.ts",
-  "format/text.ts",
-  "runner/queue.ts",
-  "runner/spawn.ts",
-  "runner/types.ts",
-  "server/bundle.ts",
   "tests/archive-rename.integration.test.ts",
   "tests/claude-mock-script.ts",
   "tests/cli.integration.test.ts",
@@ -40,11 +33,5 @@
   "tests/transcript.integration.test.ts",
   "tests/upload.integration.test.ts",
   "tests/ux-audit.integration.test.ts",
-  "tests/viewer.integration.test.ts",
-  "views/head.tsx",
-  "views/message-blocks.tsx",
-  "views/new-session.tsx",
-  "views/prompt-library.tsx",
-  "views/stream-line.tsx",
-  "views/transcript.tsx"
+  "tests/viewer.integration.test.ts"
 ]

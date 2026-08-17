@@ -8,17 +8,18 @@ import {
   runConfigList,
   runConfigSet,
 } from "../glv/commands/config.js";
+import { runList } from "../glv/commands/list.js";
+import { runView } from "../glv/commands/view.js";
 import { readConfig } from "../glv/config.js";
 import { resolveGroupsDbPath } from "../glv/groups/db.js";
 import { resolvePromptsDbPath } from "../glv/prompts/db.js";
+import { makeRunnerConfig } from "../glv/runner/index.js";
 import type { SessionStore } from "../glv/sessions.js";
-import { runList } from "./commands/list.js";
+import { makeGooseAgent } from "./agent.js";
 import { runServe } from "./commands/serve.js";
-import { runView } from "./commands/view.js";
 import { createSessionStore, openDb, resolveDbPath } from "./db.js";
 import { makeGooseLauncher } from "./launch.js";
 import { gooseProfile } from "./profile.js";
-import { makeRunnerConfig } from "./runner/index.js";
 
 type SessionsOpts = {
   type: string;
@@ -223,7 +224,10 @@ program
     runServe(sessions, {
       port: Number(opts.port),
       profile: gooseProfile,
-      runner: makeRunnerConfig(opts.maxConcurrent, opts.gooseBinary),
+      runner: makeRunnerConfig(
+        opts.maxConcurrent,
+        makeGooseAgent(opts.gooseBinary),
+      ),
       makeLauncher: (runner) =>
         makeGooseLauncher(db, runner, gooseProfile.sessionTimeoutError),
       closeStore: () => {

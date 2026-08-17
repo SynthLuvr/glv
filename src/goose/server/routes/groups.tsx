@@ -9,7 +9,7 @@ import {
   removeMember,
   renameGroup,
 } from "../../../glv/groups/db.js";
-import { SessionList } from "../../views/Sidebar.js";
+import { SessionList } from "../../../glv/views/Sidebar.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { sidebarEntries } from "../render.js";

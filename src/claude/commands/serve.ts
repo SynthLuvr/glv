@@ -2,20 +2,20 @@ import type { Socket } from "node:net";
 import { serve } from "@hono/node-server";
 import { openAuthDb } from "../../glv/auth/db.js";
 import { makeAuthService } from "../../glv/auth/service.js";
+import { buildAssets } from "../../glv/build.js";
 import { startForwardTunnel, type TunnelHandle } from "../../glv/forward.js";
 import { openGroupsDb } from "../../glv/groups/db.js";
 import type { SessionLauncher } from "../../glv/launch.js";
 import { setupLogging } from "../../glv/log.js";
 import type { FlavorProfile } from "../../glv/profile.js";
 import { openPromptsDb } from "../../glv/prompts/db.js";
-import type { SessionStore } from "../../glv/sessions.js";
-import { buildScripts, buildStyles } from "../build.js";
 import {
   createRunner,
   type Runner,
   type RunnerConfig,
   stopAll,
-} from "../runner/index.js";
+} from "../../glv/runner/index.js";
+import type { SessionStore } from "../../glv/sessions.js";
 import { createApp } from "../server/index.js";
 
 type ServeOpts = {
@@ -119,8 +119,7 @@ const registerShutdown = (
 
 const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   setupLogging(opts.debug);
-  buildStyles();
-  buildScripts();
+  buildAssets(opts.profile.id);
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);

@@ -1,4 +1,4 @@
-import { isTerminalStatus, type RunHandle } from "../runner/index.js";
+import { isTerminalStatus, type RunHandle } from "../../glv/runner/index.js";
 
 const activeRunPrompt = (run: RunHandle | undefined): string | undefined =>
   run !== undefined && !isTerminalStatus(run.status) ? run.prompt : undefined;

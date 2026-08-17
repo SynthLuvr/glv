@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLauncher } from "../glv/launch.js";
+import { enqueueNewSession, type Runner, stop } from "../glv/runner/index.js";
 import type { SessionStore } from "../glv/sessions.js";
-import { enqueueNewSession, type Runner, stop } from "./runner/index.js";
 import { findTranscript } from "./store/transcript.js";
 
 const sleep = (ms: number): Promise<void> =>

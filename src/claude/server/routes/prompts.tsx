@@ -14,7 +14,7 @@ import {
   PromptEditForm,
   PromptLibrary,
   PromptSaveForm,
-} from "../../views/prompt-library.js";
+} from "../../../glv/views/prompt-library.js";
 import type { ServerContext } from "../context.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
@@ -64,13 +64,16 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   // Inline save form, loaded into the save slot on demand.
-  app.get("/prompts/new", (c) => c.html(<PromptSaveForm />));
+  app.get("/prompts/new", (c) =>
+    c.html(<PromptSaveForm agentName={ctx.profile.agentName} />),
+  );
 
   app.post("/prompts", async (c) => {
     const input = readInput(await c.req.parseBody());
     if (!isValid(input))
       return c.html(
         <PromptSaveForm
+          agentName={ctx.profile.agentName}
           title={input.title}
           body={input.body}
           category={input.category ?? ""}

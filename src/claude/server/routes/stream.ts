@@ -1,9 +1,9 @@
 import { type Hono } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
-import { type ParsedMessage, parseMessage } from "../../format/index.js";
-import { getHandle, isTerminalStatus } from "../../runner/index.js";
-import { renderMessage } from "../../views/message-blocks.js";
-import { renderPromptCard } from "../../views/transcript.js";
+import { type ParsedMessage, parseMessage } from "../../../glv/format/index.js";
+import { getHandle, isTerminalStatus } from "../../../glv/runner/index.js";
+import { renderMessage } from "../../../glv/views/message-blocks.js";
+import { renderPromptCard } from "../../../glv/views/transcript.js";
 import type { ServerContext } from "../context.js";
 import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
 
@@ -178,6 +178,7 @@ const pollRunner = async (
       stream,
       h.output,
       state.sentLineOffset,
+      ctx.profile.streamEnvelope,
       state.msgCursor,
     );
     if (next === false) return false;
@@ -255,6 +256,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
           stream,
           handle.output,
           0,
+          ctx.profile.streamEnvelope,
           state.msgCursor,
         );
         if (next === false) return;

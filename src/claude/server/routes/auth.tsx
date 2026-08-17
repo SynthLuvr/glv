@@ -11,7 +11,7 @@ import {
   EnrollPage,
   LoginPage,
   RegisterPage,
-} from "../../views/Auth.js";
+} from "../../../glv/views/Auth.js";
 import type { ServerContext } from "../context.js";
 
 const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
@@ -66,12 +66,12 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.get("/auth/register", (c) => {
     if (auth.isClaimed()) return c.redirect("/auth/login", 302);
-    return c.html(<RegisterPage />);
+    return c.html(<RegisterPage agentName={ctx.profile.agentName} />);
   });
 
   app.get("/auth/login", (c) => {
     if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
-    return c.html(<LoginPage />);
+    return c.html(<LoginPage agentName={ctx.profile.agentName} />);
   });
 
   app.get("/auth/register/options", async (c) => {
@@ -103,7 +103,12 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   // Owner-only passkey management. The auth middleware gates these (they are
   // excluded from isPublicPath), so reaching a handler implies a valid session.
   app.get("/auth/devices", (c) =>
-    c.html(<DevicesPage credentials={auth.listCredentialSummaries()} />),
+    c.html(
+      <DevicesPage
+        credentials={auth.listCredentialSummaries()}
+        agentName={ctx.profile.agentName}
+      />,
+    ),
   );
 
   app.post("/auth/devices", (c) => {
@@ -114,6 +119,7 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
         : `${resolveRequestUrl(c).origin}/auth/enroll/${token}`;
     return c.html(
       <DevicesPage
+        agentName={ctx.profile.agentName}
         credentials={auth.listCredentialSummaries()}
         enrollUrl={enrollUrl}
         token={token}
@@ -128,7 +134,9 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
     const token = c.req.param("token");
     if (!auth.isEnrollmentTokenValid(token))
       return c.redirect("/auth/login", 302);
-    return c.html(<EnrollPage token={token} />);
+    return c.html(
+      <EnrollPage token={token} agentName={ctx.profile.agentName} />,
+    );
   });
 
   app.get("/auth/enroll/:token/options", async (c) => {

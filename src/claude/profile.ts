@@ -2,6 +2,7 @@ import type { FlavorProfile } from "../glv/profile.js";
 
 const claudeProfile: FlavorProfile = {
   id: "claude",
+  streamEnvelope: "message",
   agentName: "claude",
   dataDirName: "glv-claude",
   sessionTimeoutError:

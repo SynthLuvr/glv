@@ -1,8 +1,9 @@
 import type { SSEStreamingApi } from "hono/streaming";
+import { fmtRelative } from "../../glv/format/index.js";
+import type { StreamEnvelope } from "../../glv/profile.js";
+import type { LineBuffer, RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
-import { fmtRelative } from "../format/index.js";
-import type { LineBuffer, RunHandle } from "../runner/index.js";
-import { renderStreamLine } from "../views/stream-line.js";
+import { renderStreamLine } from "../../glv/views/stream-line.js";
 
 // Minimal structural shape emit()/flushPreview() touch, so tests can supply a
 // fake stream without asserting the full SSEStreamingApi interface.
@@ -43,11 +44,12 @@ const flushPreview = async (
   stream: SseWriter,
   buffer: LineBuffer,
   fromSeq: number,
+  envelope: StreamEnvelope,
   id?: number,
 ): Promise<number | false> => {
   const { lines, nextSeq } = buffer.drain(fromSeq);
   for (const line of lines) {
-    const html = renderStreamLine(line);
+    const html = renderStreamLine(line, envelope);
     if (html !== "" && !(await emit(stream, "preview", html, id))) return false;
   }
   return nextSeq;

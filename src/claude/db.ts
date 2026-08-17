@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
+import { truncate } from "../glv/format/text.js";
 import {
   archiveSessions as archiveMeta,
   getMeta,
@@ -13,7 +14,6 @@ import type {
   SessionRow,
   SessionStore,
 } from "../glv/sessions.js";
-import { truncate } from "./format/text.js";
 import {
   findTranscript,
   listSessionFiles,

@@ -9,18 +9,19 @@ import {
   runConfigList,
   runConfigSet,
 } from "../glv/commands/config.js";
+import { runList } from "../glv/commands/list.js";
+import { runView } from "../glv/commands/view.js";
 import { readConfig } from "../glv/config.js";
 import { resolveGroupsDbPath } from "../glv/groups/db.js";
 import { resolvePromptsDbPath } from "../glv/prompts/db.js";
+import { makeRunnerConfig } from "../glv/runner/index.js";
 import { openMetaDb, resolveMetaDbPath } from "../glv/session-meta.js";
 import type { SessionStore } from "../glv/sessions.js";
-import { runList } from "./commands/list.js";
+import { makeClaudeAgent, PERMISSION_MODES } from "./agent.js";
 import { runServe } from "./commands/serve.js";
-import { runView } from "./commands/view.js";
 import { createSessionStore } from "./db.js";
 import { makeClaudeLauncher } from "./launch.js";
 import { claudeProfile } from "./profile.js";
-import { makeRunnerConfig, PERMISSION_MODES } from "./runner/index.js";
 import { resolveProjectsRoot } from "./store/working-dir.js";
 
 type SessionsOpts = {
@@ -225,8 +226,7 @@ program
       profile: claudeProfile,
       runner: makeRunnerConfig(
         opts.maxConcurrent,
-        opts.claudeBinary,
-        opts.permissionMode,
+        makeClaudeAgent(opts.claudeBinary, opts.permissionMode),
       ),
       makeLauncher: (runner) =>
         makeClaudeLauncher(

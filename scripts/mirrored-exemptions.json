@@ -1,12 +1,5 @@
 [
-  "commands/list.ts",
   "commands/serve.ts",
-  "commands/view.ts",
-  "format/cli.ts",
-  "format/index.ts",
-  "pr-state.ts",
-  "pr.ts",
-  "runner/runner.ts",
   "server/context.ts",
   "server/index.tsx",
   "server/render.tsx",
@@ -30,12 +23,5 @@
   "tests/gh-mock-script.ts",
   "tests/git.test.ts",
   "tests/prompts.integration.test.ts",
-  "tests/structured-logger.integration.test.ts",
-  "views/Auth.tsx",
-  "views/GroupEntry.tsx",
-  "views/Layout.tsx",
-  "views/Rename.tsx",
-  "views/SessionItem.tsx",
-  "views/Sidebar.tsx",
-  "views/chips.tsx"
+  "tests/structured-logger.integration.test.ts"
 ]

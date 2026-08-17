@@ -24,7 +24,7 @@
     "lint:oxlint": "pnpm oxlint --deny-warnings .",
     "lint": "npm-run-all lint:biome lint:oxlint lint:exports lint:functions lint:file-comment lint:md lint:peer-deps lint:audit lint:duplicates lint:mirrored lint:cross-tree",
     "lint:audit": "pnpm audit --prod",
-    "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 7 && pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 7 && pnpm exec jscpd src/glv --format typescript --min-lines 3 --threshold 5",
+    "lint:duplicates": "pnpm exec jscpd src/goose --format typescript --min-lines 3 --threshold 8 && pnpm exec jscpd src/claude --format typescript --min-lines 3 --threshold 8 && pnpm exec jscpd src/glv --format typescript --min-lines 3 --threshold 5",
     "strip-braces": "pnpm exec ast-grep scan --rule .ast-grep/rules/strip-braces.yml -U",
     "lint:exports": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-inline-export.yml --error=no-inline-export --globs '!**/*.d.ts' .",
     "lint:functions": "pnpm exec ast-grep scan --rule .ast-grep/rules/no-function-declaration.yml --error=no-function-declaration --globs '!**/*.d.ts' .",

@@ -7,9 +7,9 @@ import { buildEntries } from "../../glv/groups/model.js";
 import { listCategories, listPrompts } from "../../glv/prompts/db.js";
 import { isHtmxRequest } from "../../glv/server/http.js";
 import type { SessionRow } from "../../glv/sessions.js";
-import { Layout } from "../views/Layout.js";
-import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
-import { SessionList, Sidebar } from "../views/Sidebar.js";
+import { Layout } from "../../glv/views/Layout.js";
+import { NewSessionForm, NotFoundDetail } from "../../glv/views/new-session.js";
+import { SessionList, Sidebar } from "../../glv/views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { activeSessionIds } from "./status.js";
@@ -79,6 +79,7 @@ const Shell = ({
   logout = false,
   children,
   title,
+  agentName,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   entries: ListEntry[];
@@ -86,8 +87,9 @@ const Shell = ({
   runningIds: Set<string>;
   logout?: boolean;
   title: string;
+  agentName: string;
 }>) => (
-  <Layout title={title}>
+  <Layout title={title} agentName={agentName}>
     <div
       class="app"
       data-mobile-pane={selectedId !== undefined ? "detail" : "sidebar"}
@@ -146,6 +148,7 @@ const render = (
       )
     : c.html(
         <Shell
+          agentName={ctx.profile.agentName}
           sessions={sessions}
           entries={entries}
           selectedId={selectedId}
@@ -178,6 +181,7 @@ const newSessionDetail = (
   const categories = db !== undefined ? listCategories(db) : [];
   return (
     <NewSessionForm
+      agentName={ctx.profile.agentName}
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
