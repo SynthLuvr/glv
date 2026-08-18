@@ -16,11 +16,21 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+// pnpm is a .cmd shim on Windows, which spawn cannot execute directly. When
+// running under pnpm (as `pnpm lint` does), npm_execpath names pnpm's real
+// JavaScript entry — run it with the current Node executable instead of a
+// shell. The fixed argument list keeps the bare-"pnpm" fallback safe.
+const pnpmEntry = process.env.npm_execpath;
+const runPnpm = (args: string[]) =>
+  pnpmEntry === undefined
+    ? spawnSync("pnpm", args, { cwd: ROOT, encoding: "utf8" })
+    : spawnSync(process.execPath, [pnpmEntry, ...args], {
+        cwd: ROOT,
+        encoding: "utf8",
+      });
+
 const checkPeerDependencies = (): void => {
-  const result = spawnSync("pnpm", ["peers", "check"], {
-    cwd: ROOT,
-    encoding: "utf8",
-  });
+  const result = runPnpm(["peers", "check"]);
 
   if (result.error) throw result.error;
 

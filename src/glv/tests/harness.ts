@@ -1,4 +1,11 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import {
+  type ChildProcess,
+  type SpawnOptions,
+  type SpawnSyncOptionsWithStringEncoding,
+  type SpawnSyncReturns,
+  spawn,
+  spawnSync,
+} from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   existsSync,
@@ -9,14 +16,15 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
 import { tryParseJson } from "../parse.js";
+import { mockBinWindows } from "./win-mock-bin.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -210,6 +218,7 @@ type SseEvent = { event: string; data: string; id: string | undefined };
 // What each flavor provides to the generic boot machinery.
 type FlavorAdapter = {
   readonly name: string;
+  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
   readonly binPath: string;
   readonly mockBinName: string;
   readonly mockScriptPath: string;
@@ -278,7 +287,7 @@ type FlavorFixture = {
   readonly resumeFlag: string;
   /** The serve flag naming the agent binary ("--goose-binary", ...). */
   readonly binaryFlag: string;
-  /** Absolute path to the flavor's launcher (bin/glv-*). */
+  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
   readonly binPath: string;
   /** Puts the mock agent binary on PATH; returns a restore closure. */
   readonly mockAgent: () => Promise<() => void>;
@@ -307,9 +316,17 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
   });
 
 // mockBin prepends a temp dir to PATH so glv finds the mocked binary.
-const tsxLoader = createRequire(import.meta.url).resolve("tsx");
+// Windows needs a different interception flavor: Node refuses to spawn the
+// #!/.cmd shims type-a-bin writes, so win-mock-bin installs hard-linked
+// node.exe copies instead (see win-mock-bin.ts).
+const IS_WIN = platform() === "win32";
+const tsxLoader = pathToFileURL(
+  createRequire(import.meta.url).resolve("tsx"),
+).href;
 const mockScript = (bin: string, file: string): Promise<() => void> =>
-  mockBin(bin, `node --import ${tsxLoader}`, { file });
+  IS_WIN
+    ? mockBinWindows(bin, file)
+    : mockBin(bin, `node --import ${tsxLoader}`, { file });
 
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or
 // network.
@@ -332,6 +349,64 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_SPAWN_CHILD`]: mock.spawnChild ?? "",
 });
 
+const spawnLauncher = (
+  binPath: string,
+  args: readonly string[],
+  options: SpawnOptions,
+): ChildProcess => spawn(process.execPath, [binPath, ...args], options);
+
+const spawnLauncherSync = (
+  binPath: string,
+  args: readonly string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+): SpawnSyncReturns<string> =>
+  spawnSync(process.execPath, [binPath, ...args], options);
+
+// Environment overrides that point os.homedir() — and, on Windows, the
+// Known Folders glv resolves its data and config dirs through — at a
+// scratch directory, so tests never touch the real profile.
+const fakeHomeEnv = (home: string): Record<string, string> =>
+  IS_WIN
+    ? {
+        USERPROFILE: home,
+        APPDATA: join(home, "AppData", "Roaming"),
+        LOCALAPPDATA: join(home, "AppData", "Local"),
+      }
+    : { HOME: home };
+
+// Platform default locations for glv-owned files under a (fake) home,
+// mirroring db-path.ts and config.ts: XDG-style on macOS/Linux, Known
+// Folders on Windows.
+const defaultDataDir = (home: string, dataDirName: string): string =>
+  IS_WIN
+    ? join(home, "AppData", "Roaming", dataDirName)
+    : join(home, ".local", "share", dataDirName);
+
+const defaultConfigFile = (home: string, dataDirName: string): string =>
+  IS_WIN
+    ? join(home, "AppData", "Local", dataDirName, "config.json")
+    : join(home, ".config", dataDirName, "config.json");
+
+// Windows can transiently deny deletion of files a just-killed process
+// still holds (SQLite WALs, shim exes); rmSync's retry options exist for
+// exactly this and are harmless elsewhere. If the directory still cannot
+// be removed after the retry window — antivirus and search indexing can
+// hold temp files open arbitrarily long on Windows — the failure is
+// reported but not thrown: leftover temp debris must not fail a suite
+// whose assertions all passed, and the OS temp cleaner catches the rest.
+const rmScratch = (dir: string): void => {
+  try {
+    rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 40,
+      retryDelay: 250,
+    });
+  } catch (err) {
+    console.error(`warning: could not fully remove ${dir}: ${String(err)}`);
+  }
+};
+
 const startServer = (
   adapter: FlavorAdapter,
   dbs: Databases,
@@ -339,7 +414,7 @@ const startServer = (
   extraEnv: Record<string, string> = {},
 ): { proc: ChildProcess; readStderr: () => string } => {
   let stderr = "";
-  const proc = spawn(
+  const proc = spawnLauncher(
     adapter.binPath,
     ["serve", "-p", String(port), ...adapter.serveArgs(dbs)],
     {
@@ -378,7 +453,7 @@ const startEnv = async (
     ...adapter.serverEnv(dbs),
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
-    ...(homeDir !== undefined ? { HOME: homeDir } : {}),
+    ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
     ...mockEnv(adapter.mockEnvPrefix, mock),
   });
 
@@ -421,7 +496,7 @@ const startEnv = async (
     restoreGhPath();
     const stderr = readStderr();
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
-    rmSync(scratchDir, { recursive: true, force: true });
+    rmScratch(scratchDir);
   };
 
   return {
@@ -618,6 +693,9 @@ export {
   baseDatabases,
   collectSse,
   dbOverrideArgs,
+  defaultConfigFile,
+  defaultDataDir,
+  fakeHomeEnv,
   findFreePort,
   mockScript,
   parseSseData,
@@ -625,6 +703,9 @@ export {
   postNewSession,
   ROOT,
   readStoreField,
+  rmScratch,
+  spawnLauncher,
+  spawnLauncherSync,
   startEnv,
   stopProcess,
   waitForHttp,

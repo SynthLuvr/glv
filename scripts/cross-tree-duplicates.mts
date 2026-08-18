@@ -48,36 +48,45 @@ const treeOf = (path: string): string | undefined => {
 };
 
 const runJscpd = (outDir: string): Report => {
-  const result = spawnSync(
-    "pnpm",
-    [
-      "exec",
-      "jscpd",
-      "src",
-      "--format",
-      FORMATS,
-      "--min-lines",
-      "3",
-      // jscpd's default token floor, passed explicitly: it is the real
-      // bar, not an accident. Below 50 tokens the matches are trivial
-      // structural overlap between genuinely different adapter code
-      // (parallel option lists, interface fields, test helpers) — a
-      // clean tree already reports dozens of cross-tree pairs at
-      // min-tokens 20, so lowering this floods the build. Byte-identical
-      // copies of any size fail lint:mirrored instead.
-      "--min-tokens",
-      "50",
-      // Percentage thresholds are meaningless here; violations are decided
-      // below from the parsed report.
-      "--threshold",
-      "100",
-      "--reporters",
-      "json",
-      "--output",
-      outDir,
-    ],
-    { cwd: ROOT, encoding: "utf8" },
-  );
+  // pnpm is a .cmd shim on Windows, which spawn cannot execute directly.
+  // When running under pnpm (as `pnpm lint` does), npm_execpath names
+  // pnpm's real JavaScript entry — run it with the current Node
+  // executable instead of a shell. The fixed argument list keeps the
+  // bare-"pnpm" fallback safe.
+  const pnpmEntry = process.env.npm_execpath;
+  const pnpmArgs = [
+    "exec",
+    "jscpd",
+    "src",
+    "--format",
+    FORMATS,
+    "--min-lines",
+    "3",
+    // jscpd's default token floor, passed explicitly: it is the real
+    // bar, not an accident. Below 50 tokens the matches are trivial
+    // structural overlap between genuinely different adapter code
+    // (parallel option lists, interface fields, test helpers) — a
+    // clean tree already reports dozens of cross-tree pairs at
+    // min-tokens 20, so lowering this floods the build. Byte-identical
+    // copies of any size fail lint:mirrored instead.
+    "--min-tokens",
+    "50",
+    // Percentage thresholds are meaningless here; violations are decided
+    // below from the parsed report.
+    "--threshold",
+    "100",
+    "--reporters",
+    "json",
+    "--output",
+    outDir,
+  ];
+  const result =
+    pnpmEntry === undefined
+      ? spawnSync("pnpm", pnpmArgs, { cwd: ROOT, encoding: "utf8" })
+      : spawnSync(process.execPath, [pnpmEntry, ...pnpmArgs], {
+          cwd: ROOT,
+          encoding: "utf8",
+        });
   if (result.error) throw result.error;
   const reportPath = join(outDir, "jscpd-report.json");
   if (!existsSync(reportPath))

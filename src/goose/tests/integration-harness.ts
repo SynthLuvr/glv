@@ -50,7 +50,7 @@ const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(harness.ROOT, "bin", "glv-goose");
+const GLV = join(harness.ROOT, "bin", "glv-goose.mjs");
 
 const mockGoose = (): Promise<() => void> =>
   harness.mockScript("goose", gooseMockScriptPath);

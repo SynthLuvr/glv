@@ -1,4 +1,38 @@
-import { defineConfig } from "vitest/config";
+import { platform } from "node:os";
+import { configDefaults, defineConfig } from "vitest/config";
+
+// The claude-flavored suites that spawn the (mocked) agent binary cannot
+// run on Windows yet. PATH interception there needs a real .exe (Node
+// refuses to spawn .cmd/.bat shims without a shell), and the two available
+// hosting tricks both fail for claude's flag-first CLI:
+//
+//   - a hard-linked node.exe dies in Node's own option parser before any
+//     preload can run ("bad option: --session-id"), while the goose flavor
+//     works this way because its first argument is a positional ("run") —
+//     see src/glv/tests/win-mock-bin.ts;
+//   - a .cmd shim cannot carry claude's multi-line --append-system-prompt
+//     argument (execa rejects line breaks to prevent cmd.exe injection).
+//
+// A real passthrough .exe would fix this; until one ships, these suites are
+// excluded on Windows in this one visible place. The same suites still run
+// on Windows through the goose flavor, which drives the identical glv core.
+const CLAUDE_AGENT_SPAWN_SUITES = [
+  "src/claude/tests/follow-up-upload.integration.test.ts",
+  "src/claude/tests/git-pull-before-session.integration.test.ts",
+  "src/claude/tests/group-running-indicator.integration.test.ts",
+  "src/claude/tests/mobile-upload-start.integration.test.ts",
+  "src/claude/tests/new-session.integration.test.ts",
+  "src/claude/tests/runner-stream.integration.test.ts",
+  "src/claude/tests/sandboxed-env.integration.test.ts",
+  "src/claude/tests/status-feed.integration.test.ts",
+  "src/claude/tests/stop-kills-descendants.integration.test.ts",
+  "src/claude/tests/stream-discard-non-json.integration.test.ts",
+  "src/claude/tests/stream-live.integration.test.ts",
+  "src/claude/tests/system-flag.integration.test.ts",
+  "src/claude/tests/temp-dir.integration.test.ts",
+  "src/claude/tests/upload.integration.test.ts",
+  "src/claude/tests/ux-audit.integration.test.ts",
+];
 
 const config = defineConfig({
   test: {
@@ -7,6 +41,10 @@ const config = defineConfig({
       "src/goose/tests/**/*.test.ts",
       "src/claude/tests/**/*.test.ts",
     ],
+    exclude:
+      platform() === "win32"
+        ? [...configDefaults.exclude, ...CLAUDE_AGENT_SPAWN_SUITES]
+        : configDefaults.exclude,
     // Every test file boots a real server plus a headless browser; keep
     // parallel files modest so small CI runners don't starve them.
     maxWorkers: 4,

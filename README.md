@@ -99,6 +99,36 @@ your PATH (`~/.local/bin/glv-goose` on macOS/Linux,
 `%USERPROFILE%\.local\bin\glv-goose.cmd` on Windows). `./setup.sh`
 remains as a thin Unix wrapper. Re-running is safe.
 
+### Windows
+
+`node scripts\setup.mjs` does the same on Windows: it installs
+dependencies and writes a `%USERPROFILE%\.local\bin\glv-goose.cmd` shim.
+If setup warns that the folder is not on your `PATH`, add it (Settings →
+System → About → Advanced system settings → Environment Variables) and
+open a new terminal; `glv-goose serve` then works from anywhere.
+
+You can also skip the shim and invoke the launcher with Node directly —
+this is exactly what the shim runs:
+
+``` powershell
+node bin\glv-goose.mjs serve -p 3001
+```
+
+Windows notes:
+
+- The launcher hands its TypeScript loader to `node --import` as a
+  `file://` URL. A plain `C:\...` path there is rejected by Node’s ESM
+  loader (`ERR_UNSUPPORTED_ESM_URL_SCHEME`), so keep the launcher as the
+  entry point rather than re-creating the `node --import` chain by hand.
+- glv reads goose’s sessions database from
+  `%APPDATA%\goose\sessions\sessions.db` by default. goose builds may
+  store it elsewhere on Windows — point glv at the real file with
+  `--db <path>` or the `GOOSE_SESSIONS_DB` environment variable.
+- glv-owned data (the auth database, prompt library, uploads) lives
+  under `%APPDATA%\glv-goose`, and per-machine config (e.g. the forward
+  host) under `%LOCALAPPDATA%\glv-goose\config.json`. Both are
+  overridable — see the flags below.
+
 ### Prerequisites
 
 - **Node.js ≥ 24** and **pnpm ≥ 10**.
@@ -238,6 +268,11 @@ pnpm build    # type-check + compile the Tailwind stylesheet
 pnpm test     # run tests
 pnpm lint     # lint all files
 ```
+
+The integration suite runs on macOS, Linux, and Windows. One caveat on
+Windows: the claude-flavored suites that spawn the mocked agent binary
+are excluded (see `vitest.config.ts` for why); they still run there
+through the goose flavor, which drives the same core.
 
 The repository hosts two viewers with parallel structure: `src/goose/`
 (goose sessions) and `src/claude/` (claude sessions). Each is styled

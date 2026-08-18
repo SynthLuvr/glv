@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { platform } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type FlavorFixture } from "../harness.js";
@@ -12,8 +13,18 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
 
   type Out = { status: number; stdout: string };
 
+  // Windows cannot execute the POSIX launcher directly; when a POSIX sh
+  // is on PATH (Git for Windows), the parity check runs through it, and is
+  // skipped when no sh exists.
+  const IS_WIN = platform() === "win32";
+  const shProbe = IS_WIN ? spawnSync("sh", ["-c", "exit 0"]) : undefined;
+  const canRunShell =
+    !IS_WIN || (shProbe?.error === undefined && shProbe?.status === 0);
+
   const runShell = (args: string[]): Out => {
-    const result = spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
+    const result = IS_WIN
+      ? spawnSync("sh", [SHELL_LAUNCHER, ...args], { encoding: "utf-8" })
+      : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
     return { status: result.status ?? -1, stdout: result.stdout ?? "" };
   };
 
@@ -31,11 +42,14 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
       expect(stdout).toContain("--forward");
     });
 
-    it(`produces output identical to the bin/glv-${fx.name} shell launcher`, () => {
-      expect(runNode(["serve", "--help"]).stdout).toBe(
-        runShell(["serve", "--help"]).stdout,
-      );
-    });
+    it.runIf(canRunShell)(
+      `produces output identical to the bin/glv-${fx.name} shell launcher`,
+      () => {
+        expect(runNode(["serve", "--help"]).stdout).toBe(
+          runShell(["serve", "--help"]).stdout,
+        );
+      },
+    );
 
     it("prints the top-level program help", () => {
       const { stdout } = runNode(["--help"]);

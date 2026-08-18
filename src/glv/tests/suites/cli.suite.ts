@@ -1,8 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { FlavorFixture } from "../harness.js";
+import { type FlavorFixture, spawnLauncherSync } from "../harness.js";
 
 type RunResult = { status: number; stdout: string; stderr: string };
 
@@ -21,7 +20,7 @@ type CliDeps = {
 // store.
 const makeRunner = (bin: string, globalFlags: () => string[]): RunCli => {
   const run = (args: string[], env: Record<string, string> = {}): RunResult => {
-    const result = spawnSync(bin, [...globalFlags(), ...args], {
+    const result = spawnLauncherSync(bin, [...globalFlags(), ...args], {
       env: { ...process.env, ...env },
       encoding: "utf-8",
     });
