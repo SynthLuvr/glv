@@ -57,7 +57,7 @@ for (const file of files) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {
       console.error(
-        "pandoc was not found on PATH. Install pandoc (>= 3.1) and retry.",
+        "pandoc was not found on PATH. Install pandoc (>= 3.10) and retry.",
       );
       process.exit(1);
     }
