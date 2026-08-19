@@ -58,8 +58,25 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
+  // A kill aimed at an already-exited subprocess is worse than useless with
+  // killDescendants: the Windows path (taskkill /PID <pid> /T /F) never
+  // checks that the pid still belongs to us, and Windows recycles pids
+  // quickly — a stale tree-kill can terminate an unrelated process (the
+  // user's real goose agent, say) plus its whole subtree. execa's live
+  // subprocess keeps no synchronous exit state (exitCode stays undefined
+  // and the instance is not an EventEmitter), so settle a flag off the
+  // promise instead — settled strictly implies exited, so the
+  // SIGINT → SIGTERM → SIGKILL escalation stays fully intact for a live —
+  // even a signal-trapping — process, while a retired pid is never
+  // signalled again.
+  let exited = false;
+  const markExited = (): void => {
+    exited = true;
+  };
+  void proc.then(markExited, markExited);
+
   const kill = (signal: NodeJS.Signals = "SIGINT"): void => {
-    proc.kill(signal);
+    if (!exited) proc.kill(signal);
   };
 
   return { pid, kill, stdout, exit };

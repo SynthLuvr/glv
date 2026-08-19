@@ -13,7 +13,6 @@ import {
 const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let childPidFile: string;
-  let trackedChildPid = 0;
 
   const delay = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,9 +52,10 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   }, 120000);
 
   afterAll(async () => {
-    // Don't leak the descendant if the test bailed before stop.
-    if (trackedChildPid !== 0 && isAlive(trackedChildPid))
-      process.kill(trackedChildPid, "SIGKILL");
+    // No reaping safety net: the descendant bounds its own lifetime (see
+    // spawnLongChild in mock-common), and a kill-by-pid net could terminate
+    // an unrelated process on Windows, where a recycled pid is
+    // indistinguishable from a still-live child once ours has died.
     await env?.cleanup();
   });
 
@@ -76,7 +76,6 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
         await delay(100);
       }
       expect(pid).toBeGreaterThan(0);
-      trackedChildPid = pid;
       expect(isAlive(pid)).toBe(true);
 
       const res = await authedFetch(env, "/sessions/tree-1/stop", {
