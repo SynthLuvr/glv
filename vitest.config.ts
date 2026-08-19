@@ -3,19 +3,16 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 // The claude-flavored suites that spawn the (mocked) agent binary cannot
 // run on Windows yet. PATH interception there needs a real .exe (Node
-// refuses to spawn .cmd/.bat shims without a shell), and the two available
-// hosting tricks both fail for claude's flag-first CLI:
-//
-//   - a hard-linked node.exe dies in Node's own option parser before any
-//     preload can run ("bad option: --session-id"), while the goose flavor
-//     works this way because its first argument is a positional ("run") —
-//     see src/glv/tests/win-mock-bin.ts;
-//   - a .cmd shim cannot carry claude's multi-line --append-system-prompt
-//     argument (execa rejects line breaks to prevent cmd.exe injection).
-//
-// A real passthrough .exe would fix this; until one ships, these suites are
-// excluded on Windows in this one visible place. The same suites still run
-// on Windows through the goose flavor, which drives the identical glv core.
+// refuses to spawn .cmd/.bat shims without a shell), and both available
+// hosting tricks fail for claude's flag-first CLI: a hard-linked node.exe
+// dies in Node's option parser before any preload can run ("bad option:
+// --session-id") — the goose flavor works only because its first argument
+// is a positional ("run"; see src/glv/tests/win-mock-bin.ts) — and a .cmd
+// shim cannot carry claude's multi-line --append-system-prompt argument
+// (execa rejects line breaks to prevent cmd.exe injection). Until a real
+// passthrough .exe ships, these suites are excluded on Windows here; the
+// same suites still run there through the goose flavor, which drives the
+// identical glv core.
 const CLAUDE_AGENT_SPAWN_SUITES = [
   "src/claude/tests/follow-up-upload.integration.test.ts",
   "src/claude/tests/git-pull-before-session.integration.test.ts",
@@ -45,9 +42,10 @@ const config = defineConfig({
       platform() === "win32"
         ? [...configDefaults.exclude, ...CLAUDE_AGENT_SPAWN_SUITES]
         : configDefaults.exclude,
-    // Every test file boots a real server plus a headless browser; keep
-    // parallel files modest so small CI runners don't starve them.
-    maxWorkers: 4,
+    // Every test file boots a real server plus a headless browser, so each
+    // concurrent file costs several hundred MB; two workers keep the peak
+    // low enough for local runs alongside normal dev load.
+    maxWorkers: 2,
     // Integration tests boot a real `glv-goose serve` / `glv-claude serve`
     // subprocess and drive it with a headless browser, so they need
     // generous timeouts.

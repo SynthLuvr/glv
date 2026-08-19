@@ -299,22 +299,31 @@ type FlavorFixture = {
   readonly assertResumeRunArgs?: (args: string[]) => void;
 };
 
+const IS_WIN = platform() === "win32";
+
+// The Node launcher wraps the CLI in a child process, so a stop must reach
+// the whole tree: spawnLauncher puts it in its own process group on POSIX
+// and the group is signalled (covering the SIGKILL escalation too); on
+// Windows the launcher forwards the signals itself.
 const stopProcess = (proc: ChildProcess): Promise<void> =>
   new Promise((resolve) => {
     if (proc.exitCode !== null) return resolve();
-    const timer = setTimeout(() => proc.kill("SIGKILL"), 5000);
+    const pid = proc.pid;
+    if (pid === undefined) return resolve();
+    const killTree = (signal: NodeJS.Signals): void => {
+      if (IS_WIN) proc.kill(signal);
+      else process.kill(-pid, signal);
+    };
+    const timer = setTimeout(() => killTree("SIGKILL"), 5000);
     proc.once("exit", () => {
       clearTimeout(timer);
       resolve();
     });
-    proc.kill("SIGTERM");
+    killTree("SIGTERM");
   });
 
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
-// Windows needs a different interception flavor: Node refuses to spawn the
-// #!/.cmd shims type-a-bin writes, so win-mock-bin installs hard-linked
-// node.exe copies instead (see win-mock-bin.ts).
-const IS_WIN = platform() === "win32";
+// mockBin prepends a temp dir to PATH so glv finds the mocked binary;
+// Windows needs a different interception flavor — see win-mock-bin.ts.
 const tsxLoader = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;
@@ -348,7 +357,11 @@ const spawnLauncher = (
   binPath: string,
   args: readonly string[],
   options: SpawnOptions,
-): ChildProcess => spawn(process.execPath, [binPath, ...args], options);
+): ChildProcess =>
+  spawn(process.execPath, [binPath, ...args], {
+    ...options,
+    detached: !IS_WIN,
+  });
 
 const spawnLauncherSync = (
   binPath: string,
@@ -672,6 +685,7 @@ export {
   defaultDataDir,
   fakeHomeEnv,
   findFreePort,
+  IS_WIN,
   mockScript,
   parseSseData,
   postFollowUp,

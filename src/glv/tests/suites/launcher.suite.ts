@@ -1,12 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { platform } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type FlavorFixture } from "../harness.js";
+import { type FlavorFixture, IS_WIN } from "../harness.js";
 
 const runLauncherSuite = (fx: FlavorFixture): void => {
   // The Node launcher (package.json "bin") and the POSIX shell launcher
-  // shell) must behave identically. These spawn the real launchers end-to-end
+  // must behave identically. These spawn the real launchers end-to-end
   // (no database needed).
   const SHELL_LAUNCHER = resolve(`bin/glv-${fx.name}`);
   const NODE_LAUNCHER = resolve(`bin/glv-${fx.name}.mjs`);
@@ -16,7 +15,6 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
   // Windows cannot execute the POSIX launcher directly; when a POSIX sh is
   // on PATH (Git for Windows), the parity check runs through it — and is
   // skipped when none exists.
-  const IS_WIN = platform() === "win32";
   const canRunShell = !IS_WIN || spawnSync("sh", ["-c", "exit 0"]).status === 0;
 
   const runShell = (args: string[]): Out => {

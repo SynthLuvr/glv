@@ -273,6 +273,10 @@ Windows: the claude-flavored suites that spawn the mocked agent binary
 are excluded (see `vitest.config.ts` for why); they still run there
 through the goose flavor, which drives the same core.
 
+Every test file boots a real `glv serve` process plus a headless
+Chromium, so the suite runs at most two files at a time to keep peak
+memory in check on local machines.
+
 The repository hosts two viewers with parallel structure: `src/goose/`
 (goose sessions) and `src/claude/` (claude sessions). Each is styled
 with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source

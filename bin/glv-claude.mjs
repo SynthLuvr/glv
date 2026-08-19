@@ -4,7 +4,7 @@
 // direct Unix invocation. `--import` must be given a file:// URL: on Windows
 // a bare absolute path ("C:\...") is rejected by the ESM loader
 // (ERR_UNSUPPORTED_ESM_URL_SCHEME).
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,10 +19,14 @@ const args = [
   ...process.argv.slice(2),
 ];
 
-const { error, status } = spawnSync(process.execPath, args, {
-  stdio: "inherit",
+// The CLI runs as a child process, so stop signals must be forwarded to
+// it — killing the launcher alone (Ctrl+C, a test harness) would orphan
+// the child and everything it runs.
+const child = spawn(process.execPath, args, { stdio: "inherit" });
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.on(signal, () => child.kill(signal));
+child.on("error", (error) => {
+  console.error(error);
+  process.exit(1);
 });
-
-if (error) console.error(error);
-// null status means the child was killed by a signal — surface as non-zero.
-process.exitCode = error ? 1 : (status ?? 1);
+child.on("close", (status) => process.exit(status ?? 1));
