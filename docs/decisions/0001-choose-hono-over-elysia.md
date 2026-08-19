@@ -105,14 +105,14 @@ below reflect the spike’s refined state.
 
 ### Cost summary
 
-| Area                 | Hono (today)                      | Elysia (spike)                                    |
-|----------------------|-----------------------------------|---------------------------------------------------|
-| Runtime dependencies | 0 (dependency-free)               | 4 direct + adapter (~65 more transitive packages) |
-| Auto-escaping JSX    | Built in (`hono/jsx`)             | 117-line wrapper over `@kitajs/html`              |
-| SSE streaming        | Built in (`hono/streaming`)       | Built in (`sse` from `elysia`)                    |
-| Cookie helpers       | Built in (`hono/cookie`)          | External `cookie` package                         |
-| Response helpers     | `Context` methods                 | 106 lines of `Response` builders                  |
-| Node adapter         | First-class (`@hono/node-server`) | `@elysiajs/node` (Bun is primary)                 |
+| Area | Hono (today) | Elysia (spike) |
+|----|----|----|
+| Runtime dependencies | 0 (dependency-free) | 4 direct + adapter (~65 more transitive packages) |
+| Auto-escaping JSX | Built in (`hono/jsx`) | 117-line wrapper over `@kitajs/html` |
+| SSE streaming | Built in (`hono/streaming`) | Built in (`sse` from `elysia`) |
+| Cookie helpers | Built in (`hono/cookie`) | External `cookie` package |
+| Response helpers | `Context` methods | 106 lines of `Response` builders |
+| Node adapter | First-class (`@hono/node-server`) | `@elysiajs/node` (Bun is primary) |
 
 The refactored spike halved the framework-replacement cost — roughly 225
 lines (down from ~450 in the initial migration), primarily by adopting

@@ -106,7 +106,7 @@ remains as a thin Unix wrapper. Re-running is safe.
   viewer).
 - The **`gh`** CLI, authenticated, to use the GitHub repository source
   and PR status features.
-- **pandoc ≥ 3.1** (only needed for the Markdown lint/format check
+- **pandoc ≥ 3.10** (only needed for the Markdown lint/format check
   during development).
 - An **`ssh`** client (OpenSSH) on your `PATH` — only needed for the
   `--forward` reverse-tunnel flag. It ships with Linux and macOS; on
@@ -224,11 +224,9 @@ retry with the same URL until one succeeds.
 > TLS-terminating proxy, forward the original request details so
 > WebAuthn computes the correct RP origin and cookie flags:
 >
-> ``` nginx
-> proxy_set_header Host $host;
-> proxy_set_header X-Forwarded-Host $host;
-> proxy_set_header X-Forwarded-Proto $scheme;
-> ```
+>     proxy_set_header Host $host;
+>     proxy_set_header X-Forwarded-Host $host;
+>     proxy_set_header X-Forwarded-Proto $scheme;
 
 ## Development
 
