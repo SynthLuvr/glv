@@ -198,6 +198,7 @@ const gooseFixture: harness.FlavorFixture = {
 export {
   GLV,
   gooseFixture,
+  gooseMockScriptPath,
   insertMessages,
   insertSessions,
   mockGoose,
