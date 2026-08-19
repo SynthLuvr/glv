@@ -121,10 +121,10 @@ Windows notes:
   loader (`ERR_UNSUPPORTED_ESM_URL_SCHEME`), so keep the launcher as the
   entry point rather than re-creating the `node --import` chain by hand.
 - glv reads goose’s sessions database from goose’s own platform-default
-  location: `%APPDATA%\Block\goose\data\sessions\sessions.db` on
-  Windows and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS.
-  Point glv at a different file with `--db <path>` or the
-  `GOOSE_SESSIONS_DB` environment variable.
+  location: `%APPDATA%\Block\goose\data\sessions\sessions.db` on Windows
+  and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point
+  glv at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
+  environment variable.
 - glv-owned data (the auth database, prompt library, uploads) lives
   under `%APPDATA%\glv-goose`, and per-machine config (e.g. the forward
   host) under `%LOCALAPPDATA%\glv-goose\config.json`. Both are
