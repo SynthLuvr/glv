@@ -1,18 +1,19 @@
-import { copyFileSync, linkSync, rmSync } from "node:fs";
+import { copyFileSync, linkSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { rmScratch } from "./rm-scratch.js";
 
 // Windows twin of type-a-bin's mockBin, which the harness uses on macOS and
-// Linux to put a mocked binary on PATH. PATH interception needs a real
-// executable there: Node refuses to spawn .cmd/.bat shims without a shell,
-// and an extensionless #! script cannot execute at all. So each mock is a
-// hard link of node.exe named <bin>.exe, and a preload (mock-bin-preload.mjs)
-// registered through NODE_OPTIONS turns a spawn of that exe into the mock
-// TypeScript script — argv, stdin, stdout, and exit codes all pass through.
+// Linux. PATH interception needs a real executable there: Node refuses to
+// spawn .cmd/.bat shims without a shell, and an extensionless #! script
+// cannot execute at all. Each mock is therefore a hard link of node.exe
+// named <bin>.exe, and a preload (mock-bin-preload.mjs) registered through
+// NODE_OPTIONS turns a spawn of that exe into the mock TypeScript script —
+// argv, stdin, stdout, and exit codes all pass through.
 const PRELOAD = join(
   dirname(fileURLToPath(import.meta.url)),
   "mock-bin-preload.mjs",
@@ -70,20 +71,7 @@ const mockBinWindows = async (
     restoreEnv("PATH", prevPath);
     restoreEnv("NODE_OPTIONS", prevNodeOptions);
     restoreEnv(TARGETS_VAR, prevTargets);
-    // A shim exe that is still executing locks its file on Windows; retry,
-    // then warn rather than throw — temp debris never justifies a failure.
-    try {
-      rmSync(dir, {
-        recursive: true,
-        force: true,
-        maxRetries: 40,
-        retryDelay: 250,
-      });
-    } catch (err) {
-      console.error(
-        `warning: could not remove mock bin ${dir}: ${String(err)}`,
-      );
-    }
+    rmScratch(dir);
   };
 };
 

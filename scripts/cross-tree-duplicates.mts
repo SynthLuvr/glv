@@ -14,13 +14,11 @@
  * deliberate rather than inherited. Byte-identical copies of ANY size are
  * still caught by lint:mirrored.
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { runPnpm } from "./run-pnpm.mts";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TREES = new Set(["goose", "claude", "glv"]);
 // typescript + tsx mirror lint:duplicates' scope plus the .tsx views; css
 // covers styles/, markdown the shared system prompt.
@@ -48,13 +46,7 @@ const treeOf = (path: string): string | undefined => {
 };
 
 const runJscpd = (outDir: string): Report => {
-  // pnpm is a .cmd shim on Windows, which spawn cannot execute directly.
-  // When running under pnpm (as `pnpm lint` does), npm_execpath names
-  // pnpm's real JavaScript entry — run it with the current Node
-  // executable instead of a shell. The fixed argument list keeps the
-  // bare-"pnpm" fallback safe.
-  const pnpmEntry = process.env.npm_execpath;
-  const pnpmArgs = [
+  const args = [
     "exec",
     "jscpd",
     "src",
@@ -80,13 +72,7 @@ const runJscpd = (outDir: string): Report => {
     "--output",
     outDir,
   ];
-  const result =
-    pnpmEntry === undefined
-      ? spawnSync("pnpm", pnpmArgs, { cwd: ROOT, encoding: "utf8" })
-      : spawnSync(process.execPath, [pnpmEntry, ...pnpmArgs], {
-          cwd: ROOT,
-          encoding: "utf8",
-        });
+  const result = runPnpm(args);
   if (result.error) throw result.error;
   const reportPath = join(outDir, "jscpd-report.json");
   if (!existsSync(reportPath))

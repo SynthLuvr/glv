@@ -95,7 +95,7 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("git-chip-worktree");
       // git's porcelain output normalizes to forward slashes even on
       // Windows, so the chip may render either separator flavor.
-      const worktreeVariants = [worktreeDir, worktreeDir.split("\\").join("/")];
+      const worktreeVariants = [worktreeDir, worktreeDir.replaceAll("\\", "/")];
       expect(worktreeVariants.some((dir) => html.includes(dir))).toBe(true);
     });
 

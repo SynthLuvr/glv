@@ -7,13 +7,7 @@ import {
   spawnSync,
 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
@@ -24,6 +18,7 @@ import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
 import { tryParseJson } from "../parse.js";
+import { rmScratch } from "./rm-scratch.js";
 import { mockBinWindows } from "./win-mock-bin.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -387,26 +382,6 @@ const defaultConfigFile = (home: string, dataDirName: string): string =>
     ? join(home, "AppData", "Local", dataDirName, "config.json")
     : join(home, ".config", dataDirName, "config.json");
 
-// Windows can transiently deny deletion of files a just-killed process
-// still holds (SQLite WALs, shim exes); rmSync's retry options exist for
-// exactly this and are harmless elsewhere. If the directory still cannot
-// be removed after the retry window — antivirus and search indexing can
-// hold temp files open arbitrarily long on Windows — the failure is
-// reported but not thrown: leftover temp debris must not fail a suite
-// whose assertions all passed, and the OS temp cleaner catches the rest.
-const rmScratch = (dir: string): void => {
-  try {
-    rmSync(dir, {
-      recursive: true,
-      force: true,
-      maxRetries: 40,
-      retryDelay: 250,
-    });
-  } catch (err) {
-    console.error(`warning: could not fully remove ${dir}: ${String(err)}`);
-  }
-};
-
 const startServer = (
   adapter: FlavorAdapter,
   dbs: Databases,
@@ -461,7 +436,7 @@ const startEnv = async (
     await stopProcess(proc);
     restoreAgentPath();
     restoreGhPath();
-    rmSync(scratchDir, { recursive: true, force: true });
+    rmScratch(scratchDir);
     throw new Error(
       `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
     );

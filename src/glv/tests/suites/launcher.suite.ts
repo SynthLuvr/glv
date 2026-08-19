@@ -13,13 +13,11 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
 
   type Out = { status: number; stdout: string };
 
-  // Windows cannot execute the POSIX launcher directly; when a POSIX sh
-  // is on PATH (Git for Windows), the parity check runs through it, and is
-  // skipped when no sh exists.
+  // Windows cannot execute the POSIX launcher directly; when a POSIX sh is
+  // on PATH (Git for Windows), the parity check runs through it — and is
+  // skipped when none exists.
   const IS_WIN = platform() === "win32";
-  const shProbe = IS_WIN ? spawnSync("sh", ["-c", "exit 0"]) : undefined;
-  const canRunShell =
-    !IS_WIN || (shProbe?.error === undefined && shProbe?.status === 0);
+  const canRunShell = !IS_WIN || spawnSync("sh", ["-c", "exit 0"]).status === 0;
 
   const runShell = (args: string[]): Out => {
     const result = IS_WIN

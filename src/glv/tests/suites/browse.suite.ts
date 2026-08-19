@@ -16,16 +16,28 @@ import {
   withPage,
 } from "../harness.js";
 
+// Windows grants symlink creation only with developer mode or admin rights;
+// probe at collection time so symlink-dependent cases skip, not fail, where
+// the OS denies it.
+const probeSymlinkSupport = (): boolean => {
+  const dir = mkdtempSync(join(tmpdir(), "glv-symlink-probe-"));
+  try {
+    symlinkSync(dir, join(dir, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 const runBrowseSuite = (fx: FlavorFixture): void => {
   // A throwaway "home directory" so the browse view never touches the real one.
   // It mixes folders, files, dotfiles (secrets), and symlinks so every security
   // rule can be exercised deterministically.
   let env: IntegrationEnv;
   let home: string;
-  // Windows only grants symlink creation with developer mode or admin
-  // rights; when unavailable the symlink-specific cases are skipped rather
-  // than failing setup.
-  let canSymlink = true;
+  const canSymlink = probeSymlinkSupport();
 
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "glv-browse-home-"));
@@ -40,12 +52,8 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     writeFileSync(join(home, ".ssh", "id_rsa"), "SECRET KEY MATERIAL");
     writeFileSync(join(home, ".env"), "TOKEN=secret");
     // Symlinks may escape the root, so they must never be followed.
-    try {
-      symlinkSync("/etc", join(home, "link-etc"));
-      symlinkSync("Documents", join(home, "link-docs"), "dir");
-    } catch {
-      canSymlink = false;
-    }
+    symlinkSync("/etc", join(home, "link-etc"));
+    symlinkSync("Documents", join(home, "link-docs"), "dir");
     env = await fx.startEnv("glv-browse-", {}, home);
   }, 90000);
 
