@@ -1,6 +1,5 @@
-# Normalize all text files to LF in the working tree on every platform.
-# Without this, a Windows checkout with core.autocrlf=true materializes CRLF
-# files that fail `biome format` (default lineEnding "lf") and break the
-# POSIX shell launchers. Index blobs are already LF, so this only affects
-# checkouts. `text=auto` keeps binaries untouched.
+# A Windows checkout with core.autocrlf=true materializes CRLF files that
+# fail `biome format` (lineEnding "lf") and break the POSIX shell launchers,
+# so force LF in the working tree everywhere; text=auto keeps binaries
+# untouched.
 * text=auto eol=lf

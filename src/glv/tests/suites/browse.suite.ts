@@ -52,9 +52,8 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     writeFileSync(join(home, ".ssh", "id_rsa"), "SECRET KEY MATERIAL");
     writeFileSync(join(home, ".env"), "TOKEN=secret");
     // Symlinks may escape the root, so they must never be followed. Where
-    // the OS denies symlink creation (Windows without developer mode/admin
-    // — see probeSymlinkSupport), the fixtures are absent and the
-    // symlink-safety cases above skip rather than fail the whole suite.
+    // the OS denies symlink creation, the fixtures are absent and the
+    // symlink-safety cases skip (see probeSymlinkSupport).
     if (canSymlink) {
       symlinkSync("/etc", join(home, "link-etc"));
       symlinkSync("Documents", join(home, "link-docs"), "dir");

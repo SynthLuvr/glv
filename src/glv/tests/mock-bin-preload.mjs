@@ -5,11 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { threadId } from "node:worker_threads";
 
 // Preloaded (NODE_OPTIONS --import, after the tsx loader) into every Node
-// process the Windows test harness touches. When the process is one of the
-// harness's mock binaries — a hard link of node.exe renamed <bin>.exe — the
-// "CLI entry" on its command line ("run", "pr view", ...) is not a real
-// module, so this preload swaps the entry for the TypeScript mock named in
-// GLV_MOCK_BIN_TARGETS, preserving argv, stdin, stdout, and exit codes.
+// process the Windows test harness touches. A mock binary is a hard link
+// of node.exe renamed <bin>.exe, so the "CLI entry" on its command line
+// ("run", "pr view", ...) is not a real module; this preload swaps it for
+// the TypeScript mock named in GLV_MOCK_BIN_TARGETS, preserving argv,
+// stdin, stdout, and exit codes.
 const readTargets = () => {
   try {
     return JSON.parse(process.env.GLV_MOCK_BIN_TARGETS ?? "{}");

@@ -54,8 +54,7 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   afterAll(async () => {
     // No reaping safety net: the descendant bounds its own lifetime (see
     // spawnLongChild in mock-common), and a kill-by-pid net could terminate
-    // an unrelated process on Windows, where a recycled pid is
-    // indistinguishable from a still-live child once ours has died.
+    // an unrelated process on Windows, where pids are recycled.
     await env?.cleanup();
   });
 

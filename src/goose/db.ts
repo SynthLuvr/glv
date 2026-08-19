@@ -42,9 +42,8 @@ const MessageRowModel = type(messageShape);
 const MESSAGE_COLS = Object.keys(messageShape).join(", ");
 
 // goose's documented session storage differs by platform: the XDG data dir
-// (~/.local/share/goose) on Unix-like systems, and the Known-Folders path
-// %APPDATA%\Block\goose\data on Windows. See goose's "Session Records"
-// guide. glv-owned databases are unaffected and stay under their own root.
+// (~/.local/share/goose) on Unix, %APPDATA%\Block\goose\data on Windows
+// (goose's "Session Records" guide). glv-owned databases are unaffected.
 const DEFAULT_DB_SEGMENTS: readonly string[] =
   platform() === "win32"
     ? ["Block", "goose", "data", "sessions", "sessions.db"]

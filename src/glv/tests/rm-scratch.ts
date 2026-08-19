@@ -1,11 +1,9 @@
 import { type RmOptions, rmSync } from "node:fs";
 
 // Windows can transiently deny deleting files a just-killed process still
-// holds (SQLite WALs, shim exes); rmSync's retry options cover that and are
-// harmless elsewhere. Antivirus or search indexing can hold temp files open
-// indefinitely, so a cleanup that still fails after the retries warns
-// instead of throwing: leftover debris must not fail a suite whose
-// assertions all passed, and the OS temp cleaner catches the rest.
+// holds (SQLite WALs, shim exes) — rmSync's retry options cover that.
+// Antivirus or indexing can hold temp files open indefinitely, so a
+// still-failing cleanup warns instead of failing a suite that passed.
 const RM_OPTIONS: RmOptions = {
   recursive: true,
   force: true,

@@ -56,7 +56,7 @@ const majorOf = (version) => {
 // without a shell (CreateProcess only finds .exe). Under `shell` Node
 // concatenates args without escaping (DEP0190), so the command line is
 // joined here instead — safe because every caller passes fixed, literal
-// arguments with no shell metacharacters.
+// arguments.
 const run = (cmd, args, opts = {}) =>
   IS_WIN
     ? spawnSync([cmd, ...args].join(" "), {

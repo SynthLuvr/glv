@@ -7,13 +7,13 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { rmScratch } from "./rm-scratch.js";
 
-// Windows twin of type-a-bin's mockBin, which the harness uses on macOS and
-// Linux. PATH interception needs a real executable there: Node refuses to
-// spawn .cmd/.bat shims without a shell, and an extensionless #! script
-// cannot execute at all. Each mock is therefore a hard link of node.exe
-// named <bin>.exe, and a preload (mock-bin-preload.mjs) registered through
-// NODE_OPTIONS turns a spawn of that exe into the mock TypeScript script —
-// argv, stdin, stdout, and exit codes all pass through.
+// Windows twin of type-a-bin's mockBin: PATH interception needs a real
+// executable there (Node refuses to spawn .cmd/.bat shims without a shell,
+// and an extensionless #! script cannot execute at all). Each mock is a
+// hard link of node.exe named <bin>.exe, and a preload
+// (mock-bin-preload.mjs) registered through NODE_OPTIONS turns a spawn of
+// that exe into the mock TypeScript script — argv, stdin, stdout, and exit
+// codes all pass through.
 const PRELOAD = join(
   dirname(fileURLToPath(import.meta.url)),
   "mock-bin-preload.mjs",
