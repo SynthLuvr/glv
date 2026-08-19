@@ -37,7 +37,9 @@ const pandocFormat = (file: string): string => {
       `pandoc exited with status ${result.status}: ${result.stderr}`,
     );
 
-  return result.stdout;
+  // Pandoc's default --eol=native emits CRLF on Windows while the repo pins
+  // LF (.gitattributes), so normalize before comparing or writing.
+  return result.stdout.replaceAll("\r\n", "\n");
 };
 
 const mode = process.argv[2];
