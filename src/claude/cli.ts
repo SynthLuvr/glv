@@ -77,7 +77,12 @@ program
   .command("sessions")
   .description("List claude sessions (interactive user sessions)")
   .option("--all", "include archived sessions")
-  .option("-n, --limit <number>", "number of rows to list", "20")
+  .option(
+    "-n, --limit <number>",
+    "number of rows to list",
+    cli.parsePositiveInt,
+    20,
+  )
   .action((opts: SessionsOpts) => {
     useStore((sessions) =>
       cli.runList(sessions, {
@@ -109,7 +114,7 @@ const serveCmd = program
   .option(
     "-c, --max-concurrent <number>",
     "max concurrent claude runs",
-    cli.parseMaxConcurrent,
+    cli.parsePositiveInt,
     6,
   )
   .option(

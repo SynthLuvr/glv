@@ -20,9 +20,6 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       (e) => e.event === "status" && parseSseData(e.data).status === value,
     );
 
-  const delay = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
   // Follow-up runs spawn the agent in the session's working dir, so the dir must
   // exist or execa rejects and the run errors out immediately.
   const ensureDir = (dir: string): void => {
@@ -130,19 +127,28 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
 
   describe("events stream — store tail", () => {
     it("appends a newly written message", async () => {
+      // Seed only after the stream has attached (its first event), so the
+      // new row can never land inside the baseline snapshot — the same
+      // attach-then-mutate rule the rename test below follows. A fixed
+      // delay races on loaded CI shards.
+      let seeded = false;
       const stream = collectSse(
         env,
         "/sessions/db-1/events",
         (evs) => evs.some((e) => e.event === "append"),
         12000,
-      );
-      await delay(500);
-      fx.seedMessages(env, "db-1", [
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "appended later" }],
+        (e) => {
+          if (e.event === "status" && !seeded) {
+            seeded = true;
+            fx.seedMessages(env, "db-1", [
+              {
+                role: "assistant",
+                content: [{ type: "text", text: "appended later" }],
+              },
+            ]);
+          }
         },
-      ]);
+      );
       const events = await stream;
       const append = events.find((e) => e.event === "append");
       expect(append).toBeDefined();

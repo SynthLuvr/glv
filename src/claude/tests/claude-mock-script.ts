@@ -8,6 +8,7 @@ import {
   sleep,
   spawnLongChild,
   streamLines,
+  trapSignals,
 } from "../../glv/tests/mock-common.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
 
@@ -102,14 +103,19 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
+  trapSignals("CLAUDE_MOCK_TRAP_SIGNALS");
 
   // A --resume flag means a follow-up on an existing session; otherwise this
   // is a new session whose id glv pre-assigned via --session-id. Create
   // first so the server's transcript poll detects the file promptly even
-  // when a long sleep keeps the process alive afterwards.
+  // when a long sleep keeps the process alive afterwards. Tests that need a
+  // create-timeout (session-establishment failure) skip the file entirely.
+  const neverCreate = process.env.CLAUDE_MOCK_NEVER_CREATE_SESSION === "1";
   const sessionId = args.includes("--resume")
     ? argValue(args, "--resume")
-    : createSession(argValue(args, "--session-id"));
+    : neverCreate
+      ? argValue(args, "--session-id")
+      : createSession(argValue(args, "--session-id"));
 
   await captureStdinTo("CLAUDE_MOCK_CAPTURE_STDIN");
   captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());

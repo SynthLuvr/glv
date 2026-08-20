@@ -159,4 +159,21 @@ describe("pullRepo", () => {
     };
     await expect(pullRepo("/repo", run)).resolves.toBeUndefined();
   });
+
+  it("pulls with a much longer timeout than quick porcelain queries", async () => {
+    // A pull is network I/O and can legitimately take tens of seconds; the
+    // 5s quick-query timeout SIGTERMs mid-merge and strands the worktree.
+    const wt = porcelain("worktree /repo", "branch refs/heads/main");
+    const calls: Array<{ args: string[]; timeoutMs?: number }> = [];
+    const run: GitRunner = async (args, _cwd, timeoutMs) => {
+      calls.push({ args: [...args], timeoutMs });
+      if (args[0] === "worktree") return { stdout: wt, exitCode: 0 };
+      return { stdout: "", exitCode: 0 };
+    };
+    await pullRepo("/repo", run);
+    expect(calls[0]?.args[0]).toBe("worktree");
+    expect(calls[0]?.timeoutMs).toBeUndefined();
+    expect(calls[1]?.args[0]).toBe("pull");
+    expect(calls[1]?.timeoutMs).toBe(60000);
+  });
 });

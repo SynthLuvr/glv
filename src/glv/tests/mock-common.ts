@@ -70,6 +70,17 @@ const streamLines = async (
   }
 };
 
+// Stop-escalation tests need an agent that ignores the graceful stop
+// signals: install no-op SIGINT/SIGTERM handlers and publish this process's
+// pid so the test can watch for the ladder's SIGKILL rung to land.
+const trapSignals = (envVar: string): void => {
+  const to = process.env[envVar];
+  if (to === undefined || to === "") return;
+  process.on("SIGINT", () => undefined);
+  process.on("SIGTERM", () => undefined);
+  writeFileSync(to, String(process.pid));
+};
+
 export {
   captureStdinTo,
   captureTo,
@@ -77,4 +88,5 @@ export {
   sleep,
   spawnLongChild,
   streamLines,
+  trapSignals,
 };

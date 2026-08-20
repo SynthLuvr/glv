@@ -97,8 +97,17 @@ const getSession = (
 ): SessionRow | undefined => {
   const path = findTranscript(store.root, id);
   if (path === undefined) return undefined;
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(path).mtimeMs;
+  } catch {
+    // Deleted between the listing above and this stat — the same race
+    // listSessionFiles guards against. Report the session as gone rather
+    // than surfacing a 500.
+    return undefined;
+  }
   return sessionRow(
-    { id, path, mtimeMs: statSync(path).mtimeMs },
+    { id, path, mtimeMs },
     getMeta(store.meta, id),
     parseTranscriptFile(path),
   );

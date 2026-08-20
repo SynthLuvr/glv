@@ -6,6 +6,7 @@ import {
   sleep,
   spawnLongChild,
   streamLines,
+  trapSignals,
 } from "../../glv/tests/mock-common.js";
 
 // Stand-in for the real goose binary. A `--session-id` flag means a resume
@@ -81,10 +82,15 @@ const streamAndCommit = async (
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
   const isResume = args.includes("--session-id");
+  trapSignals("GOOSE_MOCK_TRAP_SIGNALS");
 
   // Insert first so the server's session poll detects the row promptly even
-  // when a long sleep keeps the process alive afterwards.
-  const sessionId = isResume ? sessionIdFromArgs(args) : insertSession();
+  // when a long sleep keeps the process alive afterwards. Tests that need a
+  // create-timeout (session-establishment failure) skip the insert entirely.
+  const sessionId =
+    isResume || process.env.GOOSE_MOCK_NEVER_CREATE_SESSION === "1"
+      ? sessionIdFromArgs(args)
+      : insertSession();
 
   await captureStdinTo("GOOSE_MOCK_CAPTURE_STDIN");
   captureTo("GOOSE_MOCK_CAPTURE_CWD", process.cwd());

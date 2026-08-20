@@ -43,6 +43,13 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     home = mkdtempSync(join(tmpdir(), "glv-browse-home-"));
     mkdirSync(join(home, "Documents"), { recursive: true });
     mkdirSync(join(home, "Projects"), { recursive: true });
+    // URI-reserved characters in names ("#" would truncate an unencoded
+    // href at the fragment boundary). Sorted last so the "first folder"
+    // click in the htmx navigation test still lands on Documents.
+    const hashDir = join(home, "Z# notes");
+    mkdirSync(hashDir, { recursive: true });
+    writeFileSync(join(hashDir, "inside.txt"), "inner content\n");
+    writeFileSync(join(hashDir, "a b#c.txt"), "hash file\n");
     writeFileSync(join(home, "Documents", "notes.txt"), "hello world\n");
     writeFileSync(join(home, "Documents", "data.json"), '{"ok":true}');
     writeFileSync(join(home, "readme.md"), "# Hello\n");
@@ -70,6 +77,24 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     const res = await authedFetch(env, path);
     return res.text();
   };
+
+  describe("browse: link encoding", () => {
+    it("encodes URI-reserved characters in folder and file links", async () => {
+      const html = await text("/browse");
+      expect(html).toContain('href="/browse/Z%23%20notes"');
+
+      // Following the encoded folder link lists its contents, with the
+      // nested file link encoded the same way.
+      const inner = await text("/browse/Z%23%20notes");
+      expect(inner).toContain("inside.txt");
+      expect(inner).toContain('href="/files/Z%23%20notes/a%20b%23c.txt"');
+
+      // The encoded file link serves the bytes.
+      const file = await authedFetch(env, "/files/Z%23%20notes/a%20b%23c.txt");
+      expect(file.status).toBe(200);
+      expect(await file.text()).toContain("hash file");
+    });
+  });
 
   describe("browse: directory listing", () => {
     it("lists folders and files, folders first, excluding dotfiles and symlinks", async () => {

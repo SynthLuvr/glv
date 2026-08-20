@@ -190,7 +190,10 @@ const appendMessage = (
 // are skipped the way the old SQL layer dropped half-written rows.
 const parseTranscriptText = (text: string): Transcript => {
   const transcript = emptyTranscript();
-  for (const line of text.split("\n")) {
+  // Editors prepend a UTF-8 BOM when re-saving; JSON.parse rejects it, which
+  // would silently drop the first record (usually the first user prompt).
+  const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  for (const line of source.split("\n")) {
     const parsed = parseLine(line);
     if (parsed === undefined) continue;
     // Sub-agent (sidechain) turns belong to claude's internal task tool,

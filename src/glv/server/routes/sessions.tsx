@@ -174,38 +174,55 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         return rejectForm(uploadErrorMessage(err), 422);
       }
 
-    const result = await withCreateLock(
-      ctx.createLocks,
-      workingDir,
-      async (): Promise<EstablishOutcome> => {
-        // Inside the per-directory lock so concurrent starts can't race the pull.
-        await pullRepo(workingDir, ctx.runGit);
-        const handle = ctx.launcher.startNew(workingDir, fullPrompt);
-
-        const sessionId = await ctx.launcher.awaitNew(
-          handle,
-          workingDir,
-          ctx.pollTimeoutMs,
-        );
-        if (sessionId === undefined) {
-          stop(ctx.runner, handle);
-          return {
-            ok: false,
-            status: 502,
-            error: ctx.profile.sessionTimeoutError,
-          };
-        }
-        return ctx.launcher.establish(
-          handle,
-          sessionId,
-          "Another session is starting in that directory. Please try again.",
-        );
-      },
-    );
-
-    if (!result.ok) {
+    // Pre-tag cleanup for a failed attempt: these dirs are untagged, so
+    // the archive-time sweep would never collect them.
+    const removeAttemptDirs = (): void => {
       if (uploadDir !== undefined) removeDir(uploadDir);
       if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
+    };
+
+    const establishSession = async (): Promise<EstablishOutcome> =>
+      withCreateLock(
+        ctx.createLocks,
+        workingDir,
+        async (): Promise<EstablishOutcome> => {
+          // Inside the per-directory lock so concurrent starts can't race the pull.
+          await pullRepo(workingDir, ctx.runGit);
+          const handle = ctx.launcher.startNew(workingDir, fullPrompt);
+
+          const sessionId = await ctx.launcher.awaitNew(
+            handle,
+            workingDir,
+            ctx.pollTimeoutMs,
+          );
+          if (sessionId === undefined) {
+            stop(ctx.runner, handle);
+            return {
+              ok: false,
+              status: 502,
+              error: ctx.profile.sessionTimeoutError,
+            };
+          }
+          return ctx.launcher.establish(
+            handle,
+            sessionId,
+            "Another session is starting in that directory. Please try again.",
+          );
+        },
+      );
+
+    let result: EstablishOutcome;
+    try {
+      result = await establishSession();
+    } catch (err) {
+      // The lock helper only swallows *prior* attempts' rejections; a fresh
+      // throw from this attempt must still clean up or its dirs leak forever.
+      removeAttemptDirs();
+      throw err;
+    }
+
+    if (!result.ok) {
+      removeAttemptDirs();
       return rejectForm(result.error, result.status);
     }
     const { sessionId, session } = result;
@@ -258,6 +275,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
+    // Stop an in-flight run first: sweeping the temp working dir out from
+    // under a live agent (or deleting uploads its prompt references) leaves
+    // the run writing into deleted directories.
+    stop(ctx.runner, id);
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);

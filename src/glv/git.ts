@@ -2,17 +2,25 @@ import { execGit } from "./shell.js";
 
 type GitResult = { stdout: string; exitCode: number };
 
-type GitRunner = (args: readonly string[], cwd: string) => Promise<GitResult>;
+type GitRunner = (
+  args: readonly string[],
+  cwd: string,
+  timeoutMs?: number,
+) => Promise<GitResult>;
 
 const GIT_TIMEOUT_MS = 5000;
+// A pull is network I/O: fetch + merge legitimately takes tens of seconds on
+// a slow remote, and a timeout SIGTERM landing mid-merge would strand the
+// user's working tree in a conflicted state (MERGE_HEAD left behind).
+const PULL_TIMEOUT_MS = 60_000;
 
 // A non-repo (non-zero exit) or a missing git binary both degrade to an empty
 // GitInfo — the former via the exit-code check, the latter caught by the
 // read* wrappers below.
-const runGit: GitRunner = async (args, cwd) => {
+const runGit: GitRunner = async (args, cwd, timeoutMs = GIT_TIMEOUT_MS) => {
   const { stdout, exitCode } = await execGit(args, {
     cwd,
-    timeoutMs: GIT_TIMEOUT_MS,
+    timeoutMs,
   });
   return { stdout, exitCode };
 };
@@ -148,7 +156,7 @@ const pullRepo = async (
   const info = await readGitInfo(cwd, run);
   if (info.worktree === undefined) return;
   try {
-    const result = await run(["pull", "--no-edit"], cwd);
+    const result = await run(["pull", "--no-edit"], cwd, PULL_TIMEOUT_MS);
     if (result.exitCode !== 0)
       console.warn(`git pull failed in ${cwd} (exit ${result.exitCode})`);
   } catch (err) {

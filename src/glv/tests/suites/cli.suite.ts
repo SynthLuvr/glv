@@ -59,6 +59,27 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       const { stdout } = run(["sessions", "--all"]);
       expect(stdout).toContain("Archived One");
     });
+
+    it("defaults to the sessions listing when only global options are given", () => {
+      // The runner prepends the global --db flag, so an empty args list is
+      // exactly "global options, no subcommand": the default `sessions`
+      // listing must run, not an unknown-command error.
+      const { status, stdout } = run([]);
+      expect(status).toBe(0);
+      expect(stdout).toContain("Alpha Session");
+    });
+
+    it("rejects a non-numeric --limit", () => {
+      const { status, stderr } = run(["sessions", "-n", "abc"]);
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("positive integer");
+    });
+
+    it("rejects a non-positive --limit", () => {
+      const { status, stderr } = run(["sessions", "-n", "0"]);
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("positive integer");
+    });
   });
 
   describe(`${fx.binName} view`, () => {

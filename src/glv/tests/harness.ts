@@ -7,7 +7,13 @@ import {
   spawnSync,
 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
@@ -66,6 +72,12 @@ const seedAuthDb = (dbPath: string): string => {
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+// Counts sub-directories of a data root (uploads, temp) to observe
+// directories being created and swept.
+const subdirCount = (base: string): number =>
+  readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory())
+    .length;
 
 const findFreePort = (): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -150,6 +162,13 @@ type MockConfig = {
   captureEnv?: string;
   /** When set, the agent spawns a long-lived descendant, PID written here. */
   spawnChild?: string;
+  /**
+   * When set, the agent traps SIGINT/SIGTERM (staying alive until SIGKILL)
+   * and writes its own PID to this path — for stop-escalation tests.
+   */
+  trapSignals?: string;
+  /** When set, the agent never creates the session's data (row/transcript). */
+  neverCreateSession?: boolean;
 };
 
 type Databases = {
@@ -351,6 +370,9 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_CAPTURE_ARGS`]: mock.captureArgs ?? "",
   [`${prefix}_MOCK_CAPTURE_ENV`]: mock.captureEnv ?? "",
   [`${prefix}_MOCK_SPAWN_CHILD`]: mock.spawnChild ?? "",
+  [`${prefix}_MOCK_TRAP_SIGNALS`]: mock.trapSignals ?? "",
+  [`${prefix}_MOCK_NEVER_CREATE_SESSION`]:
+    mock.neverCreateSession === true ? "1" : "",
 });
 
 const spawnLauncher = (
@@ -697,6 +719,7 @@ export {
   spawnLauncherSync,
   startEnv,
   stopProcess,
+  subdirCount,
   waitForHttp,
   waitForJsonFile,
   withPage,

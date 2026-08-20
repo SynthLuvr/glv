@@ -1,4 +1,4 @@
-import { parseJson } from "./shared";
+import { onSessionListSwap, parseJson } from "./shared";
 
 const getChecks = (): HTMLInputElement[] => [
   ...document.querySelectorAll<HTMLInputElement>(".session-check"),
@@ -326,11 +326,8 @@ updateBulkBar();
 applyUnread();
 connectStatusFeed();
 
-// Archive's OOB re-render of #session-list wipes the .unread classes; re-apply
-// after the swap restores the list.
-document.addEventListener("htmx:afterSwap", (e) => {
-  if (!(e instanceof CustomEvent)) return;
-  if (e.detail?.target?.id === "session-list") applyUnread();
-});
+// Any re-render of #session-list (archive's response, rename's out-of-band
+// swap) wipes the .unread classes; re-apply after the swap restores the list.
+onSessionListSwap(applyUnread);
 
 export {};
