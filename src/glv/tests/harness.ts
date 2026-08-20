@@ -321,11 +321,11 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     killTree("SIGTERM");
   });
 
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary; on
-// Windows its built-in flavor resolves tsx itself when the interpreter
-// names it, while POSIX needs the absolute loader URL because the mock
-// runs with its working dir outside the repo, where bare `tsx` cannot
-// resolve.
+// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
+// POSIX runs the mock with its working dir outside the repo, so the loader
+// must be an absolute file:// URL for bare `tsx` to resolve; on Windows
+// type-a-bin runs node-interpreter mocks in-process and resolves `tsx`
+// itself.
 const tsxLoader = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;

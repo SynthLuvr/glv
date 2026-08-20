@@ -38,13 +38,11 @@ const captureTo = (envVar: string, content: string): void => {
 const spawnLongChild = (envVar: string): void => {
   const to = process.env[envVar];
   if (to === undefined || to === "") return;
-  // On Windows the mock agent is a hard link of node.exe named goose.exe,
-  // so process.execPath points at that exe: the harness's NODE_OPTIONS
-  // preload would see argv[0] named "goose" and redirect this child back
-  // into the mock script — a fork chain of phantom agents. Dropping the
-  // targets variable from the child's env makes the preload no-op, and the
-  // 120s timer bounds the child's life so a descendant missed by a stop
-  // can never outlive the suite.
+  // On Windows the mock agent is a hard link of node.exe, so the harness's
+  // NODE_OPTIONS preload would redirect this child back into the mock
+  // script — a fork chain of phantom agents. Dropping the targets variable
+  // from its env makes the preload no-op; the 120s timer bounds the
+  // child's life so a descendant missed by a stop cannot outlive the suite.
   const env = { ...process.env };
   delete env.GLV_MOCK_BIN_TARGETS;
   const child = spawn(

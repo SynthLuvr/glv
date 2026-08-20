@@ -48,14 +48,12 @@ const firstString = (val: unknown): string => {
   return typeof val === "string" ? val.trim() : "";
 };
 
-// One directory has many spellings the OS accepts — forward slashes or a
-// trailing separator on Windows, relative segments anywhere — and the agent
-// canonicalizes its cwd before persisting working_dir, so the new-session
-// discovery poll would compare against a different string than was
-// submitted, never find the row, and stop the healthy run at its timeout.
-// Normalizing here means the spawn cwd, the discovery poll, and the
-// per-directory create lock all agree on one spelling. The empty form value
-// must stay empty (resolve("") would invent the server's cwd).
+// The agent persists working_dir in canonical form, so the submitted dir
+// must be normalized here or the new-session discovery poll compares
+// against a different spelling, never finds the row, and stops the healthy
+// run at its timeout — this also keeps the spawn cwd and the per-directory
+// create lock on one spelling. Empty stays empty: resolve("") would invent
+// the server's cwd.
 const canonicalWorkingDir = (raw: string): string =>
   raw === "" ? raw : resolve(raw);
 

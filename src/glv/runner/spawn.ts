@@ -58,13 +58,10 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
-  // killDescendants' Windows path (taskkill /PID <pid> /T /F) never checks
-  // that the pid still belongs to us, and Windows recycles pids quickly —
-  // a stale tree-kill could take out an unrelated process and its whole
-  // subtree. execa's subprocess keeps no synchronous exit state, so settle
-  // a flag off the promise: settled implies exited, the SIGINT → SIGTERM →
-  // SIGKILL escalation stays intact for live processes, and a retired pid
-  // is never signalled again.
+  // execa exposes no synchronous exit state, and its Windows tree-kill
+  // (taskkill /PID <pid> /T /F) never verifies the pid still belongs to us
+  // — dangerous where pids recycle quickly. Track liveness off the settled
+  // promise so a retired pid is never signalled again.
   let exited = false;
   const markExited = (): void => {
     exited = true;
