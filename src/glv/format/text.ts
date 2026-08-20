@@ -1,7 +1,24 @@
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
+
+// Windows prefixes must match across separator style and drive-letter case
+// (homedir() says C:\Users\u, git and the agents emit c:\users\u or
+// C:/users/u), so both sides are folded there. POSIX keeps exact byte
+// matching: "\" and letter case are meaningful inside filenames.
+const IS_WIN = platform() === "win32";
 
 const shortenHome = (path: string, home: string = homedir()): string => {
   if (home === "") return path;
+  if (IS_WIN) {
+    const base = home.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+    const target = path.replaceAll("\\", "/");
+    const lower = target.toLowerCase();
+    if (lower === base) return "~";
+    if (lower.startsWith(`${base}/`)) {
+      const rest = target.slice(base.length + 1).replace(/^\/+/, "");
+      return `~/${rest}`;
+    }
+    return path;
+  }
   if (path === home) return "~";
   if (path.startsWith(`${home}/`)) return `~/${path.slice(home.length + 1)}`;
   return path;
