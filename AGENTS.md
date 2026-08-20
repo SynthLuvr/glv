@@ -11,6 +11,31 @@ pnpm test     # run tests
 pnpm lint     # lint all files
 ```
 
+## Windows shell hazard: one command, one line (enforced by convention)
+
+On Windows, shell commands run through `cmd /c`, which **silently drops
+everything after the first newline** — including newlines inside quoted
+arguments. Exit code stays 0 and nothing errors, so a multi-line
+`gh pr create --body "…"`, `git commit -m "…"`, or pasted script quietly
+loses all lines after the first (this truncated a PR body and a commit
+message to their first lines before being caught). Verified behavior:
+
+``` text
+cmd /c "echo LINE_A\n(echo LINE_B)"   → prints LINE_A only
+powershell -Command "<multi-line>"    → runs every line
+```
+
+Therefore:
+
+- Keep every shell command on a single line; chain steps with `&&`.
+- Multi-line content (PR bodies, commit messages) goes through files:
+  write the content to a file, then `gh pr create|edit --body-file
+  <file>` and `git commit -F <file>`.
+- Multi-line scripts are written to a file and executed as a file —
+  never pasted into the command string.
+- Setting `GOOSE_SHELL` to `powershell`/`pwsh` avoids the quirk, but do
+  not assume it is set.
+
 ## Required Workflow
 
 Always run these before considering work complete:
