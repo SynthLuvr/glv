@@ -31,9 +31,7 @@ const runDirSpellingSuite = (fx: FlavorFixture): void => {
     mkdirSync(join(home, "tilde-proj"), { recursive: true });
     env = await fx.startEnv(
       "glv-dirspelling-",
-      {
-        sessionName: "Dir Spelling Session",
-      },
+      { sessionName: "Dir Spelling Session" },
       home,
     );
     workDir = join(env.scratchDir, "project");
@@ -83,12 +81,12 @@ const runDirSpellingSuite = (fx: FlavorFixture): void => {
 
   describe("new session — home path shortening", () => {
     // A working dir stored with native Windows separators must still be
-    // recognized as under ~ and shortened for display (the same rules the
-    // form's default value relies on).
+    // recognized as under ~: the sidebar shortens it for display, and the
+    // new-session form prefills its input from the same spelling.
     it.runIf(IS_WIN)(
-      `shortens a native-separator home working dir to ~ in the sidebar`,
+      `shortens a native-separator home working dir to ~`,
       async () => {
-        const nativeDir = `${home}\\native-dir`;
+        const nativeDir = join(home, "native-dir");
         fx.seedSessions(env, [
           {
             id: "native-dir-session",
@@ -96,22 +94,15 @@ const runDirSpellingSuite = (fx: FlavorFixture): void => {
             workingDir: nativeDir,
           },
         ]);
-        const res = await authedFetch(env, "/");
-        const html = await res.text();
-        expect(html).toMatch(/class="session-dir"[^>]*>~\/native-dir</);
-      },
-    );
-
-    it.runIf(IS_WIN)(
-      `prefills the new-session working dir input with the ~ form`,
-      async () => {
-        const nativeDir = `${home}\\native-dir`;
-        const res = await authedFetch(
-          env,
-          `/sessions/new?working_dir=${encodeURIComponent(nativeDir)}`,
-        );
-        const html = await res.text();
-        expect(html).toContain('value="~/native-dir"');
+        const sidebar = await (await authedFetch(env, "/")).text();
+        expect(sidebar).toMatch(/class="session-dir"[^>]*>~\/native-dir</);
+        const form = await (
+          await authedFetch(
+            env,
+            `/sessions/new?working_dir=${encodeURIComponent(nativeDir)}`,
+          )
+        ).text();
+        expect(form).toContain('value="~/native-dir"');
       },
     );
   });
