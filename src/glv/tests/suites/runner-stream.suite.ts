@@ -20,9 +20,6 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       (e) => e.event === "status" && parseSseData(e.data).status === value,
     );
 
-  const delay = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
   // Follow-up runs spawn the agent in the session's working dir, so the dir must
   // exist or execa rejects and the run errors out immediately.
   const ensureDir = (dir: string): void => {
