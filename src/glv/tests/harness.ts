@@ -19,7 +19,6 @@ import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
 import { tryParseJson } from "../parse.js";
 import { rmScratch } from "./rm-scratch.js";
-import { mockBinWindows } from "./win-mock-bin.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -322,15 +321,16 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     killTree("SIGTERM");
   });
 
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary;
-// Windows needs a different interception flavor — see win-mock-bin.ts.
+// mockBin prepends a temp dir to PATH so glv finds the mocked binary; on
+// Windows its built-in flavor resolves tsx itself when the interpreter
+// names it, while POSIX needs the absolute loader URL because the mock
+// runs with its working dir outside the repo, where bare `tsx` cannot
+// resolve.
 const tsxLoader = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;
 const mockScript = (bin: string, file: string): Promise<() => void> =>
-  IS_WIN
-    ? mockBinWindows(bin, file)
-    : mockBin(bin, `node --import ${tsxLoader}`, { file });
+  mockBin(bin, `node --import ${IS_WIN ? "tsx" : tsxLoader}`, { file });
 
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or
 // network.

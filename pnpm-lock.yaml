@@ -95,7 +95,7 @@ importers:
         version: 4.23.12
       type-a-bin:
         specifier: github:SynthLuvr/type-a-bin#dist
-        version: https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/c645344f17c300366dd8feb804897e2732e5eacb
+        version: https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/dd6c972f5094161703d11be07d1d09dd50482d6b
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1967,9 +1967,9 @@ packages:
     resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
     engines: {node: '>= 6.0.0'}
 
-  type-a-bin@https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/c645344f17c300366dd8feb804897e2732e5eacb:
-    resolution: {gitHosted: true, integrity: sha512-UFy5SED+oTzTTX0B+MJbVf+T42u8M/HLi+a0Hp/5aEmQFqzB+yvmsClqMULKfwfvI5Z1JRhRzocOiZU5cTChgQ==, tarball: https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/c645344f17c300366dd8feb804897e2732e5eacb}
-    version: 0.0.0
+  type-a-bin@https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/dd6c972f5094161703d11be07d1d09dd50482d6b:
+    resolution: {gitHosted: true, integrity: sha512-Wf6/wlLYn1Kfo8FuAjKAsH0sPchxLNJGDOwIWjF0AXX2Jumb4xJFp1iUtTWNus6QgpU8xOVJ1lzQ32oG8RqX+g==, tarball: https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/dd6c972f5094161703d11be07d1d09dd50482d6b}
+    version: 0.1.0
     engines: {node: '==26'}
 
   typescript@7.0.2:
@@ -3617,7 +3617,7 @@ snapshots:
     dependencies:
       tslib: 1.14.1
 
-  type-a-bin@https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/c645344f17c300366dd8feb804897e2732e5eacb: {}
+  type-a-bin@https://codeload.github.com/SynthLuvr/type-a-bin/tar.gz/dd6c972f5094161703d11be07d1d09dd50482d6b: {}
 
   typescript@7.0.2:
     optionalDependencies:

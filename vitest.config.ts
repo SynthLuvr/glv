@@ -7,7 +7,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 // hosting tricks fail for claude's flag-first CLI: a hard-linked node.exe
 // dies in Node's option parser before any preload can run ("bad option:
 // --session-id") — the goose flavor works only because its first argument
-// is a positional ("run"; see src/glv/tests/win-mock-bin.ts) — and a .cmd
+// is a positional ("run"; see type-a-bin's Windows support) — and a .cmd
 // shim cannot carry claude's multi-line --append-system-prompt argument
 // (execa rejects line breaks to prevent cmd.exe injection). Until a real
 // passthrough .exe ships, these suites are excluded on Windows here; the
