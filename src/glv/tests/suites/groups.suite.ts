@@ -99,6 +99,36 @@ const runGroupsSuite = (fx: FlavorFixture): void => {
         await expect(page.locator(".session-group")).toHaveCount(0);
       });
     });
+
+    it("releasing a drag on the source card itself keeps the group", async () => {
+      await post("/sessions/g-e/group-with", { otherId: "g-f" });
+      await withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl);
+        await expect(page.locator(".session-group")).toContainText("G-E");
+
+        // A short drag past the threshold, released while the pointer is
+        // still over the dragged card: a no-op, never an ungroup.
+        let ungroupRequested = false;
+        page.on("request", (req) => {
+          if (req.url().includes("/ungroup")) ungroupRequested = true;
+        });
+        const handle = page.locator(
+          "[data-session-id='g-e'] .session-drag-handle",
+        );
+        const box = await handle.boundingBox();
+        expect(box).not.toBeNull();
+        await page.mouse.move(box!.x + 4, box!.y + 4);
+        await page.mouse.down();
+        await page.mouse.move(box!.x + 18, box!.y + 10, { steps: 4 });
+        await page.mouse.up();
+
+        await page.waitForTimeout(700);
+        expect(ungroupRequested).toBe(false);
+        await expect(
+          page.locator(".session-group .group-members"),
+        ).toContainText("G-E");
+      });
+    });
   });
 };
 

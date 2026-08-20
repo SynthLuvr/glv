@@ -77,7 +77,7 @@ program
   .command("sessions")
   .description("List claude sessions (interactive user sessions)")
   .option("--all", "include archived sessions")
-  .option("-n, --limit <number>", "number of rows to list", "20")
+  .option("-n, --limit <number>", "number of rows to list", cli.parseLimit, 20)
   .action((opts: SessionsOpts) => {
     useStore((sessions) =>
       cli.runList(sessions, {

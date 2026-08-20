@@ -72,7 +72,7 @@ program
   .description("List goose sessions (interactive user sessions)")
   .option("--type <type>", "session type: user|hidden|sub_agent|all", "user")
   .option("--all", "include archived sessions")
-  .option("-n, --limit <number>", "number of rows to list", "20")
+  .option("-n, --limit <number>", "number of rows to list", cli.parseLimit, 20)
   .action((opts: SessionsOpts) => {
     useSessions((sessions) =>
       cli.runList(sessions, {
@@ -86,7 +86,7 @@ program
 program
   .command("logs")
   .description("List sessions from goose run --no-session (hidden sessions)")
-  .option("-n, --limit <number>", "number of rows to list", "20")
+  .option("-n, --limit <number>", "number of rows to list", cli.parseLimit, 20)
   .action((opts: LimitOpts) => {
     useSessions((sessions) =>
       cli.runList(sessions, {
@@ -128,6 +128,10 @@ serveCmd.action((opts: ServeOpts) => {
   const dbWritable = openDb(getDbPath(), { readOnly: false });
   dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
   const db = openDb(getDbPath());
+  // Reads ride this handle (sidebar, transcripts, the launch discovery
+  // poll), so it needs the same patience against concurrent goose writes —
+  // node:sqlite's default busy timeout is 0 (fail immediately).
+  db.exec("PRAGMA busy_timeout=5000");
   const sessions = createSessionStore(db, dbWritable);
   cli.runServe(sessions, {
     port: Number(opts.port),

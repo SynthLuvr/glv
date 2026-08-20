@@ -17,18 +17,22 @@ import type { FlavorProfile } from "./profile.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
 import { makeRunnerConfig } from "./runner/index.js";
 
-const MaxConcurrent = type("string.numeric.parse").pipe(
+const PositiveInt = type("string.numeric.parse").pipe(
   type("number.integer > 0"),
 );
 
-const parseMaxConcurrent = (value: string): number => {
-  const result = MaxConcurrent(value);
+const positiveInt = (value: string, example: string): number => {
+  const result = PositiveInt(value);
   if (result instanceof type.errors)
     throw new InvalidArgumentError(
-      `must be a positive integer (e.g. 6) — ${result.summary}`,
+      `must be a positive integer (e.g. ${example}) — ${result.summary}`,
     );
   return result;
 };
+
+const parseMaxConcurrent = (value: string): number => positiveInt(value, "6");
+
+const parseLimit = (value: string): number => positiveInt(value, "20");
 
 // Resolves the agent binary: an explicit path must exist on disk; a bare
 // name must be found on PATH. Windows executables carry extensions listed
@@ -149,12 +153,39 @@ const serveTail = (
   debug: opts.debug === true,
 });
 
+// Raw argv can't decide "is there a subcommand" by sign alone: a global
+// option's *value* (`glv-goose --db /path/sessions.db`) is also a non-dash
+// token, which used to suppress the `sessions` default and fail with an
+// unknown-command error. Skip the values of value-taking global options
+// instead; the flag list comes from the program itself, so each flavor's
+// globals are covered without a hardcoded list.
+const hasSubcommandArg = (program: Command, argv: string[]): boolean => {
+  const valueFlags = new Set<string>();
+  for (const option of program.options) {
+    if (!option.required) continue;
+    if (option.long !== undefined) valueFlags.add(option.long);
+    if (option.short !== undefined) valueFlags.add(option.short);
+  }
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--") {
+      const next = argv[i + 1];
+      return next !== undefined && !next.startsWith("-");
+    }
+    if (arg.startsWith("-")) {
+      if (!arg.includes("=") && valueFlags.has(arg)) i++;
+      continue;
+    }
+    return true;
+  }
+  return false;
+};
+
 // Defaults argv to the `sessions` subcommand and turns parse failures into
 // exit code 1 instead of a stack trace.
 const runMain = (program: Command): void => {
   const argv = process.argv.slice(2);
-  const hasSubcommand = argv.some((a) => !a.startsWith("-"));
-  if (!hasSubcommand) argv.push("sessions");
+  if (!hasSubcommandArg(program, argv)) argv.push("sessions");
   try {
     program.parse(argv, { from: "user" });
   } catch (err) {
@@ -167,6 +198,7 @@ const runMain = (program: Command): void => {
 export {
   addServeTailOptions,
   makeRunnerConfig,
+  parseLimit,
   parseMaxConcurrent,
   readGlobalOpts,
   registerConfigCommands,

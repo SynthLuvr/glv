@@ -150,6 +150,13 @@ type MockConfig = {
   captureEnv?: string;
   /** When set, the agent spawns a long-lived descendant, PID written here. */
   spawnChild?: string;
+  /**
+   * When set, the agent traps SIGINT/SIGTERM (staying alive until SIGKILL)
+   * and writes its own PID to this path — for stop-escalation tests.
+   */
+  trapSignals?: string;
+  /** When set, the agent never creates the session's data (row/transcript). */
+  neverCreateSession?: boolean;
 };
 
 type Databases = {
@@ -351,6 +358,9 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_CAPTURE_ARGS`]: mock.captureArgs ?? "",
   [`${prefix}_MOCK_CAPTURE_ENV`]: mock.captureEnv ?? "",
   [`${prefix}_MOCK_SPAWN_CHILD`]: mock.spawnChild ?? "",
+  [`${prefix}_MOCK_TRAP_SIGNALS`]: mock.trapSignals ?? "",
+  [`${prefix}_MOCK_NEVER_CREATE_SESSION`]:
+    mock.neverCreateSession === true ? "1" : "",
 });
 
 const spawnLauncher = (

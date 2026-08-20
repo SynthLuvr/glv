@@ -1,5 +1,5 @@
 import { platform } from "node:os";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { type } from "arktype";
 import { resolveDataPath } from "../glv/db-path.js";
 import { placeholders, validate, validateAll } from "../glv/query.js";
@@ -66,6 +66,39 @@ const openDb = (
   }
 };
 
+// goose owns this schema and only creates it on its first run, so serve may
+// boot against an empty database file. Reads degrade to empty results there —
+// the viewer shows "no sessions" instead of 500-ing every route until goose
+// has run once. Any other error still surfaces.
+const isMissingTable = (err: unknown): boolean =>
+  err instanceof Error && err.message.includes("no such table:");
+
+const allRows = (
+  db: DatabaseSync,
+  sql: string,
+  ...params: SQLInputValue[]
+): unknown[] => {
+  try {
+    return db.prepare(sql).all(...params);
+  } catch (err) {
+    if (!isMissingTable(err)) throw err;
+    return [];
+  }
+};
+
+const getRow = (
+  db: DatabaseSync,
+  sql: string,
+  ...params: SQLInputValue[]
+): unknown => {
+  try {
+    return db.prepare(sql).get(...params);
+  } catch (err) {
+    if (!isMissingTable(err)) throw err;
+    return undefined;
+  }
+};
+
 const listSessions = (
   db: DatabaseSync,
   filter: SessionFilter,
@@ -81,28 +114,25 @@ const listSessions = (
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
   parts.push("ORDER BY updated_at DESC", "LIMIT ?");
   params.push(filter.limit);
-  return validateAll(
-    SessionRowModel,
-    db.prepare(parts.join(" ")).all(...params),
-  );
+  return validateAll(SessionRowModel, allRows(db, parts.join(" "), ...params));
 };
 
 const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
   validate(
     SessionRowModel,
-    db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(id),
+    getRow(db, `SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`, id),
   );
 
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
   validateAll(
     MessageRowModel,
-    db
-      .prepare(
-        `SELECT ${MESSAGE_COLS} FROM messages
+    allRows(
+      db,
+      `SELECT ${MESSAGE_COLS} FROM messages
            WHERE session_id = ?
            ORDER BY created_timestamp ASC`,
-      )
-      .all(sessionId),
+      sessionId,
+    ),
   );
 
 const IdRow = type({ id: "string" });
@@ -113,7 +143,7 @@ const IdRow = type({ id: "string" });
 const sessionIdsInDir = (db: DatabaseSync, workingDir: string): string[] =>
   validateAll(
     IdRow,
-    db.prepare("SELECT id FROM sessions WHERE working_dir = ?").all(workingDir),
+    allRows(db, "SELECT id FROM sessions WHERE working_dir = ?", workingDir),
   ).map((row) => row.id);
 
 const archiveSessions = (db: DatabaseSync, ids: string[]): void => {

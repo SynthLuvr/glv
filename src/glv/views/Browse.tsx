@@ -39,13 +39,23 @@ const FileIcon = () => (
   </svg>
 );
 
+// Segments are URI-encoded individually: a folder named "C# notes" would
+// otherwise make the browser truncate the href at the "#" (fragment) and
+// navigate to the wrong folder; the server decodes each segment back.
+const encodeRel = (rel: string): string =>
+  rel
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
 const browseHref = (rel: string): string =>
-  rel === "" ? "/browse" : `/browse/${rel}`;
+  rel === "" ? "/browse" : `/browse/${encodeRel(rel)}`;
 
 // File links point at /files so the browser opens or downloads the bytes
 // directly, outside the htmx detail-pane swap.
 const fileHref = (rel: string, name: string): string =>
-  `/files/${childRel(rel, name)}`;
+  `/files/${encodeRel(childRel(rel, name))}`;
 
 const BrowseRow = ({ entry, rel }: { entry: BrowseEntry; rel: string }) => {
   if (entry.isDir) {

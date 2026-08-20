@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   utimesSync,
@@ -9,6 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { authedFetch, type IntegrationEnv } from "../../glv/tests/harness.js";
 import { runTranscriptSuite } from "../../glv/tests/suites/transcript.suite.js";
+import { encodeWorkingDir } from "../store/working-dir.js";
 import {
   claudeFixture,
   insertMessages,
@@ -66,5 +68,48 @@ describe("transcript re-reads", () => {
     const html = await second.text();
     expect(html).toContain("rich text bravo");
     expect(html).not.toContain("rich text alpha");
+  });
+});
+
+// claude-specific: editors that re-save a transcript with a UTF-8 BOM used
+// to make JSON.parse reject the first line, silently dropping the first
+// record (usually the opening user prompt).
+describe("transcript BOM", () => {
+  let env: IntegrationEnv;
+
+  beforeAll(async () => {
+    env = await claudeFixture.startEnv("glv-transcript-bom-");
+  });
+
+  afterAll(async () => {
+    await env?.cleanup();
+  });
+
+  it("parses the first line of a BOM-prefixed transcript", async () => {
+    const dir = join(env.dbs.flavor.projectsDir, encodeWorkingDir("/seeded"));
+    mkdirSync(dir, { recursive: true });
+    const line = (role: string, body: string): string =>
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: role,
+        message: { role, content: [{ type: "text", text: body }] },
+        uuid: `bom-${role}`,
+        timestamp: new Date().toISOString(),
+        cwd: "/seeded",
+        sessionId: "t-bom",
+      });
+    writeFileSync(
+      join(dir, "t-bom.jsonl"),
+      "\uFEFF" +
+        line("user", "first prompt survives a bom") +
+        "\n" +
+        line("assistant", "assistant reply") +
+        "\n",
+    );
+
+    const res = await authedFetch(env, "/sessions/t-bom");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("first prompt survives a bom");
   });
 });

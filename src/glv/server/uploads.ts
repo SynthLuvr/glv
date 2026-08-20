@@ -89,23 +89,31 @@ const saveUploads = async (
   const used = new Set<string>();
   const paths: string[] = [];
 
-  for (const file of files) {
-    if (file.size > MAX_FILE_SIZE)
-      throw new UploadError(
-        `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(MAX_FILE_SIZE)}.`,
-      );
+  // A mid-batch failure (size limit, write error) must not strand a
+  // partially-populated directory: it is untagged, so the tag-and-sweep
+  // cleanup would never collect it.
+  try {
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE)
+        throw new UploadError(
+          `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(MAX_FILE_SIZE)}.`,
+        );
 
-    totalSize += file.size;
-    if (totalSize > MAX_TOTAL_SIZE)
-      throw new UploadError(
-        `Total upload size exceeds ${formatFileSize(MAX_TOTAL_SIZE)}.`,
-      );
+      totalSize += file.size;
+      if (totalSize > MAX_TOTAL_SIZE)
+        throw new UploadError(
+          `Total upload size exceeds ${formatFileSize(MAX_TOTAL_SIZE)}.`,
+        );
 
-    const name = uniqueName(sanitizeFilename(file.name), used);
-    used.add(name);
-    const dest = join(dir, name);
-    writeFileSync(dest, Buffer.from(await file.arrayBuffer()));
-    paths.push(dest);
+      const name = uniqueName(sanitizeFilename(file.name), used);
+      used.add(name);
+      const dest = join(dir, name);
+      writeFileSync(dest, Buffer.from(await file.arrayBuffer()));
+      paths.push(dest);
+    }
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
   }
 
   return { paths, dir };

@@ -1,3 +1,5 @@
+import { onSessionListSwap } from "./shared";
+
 type HtmxGroupsAjax = {
   ajax: (
     verb: string,
@@ -98,6 +100,10 @@ const resolveDropTarget = (x: number, y: number): DropTarget => {
     return id === null ? null : { el: groupHeader, id, kind: "group" };
   }
   const sessionItem = base.closest(".session-item");
+  // Releasing over the dragged card itself — the pointer rarely leaves it on
+  // a short drag — is a no-op, not a drop on the list background (which
+  // would silently ungroup the session).
+  if (sessionItem === activeDrag?.sourceEl) return null;
   if (sessionItem !== null && !sessionItem.classList.contains("dragging")) {
     const id = sessionItem.getAttribute("data-session-id");
     return id === null ? null : { el: sessionItem, id, kind: "session" };
@@ -268,11 +274,9 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Re-apply collapsed state after htmx swaps the session list.
-document.addEventListener("htmx:afterSwap", (e) => {
-  const target = e.target as Element | null;
-  if (target !== null && target.id === "session-list") applyCollapsedState();
-});
+// Re-apply collapsed state after any swap (main or out-of-band) replaces
+// the session list.
+onSessionListSwap(applyCollapsedState);
 
 // Script is deferred, so the DOM is ready.
 applyCollapsedState();

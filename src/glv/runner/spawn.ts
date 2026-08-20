@@ -79,37 +79,36 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 // stop() issued mid-run is noticed within one window; once stopped, each
 // elapsed window escalates the kill signal — SIGTERM, then uncatchable
 // SIGKILL — so a process that traps SIGINT can't park runProcess here forever,
-// holding a runner slot and leaking its detached process group. proc.exit is
-// awaited once (not re-wrapped per window) so polling doesn't accumulate
-// dangling .then handlers on the same promise.
+// holding a runner slot and leaking its detached process group.
+//
+// The ladder must be armed for the whole life of the run, before the stdout
+// drain below: the drain loop only evaluates its stop check when a new line
+// arrives, so a stopped-but-silent process would park it forever and an
+// arm-after-drain ladder would never start. proc.exit is awaited once (not
+// re-wrapped per window) so polling doesn't accumulate dangling .then
+// handlers on the same promise.
 //
 // Windows has no POSIX signals: per Node's docs, kill() with SIGINT, SIGTERM,
 // or SIGKILL unconditionally terminates the target at once, so the graceful
 // ladder below collapses into a single hard kill — sessions still stop, but
 // the agent gets no chance to flush state. execa routes each kill() to the
 // right mechanism per platform, so no change is needed here.
-const awaitExit = async (
+const startStopEscalation = (
   proc: SpawnedProcess,
   handle: InternalHandle,
   graceMs: number,
-): Promise<ProcessResult> => {
+): (() => void) => {
   let escalated = false;
   const poll = setInterval(() => {
     if (handle.status !== "stopped") return;
     if (escalated) {
-      clearInterval(poll);
       proc.kill("SIGKILL");
       return;
     }
     escalated = true;
     proc.kill("SIGTERM");
   }, graceMs);
-
-  try {
-    return await proc.exit;
-  } finally {
-    clearInterval(poll);
-  }
+  return () => clearInterval(poll);
 };
 
 const runProcess = async (
@@ -130,16 +129,25 @@ const runProcess = async (
     return;
   }
 
-  for await (const line of proc.stdout) {
-    if (handle.status === "stopped") break;
-    handle.output.push(line);
-  }
+  const stopEscalation = startStopEscalation(
+    proc,
+    handle,
+    runner.config.stopGraceMs,
+  );
+  try {
+    for await (const line of proc.stdout) {
+      if (handle.status === "stopped") break;
+      handle.output.push(line);
+    }
 
-  const result = await awaitExit(proc, handle, runner.config.stopGraceMs);
-  if (handle.status === "stopped") return;
-  handle.status = result.exitCode === 0 ? "completed" : "error";
-  if (result.exitCode !== 0)
-    handle.error = describeFailure(result, runner.config.agent.name);
+    const result = await proc.exit;
+    if (handle.status === "stopped") return;
+    handle.status = result.exitCode === 0 ? "completed" : "error";
+    if (result.exitCode !== 0)
+      handle.error = describeFailure(result, runner.config.agent.name);
+  } finally {
+    stopEscalation();
+  }
 };
 
 export { defaultSpawn, runProcess };

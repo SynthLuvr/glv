@@ -60,6 +60,36 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
         if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
       }
     }, 30000);
+
+    it("treats an empty env override as unset (no ephemeral temp database)", async () => {
+      // GLV_AUTH_DB="" must fall through to the platform default: an empty
+      // string would otherwise make node:sqlite open a private temporary
+      // database, and all sessions would silently vanish on restart.
+      const emptyHome = mkdtempSync(join(tmpdir(), "glv-default-empty-"));
+      const port = await findFreePort();
+      const baseUrl = `http://localhost:${port}`;
+      const proc = spawnLauncher(
+        fx.binPath,
+        ["serve", ...fx.defaultServeArgs(emptyHome), "-p", String(port)],
+        {
+          cwd: ROOT,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            ...fakeHomeEnv(emptyHome),
+            GLV_AUTH_DB: "",
+          },
+        },
+      );
+      try {
+        await waitForHttp(baseUrl);
+        const dataDir = defaultDataDir(emptyHome, fx.binName);
+        expect(existsSync(join(dataDir, "auth.db"))).toBe(true);
+      } finally {
+        await stopProcess(proc);
+        rmScratch(emptyHome);
+      }
+    }, 30000);
   });
 
   describe("platform-aware default config directory", () => {
