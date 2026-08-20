@@ -24,7 +24,7 @@ const claudeMockScriptPath = fileURLToPath(
   new URL("./claude-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(harness.ROOT, "bin", "glv-claude");
+const GLV = join(harness.ROOT, "bin", "glv-claude.mjs");
 
 const mockClaude = (): Promise<() => void> =>
   harness.mockScript("claude", claudeMockScriptPath);

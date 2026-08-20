@@ -1,3 +1,5 @@
-# Git for Windows defaults to CRLF on checkout (core.autocrlf),
-# which breaks the LF-enforced biome and pandoc checks.
+# A Windows checkout with core.autocrlf=true materializes CRLF files that
+# fail `biome format` (lineEnding "lf") and break the POSIX shell launchers,
+# so force LF in the working tree everywhere; text=auto keeps binaries
+# untouched.
 * text=auto eol=lf

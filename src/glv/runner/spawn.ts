@@ -58,8 +58,18 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
+  // execa exposes no synchronous exit state, and its Windows tree-kill
+  // (taskkill /PID <pid> /T /F) never verifies the pid still belongs to us
+  // — dangerous where pids recycle quickly. Track liveness off the settled
+  // promise so a retired pid is never signalled again.
+  let exited = false;
+  const markExited = (): void => {
+    exited = true;
+  };
+  void proc.then(markExited, markExited);
+
   const kill = (signal: NodeJS.Signals = "SIGINT"): void => {
-    proc.kill(signal);
+    if (!exited) proc.kill(signal);
   };
 
   return { pid, kill, stdout, exit };

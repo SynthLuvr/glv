@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeRunner, runCliSuite } from "../../glv/tests/suites/cli.suite.js";
 import { gooseFixture } from "./integration-harness.js";
 
-const GLV = resolve("bin/glv-goose");
+const GLV = resolve("bin/glv-goose.mjs");
 
 // Mirrors goose's sessions schema so the CLI has something to read. Seeded
 // directly because these tests drive the binary, not the server.

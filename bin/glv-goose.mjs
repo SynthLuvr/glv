@@ -1,20 +1,31 @@
 #!/usr/bin/env node
 // Cross-platform Node launcher, published via package.json's "bin" field.
-// bin/glv-goose (POSIX shell) is retained for direct Unix invocation (test harness).
-import { spawnSync } from "node:child_process";
+// bin/glv-goose (POSIX shell) is retained for direct Unix invocation.
+// `--import` must be given a file:// URL: on Windows a bare absolute path
+// ("C:\...") is rejected by the ESM loader (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tsxLoader = join(root, "node_modules", "tsx", "dist", "loader.mjs");
 const cli = join(root, "src", "goose", "cli.ts");
-const args = ["--import", tsxLoader, cli, ...process.argv.slice(2)];
+const args = [
+  "--import",
+  pathToFileURL(tsxLoader).href,
+  cli,
+  ...process.argv.slice(2),
+];
 
-const { error, status } = spawnSync(process.execPath, args, {
-  stdio: "inherit",
+// The CLI runs as a child process, so stop signals must be forwarded to
+// it — killing the launcher alone (Ctrl+C, a test harness) would orphan
+// the child and everything it runs.
+const child = spawn(process.execPath, args, { stdio: "inherit" });
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.on(signal, () => child.kill(signal));
+child.on("error", (error) => {
+  console.error(error);
+  process.exit(1);
 });
-
-if (error) console.error(error);
-// null status means the child was killed by a signal — surface as non-zero.
-process.exitCode = error ? 1 : (status ?? 1);
+child.on("close", (status) => process.exit(status ?? 1));

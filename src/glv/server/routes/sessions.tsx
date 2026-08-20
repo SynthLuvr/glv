@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -46,6 +47,15 @@ const firstString = (val: unknown): string => {
     return typeof val[0] === "string" ? val[0].trim() : "";
   return typeof val === "string" ? val.trim() : "";
 };
+
+// The agent persists working_dir in canonical form, so the submitted dir
+// must be normalized here or the new-session discovery poll compares
+// against a different spelling, never finds the row, and stops the healthy
+// run at its timeout — this also keeps the spawn cwd and the per-directory
+// create lock on one spelling. Empty stays empty: resolve("") would invent
+// the server's cwd.
+const canonicalWorkingDir = (raw: string): string =>
+  raw === "" ? raw : resolve(raw);
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
@@ -120,7 +130,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
-    const submittedWorkingDir = expandHome(fieldString("working_dir"));
+    const submittedWorkingDir = canonicalWorkingDir(
+      expandHome(fieldString("working_dir")),
+    );
 
     const files = collectFiles(body.uploads);
 

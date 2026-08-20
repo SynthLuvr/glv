@@ -16,12 +16,28 @@ import {
   withPage,
 } from "../harness.js";
 
+// Windows grants symlink creation only with developer mode or admin rights;
+// probe at collection time so symlink-dependent cases skip, not fail, where
+// the OS denies it.
+const probeSymlinkSupport = (): boolean => {
+  const dir = mkdtempSync(join(tmpdir(), "glv-symlink-probe-"));
+  try {
+    symlinkSync(dir, join(dir, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 const runBrowseSuite = (fx: FlavorFixture): void => {
   // A throwaway "home directory" so the browse view never touches the real one.
   // It mixes folders, files, dotfiles (secrets), and symlinks so every security
   // rule can be exercised deterministically.
   let env: IntegrationEnv;
   let home: string;
+  const canSymlink = probeSymlinkSupport();
 
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "glv-browse-home-"));
@@ -35,9 +51,13 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     mkdirSync(join(home, ".ssh"), { recursive: true });
     writeFileSync(join(home, ".ssh", "id_rsa"), "SECRET KEY MATERIAL");
     writeFileSync(join(home, ".env"), "TOKEN=secret");
-    // Symlinks may escape the root, so they must never be followed.
-    symlinkSync("/etc", join(home, "link-etc"));
-    symlinkSync("Documents", join(home, "link-docs"), "dir");
+    // Symlinks may escape the root, so they must never be followed. Where
+    // the OS denies symlink creation, the fixtures are absent and the
+    // symlink-safety cases skip (see probeSymlinkSupport).
+    if (canSymlink) {
+      symlinkSync("/etc", join(home, "link-etc"));
+      symlinkSync("Documents", join(home, "link-docs"), "dir");
+    }
     env = await fx.startEnv("glv-browse-", {}, home);
   }, 90000);
 
@@ -179,24 +199,30 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
   });
 
   describe("browse: security — symlink safety", () => {
-    it("never lists a symlink", async () => {
+    it.runIf(canSymlink)("never lists a symlink", async () => {
       const html = await text("/browse");
       expect(html).not.toContain("link-etc");
       expect(html).not.toContain("link-docs");
     });
 
-    it("refuses to follow a symlinked directory entry", async () => {
-      const res = await authedFetch(env, "/browse/link-etc");
-      expect(res.status).toBe(404);
-      expect(await res.text()).not.toContain("hostname");
-    });
+    it.runIf(canSymlink)(
+      "refuses to follow a symlinked directory entry",
+      async () => {
+        const res = await authedFetch(env, "/browse/link-etc");
+        expect(res.status).toBe(404);
+        expect(await res.text()).not.toContain("hostname");
+      },
+    );
 
-    it("refuses to follow a symlink even when its target is inside the root", async () => {
-      const res = await authedFetch(env, "/browse/link-docs");
-      expect(res.status).toBe(404);
-    });
+    it.runIf(canSymlink)(
+      "refuses to follow a symlink even when its target is inside the root",
+      async () => {
+        const res = await authedFetch(env, "/browse/link-docs");
+        expect(res.status).toBe(404);
+      },
+    );
 
-    it("refuses a symlink nested in the path", async () => {
+    it.runIf(canSymlink)("refuses a symlink nested in the path", async () => {
       const res = await authedFetch(env, "/browse/link-docs/notes.txt");
       expect(res.status).toBe(404);
       expect(await res.text()).not.toContain("hello world");

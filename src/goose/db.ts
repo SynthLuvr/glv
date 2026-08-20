@@ -1,3 +1,4 @@
+import { platform } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { resolveDataPath } from "../glv/db-path.js";
@@ -40,16 +41,16 @@ const MessageRowModel = type(messageShape);
 
 const MESSAGE_COLS = Object.keys(messageShape).join(", ");
 
-// goose may store its DB elsewhere on Windows; override with
-// GOOSE_SESSIONS_DB or --db when the default doesn't match.
+// goose's documented session storage differs by platform: the XDG data dir
+// (~/.local/share/goose) on Unix, %APPDATA%\Block\goose\data on Windows
+// (goose's "Session Records" guide). glv-owned databases are unaffected.
+const DEFAULT_DB_SEGMENTS: readonly string[] =
+  platform() === "win32"
+    ? ["Block", "goose", "data", "sessions", "sessions.db"]
+    : ["goose", "sessions", "sessions.db"];
+
 const resolveDbPath = (override?: string): string =>
-  resolveDataPath(
-    override,
-    "GOOSE_SESSIONS_DB",
-    "goose",
-    "sessions",
-    "sessions.db",
-  );
+  resolveDataPath(override, "GOOSE_SESSIONS_DB", ...DEFAULT_DB_SEGMENTS);
 
 const openDb = (
   dbPath: string,

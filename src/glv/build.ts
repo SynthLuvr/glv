@@ -1,12 +1,22 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 import { execaSync } from "execa";
 
 const GLV_SRC = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(GLV_SRC, "..", "..");
-const TAILWIND_BIN = join(PROJECT_ROOT, "node_modules", ".bin", "tailwindcss");
+
+// node_modules/.bin holds POSIX shell shims that Node cannot spawn on
+// Windows, so invoke the Tailwind CLI's real JavaScript entry with the
+// current Node executable — identical behavior on every platform.
+const nodeRequire = createRequire(import.meta.url);
+const TAILWIND_ENTRY = join(
+  dirname(nodeRequire.resolve("@tailwindcss/cli/package.json")),
+  "dist",
+  "index.mjs",
+);
 
 // Bundle every client entry into a self-contained IIFE in one pass, so any
 // script may import shared modules (e.g. ./shared) without bespoke config.
@@ -28,8 +38,9 @@ const buildAssets = (flavor: string): void => {
   const outputDir = join(PROJECT_ROOT, "dist", flavor);
   mkdirSync(outputDir, { recursive: true });
   execaSync(
-    TAILWIND_BIN,
+    process.execPath,
     [
+      TAILWIND_ENTRY,
       "-i",
       join(GLV_SRC, "styles", "app.css"),
       "-o",

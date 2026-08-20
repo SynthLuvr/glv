@@ -52,8 +52,19 @@ const majorOf = (version) => {
   return match === null ? 0 : Number(match[1]);
 };
 
+// On Windows, pnpm resolves to a .cmd shim that spawnSync cannot execute
+// without a shell (CreateProcess only finds .exe). Under `shell` Node
+// concatenates args without escaping (DEP0190), so the command line is
+// joined here instead — safe because every caller passes fixed, literal
+// arguments.
 const run = (cmd, args, opts = {}) =>
-  spawnSync(cmd, args, { encoding: "utf8", ...opts });
+  IS_WIN
+    ? spawnSync([cmd, ...args].join(" "), {
+        encoding: "utf8",
+        shell: true,
+        ...opts,
+      })
+    : spawnSync(cmd, args, { encoding: "utf8", ...opts });
 
 const checkPlatform = () => {
   heading("Platform Check");

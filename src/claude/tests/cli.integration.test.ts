@@ -10,7 +10,7 @@ import {
   insertSessions,
 } from "./integration-harness.js";
 
-const GLV = resolve("bin/glv-claude");
+const GLV = resolve("bin/glv-claude.mjs");
 
 let dir: string;
 let projectsDir: string;

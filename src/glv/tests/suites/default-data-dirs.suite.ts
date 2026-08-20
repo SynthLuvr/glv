@@ -1,18 +1,23 @@
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  defaultConfigFile,
+  defaultDataDir,
   type FlavorFixture,
+  fakeHomeEnv,
   findFreePort,
   ROOT,
+  rmScratch,
+  spawnLauncher,
+  spawnLauncherSync,
   stopProcess,
   waitForHttp,
 } from "../harness.js";
 
 // No auth/prompts/groups store overrides are passed, so the glv-owned
-// databases must resolve to the platform default under the fake HOME.
+// databases must resolve to the platform default under the fake home.
 const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
   describe("platform-aware default data directory", () => {
     let homeDir: string;
@@ -25,19 +30,19 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
 
     afterAll(() => {
       restoreAgent?.();
-      rmSync(homeDir, { recursive: true, force: true });
+      rmScratch(homeDir);
     });
 
     it("creates glv-owned databases under the default data directory", async () => {
       const port = await findFreePort();
       const baseUrl = `http://localhost:${port}`;
-      const proc = spawn(
+      const proc = spawnLauncher(
         fx.binPath,
         ["serve", ...fx.defaultServeArgs(homeDir), "-p", String(port)],
         {
           cwd: ROOT,
           stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, HOME: homeDir },
+          env: { ...process.env, ...fakeHomeEnv(homeDir) },
         },
       );
       let stderr = "";
@@ -47,7 +52,7 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
 
       try {
         await waitForHttp(baseUrl);
-        const dataDir = join(homeDir, ".local", "share", fx.binName);
+        const dataDir = defaultDataDir(homeDir, fx.binName);
         for (const file of fx.defaultDbFiles)
           expect(existsSync(join(dataDir, file))).toBe(true);
       } finally {
@@ -65,18 +70,18 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
     });
 
     afterAll(() => {
-      rmSync(homeDir, { recursive: true, force: true });
+      rmScratch(homeDir);
     });
 
     it("writes the config file under the default config directory", () => {
-      const result = spawnSync(
+      const result = spawnLauncherSync(
         fx.binPath,
         ["config", "set", "forwardHost", "example.com"],
-        { env: { ...process.env, HOME: homeDir }, encoding: "utf-8" },
+        { env: { ...process.env, ...fakeHomeEnv(homeDir) }, encoding: "utf-8" },
       );
       expect(result.status).toBe(0);
 
-      const configPath = join(homeDir, ".config", fx.binName, "config.json");
+      const configPath = defaultConfigFile(homeDir, fx.binName);
       expect(existsSync(configPath)).toBe(true);
 
       const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
