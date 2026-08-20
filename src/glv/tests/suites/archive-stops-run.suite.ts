@@ -1,4 +1,3 @@
-import { readdirSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -7,6 +6,7 @@ import {
   type FlavorFixture,
   type IntegrationEnv,
   parseSseData,
+  subdirCount,
 } from "../harness.js";
 
 // Archiving a session used to sweep its temp working dir and uploads out
@@ -15,10 +15,6 @@ import {
 // stream and checks the temp dir sweep afterwards.
 const runArchiveStopsRunSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-
-  const subdirCount = (base: string): number =>
-    readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory())
-      .length;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-archstop-", {

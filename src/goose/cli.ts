@@ -72,7 +72,12 @@ program
   .description("List goose sessions (interactive user sessions)")
   .option("--type <type>", "session type: user|hidden|sub_agent|all", "user")
   .option("--all", "include archived sessions")
-  .option("-n, --limit <number>", "number of rows to list", cli.parseLimit, 20)
+  .option(
+    "-n, --limit <number>",
+    "number of rows to list",
+    cli.parsePositiveInt,
+    20,
+  )
   .action((opts: SessionsOpts) => {
     useSessions((sessions) =>
       cli.runList(sessions, {
@@ -86,7 +91,12 @@ program
 program
   .command("logs")
   .description("List sessions from goose run --no-session (hidden sessions)")
-  .option("-n, --limit <number>", "number of rows to list", cli.parseLimit, 20)
+  .option(
+    "-n, --limit <number>",
+    "number of rows to list",
+    cli.parsePositiveInt,
+    20,
+  )
   .action((opts: LimitOpts) => {
     useSessions((sessions) =>
       cli.runList(sessions, {
@@ -110,7 +120,7 @@ const serveCmd = program
   .option(
     "-c, --max-concurrent <number>",
     "max concurrent goose runs",
-    cli.parseMaxConcurrent,
+    cli.parsePositiveInt,
     6,
   )
   .option(
@@ -124,13 +134,12 @@ cli.addServeTailOptions(serveCmd);
 
 serveCmd.action((opts: ServeOpts) => {
   // Writable opens first: read-only mode can't create the file, so serve
-  // works before goose has ever run.
+  // works before goose has ever run. Both handles wait out a concurrent
+  // goose write — node:sqlite's default busy timeout is 0 (fail at once),
+  // which the sidebar, transcript, and launch-poll reads must outlive.
   const dbWritable = openDb(getDbPath(), { readOnly: false });
-  dbWritable.exec("PRAGMA busy_timeout=5000"); // out-wait a concurrent goose write
+  dbWritable.exec("PRAGMA busy_timeout=5000");
   const db = openDb(getDbPath());
-  // Reads ride this handle (sidebar, transcripts, the launch discovery
-  // poll), so it needs the same patience against concurrent goose writes —
-  // node:sqlite's default busy timeout is 0 (fail immediately).
   db.exec("PRAGMA busy_timeout=5000");
   const sessions = createSessionStore(db, dbWritable);
   cli.runServe(sessions, {

@@ -1,10 +1,10 @@
-import { readdirSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  subdirCount,
 } from "../harness.js";
 
 // When the agent never creates its session data, the create route times out
@@ -14,10 +14,6 @@ import {
 // them — they leak forever unless the failure path removes them itself.
 const runCreateFailureCleanupSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-
-  const subdirCount = (base: string): number =>
-    readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory())
-      .length;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-createfail-", {

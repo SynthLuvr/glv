@@ -12,10 +12,9 @@ const dataRoot = (): string => {
 // Precedence: explicit override → environment variable → platform default.
 // Callers pass their flavor's data directory name as the first segment so
 // two glv builds installed on one machine never share SQLite files,
-// uploads, or temp dirs. An *empty* value (a trailing space in an env file,
-// a CI matrix variable) counts as unset: node:sqlite happily opens "" as a
-// private temporary database, so data written there silently vanishes on
-// restart.
+// uploads, or temp dirs. An empty value counts as unset: node:sqlite
+// happily opens "" as a private temporary database, so data written there
+// silently vanishes on restart.
 const resolveDataPath = (
   override: string | undefined,
   envVar: string,

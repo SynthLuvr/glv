@@ -21,18 +21,14 @@ const PositiveInt = type("string.numeric.parse").pipe(
   type("number.integer > 0"),
 );
 
-const positiveInt = (value: string, example: string): number => {
+const parsePositiveInt = (value: string): number => {
   const result = PositiveInt(value);
   if (result instanceof type.errors)
     throw new InvalidArgumentError(
-      `must be a positive integer (e.g. ${example}) — ${result.summary}`,
+      `must be a positive integer — ${result.summary}`,
     );
   return result;
 };
-
-const parseMaxConcurrent = (value: string): number => positiveInt(value, "6");
-
-const parseLimit = (value: string): number => positiveInt(value, "20");
 
 // Resolves the agent binary: an explicit path must exist on disk; a bare
 // name must be found on PATH. Windows executables carry extensions listed
@@ -158,7 +154,8 @@ const serveTail = (
 // token, which used to suppress the `sessions` default and fail with an
 // unknown-command error. Skip the values of value-taking global options
 // instead; the flag list comes from the program itself, so each flavor's
-// globals are covered without a hardcoded list.
+// globals are covered without a hardcoded list. (commander's `required`
+// means "takes a <value>", not "must be present".)
 const hasSubcommandArg = (program: Command, argv: string[]): boolean => {
   const valueFlags = new Set<string>();
   for (const option of program.options) {
@@ -198,8 +195,7 @@ const runMain = (program: Command): void => {
 export {
   addServeTailOptions,
   makeRunnerConfig,
-  parseLimit,
-  parseMaxConcurrent,
+  parsePositiveInt,
   readGlobalOpts,
   registerConfigCommands,
   registerViewCommand,

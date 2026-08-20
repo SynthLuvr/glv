@@ -78,21 +78,18 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 // A self-rearming interval polls handle.status in grace-sized windows so a
 // stop() issued mid-run is noticed within one window; once stopped, each
 // elapsed window escalates the kill signal — SIGTERM, then uncatchable
-// SIGKILL — so a process that traps SIGINT can't park runProcess here forever,
-// holding a runner slot and leaking its detached process group.
+// SIGKILL — so a process that traps SIGINT can't park runProcess here
+// forever, holding a runner slot and leaking its detached process group.
 //
-// The ladder must be armed for the whole life of the run, before the stdout
-// drain below: the drain loop only evaluates its stop check when a new line
-// arrives, so a stopped-but-silent process would park it forever and an
-// arm-after-drain ladder would never start. proc.exit is awaited once (not
-// re-wrapped per window) so polling doesn't accumulate dangling .then
-// handlers on the same promise.
+// Armed before the stdout drain below: the drain only evaluates its stop
+// check when a new line arrives, so a stopped-but-silent process would
+// park it forever and a ladder started after the drain would never fire.
 //
-// Windows has no POSIX signals: per Node's docs, kill() with SIGINT, SIGTERM,
-// or SIGKILL unconditionally terminates the target at once, so the graceful
-// ladder below collapses into a single hard kill — sessions still stop, but
-// the agent gets no chance to flush state. execa routes each kill() to the
-// right mechanism per platform, so no change is needed here.
+// Windows has no POSIX signals: per Node's docs, kill() with SIGINT,
+// SIGTERM, or SIGKILL unconditionally terminates the target at once, so
+// the ladder collapses into a single hard kill — the agent gets no chance
+// to flush state. execa routes each kill() to the right mechanism per
+// platform, so no change is needed here.
 const startStopEscalation = (
   proc: SpawnedProcess,
   handle: InternalHandle,

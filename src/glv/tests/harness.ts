@@ -7,7 +7,13 @@ import {
   spawnSync,
 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
@@ -66,6 +72,12 @@ const seedAuthDb = (dbPath: string): string => {
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+// Counts sub-directories of a data root (uploads, temp) to observe
+// directories being created and swept.
+const subdirCount = (base: string): number =>
+  readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory())
+    .length;
 
 const findFreePort = (): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -707,6 +719,7 @@ export {
   spawnLauncherSync,
   startEnv,
   stopProcess,
+  subdirCount,
   waitForHttp,
   waitForJsonFile,
   withPage,

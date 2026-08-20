@@ -174,9 +174,15 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         return rejectForm(uploadErrorMessage(err), 422);
       }
 
-    let result: EstablishOutcome;
-    try {
-      result = await withCreateLock(
+    // Pre-tag cleanup for a failed attempt: these dirs are untagged, so
+    // the archive-time sweep would never collect them.
+    const removeAttemptDirs = (): void => {
+      if (uploadDir !== undefined) removeDir(uploadDir);
+      if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
+    };
+
+    const establishSession = async (): Promise<EstablishOutcome> =>
+      withCreateLock(
         ctx.createLocks,
         workingDir,
         async (): Promise<EstablishOutcome> => {
@@ -204,18 +210,19 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           );
         },
       );
+
+    let result: EstablishOutcome;
+    try {
+      result = await establishSession();
     } catch (err) {
       // The lock helper only swallows *prior* attempts' rejections; a fresh
-      // throw from this attempt must still clean up the directories it
-      // created, or they leak forever (untagged dirs are never swept).
-      if (uploadDir !== undefined) removeDir(uploadDir);
-      if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
+      // throw from this attempt must still clean up or its dirs leak forever.
+      removeAttemptDirs();
       throw err;
     }
 
     if (!result.ok) {
-      if (uploadDir !== undefined) removeDir(uploadDir);
-      if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
+      removeAttemptDirs();
       return rejectForm(result.error, result.status);
     }
     const { sessionId, session } = result;
