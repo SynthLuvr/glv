@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -46,6 +47,17 @@ const firstString = (val: unknown): string => {
     return typeof val[0] === "string" ? val[0].trim() : "";
   return typeof val === "string" ? val.trim() : "";
 };
+
+// One directory has many spellings the OS accepts — forward slashes or a
+// trailing separator on Windows, relative segments anywhere — and the agent
+// canonicalizes its cwd before persisting working_dir, so the new-session
+// discovery poll would compare against a different string than was
+// submitted, never find the row, and stop the healthy run at its timeout.
+// Normalizing here means the spawn cwd, the discovery poll, and the
+// per-directory create lock all agree on one spelling. The empty form value
+// must stay empty (resolve("") would invent the server's cwd).
+const canonicalWorkingDir = (raw: string): string =>
+  raw === "" ? raw : resolve(raw);
 
 const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
@@ -120,7 +132,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
-    const submittedWorkingDir = expandHome(fieldString("working_dir"));
+    const submittedWorkingDir = canonicalWorkingDir(
+      expandHome(fieldString("working_dir")),
+    );
 
     const files = collectFiles(body.uploads);
 
