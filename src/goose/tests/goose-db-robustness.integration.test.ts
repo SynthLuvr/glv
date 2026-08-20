@@ -71,18 +71,12 @@ describe("goose sessions db robustness", () => {
       dbs = baseDatabases(scratch, {});
       port = await findFreePort();
       baseUrl = `http://localhost:${port}`;
+      // No --goose-binary flag: its coercion requires the agent on PATH,
+      // which CI doesn't have; the default skips validation and this test
+      // never spawns an agent anyway.
       proc = spawnLauncher(
         GLV,
-        [
-          "serve",
-          "-p",
-          String(port),
-          "--db",
-          dbPath,
-          ...dbOverrideArgs(dbs),
-          "--goose-binary",
-          "goose",
-        ],
+        ["serve", "-p", String(port), "--db", dbPath, ...dbOverrideArgs(dbs)],
         {
           cwd: ROOT,
           stdio: ["ignore", "pipe", "pipe"],
