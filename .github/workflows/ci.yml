@@ -5,7 +5,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -22,11 +26,23 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Install pandoc (pinned for Markdown lint/format)
+      - name: Install pandoc on Linux (pinned for Markdown lint/format)
+        if: runner.os == 'Linux'
         run: |
           wget -q https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-1-amd64.deb
           sudo dpkg -i pandoc-3.10.2-1-amd64.deb
           pandoc --version | head -1
+
+      - name: Install pandoc on Windows (pinned for Markdown lint/format)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\pandoc.zip"
+          $dir = "$env:RUNNER_TEMP\pandoc-3.10.2"
+          Invoke-WebRequest -Uri https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-windows-x86_64.zip -OutFile $zip
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP"
+          Add-Content $env:GITHUB_PATH $dir
+          & "$dir\pandoc.exe" --version | Select-Object -First 1
 
       - name: Lint
         run: pnpm lint

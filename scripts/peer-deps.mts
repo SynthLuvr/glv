@@ -17,9 +17,12 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const checkPeerDependencies = (): void => {
+  // On Windows, pnpm is a .cmd shim; Node refuses to spawn .cmd/.bat
+  // without a shell (CVE-2024-27980).
   const result = spawnSync("pnpm", ["peers", "check"], {
     cwd: ROOT,
     encoding: "utf8",
+    shell: process.platform === "win32",
   });
 
   if (result.error) throw result.error;
