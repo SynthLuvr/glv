@@ -76,7 +76,13 @@ const runJscpd = (outDir: string): Report => {
       "--output",
       outDir,
     ],
-    { cwd: ROOT, encoding: "utf8" },
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      // On Windows, pnpm is a .cmd shim; Node refuses to spawn .cmd/.bat
+      // without a shell (CVE-2024-27980).
+      shell: process.platform === "win32",
+    },
   );
   if (result.error) throw result.error;
   const reportPath = join(outDir, "jscpd-report.json");
