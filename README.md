@@ -143,6 +143,10 @@ Windows notes:
   `--forward` reverse-tunnel flag. It ships with Linux and macOS; on
   Windows 10/11 install the optional **OpenSSH Client** feature.
 
+The toolchain runs on Linux, macOS, and Windows; line endings are
+normalized to LF via `.gitattributes`, and pandoc is invoked with
+`--eol=lf` so its output stays LF on Windows too.
+
 ## Running the web viewer
 
 ``` bash
