@@ -35,21 +35,6 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   });
   const pid = proc.pid ?? -1;
 
-  // execa emits stdout in arbitrary chunks; split into lines so each yielded
-  // value is one NDJSON record.
-  const stdout = (async function* () {
-    let buffer = "";
-    let nl: number;
-    for await (const chunk of proc) {
-      buffer += chunk;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        yield buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-      }
-    }
-    if (buffer.length > 0) yield buffer;
-  })();
-
   const exit = proc.then(
     (r) => ({ exitCode: r.exitCode ?? 0 }),
     (e: unknown) => {
@@ -72,7 +57,9 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     if (!exited) proc.kill(signal);
   };
 
-  return { pid, kill, stdout, exit };
+  // execa v9+ async iteration already yields one newline-stripped line
+  // per iteration, so stdout needs no raw-chunk buffering/splitting here.
+  return { pid, kill, stdout: proc, exit };
 };
 
 // A self-rearming interval polls handle.status in grace-sized windows so a
