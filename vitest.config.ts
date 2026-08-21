@@ -26,6 +26,7 @@ const CLAUDE_AGENT_SPAWN_SUITES = [
   "src/claude/tests/stop-kills-descendants.integration.test.ts",
   "src/claude/tests/stream-discard-non-json.integration.test.ts",
   "src/claude/tests/stream-live.integration.test.ts",
+  "src/claude/tests/stream-preview-live.integration.test.ts",
   "src/claude/tests/system-flag.integration.test.ts",
   "src/claude/tests/temp-dir.integration.test.ts",
   "src/claude/tests/upload.integration.test.ts",
