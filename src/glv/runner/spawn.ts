@@ -35,19 +35,13 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   });
   const pid = proc.pid ?? -1;
 
-  // execa emits stdout in arbitrary chunks; split into lines so each yielded
-  // value is one NDJSON record.
+  // execa's async iteration (v9+) already yields one newline-stripped line
+  // per yielded value — yielded chunks never contain "\n" — so a
+  // buffer-and-split wrapper built on raw-chunk semantics never matches and
+  // swallows all output while the process is alive. Yield execa's lines
+  // directly instead.
   const stdout = (async function* () {
-    let buffer = "";
-    let nl: number;
-    for await (const chunk of proc) {
-      buffer += chunk;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        yield buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-      }
-    }
-    if (buffer.length > 0) yield buffer;
+    for await (const line of proc) yield line;
   })();
 
   const exit = proc.then(
