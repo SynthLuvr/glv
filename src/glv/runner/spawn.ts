@@ -35,15 +35,6 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   });
   const pid = proc.pid ?? -1;
 
-  // execa's async iteration (v9+) already yields one newline-stripped line
-  // per yielded value — yielded chunks never contain "\n" — so a
-  // buffer-and-split wrapper built on raw-chunk semantics never matches and
-  // swallows all output while the process is alive. Yield execa's lines
-  // directly instead.
-  const stdout = (async function* () {
-    for await (const line of proc) yield line;
-  })();
-
   const exit = proc.then(
     (r) => ({ exitCode: r.exitCode ?? 0 }),
     (e: unknown) => {
@@ -66,7 +57,9 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     if (!exited) proc.kill(signal);
   };
 
-  return { pid, kill, stdout, exit };
+  // execa v9+ async iteration already yields one newline-stripped line
+  // per iteration, so stdout needs no raw-chunk buffering/splitting here.
+  return { pid, kill, stdout: proc, exit };
 };
 
 // A self-rearming interval polls handle.status in grace-sized windows so a

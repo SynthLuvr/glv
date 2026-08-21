@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -10,46 +11,42 @@ import {
   type SseEvent,
 } from "../harness.js";
 
-// Regression suite for the runner's stdout drain. The drain once assumed
-// execa's async iteration yields raw chunks and buffered/split on "\n" — but
-// execa (v9+) yields one newline-stripped line per iteration, so chunks never
-// contain a newline: nothing reached the ring buffer while the process was
-// alive, and the whole run's output surfaced only at exit, concatenated into
-// a single unparseable line that renderStreamLine discarded. The preview pane
-// looked frozen for the entire run. This suite pins the real contract: every
-// streamed line becomes a preview SSE event *while the run is still active*,
-// strictly before the completed status.
+// Pins the runner's stdout drain against the bug this suite was written
+// for: execa's async iteration yields newline-stripped lines, so the old
+// raw-chunk buffer/split never matched — every line surfaced only at exit,
+// concatenated into one unparseable line, and the preview pane froze for
+// the whole run. The contract: every streamed line becomes a preview SSE
+// event *while the run is still active*, strictly before completion.
 const runStreamPreviewLiveSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-
-  const hasStatus = (events: SseEvent[], value: string): boolean =>
-    events.some(
-      (e) => e.event === "status" && parseSseData(e.data).status === value,
-    );
 
   const statusIndex = (events: SseEvent[], value: string): number =>
     events.findIndex(
       (e) => e.event === "status" && parseSseData(e.data).status === value,
     );
 
+  const hasStatus = (events: SseEvent[], value: string): boolean =>
+    statusIndex(events, value) >= 0;
+
   beforeAll(async () => {
     env = await fx.startEnv("glv-preview-live-", {
-      // Hold the run open before the first line so the event stream can
-      // attach and observe the running status with an empty preview first.
+      // Hold the run open before the first line so the SSE stream can
+      // attach and observe the running status while the preview is empty.
       sleepMs: 800,
-      // Two lines with a pause between them: the first must preview while
-      // the process is still alive mid-run, not batched up at the end.
+      // Two lines with a pause between them: the first must preview
+      // mid-run, not batched up at exit.
       lines: [
         fx.streamLine("first live chunk"),
         fx.streamLine("second live chunk"),
       ],
       lineDelayMs: 600,
     });
-    // Follow-up runs spawn the agent in the session's working dir, so the
-    // dir must exist or execa rejects and the run errors out immediately.
-    mkdirSync(env.scratchDir + "/p", { recursive: true });
+    // Follow-up runs spawn the agent in the session's working dir, which
+    // must exist or execa rejects and the run errors out immediately.
+    const workDir = join(env.scratchDir, "p");
+    mkdirSync(workDir, { recursive: true });
     fx.seedSessions(env, [
-      { id: "pl-1", name: "Preview Live", workingDir: env.scratchDir + "/p" },
+      { id: "pl-1", name: "Preview Live", workingDir: workDir },
     ]);
   }, 120000);
 
@@ -59,11 +56,10 @@ const runStreamPreviewLiveSuite = (fx: FlavorFixture): void => {
 
   describe("live preview delivery", () => {
     it("previews each streamed line while the run is active, before completion", async () => {
-      // Resolve only once a preview has arrived AND the run has completed,
-      // so the ordering assertion below compares settled facts. On the old
-      // drain no preview ever arrives mid-run, this predicate never
-      // satisfies, and collectSse rejects on its timeout — the failure mode
-      // this suite exists to catch.
+      // Resolve only once a preview has arrived AND the run completed, so
+      // the ordering assertion compares settled facts. With the old drain
+      // no preview ever arrives mid-run, so this never satisfies and
+      // collectSse rejects on its timeout.
       const until = (evs: SseEvent[]): boolean =>
         evs.some((e) => e.event === "preview") && hasStatus(evs, "completed");
 
@@ -82,16 +78,11 @@ const runStreamPreviewLiveSuite = (fx: FlavorFixture): void => {
       const firstPreview = events.findIndex((e) => e.event === "preview");
       const completedAt = statusIndex(events, "completed");
 
-      // Sanity: the ordering comparison needs both endpoints observed.
-      expect(completedAt).toBeGreaterThanOrEqual(0);
-      expect(firstPreview).toBeGreaterThanOrEqual(0);
-
       // The core regression: previews stream live, strictly before the run
       // completes — never batched into (or after) the terminal transition.
       expect(firstPreview).toBeLessThan(completedAt);
 
-      // Every streamed line previewed exactly once, in order — none
-      // swallowed, none duplicated, none synthesized.
+      // Every streamed line previewed exactly once, in order.
       expect(previews.length).toBe(2);
       expect(previews[0]?.data).toContain("first live chunk");
       expect(previews[1]?.data).toContain("second live chunk");
