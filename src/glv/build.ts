@@ -1,4 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +27,7 @@ const TAILWIND_ENTRY = join(
 
 // Bundle every client entry into a self-contained IIFE in one pass, so any
 // script may import shared modules (e.g. ./shared) without bespoke config.
-const CLIENT_ENTRIES = [
+const CLIENT_ENTRY_NAMES = [
   "sidebar",
   "stream",
   "rename",
@@ -29,13 +36,112 @@ const CLIENT_ENTRIES = [
   "prompts",
   "passkey",
   "uploads",
-].map((name) => join(GLV_SRC, "scripts", `${name}.ts`));
+];
+
+const CLIENT_ENTRIES = CLIENT_ENTRY_NAMES.map((name) =>
+  join(GLV_SRC, "scripts", `${name}.ts`),
+);
+
+const OUTPUT_FILES = [
+  "app.css",
+  ...CLIENT_ENTRY_NAMES.map((name) => `${name}.js`),
+];
+
+// The inputs a rebuild depends on: everything under src/ except tests
+// (client scripts may import across glv, Tailwind scans views for class
+// names) plus the lockfile (a dependency bump changes the bundle even when
+// no source moves).
+const DEFAULT_INPUT_ROOTS = [
+  join(PROJECT_ROOT, "src"),
+  join(PROJECT_ROOT, "pnpm-lock.yaml"),
+];
+
+// The Tailwind CLI preserves the output file's mtime when the compiled CSS
+// is unchanged, so freshness must be judged from a content fingerprint of
+// the inputs recorded at the last successful build — an mtime check would
+// strand itself behind a touched-but-equivalent source forever.
+const MANIFEST_NAME = "build-manifest.json";
+const TESTS_DIR_NAME = "tests";
+
+type Hash = ReturnType<typeof createHash>;
+
+const hashFileInto = (path: string, hash: Hash): void => {
+  hash.update(path);
+  hash.update("\0");
+  hash.update(readFileSync(path));
+  hash.update("\0");
+};
+
+const hashDirInto = (dir: string, hash: Hash): void => {
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  );
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === TESTS_DIR_NAME) continue;
+      hashDirInto(path, hash);
+    } else if (entry.isFile()) hashFileInto(path, hash);
+  }
+};
+
+const inputsFingerprint = (roots: readonly string[]): string => {
+  const hash = createHash("sha256");
+  for (const root of roots) {
+    const stat = statSync(root, { throwIfNoEntry: false });
+    if (stat === undefined) continue;
+    if (stat.isDirectory()) hashDirInto(root, hash);
+    else hashFileInto(root, hash);
+  }
+  return hash.digest("hex");
+};
+
+const manifestPath = (outputDir: string): string =>
+  join(outputDir, MANIFEST_NAME);
+
+// True when the recorded fingerprint matches the current inputs and every
+// expected output still exists.
+const assetsUpToDate = (outputDir: string, fingerprint: string): boolean => {
+  let recorded: unknown;
+  try {
+    recorded = JSON.parse(readFileSync(manifestPath(outputDir), "utf-8"));
+  } catch {
+    return false;
+  }
+  if (
+    typeof recorded !== "object" ||
+    recorded === null ||
+    (recorded as { fingerprint?: unknown }).fingerprint !== fingerprint
+  )
+    return false;
+  for (const name of OUTPUT_FILES) {
+    const stat = statSync(join(outputDir, name), { throwIfNoEntry: false });
+    if (stat === undefined) return false;
+  }
+  return true;
+};
+
+type BuildAssetsOptions = {
+  /** Overrides dist/<flavor> as the output directory (tests use a scratch dir). */
+  readonly outputDir?: string;
+  /** Overrides the hashed input roots (src/ and the lockfile by default). */
+  readonly inputRoots?: readonly string[];
+};
 
 // Builds one flavor's static assets into dist/<flavor>/: the compiled
 // stylesheet plus every bundled client entry. Called by each flavor's
-// build.ts wrapper (the pnpm build:assets entries) and by serve.
-const buildAssets = (flavor: string): void => {
-  const outputDir = join(PROJECT_ROOT, "dist", flavor);
+// build.ts wrapper (the pnpm build:assets entries) and by serve; when the
+// recorded input fingerprint still matches, the rebuild is skipped so
+// serve boots — one per test file in the integration suite — stay fast.
+// Returns true when a build ran, false when the outputs were reused.
+const buildAssets = (
+  flavor: string,
+  options: BuildAssetsOptions = {},
+): boolean => {
+  const outputDir = options.outputDir ?? join(PROJECT_ROOT, "dist", flavor);
+  const inputRoots = options.inputRoots ?? DEFAULT_INPUT_ROOTS;
+  const fingerprint = inputsFingerprint(inputRoots);
+  if (assetsUpToDate(outputDir, fingerprint)) return false;
   mkdirSync(outputDir, { recursive: true });
   execaSync(
     process.execPath,
@@ -58,7 +164,12 @@ const buildAssets = (flavor: string): void => {
     platform: "browser",
     target: ["es2020"],
   });
+  writeFileSync(
+    manifestPath(outputDir),
+    `${JSON.stringify({ fingerprint })}\n`,
+  );
   console.log(`glv assets built → ${outputDir}`);
+  return true;
 };
 
 export { buildAssets };

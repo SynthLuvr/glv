@@ -45,9 +45,10 @@ const config = defineConfig({
         ? [...configDefaults.exclude, ...CLAUDE_AGENT_SPAWN_SUITES]
         : configDefaults.exclude,
     // Every test file boots a real server plus a headless browser, so each
-    // concurrent file costs several hundred MB; two workers keep the peak
-    // low enough for local runs alongside normal dev load.
-    maxWorkers: 2,
+    // concurrent file costs several hundred MB. CI runners have dedicated
+    // vCPUs and no competing dev load, so they can safely run more files at
+    // once; locally two workers keep the peak low alongside normal load.
+    maxWorkers: process.env.CI ? 4 : 2,
     // Integration tests boot a real `glv-goose serve` / `glv-claude serve`
     // subprocess and drive it with a headless browser, so they need
     // generous timeouts.
