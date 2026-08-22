@@ -33,7 +33,7 @@ const renderStreamLine = (line: string, envelope: StreamEnvelope): string => {
   const role = typeof message.role === "string" ? message.role : "assistant";
   const kind = messageKind(role, items);
   const blocks = items
-    .map((item) => itemBlock(item, kind === "output"))
+    .map((item) => itemBlock(item, kind))
     .filter((node): node is Child => node !== null);
 
   if (blocks.length === 0) return "";

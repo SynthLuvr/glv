@@ -1337,6 +1337,10 @@ body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
   color: var(--color-muted);
   flex-shrink: 0;
 }
+/* machine context stays quieter than conversation blocks */
+.block.context > summary .block-label {
+  color: var(--color-faint);
+}
 .tool-name {
   font-family: ui-monospace, monospace;
   font-weight: 600;

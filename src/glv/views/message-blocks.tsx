@@ -3,6 +3,7 @@ import { renderToString } from "hono/jsx/dom/server";
 import { raw } from "hono/utils/html";
 import type {
   ContentItem,
+  MessageKind,
   ParsedMessage,
   ToolCallInfo,
   ToolResultInfo,
@@ -104,6 +105,26 @@ const ThinkingBlock = ({ text }: { text: string }) => (
   </details>
 );
 
+// The turn's machine-injected context block. Collapsed by default like
+// tool activity: it is operational metadata, not conversation, so it must
+// not push real prompts down the transcript. Goose stamps the block with
+// the turn's current time, which doubles as a compact summary preview.
+const CONTEXT_TIME = /^<current-time>(.*)<\/current-time>$/m;
+
+const ContextBlock = ({ text }: { text: string }) => {
+  const time = CONTEXT_TIME.exec(text)?.[1] ?? "";
+  return (
+    <details class="block context">
+      <summary>
+        <span class="block-icon">🧭</span>
+        <span class="block-label">Turn context</span>
+        <span class="block-preview">{time.trim()}</span>
+      </summary>
+      <pre>{text}</pre>
+    </details>
+  );
+};
+
 const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
   const body = formatToolArgs(info.args, true);
   const preview = truncate(formatToolArgs(info.args, false), 90);
@@ -142,12 +163,16 @@ const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
   </details>
 );
 
-const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
+const itemBlock = (item: ContentItem, kind: MessageKind): Child | null => {
+  const asMarkdown = kind === "output";
   switch (item.type) {
     case "text":
-      return item.text ? (
-        <TextBlock text={item.text} asMarkdown={markdown} />
-      ) : null;
+      if (item.text === undefined || item.text === "") return null;
+      return kind === "context" ? (
+        <ContextBlock text={item.text} />
+      ) : (
+        <TextBlock text={item.text} asMarkdown={asMarkdown} />
+      );
     case "thinking": {
       const text = thinkingText(item);
       return text !== undefined ? <ThinkingBlock text={text} /> : null;
@@ -174,7 +199,7 @@ const MessageView = ({
 }) => {
   const kind = messageKind(message.role, message.items);
   const blocks = message.items
-    .map((item) => itemBlock(item, kind === "output"))
+    .map((item) => itemBlock(item, kind))
     .filter((node): node is Child => node !== null);
   if (blocks.length === 0) return null;
   return (
@@ -190,8 +215,10 @@ const MessageView = ({
   );
 };
 
-const hasContent = (message: ParsedMessage): boolean =>
-  message.items.some((item) => itemBlock(item, false) !== null);
+const hasContent = (message: ParsedMessage): boolean => {
+  const kind = messageKind(message.role, message.items);
+  return message.items.some((item) => itemBlock(item, kind) !== null);
+};
 
 // Matches the initial server render so live-tailed rows blend in seamlessly.
 const renderMessage = (message: ParsedMessage, index: number): string =>

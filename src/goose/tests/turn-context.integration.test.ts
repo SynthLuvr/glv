@@ -16,6 +16,11 @@ ALWAYS batch multiple tool operations into ONE execute_typescript call.
 </turn-context>
 `;
 
+const TURN_CONTEXT_LATER = TURN_CONTEXT_TEXT.replace(
+  "2026-08-22 11:37:00 +02:00",
+  "2026-08-22 11:42:00 +02:00",
+);
+
 describe("turn-context categorization", () => {
   let env: IntegrationEnv;
 
@@ -28,10 +33,16 @@ describe("turn-context categorization", () => {
         workingDir: join(env.scratchDir, "ctx"),
       },
     ]);
+    // Verified against a real sessions.db: goose appends the context block
+    // AFTER the prompt of its turn (created_timestamp strictly later, or the
+    // same second entirely). Turn one below shares one timestamp between
+    // prompt and context on purpose — the rowid tiebreak must keep the
+    // prompt first; turn two uses distinct later timestamps.
+    const t0 = 1_787_391_465;
     gooseFixture.seedMessages(env, "t-ctx", [
-      { role: "user", content: [{ type: "text", text: TURN_CONTEXT_TEXT }] },
       {
         role: "user",
+        createdTimestamp: t0,
         content: [
           {
             type: "text",
@@ -39,8 +50,31 @@ describe("turn-context categorization", () => {
           },
         ],
       },
-      { role: "user", content: [{ type: "text", text: "Real prompt" }] },
-      { role: "assistant", content: [{ type: "text", text: "On it." }] },
+      {
+        role: "user",
+        createdTimestamp: t0,
+        content: [{ type: "text", text: TURN_CONTEXT_TEXT }],
+      },
+      {
+        role: "assistant",
+        createdTimestamp: t0 + 5,
+        content: [{ type: "text", text: "On it." }],
+      },
+      {
+        role: "user",
+        createdTimestamp: t0 + 60,
+        content: [{ type: "text", text: "Real prompt" }],
+      },
+      {
+        role: "user",
+        createdTimestamp: t0 + 62,
+        content: [{ type: "text", text: TURN_CONTEXT_LATER }],
+      },
+      {
+        role: "assistant",
+        createdTimestamp: t0 + 65,
+        content: [{ type: "text", text: "Done." }],
+      },
     ]);
   }, 90000);
 
@@ -52,9 +86,41 @@ describe("turn-context categorization", () => {
     await withPage(env.context, async (page) => {
       await page.goto(`${env.baseUrl}/sessions/t-ctx`);
       const context = page.locator("article.message.context");
-      await expect(context).toHaveCount(1);
-      await expect(context.locator(".tag")).toHaveText("◇ CONTEXT");
-      await expect(context).toContainText("<working-directory>");
+      await expect(context).toHaveCount(2);
+      await expect(context.first().locator(".tag")).toHaveText("◇ CONTEXT");
+      await expect(context.first()).toContainText("<working-directory>");
+    });
+  });
+
+  it("collapses turn-context blocks by default, like tool activity", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      const block = page
+        .locator("article.message.context details.block.context")
+        .first();
+      await expect(block).toHaveCount(1);
+      await expect(block.locator("summary .block-label")).toHaveText(
+        "Turn context",
+      );
+      await expect(block.locator("summary .block-preview")).toHaveText(
+        "2026-08-22 11:37:00 +02:00",
+      );
+      expect(await block.getAttribute("open")).toBeNull();
+      await expect(block.locator("pre")).toContainText("<working-directory>");
+    });
+  });
+
+  it("renders the prompt ahead of the context goose appends after it", async () => {
+    await withPage(env.context, async (page) => {
+      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      const articles = page.locator("article.message");
+      await expect(articles.nth(0)).toHaveClass(/prompt/);
+      await expect(articles.nth(1)).toHaveClass(/context/);
+      await expect(articles.nth(3)).toHaveClass(/prompt/);
+      await expect(articles.nth(4)).toHaveClass(/context/);
+      await expect(articles.nth(0)).toContainText(
+        "Categorize `<turn-context>`",
+      );
     });
   });
 
