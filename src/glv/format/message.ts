@@ -134,16 +134,12 @@ const MESSAGE_TAGS: Record<MessageKind, string> = {
   context: "◇ CONTEXT",
 };
 
-// goose injects each turn's operational context as its own user message
-// that is nothing but a <turn-context> block (surrounding whitespace
-// tolerated). Only such a standalone block is context; prompts that merely
-// mention the tag still count as prompts.
-const TURN_CONTEXT = /^\s*<turn-context>[\s\S]*<\/turn-context>\s*$/;
-
+// goose injects each turn's context as its own user message that is
+// nothing but this block; prompts that merely mention the tag stay prompts.
 const isTurnContextMessage = (items: readonly ContentItem[]): boolean =>
   items.length === 1 &&
   items[0].type === "text" &&
-  TURN_CONTEXT.test(items[0].text ?? "");
+  /^\s*<turn-context>[\s\S]*<\/turn-context>\s*$/.test(items[0].text ?? "");
 
 // A user-role message that only carries a tool response is really tool
 // activity, not a prompt — label it neutrally instead of mis-tagging it.

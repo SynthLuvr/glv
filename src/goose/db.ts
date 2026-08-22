@@ -123,9 +123,8 @@ const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
     getRow(db, `SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`, id),
   );
 
-// Goose appends each turn's context block right after the prompt it belongs
-// to, and both rows can share a timestamp — the rowid tiebreak keeps them in
-// generation (insertion) order instead of shuffling ties.
+// goose appends each turn's context right after its prompt and the rows
+// can share a timestamp; the rowid tiebreak preserves insertion order.
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
   validateAll(
     MessageRowModel,

@@ -105,25 +105,21 @@ const ThinkingBlock = ({ text }: { text: string }) => (
   </details>
 );
 
-// The turn's machine-injected context block. Collapsed by default like
-// tool activity: it is operational metadata, not conversation, so it must
-// not push real prompts down the transcript. Goose stamps the block with
-// the turn's current time, which doubles as a compact summary preview.
-const CONTEXT_TIME = /^<current-time>(.*)<\/current-time>$/m;
+// Machine-injected turn context is operational metadata, not conversation,
+// so it collapses by default like tool activity. The stamped <current-time>
+// doubles as the summary preview.
+const CONTEXT_TIME = /^<current-time>\s*(.*?)\s*<\/current-time>$/m;
 
-const ContextBlock = ({ text }: { text: string }) => {
-  const time = CONTEXT_TIME.exec(text)?.[1] ?? "";
-  return (
-    <details class="block context">
-      <summary>
-        <span class="block-icon">🧭</span>
-        <span class="block-label">Turn context</span>
-        <span class="block-preview">{time.trim()}</span>
-      </summary>
-      <pre>{text}</pre>
-    </details>
-  );
-};
+const ContextBlock = ({ text }: { text: string }) => (
+  <details class="block context">
+    <summary>
+      <span class="block-icon">🧭</span>
+      <span class="block-label">Turn context</span>
+      <span class="block-preview">{CONTEXT_TIME.exec(text)?.[1] ?? ""}</span>
+    </summary>
+    <pre>{text}</pre>
+  </details>
+);
 
 const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
   const body = formatToolArgs(info.args, true);
@@ -164,15 +160,11 @@ const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
 );
 
 const itemBlock = (item: ContentItem, kind: MessageKind): Child | null => {
-  const asMarkdown = kind === "output";
   switch (item.type) {
     case "text":
-      if (item.text === undefined || item.text === "") return null;
-      return kind === "context" ? (
-        <ContextBlock text={item.text} />
-      ) : (
-        <TextBlock text={item.text} asMarkdown={asMarkdown} />
-      );
+      if (!item.text) return null;
+      if (kind === "context") return <ContextBlock text={item.text} />;
+      return <TextBlock text={item.text} asMarkdown={kind === "output"} />;
     case "thinking": {
       const text = thinkingText(item);
       return text !== undefined ? <ThinkingBlock text={text} /> : null;

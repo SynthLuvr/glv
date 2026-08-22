@@ -34,10 +34,9 @@ describe("turn-context categorization", () => {
       },
     ]);
     // Verified against a real sessions.db: goose appends the context block
-    // AFTER the prompt of its turn (created_timestamp strictly later, or the
-    // same second entirely). Turn one below shares one timestamp between
-    // prompt and context on purpose — the rowid tiebreak must keep the
-    // prompt first; turn two uses distinct later timestamps.
+    // after its turn's prompt, sometimes in the same second. Turn one shares
+    // one timestamp between prompt and context on purpose so the rowid
+    // tiebreak keeps the prompt first; turn two uses distinct timestamps.
     const t0 = 1_787_391_465;
     gooseFixture.seedMessages(env, "t-ctx", [
       {
@@ -105,7 +104,7 @@ describe("turn-context categorization", () => {
       await expect(block.locator("summary .block-preview")).toHaveText(
         "2026-08-22 11:37:00 +02:00",
       );
-      expect(await block.getAttribute("open")).toBeNull();
+      await expect(block).not.toHaveAttribute("open");
       await expect(block.locator("pre")).toContainText("<working-directory>");
     });
   });
