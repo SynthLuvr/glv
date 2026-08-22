@@ -125,12 +125,27 @@ const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
   };
 };
 
-type MessageKind = "prompt" | "output" | "tool";
+type MessageKind = "prompt" | "output" | "tool" | "context";
+
+const MESSAGE_TAGS: Record<MessageKind, string> = {
+  prompt: "▸ PROMPT",
+  output: "◆ OUTPUT",
+  tool: "⟳ TOOL",
+  context: "◇ CONTEXT",
+};
+
+// goose injects each turn's context as its own user message that is
+// nothing but this block; prompts that merely mention the tag stay prompts.
+const isTurnContextMessage = (items: readonly ContentItem[]): boolean =>
+  items.length === 1 &&
+  items[0].type === "text" &&
+  /^\s*<turn-context>[\s\S]*<\/turn-context>\s*$/.test(items[0].text ?? "");
 
 // A user-role message that only carries a tool response is really tool
 // activity, not a prompt — label it neutrally instead of mis-tagging it.
 const messageKind = (role: string, items: ContentItem[]): MessageKind => {
   if (items.some((item) => item.type === "toolResponse")) return "tool";
+  if (role === "user" && isTurnContextMessage(items)) return "context";
   return role === "user" ? "prompt" : "output";
 };
 
@@ -143,6 +158,7 @@ export type {
 };
 export {
   extractTexts,
+  MESSAGE_TAGS,
   messageKind,
   parseContent,
   parseMessage,

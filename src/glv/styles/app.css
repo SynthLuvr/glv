@@ -983,6 +983,9 @@ a.git-chip:focus-visible {
 .tag.tool {
   color: var(--color-muted);
 }
+.tag.context {
+  color: var(--color-faint);
+}
 .message-head time {
   margin-left: auto;
   font-size: 0.72rem;
@@ -1333,6 +1336,9 @@ body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
   font-weight: 600;
   color: var(--color-muted);
   flex-shrink: 0;
+}
+.block.context > summary .block-label {
+  color: var(--color-faint);
 }
 .tool-name {
   font-family: ui-monospace, monospace;

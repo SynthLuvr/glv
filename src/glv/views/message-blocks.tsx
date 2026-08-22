@@ -10,6 +10,7 @@ import type {
 } from "../../glv/format/index.js";
 import {
   fmtRelative,
+  MESSAGE_TAGS,
   messageKind,
   renderMarkdown,
   thinkingText,
@@ -104,6 +105,22 @@ const ThinkingBlock = ({ text }: { text: string }) => (
   </details>
 );
 
+// Machine-injected turn context is operational metadata, not conversation,
+// so it collapses by default like tool activity. The stamped <current-time>
+// doubles as the summary preview.
+const CONTEXT_TIME = /^<current-time>\s*(.*?)\s*<\/current-time>$/m;
+
+const ContextBlock = ({ text }: { text: string }) => (
+  <details class="block context">
+    <summary>
+      <span class="block-icon">🧭</span>
+      <span class="block-label">Turn context</span>
+      <span class="block-preview">{CONTEXT_TIME.exec(text)?.[1] ?? ""}</span>
+    </summary>
+    <pre>{text}</pre>
+  </details>
+);
+
 const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
   const body = formatToolArgs(info.args, true);
   const preview = truncate(formatToolArgs(info.args, false), 90);
@@ -142,12 +159,12 @@ const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
   </details>
 );
 
-const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
+const itemBlock = (item: ContentItem, kind: MessageKind): Child | null => {
   switch (item.type) {
     case "text":
-      return item.text ? (
-        <TextBlock text={item.text} asMarkdown={markdown} />
-      ) : null;
+      if (!item.text) return null;
+      if (kind === "context") return <ContextBlock text={item.text} />;
+      return <TextBlock text={item.text} asMarkdown={kind === "output"} />;
     case "thinking": {
       const text = thinkingText(item);
       return text !== undefined ? <ThinkingBlock text={text} /> : null;
@@ -165,12 +182,6 @@ const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
   }
 };
 
-const tagFor = (kind: MessageKind): string => {
-  if (kind === "prompt") return "▸ PROMPT";
-  if (kind === "output") return "◆ OUTPUT";
-  return "⟳ TOOL";
-};
-
 const MessageView = ({
   message,
   index,
@@ -180,13 +191,13 @@ const MessageView = ({
 }) => {
   const kind = messageKind(message.role, message.items);
   const blocks = message.items
-    .map((item) => itemBlock(item, kind === "output"))
+    .map((item) => itemBlock(item, kind))
     .filter((node): node is Child => node !== null);
   if (blocks.length === 0) return null;
   return (
     <article class={`message ${kind}`} data-msg-index={String(index)}>
       <div class="message-head">
-        <span class={`tag ${kind}`}>{tagFor(kind)}</span>
+        <span class={`tag ${kind}`}>{MESSAGE_TAGS[kind]}</span>
         <time datetime={toIso(message.timestamp)} title={message.timestamp}>
           {fmtRelative(message.timestamp)}
         </time>
@@ -196,18 +207,13 @@ const MessageView = ({
   );
 };
 
-const hasContent = (message: ParsedMessage): boolean =>
-  message.items.some((item) => itemBlock(item, false) !== null);
+const hasContent = (message: ParsedMessage): boolean => {
+  const kind = messageKind(message.role, message.items);
+  return message.items.some((item) => itemBlock(item, kind) !== null);
+};
 
 // Matches the initial server render so live-tailed rows blend in seamlessly.
 const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 
-export {
-  CopyableText,
-  hasContent,
-  itemBlock,
-  MessageView,
-  renderMessage,
-  tagFor,
-};
+export { CopyableText, hasContent, itemBlock, MessageView, renderMessage };

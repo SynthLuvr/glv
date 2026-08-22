@@ -13,6 +13,7 @@ export type {
   ToolResultInfo,
 } from "./message.js";
 export {
+  MESSAGE_TAGS,
   messageKind,
   parseContent,
   parseMessage,

@@ -123,6 +123,8 @@ const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
     getRow(db, `SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`, id),
   );
 
+// goose appends each turn's context right after its prompt and the rows
+// can share a timestamp; the rowid tiebreak preserves insertion order.
 const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
   validateAll(
     MessageRowModel,
@@ -130,7 +132,7 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
       db,
       `SELECT ${MESSAGE_COLS} FROM messages
            WHERE session_id = ?
-           ORDER BY created_timestamp ASC`,
+           ORDER BY created_timestamp ASC, id ASC`,
       sessionId,
     ),
   );
