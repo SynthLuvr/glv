@@ -1,5 +1,5 @@
 import type { SessionRow } from "../sessions.js";
-import { extractTexts, type ParsedMessage } from "./message.js";
+import { extractTexts, messageKind, type ParsedMessage } from "./message.js";
 import { fmtTokens, truncate } from "./text.js";
 
 const displayName = (name: string): string =>
@@ -22,7 +22,13 @@ const formatTranscript = (messages: ParsedMessage[]): string => {
   for (const msg of messages) {
     const texts = extractTexts(msg.items);
     if (texts.length === 0) continue;
-    const tag = msg.role === "user" ? "▸ PROMPT" : "◆ OUTPUT";
+    // Same classification as the web viewer so CLI and HTML transcripts agree.
+    const tag = {
+      prompt: "▸ PROMPT",
+      output: "◆ OUTPUT",
+      tool: "⟳ TOOL",
+      context: "◇ CONTEXT",
+    }[messageKind(msg.role, msg.items)];
     lines.push(`${tag}  [${msg.timestamp}]`);
     lines.push(texts.join("\n"));
     lines.push("");

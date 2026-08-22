@@ -168,6 +168,7 @@ const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
 const tagFor = (kind: MessageKind): string => {
   if (kind === "prompt") return "▸ PROMPT";
   if (kind === "output") return "◆ OUTPUT";
+  if (kind === "context") return "◇ CONTEXT";
   return "⟳ TOOL";
 };
 
