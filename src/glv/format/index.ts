@@ -13,7 +13,7 @@ export type {
   ToolResultInfo,
 } from "./message.js";
 export {
-  isTurnContextMessage,
+  MESSAGE_TAGS,
   messageKind,
   parseContent,
   parseMessage,

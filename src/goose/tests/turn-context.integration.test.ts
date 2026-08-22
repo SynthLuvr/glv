@@ -13,7 +13,8 @@ const TURN_CONTEXT_TEXT = `<turn-context>
 
 ALWAYS batch multiple tool operations into ONE execute_typescript call.
 
-</turn-context>`;
+</turn-context>
+`;
 
 describe("turn-context categorization", () => {
   let env: IntegrationEnv;

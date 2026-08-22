@@ -3,13 +3,13 @@ import { renderToString } from "hono/jsx/dom/server";
 import { raw } from "hono/utils/html";
 import type {
   ContentItem,
-  MessageKind,
   ParsedMessage,
   ToolCallInfo,
   ToolResultInfo,
 } from "../../glv/format/index.js";
 import {
   fmtRelative,
+  MESSAGE_TAGS,
   messageKind,
   renderMarkdown,
   thinkingText,
@@ -165,13 +165,6 @@ const itemBlock = (item: ContentItem, markdown: boolean): Child | null => {
   }
 };
 
-const tagFor = (kind: MessageKind): string => {
-  if (kind === "prompt") return "▸ PROMPT";
-  if (kind === "output") return "◆ OUTPUT";
-  if (kind === "context") return "◇ CONTEXT";
-  return "⟳ TOOL";
-};
-
 const MessageView = ({
   message,
   index,
@@ -187,7 +180,7 @@ const MessageView = ({
   return (
     <article class={`message ${kind}`} data-msg-index={String(index)}>
       <div class="message-head">
-        <span class={`tag ${kind}`}>{tagFor(kind)}</span>
+        <span class={`tag ${kind}`}>{MESSAGE_TAGS[kind]}</span>
         <time datetime={toIso(message.timestamp)} title={message.timestamp}>
           {fmtRelative(message.timestamp)}
         </time>
@@ -204,11 +197,4 @@ const hasContent = (message: ParsedMessage): boolean =>
 const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 
-export {
-  CopyableText,
-  hasContent,
-  itemBlock,
-  MessageView,
-  renderMessage,
-  tagFor,
-};
+export { CopyableText, hasContent, itemBlock, MessageView, renderMessage };
