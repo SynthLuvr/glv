@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAssets } from "../build.js";
 
-// Exercises the real Tailwind + esbuild build against a scratch input tree
-// and scratch output dir, asserting the incremental behavior end to end:
+// Exercises the real Tailwind + esbuild build against a scratch tree:
 // serve calls buildAssets on every boot and the integration suite boots a
-// server per test file, so a stale rebuild decision either wastes over a
-// second per boot or — worse — serves outdated assets.
+// server per test file, so a wrong rebuild decision either wastes a second
+// per boot or serves stale assets.
 let scratch: string;
 
 beforeEach(() => {
@@ -39,7 +38,6 @@ describe("buildAssets incremental", () => {
   it("builds the first time and reuses outputs while inputs are unchanged", () => {
     seedInputs();
     expect(build()).toBe(true);
-    expect(build()).toBe(false);
     expect(build()).toBe(false);
   });
 
@@ -76,10 +74,17 @@ describe("buildAssets incremental", () => {
     expect(build()).toBe(false);
   });
 
-  it("rebuilds when the recorded manifest is unreadable", () => {
+  it("rebuilds when the manifest is missing", () => {
     seedInputs();
     expect(build()).toBe(true);
     rmSync(join(scratch, "dist", "build-manifest.json"));
+    expect(build()).toBe(true);
+  });
+
+  it("rebuilds when the manifest is corrupt", () => {
+    seedInputs();
+    expect(build()).toBe(true);
+    writeFileSync(join(scratch, "dist", "build-manifest.json"), "null");
     expect(build()).toBe(true);
   });
 });

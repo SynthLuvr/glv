@@ -49,8 +49,7 @@ jobs:
 
   # Test shards run in parallel with the build+lint matrix instead of
   # waiting on it: they install and build their own assets, and a broken
-  # build still fails the PR through its own job — serializing them only
-  # added the whole lint duration to every PR's critical path.
+  # build still fails the PR through its own job.
   test:
     runs-on: ubuntu-latest
     strategy:

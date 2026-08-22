@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -47,21 +48,14 @@ const OUTPUT_FILES = [
   ...CLIENT_ENTRY_NAMES.map((name) => `${name}.js`),
 ];
 
-// The inputs a rebuild depends on: everything under src/ except tests
-// (client scripts may import across glv, Tailwind scans views for class
-// names) plus the lockfile (a dependency bump changes the bundle even when
-// no source moves).
+// A rebuild depends on everything under src/ except tests (client scripts
+// import across glv and Tailwind scans views for class names) plus the
+// lockfile (a dependency bump changes the bundle even when no source
+// moves).
 const DEFAULT_INPUT_ROOTS = [
   join(PROJECT_ROOT, "src"),
   join(PROJECT_ROOT, "pnpm-lock.yaml"),
 ];
-
-// The Tailwind CLI preserves the output file's mtime when the compiled CSS
-// is unchanged, so freshness must be judged from a content fingerprint of
-// the inputs recorded at the last successful build — an mtime check would
-// strand itself behind a touched-but-equivalent source forever.
-const MANIFEST_NAME = "build-manifest.json";
-const TESTS_DIR_NAME = "tests";
 
 type Hash = ReturnType<typeof createHash>;
 
@@ -74,17 +68,20 @@ const hashFileInto = (path: string, hash: Hash): void => {
 
 const hashDirInto = (dir: string, hash: Hash): void => {
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    a.name.localeCompare(b.name),
   );
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === TESTS_DIR_NAME) continue;
-      hashDirInto(path, hash);
+      if (entry.name !== "tests") hashDirInto(path, hash);
     } else if (entry.isFile()) hashFileInto(path, hash);
   }
 };
 
+// Freshness is judged from a content fingerprint of the inputs, not from
+// mtimes: the Tailwind CLI preserves the output's mtime when the compiled
+// CSS is unchanged, so a touched-but-equivalent source would leave an
+// mtime check reporting stale forever.
 const inputsFingerprint = (roots: readonly string[]): string => {
   const hash = createHash("sha256");
   for (const root of roots) {
@@ -97,29 +94,24 @@ const inputsFingerprint = (roots: readonly string[]): string => {
 };
 
 const manifestPath = (outputDir: string): string =>
-  join(outputDir, MANIFEST_NAME);
+  join(outputDir, "build-manifest.json");
 
-// True when the recorded fingerprint matches the current inputs and every
-// expected output still exists.
-const assetsUpToDate = (outputDir: string, fingerprint: string): boolean => {
-  let recorded: unknown;
+// The fingerprint recorded at the last successful build; undefined when
+// the manifest is missing or corrupt, which forces a rebuild.
+const recordedFingerprint = (outputDir: string): unknown => {
   try {
-    recorded = JSON.parse(readFileSync(manifestPath(outputDir), "utf-8"));
+    const manifest = JSON.parse(
+      readFileSync(manifestPath(outputDir), "utf-8"),
+    ) as { fingerprint?: unknown } | null;
+    return manifest?.fingerprint;
   } catch {
-    return false;
+    return undefined;
   }
-  if (
-    typeof recorded !== "object" ||
-    recorded === null ||
-    (recorded as { fingerprint?: unknown }).fingerprint !== fingerprint
-  )
-    return false;
-  for (const name of OUTPUT_FILES) {
-    const stat = statSync(join(outputDir, name), { throwIfNoEntry: false });
-    if (stat === undefined) return false;
-  }
-  return true;
 };
+
+const assetsUpToDate = (outputDir: string, fingerprint: string): boolean =>
+  recordedFingerprint(outputDir) === fingerprint &&
+  OUTPUT_FILES.every((name) => existsSync(join(outputDir, name)));
 
 type BuildAssetsOptions = {
   /** Overrides dist/<flavor> as the output directory (tests use a scratch dir). */
@@ -130,17 +122,18 @@ type BuildAssetsOptions = {
 
 // Builds one flavor's static assets into dist/<flavor>/: the compiled
 // stylesheet plus every bundled client entry. Called by each flavor's
-// build.ts wrapper (the pnpm build:assets entries) and by serve; when the
-// recorded input fingerprint still matches, the rebuild is skipped so
-// serve boots — one per test file in the integration suite — stay fast.
+// build.ts wrapper (the pnpm build:assets entries) and by serve — which
+// boots once per test file in the integration suite, so a matching
+// fingerprint skips the rebuild instead of paying it on every boot.
 // Returns true when a build ran, false when the outputs were reused.
 const buildAssets = (
   flavor: string,
   options: BuildAssetsOptions = {},
 ): boolean => {
   const outputDir = options.outputDir ?? join(PROJECT_ROOT, "dist", flavor);
-  const inputRoots = options.inputRoots ?? DEFAULT_INPUT_ROOTS;
-  const fingerprint = inputsFingerprint(inputRoots);
+  const fingerprint = inputsFingerprint(
+    options.inputRoots ?? DEFAULT_INPUT_ROOTS,
+  );
   if (assetsUpToDate(outputDir, fingerprint)) return false;
   mkdirSync(outputDir, { recursive: true });
   execaSync(
