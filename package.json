@@ -65,7 +65,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
+    "@hono/node-server": "github:SynthLuvr/node-server#dist/feat/send-file",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "arktype": "^2.2.3",
@@ -73,7 +73,7 @@
     "consola": "^3.4.2",
     "dompurify": "^3.4.14",
     "execa": "^10.0.1",
-    "hono": "^4.13.3",
+    "hono": "github:SynthLuvr/hono#dist/fix/sse-lifecycle-3765",
     "htmx.org": "2.0.10",
     "jsdom": "^30.0.1",
     "marked": "^18.0.10",

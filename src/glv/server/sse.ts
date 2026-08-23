@@ -5,61 +5,43 @@ import type { LineBuffer, RunHandle } from "../runner/index.js";
 import type { SessionRow } from "../sessions.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
-// Minimal structural shape emit()/flushPreview() touch, so tests can supply a
-// fake stream without asserting the full SSEStreamingApi interface.
-type SseWriter = {
-  aborted: boolean;
-  writeSSE: (input: {
-    id?: string;
-    event: string;
-    data: string;
-  }) => Promise<unknown>;
-};
-
-// Writing to a closed stream (client disconnect) throws; guard each emission.
 // The optional `id` sets the SSE event id so EventSource can resume via
-// Last-Event-ID on transient reconnect.
-const emit = async (
-  stream: SseWriter,
+// Last-Event-ID on transient reconnect. writeSSE is a no-op after the client
+// disconnects, so emissions need no abort guarding.
+const emit = (
+  stream: SSEStreamingApi,
   event: string,
   data: string,
   id?: number,
-): Promise<boolean> => {
-  if (stream.aborted) return false;
-  try {
-    await stream.writeSSE({
-      event,
-      data,
-      ...(id !== undefined ? { id: String(id) } : {}),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-};
+): Promise<void> =>
+  stream.writeSSE({
+    event,
+    data,
+    ...(id !== undefined ? { id: String(id) } : {}),
+  });
 
 // drain snapshots before any await, so concurrent pushes can't mutate the
-// emitted lines. Returns nextSeq on success, false on abort.
+// emitted lines. Returns the next sequence number to resume from.
 const flushPreview = async (
-  stream: SseWriter,
+  stream: SSEStreamingApi,
   buffer: LineBuffer,
   fromSeq: number,
   envelope: StreamEnvelope,
   id?: number,
-): Promise<number | false> => {
+): Promise<number> => {
   const { lines, nextSeq } = buffer.drain(fromSeq);
   for (const line of lines) {
     const html = renderStreamLine(line, envelope);
-    if (html !== "" && !(await emit(stream, "preview", html, id))) return false;
+    if (html !== "") await emit(stream, "preview", html, id);
   }
   return nextSeq;
 };
 
-const emitStatus = async (
+const emitStatus = (
   stream: SSEStreamingApi,
   handle: RunHandle,
   id?: number,
-): Promise<boolean> =>
+): Promise<void> =>
   emit(
     stream,
     "status",
@@ -73,11 +55,11 @@ const emitStatus = async (
     id,
   );
 
-const emitMeta = async (
+const emitMeta = (
   stream: SSEStreamingApi,
   session: SessionRow,
   id?: number,
-): Promise<boolean> =>
+): Promise<void> =>
   emit(
     stream,
     "meta",

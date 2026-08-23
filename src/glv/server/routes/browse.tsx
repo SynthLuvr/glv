@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { serveStatic } from "@hono/node-server/serve-static";
+import { sendFile } from "@hono/node-server/send-file";
 import { type Context, type Hono } from "hono";
 import { BrowseDetail, BrowseError } from "../../views/Browse.js";
 import { listBrowseDir, resolveBrowsePath, subPathOf } from "../browse.js";
@@ -47,19 +47,13 @@ const renderBrowse = (
 };
 
 // Validates containment, dotfile exclusion, and symlink safety before handing
-// off to serveStatic, which handles content types, byte ranges, and streaming.
+// off to sendFile, which handles content types, byte ranges, and streaming.
 const serveBrowseFile = async (c: Context, sub: string): Promise<Response> => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
   if (!target.ok) return c.body("Not found\n", target.status);
   if (!target.stat.isFile()) return c.notFound();
-  const result = await serveStatic({
-    root: home,
-    rewriteRequestPath: () => target.rel,
-  })(c, async () => {
-    // Validated above; serveStatic only reaches next() on a file race.
-  });
-  return result instanceof Response ? result : c.notFound();
+  return sendFile(c, target.abs);
 };
 
 // /browse renders a navigable listing; /files streams a file's bytes. Both sit
