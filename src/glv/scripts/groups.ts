@@ -280,5 +280,3 @@ onSessionListSwap(applyCollapsedState);
 
 // Script is deferred, so the DOM is ready.
 applyCollapsedState();
-
-export {};

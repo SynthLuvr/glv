@@ -329,5 +329,3 @@ connectStatusFeed();
 // Any re-render of #session-list (archive's response, rename's out-of-band
 // swap) wipes the .unread classes; re-apply after the swap restores the list.
 onSessionListSwap(applyUnread);
-
-export {};
