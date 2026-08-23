@@ -46,23 +46,23 @@
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.45.1",
-    "@biomejs/biome": "^2.5.8",
+    "@biomejs/biome": "^2.5.10",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/cli": "^4.3.3",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.2.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "convert-to-arrow": "^1.1.4",
     "esbuild": "^0.28.2",
-    "jscpd": "^5.0.15",
+    "jscpd": "^5.0.16",
     "npm-run-all2": "^9.0.3",
-    "oxlint": "^1.78.0",
+    "oxlint": "^1.79.0",
     "oxlint-tsgolint": "^7.0.2001",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
     "type-a-bin": "github:SynthLuvr/type-a-bin#dist",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -71,12 +71,12 @@
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "dompurify": "^3.4.13",
+    "dompurify": "^3.4.14",
     "execa": "^10.0.1",
-    "hono": "^4.13.2",
+    "hono": "^4.13.3",
     "htmx.org": "2.0.10",
     "jsdom": "^30.0.1",
-    "marked": "^18.0.9",
+    "marked": "^18.0.10",
     "p-queue": "^9.3.3"
   }
 }
