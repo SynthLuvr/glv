@@ -653,7 +653,6 @@ const collectSse = async (
   until: (events: SseEvent[]) => boolean,
   timeoutMs = 10000,
   onEvent?: (event: SseEvent) => void,
-  extraHeaders: Record<string, string> = {},
 ): Promise<SseEvent[]> =>
   new Promise((resolve, reject) => {
     const events: SseEvent[] = [];
@@ -676,9 +675,7 @@ const collectSse = async (
       resolve(events);
     };
 
-    void authedFetch(env, path, {
-      headers: { accept: "text/event-stream", ...extraHeaders },
-    })
+    void authedFetch(env, path, { headers: { accept: "text/event-stream" } })
       .then(async (res) => {
         if (res.body === null) throw new Error("no response body");
         reader = res.body.getReader();
