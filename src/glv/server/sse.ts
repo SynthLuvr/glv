@@ -13,12 +13,7 @@ const emit = (
   event: string,
   data: string,
   id?: number,
-): Promise<void> =>
-  stream.writeSSE({
-    event,
-    data,
-    ...(id !== undefined ? { id: String(id) } : {}),
-  });
+): Promise<void> => stream.writeSSE({ event, data, id: id?.toString() });
 
 // drain snapshots before any await, so concurrent pushes can't mutate the
 // emitted lines. Returns the next sequence number to resume from.

@@ -1,7 +1,11 @@
 import { type Hono } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { type ParsedMessage, parseMessage } from "../../format/index.js";
-import { getHandle, isTerminalStatus } from "../../runner/index.js";
+import {
+  getHandle,
+  isTerminalStatus,
+  type RunHandle,
+} from "../../runner/index.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
@@ -27,15 +31,13 @@ type PollState = {
 
 // Resume cursor: stream.lastEventId (auto-sent by EventSource on reconnect)
 // takes precedence over the ?cursor= query from the initial connect.
+const parseCursor = (value: string | undefined): number | undefined =>
+  value !== undefined && /^\d+$/.test(value) ? Number(value) : undefined;
+
 const resumeCursor = (
   lastEventId: string | undefined,
   query?: string,
-): number => {
-  if (lastEventId !== undefined && /^\d+$/.test(lastEventId))
-    return Number(lastEventId);
-  if (query !== undefined && /^\d+$/.test(query)) return Number(query);
-  return 0;
-};
+): number => parseCursor(lastEventId) ?? parseCursor(query) ?? 0;
 
 const renderCatchup = (
   messages: ParsedMessage[],
@@ -47,6 +49,14 @@ const renderCatchup = (
     if (html !== "") deltas.push({ index: i, html });
   }
   return deltas;
+};
+
+// Records the status fields emitStatus just sent, so later polls only emit
+// changes against this baseline.
+const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
+  state.lastStatus = h.status;
+  state.lastQueuePosition = h.queuePosition;
+  state.lastPendingCount = h.pendingPrompts.length;
 };
 
 // Emits DB deltas — new messages, in-place edits, renames, and the meta chip.
@@ -145,9 +155,7 @@ const pollRunner = async (
     h.pendingPrompts.length !== state.lastPendingCount
   ) {
     await emitStatus(stream, h, state.msgCursor);
-    state.lastStatus = h.status;
-    state.lastQueuePosition = h.queuePosition;
-    state.lastPendingCount = h.pendingPrompts.length;
+    recordStatusBaseline(state, h);
   }
 
   // Chained prompts starting (genuine transitions only).
@@ -214,9 +222,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
 
       if (handle !== undefined) {
         await emitStatus(stream, handle, state.msgCursor);
-        state.lastStatus = handle.status;
-        state.lastQueuePosition = handle.queuePosition;
-        state.lastPendingCount = handle.pendingPrompts.length;
+        recordStatusBaseline(state, handle);
         state.lastStartedCount = handle.startedPrompts.length;
       } else
         await emit(
