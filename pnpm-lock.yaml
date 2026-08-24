@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@hono/node-server':
-        specifier: ^2.1.1
-        version: 2.1.1(hono@4.13.3)
+        specifier: github:SynthLuvr/node-server#dist/feat/send-file
+        version: https://codeload.github.com/SynthLuvr/node-server/tar.gz/2d93883702ec03a41323a3ad69a1d1ccc349814a(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)
       '@simplewebauthn/browser':
         specifier: ^13.3.0
         version: 13.3.0
@@ -33,8 +33,8 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1
       hono:
-        specifier: ^4.13.3
-        version: 4.13.3
+        specifier: github:SynthLuvr/hono#dist/fix/sse-lifecycle-3765
+        version: https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f
       htmx.org:
         specifier: 2.0.10
         version: 2.0.10
@@ -619,8 +619,9 @@ packages:
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
-  '@hono/node-server@2.1.1':
-    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
+  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/2d93883702ec03a41323a3ad69a1d1ccc349814a':
+    resolution: {gitHosted: true, integrity: sha512-YiR/nNlkA2tF6C5gnp6NQF/IoomhPOBzLmJNlQiW2xihsoXExXA7Uyz1+1qOy0ZQSf5/h4FaM0fT6g8BFrSvFg==, tarball: https://codeload.github.com/SynthLuvr/node-server/tar.gz/2d93883702ec03a41323a3ad69a1d1ccc349814a}
+    version: 2.1.1
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
@@ -1493,8 +1494,9 @@ packages:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
 
-  hono@4.13.3:
-    resolution: {integrity: sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw==}
+  hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f:
+    resolution: {gitHosted: true, integrity: sha512-s5bcZOjoh/rmp3CdUWpKk2iQ7Y0IccOpOwFNNsP9jpWJEYznvhXfzp/Ys0yHT9V7VDUM44qUf7ylGGUD0I9huw==, tarball: https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f}
+    version: 4.13.3
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -2436,9 +2438,9 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@2.1.1(hono@4.13.3)':
+  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/2d93883702ec03a41323a3ad69a1d1ccc349814a(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)':
     dependencies:
-      hono: 4.13.3
+      hono: https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -3204,7 +3206,7 @@ snapshots:
 
   has-flag@4.0.0: {}
 
-  hono@4.13.3: {}
+  hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f: {}
 
   html-encoding-sniffer@6.0.0:
     dependencies:

@@ -24,22 +24,13 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
 
       const emitNames = async (
         names: Iterable<[string, string]>,
-      ): Promise<boolean> => {
+      ): Promise<void> => {
         for (const [id, name] of names)
-          if (
-            !(await emit(
-              stream,
-              "rename",
-              JSON.stringify({ sessionId: id, name }),
-            ))
-          )
-            return false;
-        return true;
+          await emit(stream, "rename", JSON.stringify({ sessionId: id, name }));
       };
 
-      if (!(await emit(stream, "sync", JSON.stringify([...last.keys()]))))
-        return;
-      if (!(await emitNames(lastNames))) return;
+      await emit(stream, "sync", JSON.stringify([...last.keys()]));
+      await emitNames(lastNames);
 
       while (!stream.aborted && polls < ctx.maxStatusPolls) {
         polls++;
@@ -48,18 +39,15 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
 
         const now = activeStatuses(ctx.runner);
         for (const [id, status] of statusDeltas(last, now))
-          if (
-            !(await emit(
-              stream,
-              "status",
-              JSON.stringify({ sessionId: id, status }),
-            ))
-          )
-            return;
+          await emit(
+            stream,
+            "status",
+            JSON.stringify({ sessionId: id, status }),
+          );
         last = now;
 
         const currentNames = sidebarNames(ctx);
-        if (!(await emitNames(nameDeltas(lastNames, currentNames)))) return;
+        await emitNames(nameDeltas(lastNames, currentNames));
         lastNames = currentNames;
       }
       // Signal completion so the client tears down instead of auto-reconnecting
