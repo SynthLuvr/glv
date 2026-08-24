@@ -65,7 +65,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@hono/node-server": "github:SynthLuvr/node-server#dist/feat/send-file",
+    "@hono/node-server": "github:SynthLuvr/node-server#dist/open-prs",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "arktype": "^2.2.3",
