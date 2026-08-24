@@ -1,3 +1,4 @@
+import { mayFailAsync } from "ts-handling";
 import { execGit } from "./shell.js";
 
 type GitResult = { stdout: string; exitCode: number };
@@ -129,22 +130,25 @@ const resolveWorktreeByBranch = async (
   return block === undefined ? {} : gitInfoFromBlock(block);
 };
 
-// Never throws — a missing git binary degrades to an empty GitInfo.
+// The read* wrappers never throw: any failure (e.g. a missing git binary)
+// degrades to an empty GitInfo, logged at debug level.
+const degradeToEmpty = async (
+  resolve: () => Promise<GitInfo>,
+): Promise<GitInfo> => {
+  const result = await mayFailAsync(resolve);
+  if (!result.ok) console.debug("[glv:git]", result.error);
+  return result.ok ? result.data : {};
+};
+
 const readGitInfo = (cwd: string, run: GitRunner = runGit): Promise<GitInfo> =>
-  resolveGitInfo(cwd, run).catch((err) => {
-    console.debug("[glv:git]", err);
-    return {};
-  });
+  degradeToEmpty(() => resolveGitInfo(cwd, run));
 
 const readWorktreeByBranch = (
   cwd: string,
   run: GitRunner = runGit,
   branch: string,
 ): Promise<GitInfo> =>
-  resolveWorktreeByBranch(cwd, run, branch).catch((err) => {
-    console.debug("[glv:git]", err);
-    return {};
-  });
+  degradeToEmpty(() => resolveWorktreeByBranch(cwd, run, branch));
 
 // Never throws. Non-repos are skipped silently so plain directories stay
 // quiet; any pull failure is warned but never blocks session creation.
@@ -155,13 +159,15 @@ const pullRepo = async (
 ): Promise<void> => {
   const info = await readGitInfo(cwd, run);
   if (info.worktree === undefined) return;
-  try {
-    const result = await run(["pull", "--no-edit"], cwd, PULL_TIMEOUT_MS);
-    if (result.exitCode !== 0)
-      console.warn(`git pull failed in ${cwd} (exit ${result.exitCode})`);
-  } catch (err) {
-    console.warn(`git pull failed in ${cwd}: ${String(err)}`);
+  const result = await mayFailAsync(() =>
+    run(["pull", "--no-edit"], cwd, PULL_TIMEOUT_MS),
+  );
+  if (!result.ok) {
+    console.warn(`git pull failed in ${cwd}: ${result.error}`);
+    return;
   }
+  if (result.data.exitCode !== 0)
+    console.warn(`git pull failed in ${cwd} (exit ${result.data.exitCode})`);
 };
 
 export type { GitRunner };

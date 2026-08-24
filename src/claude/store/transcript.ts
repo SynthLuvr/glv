@@ -1,5 +1,7 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { mayFail } from "ts-handling";
+import { parseJson } from "../../glv/parse.js";
 
 // One parsed message from a claude transcript, with content blocks already
 // normalized to the viewer's item model (text/thinking/toolRequest/
@@ -109,12 +111,8 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
 };
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    return isRecord(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
+  const parsed = parseJson(line);
+  return parsed.ok && isRecord(parsed.data) ? parsed.data : undefined;
 };
 
 const emptyTranscript = (): Transcript => ({
@@ -229,30 +227,19 @@ const emptyEntry = (): CacheEntry => ({
 });
 
 const readTranscript = (path: string): CacheEntry => {
-  let stat;
-  try {
-    stat = statSync(path);
-  } catch {
-    return emptyEntry();
-  }
+  const stat = mayFail(() => statSync(path));
+  if (!stat.ok) return emptyEntry();
+  const { mtimeMs, size } = stat.data;
   const hit = parseCache.get(path);
-  if (
-    hit !== undefined &&
-    hit.mtimeMs === stat.mtimeMs &&
-    hit.size === stat.size
-  )
+  if (hit !== undefined && hit.mtimeMs === mtimeMs && hit.size === size)
     return hit;
-  let text;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    return emptyEntry();
-  }
+  const text = mayFail(() => readFileSync(path, "utf8"));
+  if (!text.ok) return emptyEntry();
   const entry: CacheEntry = {
-    mtimeMs: stat.mtimeMs,
-    size: stat.size,
-    text,
-    transcript: parseTranscriptText(text),
+    mtimeMs,
+    size,
+    text: text.data,
+    transcript: parseTranscriptText(text.data),
   };
   if (parseCache.size >= MAX_CACHE_ENTRIES) parseCache.clear();
   parseCache.set(path, entry);
@@ -265,36 +252,34 @@ const parseTranscriptFile = (path: string): Transcript =>
 // Raw text via the same cache, so PR-candidate scans avoid re-reading too.
 const readTranscriptText = (path: string): string => readTranscript(path).text;
 
+// `undefined` when the directory is unreadable — a missing root, a
+// permission race, or a project dir that vanished mid-scan.
+const listDirEntries = (dir: string): Dirent[] | undefined => {
+  const entries = mayFail(() => readdirSync(dir, { withFileTypes: true }));
+  return entries.ok ? entries.data : undefined;
+};
+
 // All transcript files across project directories, newest first — the file
 // mtime is claude's own "updated_at", so the sort matches the sidebar order.
 const listSessionFiles = (root: string): SessionFile[] => {
-  let dirs;
-  try {
-    dirs = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const dirs = listDirEntries(root);
+  if (dirs === undefined) return [];
   const out: SessionFile[] = [];
   for (const dir of dirs) {
     if (!dir.isDirectory() || dir.name.startsWith(".")) continue;
-    let entries;
-    try {
-      entries = readdirSync(join(root, dir.name), { withFileTypes: true });
-    } catch {
-      continue;
-    }
+    const entries = listDirEntries(join(root, dir.name));
+    if (entries === undefined) continue;
     for (const entry of entries) {
       if (!entry.isFile() || !isSessionFile(entry.name)) continue;
       const path = join(root, dir.name, entry.name);
-      try {
-        out.push({
-          id: basename(entry.name, SESSION_EXT),
-          path,
-          mtimeMs: statSync(path).mtimeMs,
-        });
-      } catch {
-        // Vanished between readdir and stat — skip it.
-      }
+      const mtimeMs = mayFail(() => statSync(path).mtimeMs);
+      // Vanished between readdir and stat — skip it.
+      if (!mtimeMs.ok) continue;
+      out.push({
+        id: basename(entry.name, SESSION_EXT),
+        path,
+        mtimeMs: mtimeMs.data,
+      });
     }
   }
   out.sort((a, b) => b.mtimeMs - a.mtimeMs);

@@ -1,5 +1,6 @@
 import { type } from "arktype";
-import { tryParseJson } from "./parse.js";
+import { mayFailAsync } from "ts-handling";
+import { parseJson } from "./parse.js";
 import { PR_URL } from "./pr.js";
 import { execGh } from "./shell.js";
 
@@ -21,9 +22,9 @@ const GhStateView = type({ "state?": "string" });
 // Judge by parsed state, not exit code: unauthed `gh` exits 0 but prints
 // help text instead of JSON.
 const parseGhState = (stdout: string): PrState => {
-  const parsed = tryParseJson(stdout);
-  if (parsed === null) return "unknown";
-  const view = GhStateView(parsed);
+  const parsed = parseJson(stdout);
+  if (!parsed.ok) return "unknown";
+  const view = GhStateView(parsed.data);
   if (view instanceof type.errors) return "unknown";
   const { state } = view;
   if (state === "OPEN") return "open";
@@ -35,9 +36,9 @@ const parseGhState = (stdout: string): PrState => {
 const HeadRefView = type({ "headRefName?": "string" });
 
 const parseGhBranch = (stdout: string): string | undefined => {
-  const parsed = tryParseJson(stdout);
-  if (parsed === null) return undefined;
-  const view = HeadRefView(parsed);
+  const parsed = parseJson(stdout);
+  if (!parsed.ok) return undefined;
+  const view = HeadRefView(parsed.data);
   if (view instanceof type.errors) return undefined;
   return view.headRefName || undefined;
 };
@@ -52,12 +53,14 @@ const runPrView = async (
   run: CommandRunner = runGh,
 ): Promise<string> => {
   if (!isPrUrl(url)) return "";
-  try {
-    return (await run(["pr", "view", url, "--json", field])).stdout;
-  } catch (err) {
-    console.debug("[glv:pr-state]", err);
+  const result = await mayFailAsync(() =>
+    run(["pr", "view", url, "--json", field]),
+  );
+  if (!result.ok) {
+    console.debug("[glv:pr-state]", result.error);
     return "";
   }
+  return result.data.stdout;
 };
 
 const resolvePrState = async (

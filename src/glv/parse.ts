@@ -1,11 +1,9 @@
-const tryParseJson = <T = unknown>(stdout: string): T | null => {
-  // `gh`/`git` may exit 0 with non-JSON stdout (an update notice or help text);
-  // degrade to `null` rather than throw on a SyntaxError.
-  try {
-    return JSON.parse(stdout) as T;
-  } catch {
-    return null;
-  }
-};
+import { mayFail, type Result } from "ts-handling";
 
-export { tryParseJson };
+// Callers feed this text that may not be JSON at all — `gh`/`git` can exit
+// 0 with an update notice or help text on stdout. Parse failures come back
+// as an Err the caller can degrade on, instead of a throw.
+const parseJson = <T = unknown>(raw: string): Result<T, string> =>
+  mayFail(() => JSON.parse(raw) as T);
+
+export { parseJson };
