@@ -157,6 +157,19 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       expect(status).not.toBe(0);
       expect(stderr).toContain("not valid JSON");
     });
+
+    // Valid JSON that is not an object must fail the same way: the schema
+    // passed to parseJson rejects it, so the file is never read as a record
+    // it is not.
+    it("exits non-zero for valid JSON that is not an object", () => {
+      writeFileSync(cfgPath, "5");
+      const { status, stderr } = run(["config", "list"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("glv config at");
+      expect(stderr).toContain("must be an object");
+    });
   });
 
   describe(`${fx.binName} serve argument validation`, () => {

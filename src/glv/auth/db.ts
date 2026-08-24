@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
-import { parseJson } from "../parse.js";
+import { AnyJson, parseJson } from "../parse.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
@@ -82,7 +82,7 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
 
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];
-  const parsed = parseJson(raw);
+  const parsed = parseJson(raw, AnyJson);
   if (!parsed.ok) {
     console.warn("[glv:auth]", parsed.error);
     return [];
