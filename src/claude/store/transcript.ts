@@ -111,7 +111,7 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
 };
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
-  const parsed = parseJson<unknown>(line);
+  const parsed = parseJson(line);
   return parsed.ok && isRecord(parsed.data) ? parsed.data : undefined;
 };
 
@@ -229,18 +229,15 @@ const emptyEntry = (): CacheEntry => ({
 const readTranscript = (path: string): CacheEntry => {
   const stat = mayFail(() => statSync(path));
   if (!stat.ok) return emptyEntry();
+  const { mtimeMs, size } = stat.data;
   const hit = parseCache.get(path);
-  if (
-    hit !== undefined &&
-    hit.mtimeMs === stat.data.mtimeMs &&
-    hit.size === stat.data.size
-  )
+  if (hit !== undefined && hit.mtimeMs === mtimeMs && hit.size === size)
     return hit;
   const text = mayFail(() => readFileSync(path, "utf8"));
   if (!text.ok) return emptyEntry();
   const entry: CacheEntry = {
-    mtimeMs: stat.data.mtimeMs,
-    size: stat.data.size,
+    mtimeMs,
+    size,
     text: text.data,
     transcript: parseTranscriptText(text.data),
   };
@@ -255,8 +252,8 @@ const parseTranscriptFile = (path: string): Transcript =>
 // Raw text via the same cache, so PR-candidate scans avoid re-reading too.
 const readTranscriptText = (path: string): string => readTranscript(path).text;
 
-// A directory listing that degrades to `undefined` when unreadable —
-// missing root, permission race, or a vanished project dir.
+// `undefined` when the directory is unreadable — a missing root, a
+// permission race, or a project dir that vanished mid-scan.
 const listDirEntries = (dir: string): Dirent[] | undefined => {
   const entries = mayFail(() => readdirSync(dir, { withFileTypes: true }));
   return entries.ok ? entries.data : undefined;

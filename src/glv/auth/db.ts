@@ -82,7 +82,7 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
 
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];
-  const parsed = parseJson<unknown>(raw);
+  const parsed = parseJson(raw);
   if (!parsed.ok) {
     console.warn("[glv:auth]", parsed.error);
     return [];

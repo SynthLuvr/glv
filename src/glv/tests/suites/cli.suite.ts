@@ -155,8 +155,6 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
         GLV_CONFIG: cfgPath,
       });
       expect(status).not.toBe(0);
-      // The Result-based parse surfaces the parser's detail, not just the
-      // file path, so a hand-edited config can be self-diagnosed.
       expect(stderr).toContain("not valid JSON");
     });
   });

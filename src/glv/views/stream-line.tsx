@@ -6,7 +6,6 @@ import {
   parseContent,
 } from "../../glv/format/index.js";
 import { parseJson } from "../../glv/parse.js";
-
 import type { StreamEnvelope } from "../profile.js";
 import { itemBlock } from "./message-blocks.js";
 
@@ -20,12 +19,13 @@ const renderStreamLine = (line: string, envelope: StreamEnvelope): string => {
   // any other shape are foreign and dropped — support for stray top-level
   // envelopes in nested-dialect streams was deliberately removed.
   if (!parsed.ok || !isRecord(parsed.data)) return "";
+  const record = parsed.data;
   const message =
     envelope === "message"
-      ? isRecord(parsed.data.message)
-        ? parsed.data.message
+      ? isRecord(record.message)
+        ? record.message
         : undefined
-      : parsed.data;
+      : record;
   if (message === undefined || !Array.isArray(message.content)) return "";
 
   const items = parseContent(JSON.stringify(message.content));

@@ -130,33 +130,25 @@ const resolveWorktreeByBranch = async (
   return block === undefined ? {} : gitInfoFromBlock(block);
 };
 
-// Never throws — a missing git binary degrades to an empty GitInfo.
-const readGitInfo = async (
-  cwd: string,
-  run: GitRunner = runGit,
+// The read* wrappers never throw: any failure (e.g. a missing git binary)
+// degrades to an empty GitInfo, logged at debug level.
+const degradeToEmpty = async (
+  resolve: () => Promise<GitInfo>,
 ): Promise<GitInfo> => {
-  const result = await mayFailAsync(() => resolveGitInfo(cwd, run));
-  if (!result.ok) {
-    console.debug("[glv:git]", result.error);
-    return {};
-  }
-  return result.data;
+  const result = await mayFailAsync(resolve);
+  if (!result.ok) console.debug("[glv:git]", result.error);
+  return result.ok ? result.data : {};
 };
 
-const readWorktreeByBranch = async (
+const readGitInfo = (cwd: string, run: GitRunner = runGit): Promise<GitInfo> =>
+  degradeToEmpty(() => resolveGitInfo(cwd, run));
+
+const readWorktreeByBranch = (
   cwd: string,
   run: GitRunner = runGit,
   branch: string,
-): Promise<GitInfo> => {
-  const result = await mayFailAsync(() =>
-    resolveWorktreeByBranch(cwd, run, branch),
-  );
-  if (!result.ok) {
-    console.debug("[glv:git]", result.error);
-    return {};
-  }
-  return result.data;
-};
+): Promise<GitInfo> =>
+  degradeToEmpty(() => resolveWorktreeByBranch(cwd, run, branch));
 
 // Never throws. Non-repos are skipped silently so plain directories stay
 // quiet; any pull failure is warned but never blocks session creation.
