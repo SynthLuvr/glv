@@ -5,7 +5,8 @@ import {
   messageKind,
   parseContent,
 } from "../../glv/format/index.js";
-import { tryParseJson } from "../../glv/parse.js";
+import { parseJson } from "../../glv/parse.js";
+
 import type { StreamEnvelope } from "../profile.js";
 import { itemBlock } from "./message-blocks.js";
 
@@ -13,18 +14,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const renderStreamLine = (line: string, envelope: StreamEnvelope): string => {
-  const parsed = tryParseJson(line);
+  const parsed = parseJson(line);
   // Only message records with a content array preview; raw stdout is
   // discarded. The agent's stream dialect decides the envelope: records in
   // any other shape are foreign and dropped — support for stray top-level
   // envelopes in nested-dialect streams was deliberately removed.
-  if (parsed === null || !isRecord(parsed)) return "";
+  if (!parsed.ok || !isRecord(parsed.data)) return "";
   const message =
     envelope === "message"
-      ? isRecord(parsed.message)
-        ? parsed.message
+      ? isRecord(parsed.data.message)
+        ? parsed.data.message
         : undefined
-      : parsed;
+      : parsed.data;
   if (message === undefined || !Array.isArray(message.content)) return "";
 
   const items = parseContent(JSON.stringify(message.content));

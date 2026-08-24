@@ -148,6 +148,17 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       expect(stdout).toContain("future=true");
       expect(stdout).toContain("forwardHost=10.0.0.1");
     });
+
+    it("exits non-zero with a parse error for invalid config JSON", () => {
+      writeFileSync(cfgPath, "{ not valid json");
+      const { status, stderr } = run(["config", "list"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(status).not.toBe(0);
+      // The Result-based parse surfaces the parser's detail, not just the
+      // file path, so a hand-edited config can be self-diagnosed.
+      expect(stderr).toContain("not valid JSON");
+    });
   });
 
   describe(`${fx.binName} serve argument validation`, () => {

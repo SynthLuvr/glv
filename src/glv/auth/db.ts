@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { parseJson } from "../parse.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
@@ -81,15 +82,14 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
 
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((t): t is string => typeof t === "string")
-      : [];
-  } catch (err) {
-    console.warn("[glv:auth]", err);
+  const parsed = parseJson<unknown>(raw);
+  if (!parsed.ok) {
+    console.warn("[glv:auth]", parsed.error);
     return [];
   }
+  return Array.isArray(parsed.data)
+    ? parsed.data.filter((t): t is string => typeof t === "string")
+    : [];
 };
 
 const credentialShape = {

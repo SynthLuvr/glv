@@ -47,6 +47,9 @@ importers:
       p-queue:
         specifier: ^9.3.3
         version: 9.3.3
+      ts-handling:
+        specifier: ^0.2.6
+        version: 0.2.6
     devDependencies:
       '@ast-grep/cli':
         specifier: ^0.45.1
@@ -1473,6 +1476,9 @@ packages:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
     engines: {node: '>=8'}
 
+  flatted@3.4.4:
+    resolution: {integrity: sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q==}
+
   fsevents@2.3.2:
     resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -1950,6 +1956,10 @@ packages:
   tr46@6.0.0:
     resolution: {integrity: sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==}
     engines: {node: '>=20'}
+
+  ts-handling@0.2.6:
+    resolution: {integrity: sha512-n6mcg8haqPNhT9EXPb3rQJF5qQxoOCyj6o22P8bdSfXDxECij3+15u5Njtu3uKj8mEcBp8n+yBF6zwSZL5DWyw==}
+    engines: {node: '>=20 <25'}
 
   ts-morph@28.0.0:
     resolution: {integrity: sha512-Wp3tnZ2bzwxyTZMtgWVzXDfm7lB1Drz+y9DmmYH/L702PQhPyVrp3pkou3yIz4qjS14GY9kcpmLiOOMvl8oG1g==}
@@ -3191,6 +3201,8 @@ snapshots:
     dependencies:
       to-regex-range: 5.0.1
 
+  flatted@3.4.4: {}
+
   fsevents@2.3.2:
     optional: true
 
@@ -3599,6 +3611,10 @@ snapshots:
   tr46@6.0.0:
     dependencies:
       punycode: 2.3.1
+
+  ts-handling@0.2.6:
+    dependencies:
+      flatted: 3.4.4
 
   ts-morph@28.0.0:
     dependencies:
