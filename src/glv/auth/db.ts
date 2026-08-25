@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { ensureDbDir, resolveDataPath } from "../db-path.js";
-import { AnyJson, parseJson } from "../parse.js";
+import { parseJson } from "../parse.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
 const SESSION_TTL_SECONDS = 86400;
@@ -80,16 +80,24 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
   throw new Error("unexpected public key storage type");
 };
 
+// The transports column stores JSON.stringify of a string[]; the narrow
+// guard makes that contract the schema, so corrupt values surface as an
+// Err (and a warn) instead of silently filtering to the string subset.
+const TransportList = type("unknown")
+  .narrow(
+    (data): data is string[] =>
+      Array.isArray(data) && data.every((entry) => typeof entry === "string"),
+  )
+  .describe("an array of strings");
+
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];
-  const parsed = parseJson(raw, AnyJson);
+  const parsed = parseJson(raw, TransportList);
   if (!parsed.ok) {
     console.warn("[glv:auth]", parsed.error);
     return [];
   }
-  return Array.isArray(parsed.data)
-    ? parsed.data.filter((t): t is string => typeof t === "string")
-    : [];
+  return parsed.data;
 };
 
 const credentialShape = {
