@@ -80,15 +80,10 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
   throw new Error("unexpected public key storage type");
 };
 
-// The transports column stores JSON.stringify of a string[]; the narrow
-// guard makes that contract the schema, so corrupt values surface as an
-// Err (and a warn) instead of silently filtering to the string subset.
-const TransportList = type("unknown")
-  .narrow(
-    (data): data is string[] =>
-      Array.isArray(data) && data.every((entry) => typeof entry === "string"),
-  )
-  .describe("an array of strings");
+// The transports column stores JSON.stringify of a string[]; anything
+// else is corruption, surfaced as a warn and degraded to no transports
+// rather than silently filtered to the string subset.
+const TransportList = type("string[]");
 
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];

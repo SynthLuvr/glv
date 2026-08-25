@@ -158,8 +158,6 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       expect(stderr).toContain("not valid JSON");
     });
 
-    // Valid JSON that is not an object must fail the same way — it can
-    // never be read as a record it is not.
     it("exits non-zero for valid JSON that is not an object", () => {
       writeFileSync(cfgPath, "5");
       const { status, stderr } = run(["config", "list"], {

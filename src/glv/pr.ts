@@ -1,6 +1,6 @@
 import type { ParsedMessage } from "./format/index.js";
 import { thinkingText, toolResultInfo } from "./format/index.js";
-import { AnyJson, parseJson } from "./parse.js";
+import { parseJson } from "./parse.js";
 
 // Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
 // collides with issues and changelog noise.
@@ -54,7 +54,7 @@ const findPrUrlInValue = (value: unknown): string | undefined => {
 const prUrlFromJson = (text: string): string | undefined => {
   const jsonStr = extractJson(text);
   if (jsonStr === undefined) return undefined;
-  const parsed = parseJson(jsonStr, AnyJson);
+  const parsed = parseJson(jsonStr);
   if (!parsed.ok) return undefined;
   return findPrUrlInValue(parsed.data);
 };
