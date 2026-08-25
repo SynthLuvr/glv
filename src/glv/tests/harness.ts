@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
-import { JsonObject, parseJson } from "../parse.js";
+import { AnyJson, JsonObject, parseJson } from "../parse.js";
 import { rmScratch } from "./rm-scratch.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -104,7 +104,7 @@ const waitForJsonFile = async <T>(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(path)) {
-      const parsed = parseJson(readFileSync(path, "utf-8"));
+      const parsed = parseJson(readFileSync(path, "utf-8"), AnyJson);
       if (parsed.ok && accept(parsed.data)) return parsed.data;
     }
     await sleep(50);
