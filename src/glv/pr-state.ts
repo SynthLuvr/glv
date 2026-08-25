@@ -22,11 +22,9 @@ const GhStateView = type({ "state?": "string" });
 // Judge by parsed state, not exit code: unauthed `gh` exits 0 but prints
 // help text instead of JSON.
 const parseGhState = (stdout: string): PrState => {
-  const parsed = parseJson(stdout);
+  const parsed = parseJson(stdout, GhStateView);
   if (!parsed.ok) return "unknown";
-  const view = GhStateView(parsed.data);
-  if (view instanceof type.errors) return "unknown";
-  const { state } = view;
+  const { state } = parsed.data;
   if (state === "OPEN") return "open";
   if (state === "MERGED") return "merged";
   if (state === "CLOSED") return "closed";
@@ -36,11 +34,8 @@ const parseGhState = (stdout: string): PrState => {
 const HeadRefView = type({ "headRefName?": "string" });
 
 const parseGhBranch = (stdout: string): string | undefined => {
-  const parsed = parseJson(stdout);
-  if (!parsed.ok) return undefined;
-  const view = HeadRefView(parsed.data);
-  if (view instanceof type.errors) return undefined;
-  return view.headRefName || undefined;
+  const parsed = parseJson(stdout, HeadRefView);
+  return parsed.ok ? parsed.data.headRefName || undefined : undefined;
 };
 
 // The URL round-trips through a query string — guard before passing to `gh`.

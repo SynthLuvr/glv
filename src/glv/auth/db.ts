@@ -80,16 +80,19 @@ const toUint8Array = (value: unknown): Uint8Array<ArrayBuffer> => {
   throw new Error("unexpected public key storage type");
 };
 
+// The transports column stores JSON.stringify of a string[]; anything
+// else is corruption, surfaced as a warn and degraded to no transports
+// rather than silently filtered to the string subset.
+const TransportList = type("string[]");
+
 const parseTransports = (raw: string | null): string[] => {
   if (raw === null) return [];
-  const parsed = parseJson(raw);
+  const parsed = parseJson(raw, TransportList);
   if (!parsed.ok) {
     console.warn("[glv:auth]", parsed.error);
     return [];
   }
-  return Array.isArray(parsed.data)
-    ? parsed.data.filter((t): t is string => typeof t === "string")
-    : [];
+  return parsed.data;
 };
 
 const credentialShape = {

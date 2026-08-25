@@ -1,7 +1,7 @@
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { mayFail } from "ts-handling";
-import { parseJson } from "../../glv/parse.js";
+import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
 
 // One parsed message from a claude transcript, with content blocks already
 // normalized to the viewer's item model (text/thinking/toolRequest/
@@ -34,9 +34,6 @@ type SessionFile = {
 };
 
 const SESSION_EXT = ".jsonl";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const isSessionFile = (name: string): boolean =>
   name.endsWith(SESSION_EXT) && !name.startsWith(".");
@@ -111,8 +108,8 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
 };
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
-  const parsed = parseJson(line);
-  return parsed.ok && isRecord(parsed.data) ? parsed.data : undefined;
+  const parsed = parseJson(line, JsonObject);
+  return parsed.ok ? parsed.data : undefined;
 };
 
 const emptyTranscript = (): Transcript => ({
