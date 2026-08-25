@@ -109,7 +109,7 @@ const parseTimestamp = (timestamp: string | undefined): number | undefined => {
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
   const parsed = parseJson(line, JsonObject);
-  return parsed.ok && isRecord(parsed.data) ? parsed.data : undefined;
+  return parsed.ok ? parsed.data : undefined;
 };
 
 const emptyTranscript = (): Transcript => ({

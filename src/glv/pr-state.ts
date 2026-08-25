@@ -24,7 +24,6 @@ const GhStateView = type({ "state?": "string" });
 const parseGhState = (stdout: string): PrState => {
   const parsed = parseJson(stdout, GhStateView);
   if (!parsed.ok) return "unknown";
-  if (!GhStateView.allows(parsed.data)) return "unknown";
   const { state } = parsed.data;
   if (state === "OPEN") return "open";
   if (state === "MERGED") return "merged";
@@ -36,9 +35,7 @@ const HeadRefView = type({ "headRefName?": "string" });
 
 const parseGhBranch = (stdout: string): string | undefined => {
   const parsed = parseJson(stdout, HeadRefView);
-  if (!parsed.ok) return undefined;
-  if (!HeadRefView.allows(parsed.data)) return undefined;
-  return parsed.data.headRefName || undefined;
+  return parsed.ok ? parsed.data.headRefName || undefined : undefined;
 };
 
 // The URL round-trips through a query string — guard before passing to `gh`.

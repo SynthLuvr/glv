@@ -15,7 +15,7 @@ const renderStreamLine = (line: string, envelope: StreamEnvelope): string => {
   // discarded. The agent's stream dialect decides the envelope: records in
   // any other shape are foreign and dropped — support for stray top-level
   // envelopes in nested-dialect streams was deliberately removed.
-  if (!parsed.ok || !isRecord(parsed.data)) return "";
+  if (!parsed.ok) return "";
   const record = parsed.data;
   const message =
     envelope === "message"

@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
-import { AnyJson, isRecord, JsonObject, parseJson } from "../parse.js";
+import { AnyJson, JsonObject, parseJson } from "../parse.js";
 import { rmScratch } from "./rm-scratch.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -575,7 +575,7 @@ const authedFetch = (
 
 const parseSseData = (data: string): Record<string, unknown> => {
   const parsed = parseJson(data, JsonObject);
-  return parsed.ok && isRecord(parsed.data) ? parsed.data : {};
+  return parsed.ok ? parsed.data : {};
 };
 
 // Reads one metadata column from a flavor's SQLite store table ("sessions"

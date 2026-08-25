@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
-import { isRecord, JsonObject, parseJson } from "./parse.js";
+import { JsonObject, parseJson } from "./parse.js";
 
 const configRoot = (): string => {
   if (platform() === "win32")
@@ -30,8 +30,6 @@ const readRawConfig = (dataDirName: string): Record<string, unknown> => {
   const parsed = parseJson(readFileSync(path, "utf-8"), JsonObject);
   if (!parsed.ok)
     throw new Error(`glv config at ${path} is not valid JSON: ${parsed.error}`);
-  if (!isRecord(parsed.data))
-    throw new Error(`glv config at ${path} is not a valid JSON object`);
   return parsed.data;
 };
 
