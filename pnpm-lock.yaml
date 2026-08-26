@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: github:SynthLuvr/node-server#dist/open-prs
-        version: https://codeload.github.com/SynthLuvr/node-server/tar.gz/31dc9ffa12bc241a2d5c1f04cca8fbed89e75a22(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)
+        version: https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)
       '@simplewebauthn/browser':
         specifier: ^13.3.0
         version: 13.3.0
@@ -622,8 +622,8 @@ packages:
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
-  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/31dc9ffa12bc241a2d5c1f04cca8fbed89e75a22':
-    resolution: {gitHosted: true, integrity: sha512-phNHf0rMeYf/lKy45+Ggsn1oJptBIO+WiJNUYiblEBdy3Nph8ovzQuF/I6VtzSPOTJ1s6P7dr4wpOJkKbCorfQ==, tarball: https://codeload.github.com/SynthLuvr/node-server/tar.gz/31dc9ffa12bc241a2d5c1f04cca8fbed89e75a22}
+  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618':
+    resolution: {gitHosted: true, integrity: sha512-bx1znGdBw1DIzY12oFt2eSbHtBc4wGICR3tD0dszb1ni5Ha0YpPyemaCr9LB2tZUnjw9FKmI9ZNEZrQpzjA4Fg==, tarball: https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618}
     version: 2.1.1
     engines: {node: '>=20'}
     peerDependencies:
@@ -2448,7 +2448,7 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/31dc9ffa12bc241a2d5c1f04cca8fbed89e75a22(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)':
+  '@hono/node-server@https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)':
     dependencies:
       hono: https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f
 
