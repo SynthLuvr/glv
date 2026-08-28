@@ -53,7 +53,15 @@ describe("goose sessions db robustness", () => {
     let proc: ReturnType<typeof spawnLauncher>;
 
     const rmScratchDir = (): void => {
-      rmSync(scratch, { recursive: true, force: true });
+      // Windows can transiently EPERM a recursive delete right after the
+      // server process exits, while the OS finishes closing its sqlite
+      // handles — retries ride that window out.
+      rmSync(scratch, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
     };
 
     beforeAll(async () => {

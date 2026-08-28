@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { platform } from "node:os";
 import { mayFailAsync } from "ts-handling";
 import { execGit } from "./shell.js";
 
@@ -82,10 +84,26 @@ const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
   return info;
 };
 
-// Normalise separators to forward slashes so the prefix check works on
-// Windows (git emits backslash paths there) as well as Unix.
-const normalizePath = (value: string): string =>
-  value.replace(/\\/g, "/").replace(/\/+$/, "");
+// Git can report a different spelling of the same directory than the one
+// stored on the session: on Windows the TEMP dir is routinely an 8.3 short
+// path (C:\Users\RUNNE~1\...) while `git worktree list` resolves to the
+// long form (C:/Users/runneradmin/...), so a plain string compare never
+// matches. Canonicalise both sides — real path, forward slashes, no \\?\
+// prefix, case-folded on Windows — before comparing.
+const canonicalizePath = (value: string): string => {
+  let resolved = value;
+  try {
+    resolved = realpathSync.native(value);
+  } catch {
+    // A stale worktree entry or missing dir: compare the literal path.
+  }
+  const withoutPrefix = resolved
+    .replace(/^\\\\\?\\UNC\\/, "//")
+    .replace(/^\\\\\?\\/, "");
+  const forward = withoutPrefix.replaceAll("\\", "/");
+  const cased = platform() === "win32" ? forward.toLowerCase() : forward;
+  return cased.replace(/\/+$/, "");
+};
 
 // A session may run in a subdirectory of a worktree, so pick the deepest
 // (most specific) enclosing path.
@@ -93,10 +111,10 @@ const findWorktree = (
   blocks: readonly WorktreeBlock[],
   cwd: string,
 ): WorktreeBlock | undefined => {
-  const target = normalizePath(cwd);
+  const target = canonicalizePath(cwd);
   return blocks
     .filter((b) => {
-      const base = normalizePath(b.path);
+      const base = canonicalizePath(b.path);
       return target === base || target.startsWith(`${base}/`);
     })
     .sort((a, b) => b.path.length - a.path.length)[0];

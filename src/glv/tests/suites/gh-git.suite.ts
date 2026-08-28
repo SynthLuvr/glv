@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { execa } from "execa";
@@ -94,9 +95,25 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("git-chip-branch");
       expect(html).toContain("git-chip-worktree");
       // git's porcelain output normalizes to forward slashes even on
-      // Windows, so the chip may render either separator flavor.
-      const worktreeVariants = [worktreeDir, worktreeDir.replaceAll("\\", "/")];
-      expect(worktreeVariants.some((dir) => html.includes(dir))).toBe(true);
+      // Windows and may additionally resolve 8.3 short TEMP paths to
+      // their long form, so accept any canonical spelling of the dir.
+      const worktreeVariants = [worktreeDir].flatMap((dir) => {
+        const spellings = [dir, dir.replaceAll("\\", "/")];
+        try {
+          const real = realpathSync
+            .native(dir)
+            .replace(/^\\\\\?\\UNC\\/, "//")
+            .replace(/^\\\\\?\\/, "");
+          spellings.push(real, real.replaceAll("\\", "/"));
+        } catch {
+          // The literal spellings still apply.
+        }
+        return spellings;
+      });
+      const htmlLower = html.toLowerCase();
+      expect(
+        worktreeVariants.some((dir) => htmlLower.includes(dir.toLowerCase())),
+      ).toBe(true);
     });
 
     it("returns an empty body for a session without a PR", async () => {

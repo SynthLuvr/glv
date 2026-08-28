@@ -19,7 +19,13 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
 
   const runShell = (args: string[]): Out => {
     const result = IS_WIN
-      ? spawnSync("sh", [SHELL_LAUNCHER, ...args], { encoding: "utf-8" })
+      ? // MSYS sh treats backslashes as plain characters, so a Windows
+        // path would make dirname("$0") resolve to "." and the launcher
+        // would compute the wrong project root — hand sh a forward-slash
+        // path instead.
+        spawnSync("sh", [SHELL_LAUNCHER.replaceAll("\\", "/"), ...args], {
+          encoding: "utf-8",
+        })
       : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
     return { status: result.status ?? -1, stdout: result.stdout ?? "" };
   };
