@@ -16,6 +16,14 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Under Git-Bash/MSYS (the sh that runs this script on Windows), pwd
+# reports /c/... mount paths that the native Windows node.exe cannot
+# read; convert to the mixed C:/ form when cygpath is available. POSIX
+# systems have no cygpath and keep pwd's output unchanged.
+if command -v cygpath >/dev/null 2>&1; then
+  PROJECT_ROOT="$(cygpath -m "$PROJECT_ROOT")"
+fi
+
 cd "$PROJECT_ROOT" || {
   echo "glv-goose: cannot cd to project root ($PROJECT_ROOT)" >&2
   exit 1
