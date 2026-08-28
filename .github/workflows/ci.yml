@@ -87,6 +87,11 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+      # ubuntu-slim omits the GUI libraries (libatk, libcups, ...) that
+      # the full ubuntu-latest image bundled and chromium needs.
+      - name: Install Playwright system dependencies (Linux only)
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install-deps chromium
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
