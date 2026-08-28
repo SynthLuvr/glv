@@ -55,7 +55,18 @@ const config = defineConfig({
     testTimeout: 120000,
     hookTimeout: 120000,
     coverage: {
-      provider: "v8",
+      // The stock v8 provider only instruments vitest's in-process
+      // workers, yet nearly all product code runs in the server/CLI
+      // subprocesses the integration suite boots — which used to report
+      // as ~0% and made the overall number meaningless. The custom
+      // provider below extends the stock v8 one and additionally merges
+      // raw NODE_V8_COVERAGE profiles from those subprocesses, remapped
+      // through the transforms recorded by the coverage observer hook.
+      // Run via `pnpm test` / `pnpm test:vitest` (scripts/vitest-
+      // coverage.mts enables propagation); a bare `vitest run --coverage`
+      // reports in-process coverage only, exactly like before.
+      provider: "custom",
+      customProviderModule: "./src/glv/tests/subprocess-coverage-provider.ts",
       include: [
         "src/glv/**/*.ts",
         "src/goose/**/*.ts",
@@ -72,6 +83,18 @@ const config = defineConfig({
         "src/claude/tests/**",
         "src/claude/scripts/**",
       ],
+      // Floors measured on the full merged suite (statements 45.0%,
+      // branches 30.9%, functions 43.9%, lines 54.7%) with a few points
+      // of headroom for run-to-run variation. These bind `pnpm test`
+      // (and any full `--coverage` run); sharded CI runs don't collect
+      // coverage. Raise them as coverage improves — the point is that
+      // the number is now meaningful, so regressions show up.
+      thresholds: {
+        statements: 42,
+        branches: 28,
+        functions: 41,
+        lines: 51,
+      },
     },
   },
 });

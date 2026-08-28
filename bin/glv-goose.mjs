@@ -11,9 +11,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tsxLoader = join(root, "node_modules", "tsx", "dist", "loader.mjs");
 const cli = join(root, "src", "goose", "cli.ts");
+// Integration-test coverage: when the harness asks for it, load the
+// coverage observer right after tsx. Order matters — the observer must
+// see tsx's transpiled output, so it registers its hook after tsx's.
+const coverageHook = process.env.GLV_COVERAGE_HOOK;
 const args = [
   "--import",
   pathToFileURL(tsxLoader).href,
+  ...(coverageHook === undefined ? [] : ["--import", coverageHook]),
   cli,
   ...process.argv.slice(2),
 ];

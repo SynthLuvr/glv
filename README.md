@@ -281,6 +281,15 @@ Every test file boots a real `glv serve` process plus a headless
 Chromium, so the suite runs at most two files at a time to keep peak
 memory in check on local machines.
 
+`pnpm test` collects coverage across those spawned processes, not just
+the in-process test files: each launcher is pointed at Node’s built-in
+V8 profiler (`NODE_V8_COVERAGE`) and a load hook records the tsx
+transforms, so the vitest report includes the server, runner, and view
+code the suite actually drives (see
+`src/glv/tests/subprocess- coverage.ts` for the pipeline). Coverage
+floors live in `vitest.config.ts`. A bare `vitest run --coverage`
+reports only in-process code.
+
 The repository hosts two viewers with parallel structure: `src/goose/`
 (goose sessions) and `src/claude/` (claude sessions). Each is styled
 with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source

@@ -25,6 +25,7 @@ import { mockBin } from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
 import { rmScratch } from "./rm-scratch.js";
+import { subprocessCoverageEnv } from "./subprocess-coverage.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -382,6 +383,12 @@ const spawnLauncher = (
 ): ChildProcess =>
   spawn(process.execPath, [binPath, ...args], {
     ...options,
+    // Subprocess coverage is injected only when the caller pins an env
+    // (every launcher spawn does); an omitted env must keep Node's
+    // full-inherit default rather than get a sparse replacement.
+    ...(options.env === undefined
+      ? {}
+      : { env: { ...options.env, ...subprocessCoverageEnv() } }),
     detached: !IS_WIN,
   });
 
@@ -390,7 +397,12 @@ const spawnLauncherSync = (
   args: readonly string[],
   options: SpawnSyncOptionsWithStringEncoding,
 ): SpawnSyncReturns<string> =>
-  spawnSync(process.execPath, [binPath, ...args], options);
+  spawnSync(process.execPath, [binPath, ...args], {
+    ...options,
+    ...(options.env === undefined
+      ? {}
+      : { env: { ...options.env, ...subprocessCoverageEnv() } }),
+  });
 
 // Environment overrides that point os.homedir() — and, on Windows, the
 // Known Folders glv resolves its data and config dirs through — at a

@@ -49,6 +49,16 @@ All assertions must be made by querying the running server over
 and hit its endpoints over HTTP/SSE. Do not import server internals into
 a test or call handlers directly.
 
+### Coverage
+
+`pnpm test` runs through `scripts/vitest-coverage.mts`, which enables
+subprocess coverage: spawned servers/CLIs write raw V8 profiles, and the
+recorded tsx transforms get merged into the vitest report (see
+`src/glv/tests/subprocess-coverage.ts`). Thresholds in
+`vitest.config.ts` fail the run if coverage drops below the floors —
+when adding product code, either cover it with a new integration test or
+expect the floors to catch the drop.
+
 ## Coding Conventions (Enforced)
 
 These are **not** preferences — the toolchain will fail if you violate

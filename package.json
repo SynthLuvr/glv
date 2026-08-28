@@ -41,7 +41,7 @@
     "lint:cross-tree": "tsx scripts/cross-tree-duplicates.mts",
     "format:md": "tsx scripts/pandoc-md.mts --write",
     "test": "npm-run-all build:assets test:vitest",
-    "test:vitest": "vitest run --coverage",
+    "test:vitest": "tsx scripts/vitest-coverage.mts run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {
@@ -52,6 +52,7 @@
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.11",
+    "ast-v8-to-istanbul": "^1.0.5",
     "convert-to-arrow": "^1.1.4",
     "esbuild": "^0.28.2",
     "jscpd": "^5.0.16",
