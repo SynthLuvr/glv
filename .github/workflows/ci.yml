@@ -2,18 +2,13 @@ name: CI
 
 on:
   pull_request:
-  schedule:
-    # Weekly macOS leg (see the test-macos job below): macOS runners are
-    # slow and expensive, so they run on a schedule instead of every PR.
-    - cron: "0 6 * * 1"
-  workflow_dispatch:
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-slim, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -52,19 +47,17 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-  # Test shards run in parallel with the build+lint matrix instead of
-  # waiting on it: they install and build their own assets, and a broken
-  # build still fails the PR through its own job. Tests run on Linux and
-  # Windows: Windows-only regressions (#204, #207) previously escaped CI
-  # because the suite only ever ran on Linux — the win32 suite exclusion
-  # in vitest.config.ts never even executed there.
+  # Tests run in parallel with the build+lint matrix instead of waiting on
+  # it: they install and build their own assets, and a broken build still
+  # fails the PR through its own job. One VM per OS, whole suite per VM —
+  # Windows is exercised too because Windows-only regressions (#204, #207)
+  # previously escaped CI when the suite only ever ran on Linux.
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        shard: [1/4, 2/4, 3/4, 4/4]
+        os: [ubuntu-slim, windows-latest]
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -89,48 +82,13 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/AppData/Local/ms-playwright
-            ~/Library/Caches/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
+        # The slim Ubuntu image ships no Chromium shared libraries, so
+        # --with-deps apt-installs them there; Windows needs none.
+        run: pnpm exec playwright install${{ runner.os == 'Linux' && ' --with-deps' || '' }} chromium
 
-      - name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
-        run: pnpm exec vitest run --shard ${{ matrix.shard }}
-
-  # The README promises macOS support, but macOS runners cost 10x Linux
-  # minutes, so this leg runs weekly on a schedule (and on manual
-  # dispatch) instead of on every PR. It runs the whole suite unsharded;
-  # a weekly wall-clock overrun is acceptable for a canary.
-  test-macos:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      - uses: pnpm/action-setup@v6.0.10
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: "26"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build assets
-        run: pnpm build:assets
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6.1.0
-        with:
-          path: ~/Library/Caches/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
-
-      - name: Test (macOS, full suite)
+      - name: Test (${{ matrix.os }})
         run: pnpm exec vitest run
