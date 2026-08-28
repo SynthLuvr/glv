@@ -134,6 +134,18 @@ const tagDir = (dir: string, sessionId: string): void => {
   writeFileSync(join(dir, SESSION_MARKER), sessionId);
 };
 
+// Windows can transiently refuse a recursive delete with EPERM while the
+// OS finishes tearing down a process that used the directory as its cwd —
+// stop() only initiates the kill, so the archive/create sweeps can race
+// agent teardown. Retries ride out that window and are harmless no-ops on
+// POSIX, where the first attempt succeeds.
+const RM_OPTIONS = {
+  recursive: true,
+  force: true,
+  maxRetries: 20,
+  retryDelay: 100,
+} as const;
+
 // Removes any sub-directory whose marker matches the session id. Untagged
 // dirs (from crashed sessions) are left untouched.
 const deleteTaggedDir = (base: string, sessionId: string): void => {
@@ -143,7 +155,7 @@ const deleteTaggedDir = (base: string, sessionId: string): void => {
     const markerPath = join(base, entry.name, SESSION_MARKER);
     if (!existsSync(markerPath)) continue;
     if (readFileSync(markerPath, "utf-8").trim() === sessionId)
-      rmSync(join(base, entry.name), { recursive: true, force: true });
+      rmSync(join(base, entry.name), RM_OPTIONS);
   }
 };
 
@@ -161,7 +173,7 @@ const deleteTempDir = (dataDirName: string, sessionId: string): void =>
 
 // Pre-tag failure cleanup — the sweep can only find tagged directories.
 const removeDir = (dir: string): void => {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, RM_OPTIONS);
 };
 
 export {

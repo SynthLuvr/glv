@@ -49,12 +49,16 @@ jobs:
 
   # Test shards run in parallel with the build+lint matrix instead of
   # waiting on it: they install and build their own assets, and a broken
-  # build still fails the PR through its own job.
+  # build still fails the PR through its own job. Tests run on Linux and
+  # Windows: Windows-only regressions (#204, #207) previously escaped CI
+  # because the suite only ever ran on Linux — the win32 suite exclusion
+  # in vitest.config.ts never even executed there.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         shard: [1/4, 2/4, 3/4, 4/4]
     steps:
       - uses: actions/checkout@v7.0.1
@@ -75,12 +79,16 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@v6.1.0
         with:
-          path: ~/.cache/ms-playwright
+          # One path per OS; only the matching one exists on each runner,
+          # and actions/cache ignores the absent ones.
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
-      - name: Test (shard ${{ matrix.shard }})
+      - name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
         run: pnpm exec vitest run --shard ${{ matrix.shard }}

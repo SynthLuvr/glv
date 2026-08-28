@@ -14,6 +14,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 // same suites still run there through the goose flavor, which drives the
 // identical glv core.
 const CLAUDE_AGENT_SPAWN_SUITES = [
+  "src/claude/tests/archive-stops-run.integration.test.ts",
   "src/claude/tests/dir-spelling.integration.test.ts",
   "src/claude/tests/follow-up-upload.integration.test.ts",
   "src/claude/tests/git-pull-before-session.integration.test.ts",
@@ -23,6 +24,7 @@ const CLAUDE_AGENT_SPAWN_SUITES = [
   "src/claude/tests/runner-stream.integration.test.ts",
   "src/claude/tests/sandboxed-env.integration.test.ts",
   "src/claude/tests/status-feed.integration.test.ts",
+  "src/claude/tests/stop-escalation.integration.test.ts",
   "src/claude/tests/stop-kills-descendants.integration.test.ts",
   "src/claude/tests/stream-discard-non-json.integration.test.ts",
   "src/claude/tests/stream-live.integration.test.ts",
