@@ -13,10 +13,10 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
   type Out = { status: number; stdout: string };
 
   // Windows cannot execute the POSIX launcher directly; when a POSIX sh is
-  // on PATH (Git for Windows), the parity check runs through it — and is
-  // skipped when none exists.
-  const canRunShell = !IS_WIN || spawnSync("sh", ["-c", "exit 0"]).status === 0;
-
+  // on PATH (Git for Windows), the parity check runs through it. Some
+  // minimal sh builds (e.g. Git's sh.exe invoked with a plain Windows PATH,
+  // as on CI runners) cannot run the script at all, so parity is only
+  // asserted where the launcher demonstrably executes.
   const runShell = (args: string[]): Out => {
     const result = IS_WIN
       ? // MSYS sh treats backslashes as plain characters, so a Windows
@@ -29,6 +29,11 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
       : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
     return { status: result.status ?? -1, stdout: result.stdout ?? "" };
   };
+
+  const canRunShell =
+    !IS_WIN ||
+    (spawnSync("sh", ["-c", "exit 0"]).status === 0 &&
+      runShell(["--help"]).stdout.includes(`Usage: glv-${fx.name}`));
 
   const runNode = (args: string[]): Out => {
     const result = spawnSync(process.execPath, [NODE_LAUNCHER, ...args], {

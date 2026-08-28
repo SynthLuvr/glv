@@ -17,12 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Under Git-Bash/MSYS (the sh that runs this script on Windows), pwd
-# reports /c/... mount paths that the native Windows node.exe cannot
-# read; convert to the mixed C:/ form when cygpath is available. POSIX
-# systems have no cygpath and keep pwd's output unchanged.
-if command -v cygpath >/dev/null 2>&1; then
-  PROJECT_ROOT="$(cygpath -m "$PROJECT_ROOT")"
-fi
+# reports /d/... mount paths that the native Windows node.exe cannot
+# read. pwd -W prints the Windows mixed form (D:/...) and exists only
+# in MSYS shells, so this is a no-op on POSIX systems.
+WIN_ROOT="$(cd "$PROJECT_ROOT" && pwd -W 2>/dev/null || true)"
+[ -n "$WIN_ROOT" ] && PROJECT_ROOT="$WIN_ROOT"
 
 cd "$PROJECT_ROOT" || {
   echo "glv-goose: cannot cd to project root ($PROJECT_ROOT)" >&2
