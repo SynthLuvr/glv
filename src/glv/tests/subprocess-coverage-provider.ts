@@ -63,12 +63,15 @@ class SubprocessV8CoverageProvider extends V8CoverageProvider {
   // The raw profile directory holds ~a GB of JSON for a full run; once
   // the report (and threshold checks) have completed it has served its
   // purpose. cleanAfterRun is skipped when threshold checks throw, so a
-  // failing run keeps its raw data for debugging.
+  // failing run keeps its raw data for debugging; GLV_KEEP_RAW=1 keeps
+  // it on green runs too (investigating run-to-run coverage variance).
   override async cleanAfterRun(): Promise<void> {
     await super.cleanAfterRun();
-    const rawDir = process.env[RAW_COVERAGE_ENV];
-    if (rawDir !== undefined && rawDir !== "")
-      await rm(rawDir, { recursive: true, force: true });
+    if (process.env.GLV_KEEP_RAW !== "1") {
+      const rawDir = process.env[RAW_COVERAGE_ENV];
+      if (rawDir !== undefined && rawDir !== "")
+        await rm(rawDir, { recursive: true, force: true });
+    }
   }
 }
 

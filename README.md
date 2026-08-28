@@ -289,7 +289,11 @@ transforms, so the vitest report includes the server, runner, and view
 code the suite actually drives (see
 `src/glv/tests/subprocess- coverage.ts` for the pipeline). Coverage
 floors live in `vitest.config.ts`. A bare `vitest run --coverage`
-reports only in-process code.
+reports only in-process code. Serve-process coverage requires a graceful
+exit to flush profiles; Node’s `kill()` on Windows terminates
+unconditionally, so there it is limited to CLI invocations (which exit
+normally) and the propagation suites are skipped — see the exclusion
+list in `vitest.config.ts`.
 
 The repository hosts two viewers with parallel structure: `src/goose/`
 (goose sessions) and `src/claude/` (claude sessions). Each is styled

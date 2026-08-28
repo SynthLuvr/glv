@@ -13,6 +13,11 @@ import { RAW_COVERAGE_ENV } from "../subprocess-coverage.js";
 // profiles (written on process exit) and the observer hook's recorded
 // tsx transforms. Without either, the merged report silently loses all
 // server-subprocess coverage.
+//
+// Excluded on Windows (see WINDOWS_EXCLUDED_SUITES in vitest.config.ts):
+// Node's kill() there is an unconditional TerminateProcess, so the
+// SIGTERM-stopped server never runs its exit handlers and never writes
+// its profile.
 const runCoveragePropagationSuite = (fx: FlavorFixture): void => {
   describe("subprocess coverage propagation", () => {
     it("leaves remappable raw profiles and transforms for the served process", async () => {
