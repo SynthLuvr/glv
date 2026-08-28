@@ -70,16 +70,12 @@ const config = defineConfig({
     testTimeout: 120000,
     hookTimeout: 120000,
     coverage: {
-      // The stock v8 provider only instruments vitest's in-process
-      // workers, yet nearly all product code runs in the server/CLI
-      // subprocesses the integration suite boots — which used to report
-      // as ~0% and made the overall number meaningless. The custom
-      // provider below extends the stock v8 one and additionally merges
-      // raw NODE_V8_COVERAGE profiles from those subprocesses, remapped
-      // through the transforms recorded by the coverage observer hook.
-      // Run via `pnpm test` / `pnpm test:vitest` (scripts/vitest-
-      // coverage.mts enables propagation); a bare `vitest run --coverage`
-      // reports in-process coverage only, exactly like before.
+      // The custom provider extends the stock v8 one and additionally
+      // merges the raw NODE_V8_COVERAGE profiles written by the
+      // server/CLI subprocesses the integration suite spawns (see
+      // src/glv/tests/subprocess-coverage.ts). Enabled by `pnpm test` /
+      // `pnpm test:vitest`; a bare `vitest run --coverage` reports
+      // in-process coverage only, exactly like before.
       provider: "custom",
       customProviderModule: "./src/glv/tests/subprocess-coverage-provider.ts",
       include: [
@@ -98,13 +94,12 @@ const config = defineConfig({
         "src/claude/tests/**",
         "src/claude/scripts/**",
       ],
-      // Floors measured across repeated full-suite runs. The merged
-      // suite is timing-sensitive (which server profiles flush, grace
-      // windows in stop paths), so totals vary run to run — observed:
-      // statements 43.0–46.8%, branches 27.2–33.5%, functions
-      // 38.1–47.0%, lines 52.2–56.9%. Floors sit below the observed
-      // minimums with headroom; they bind `pnpm test` (and any full
-      // `--coverage` run), while sharded CI runs don't collect
+      // Floors for the merged report, which is timing-sensitive (which
+      // server profiles flush, stop-path grace windows) and varies run
+      // to run — observed: statements 43.0–46.8%, branches 27.2–33.5%,
+      // functions 38.1–47.0%, lines 52.2–56.9%. The floors sit below
+      // the observed minimums with headroom; they bind `pnpm test` (and
+      // any full `--coverage` run), while sharded CI runs don't collect
       // coverage. Raise them as coverage improves — the point is that
       // the number is now meaningful, so regressions show up.
       thresholds: {

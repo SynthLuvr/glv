@@ -1,54 +1,60 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import astV8ToIstanbul from "ast-v8-to-istanbul";
 import { parseAstAsync } from "vitest/node";
 
 // Subprocess-coverage plumbing shared by the test harness and the custom
-// vitest coverage provider.
+// vitest coverage provider (subprocess-coverage-provider.ts).
 //
-// glv's integration tests exercise the real `glv-goose serve` /
-// `glv-claude serve` subprocesses (plus their CLIs), so vitest's
-// in-process V8 coverage only ever sees the thin test wrappers — the
-// product code the suite actually drives runs in child processes and
-// showed up as 0%. To close that gap:
+// The integration suite drives the real `glv-goose serve` /
+// `glv-claude serve` subprocesses (plus their CLIs), which vitest's
+// in-process V8 coverage never sees — the product code used to report as
+// 0% despite being comprehensively exercised. When RAW_COVERAGE_ENV
+// names a directory (set by scripts/vitest-coverage.mts behind
+// `pnpm test`):
 //
-//   1. The harness points NODE_V8_COVERAGE at a shared raw-profile
-//      directory for every spawned launcher, so Node's built-in profiler
-//      writes raw script coverage for the server/CLI processes on exit.
-//   2. The launcher additionally loads src/glv/tests/coverage-hook.mjs
-//      (via GLV_COVERAGE_HOOK), which records the tsx-transpiled code —
-//      byte-identical to what ran — together with its inline source map
-//      for every module under src/.
-//   3. The custom coverage provider (subprocess-coverage-provider.ts)
-//      pairs raw profiles with those recorded transforms and remaps the
-//      offsets onto the original sources, merging the result into
-//      vitest's own coverage map.
+//   1. The harness points each spawned launcher's NODE_V8_COVERAGE at
+//      that directory, so Node's built-in profiler writes raw script
+//      coverage for the server/CLI processes on exit.
+//   2. The launcher also loads src/glv/tests/coverage-hook.mjs, which
+//      records the tsx-transpiled code — byte-identical to what ran —
+//      together with its inline source map for every module under src/.
+//   3. The provider pairs raw profiles with those transforms, remaps
+//      the offsets onto the original sources, and merges the result
+//      into vitest's coverage map.
 //
-// Everything is keyed off one environment variable (RAW_COVERAGE_ENV) so
-// the feature is opt-in: `pnpm test` sets it through
-// scripts/vitest-coverage.mts, while a bare `vitest` / `vitest run`
-// behaves exactly as before.
-const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../..");
+// Without the env var (a bare `vitest run`), propagation is off and
+// everything behaves exactly as before.
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
-/** Env var naming the directory raw subprocess profiles land in. */
 const RAW_COVERAGE_ENV = "GLV_SUBPROCESS_COVERAGE_DIR";
-/** Env var naming the coverage observer the launcher must import. */
 const COVERAGE_HOOK_ENV = "GLV_COVERAGE_HOOK";
+const COVERAGE_HOOK_PATH = join(
+  ROOT,
+  "src",
+  "glv",
+  "tests",
+  "coverage-hook.mjs",
+);
 
-const coverageHookPath = (): string =>
-  join(ROOT, "src", "glv", "tests", "coverage-hook.mjs");
+// The raw-profile directory for this run, or undefined when
+// propagation is off.
+const rawCoverageDir = (): string | undefined => {
+  const dir = process.env[RAW_COVERAGE_ENV];
+  return dir === undefined || dir === "" ? undefined : dir;
+};
 
 // Environment the harness passes to spawned launchers so their Node
-// children write raw profiles and load the observer hook. Empty when the
-// run was not started with propagation enabled.
+// children write raw profiles and load the observer hook.
 const subprocessCoverageEnv = (): Record<string, string> => {
-  const rawDir = process.env[RAW_COVERAGE_ENV];
-  if (rawDir === undefined || rawDir === "") return {};
-  return {
-    NODE_V8_COVERAGE: rawDir,
-    [COVERAGE_HOOK_ENV]: pathToFileURL(coverageHookPath()).href,
-  };
+  const rawDir = rawCoverageDir();
+  return rawDir === undefined
+    ? {}
+    : {
+        NODE_V8_COVERAGE: rawDir,
+        [COVERAGE_HOOK_ENV]: pathToFileURL(COVERAGE_HOOK_PATH).href,
+      };
 };
 
 type RawFunctionCoverage = {
@@ -57,84 +63,124 @@ type RawFunctionCoverage = {
   isBlockCoverage: boolean;
 };
 
+type RawScriptCoverage = { url: string; functions: RawFunctionCoverage[] };
+
 type TransformRecord = { url: string; code: string; map: unknown };
 
-/** Structural slice of istanbul's CoverageMap the merge needs. */
+/** Structural slice of istanbul's CoverageMap that the merge needs. */
 type MergeableCoverageMap = { merge: (data: unknown) => void };
 
 type RemapSourceMap = NonNullable<
   Parameters<typeof astV8ToIstanbul>[0]["sourceMap"]
 >;
 
+type RemapFilter = (path: string) => boolean;
+
 const PROFILE_FILE = /^coverage-.*\.json$/;
 const TRANSFORM_FILE = /^transforms-.*\.jsonl$/;
 
-// Recorded { url, code, map } captures, first write per URL wins. Torn
-// trailing lines (a crash mid-append) are skipped. Also reports the pids
-// that recorded transforms: raw profiles are named coverage-<pid>-…, so
-// only profiles from those pids need parsing — every other Node process
-// that inherited NODE_V8_COVERAGE (mock agents, gh stubs, launcher
-// shims) writes profiles too, but without a transform capture they are
-// unremappable noise.
+// Profile and transform file names are <kind>-<pid>-<suffix>.
+const pidOf = (fileName: string): string => fileName.split("-")[1];
+
+// One recorded module per line; a torn trailing line (crash mid-append)
+// is skipped.
+const readTransformLines = (file: string): TransformRecord[] => {
+  const records: TransformRecord[] = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (line === "") continue;
+    try {
+      records.push(JSON.parse(line) as TransformRecord);
+    } catch {
+      continue;
+    }
+  }
+  return records.filter((record) => typeof record.url === "string");
+};
+
+// Transforms recorded by coverage-hook.mjs; the first record per URL
+// wins. Also reports the pids that recorded transforms: raw profiles
+// are named coverage-<pid>-…, and only those pids' profiles are
+// remappable — every other Node process that inherited
+// NODE_V8_COVERAGE (mock agents, gh stubs, launcher shims) writes
+// profiles too, but without a transform they are noise.
 const readTransforms = (
   dir: string,
 ): { byUrl: Map<string, TransformRecord>; pids: Set<string> } => {
+  const files = readdirSync(dir).filter((name) => TRANSFORM_FILE.test(name));
   const byUrl = new Map<string, TransformRecord>();
-  const pids = new Set<string>();
-  for (const name of readdirSync(dir)) {
-    if (!TRANSFORM_FILE.test(name)) continue;
-    pids.add(name.split("-")[1]);
-    for (const line of readFileSync(join(dir, name), "utf8").split("\n")) {
-      if (line === "") continue;
-      try {
-        const entry = JSON.parse(line) as TransformRecord;
-        if (typeof entry.url === "string" && !byUrl.has(entry.url))
-          byUrl.set(entry.url, entry);
-      } catch {
-        continue;
-      }
-    }
-  }
-  return { byUrl, pids };
+  for (const name of files)
+    for (const record of readTransformLines(join(dir, name)))
+      if (!byUrl.has(record.url)) byUrl.set(record.url, record);
+  return { byUrl, pids: new Set(files.map(pidOf)) };
 };
 
-// Per-URL function coverages concatenated across profile files from the
-// given pids. Duplicate function entries across snapshots or server boots
-// are harmless: istanbul only distinguishes hit (>0) from unhit (0), so a
-// union never flips a covered statement back to uncovered.
+// A raw profile file Node writes on process exit; unparseable files
+// read as empty.
+const readProfileScripts = (file: string): RawScriptCoverage[] => {
+  try {
+    const parsed: { result?: RawScriptCoverage[] } = JSON.parse(
+      readFileSync(file, "utf8"),
+    );
+    return parsed.result ?? [];
+  } catch {
+    return [];
+  }
+};
+
+// Per-URL function coverages concatenated across the profile files of
+// the given pids. Duplicate entries across snapshots or server boots
+// are harmless: istanbul only distinguishes hit (>0) from unhit (0), so
+// a union never flips a covered statement back to uncovered.
 const readRawProfiles = (
   dir: string,
   pids: Set<string>,
 ): Map<string, RawFunctionCoverage[]> => {
+  const remappable = (name: string): boolean =>
+    PROFILE_FILE.test(name) && (pids.size === 0 || pids.has(pidOf(name)));
   const byUrl = new Map<string, RawFunctionCoverage[]>();
-  for (const name of readdirSync(dir)) {
-    if (!PROFILE_FILE.test(name)) continue;
-    if (pids.size > 0 && !pids.has(name.split("-")[1])) continue;
-    let parsed: {
-      result?: { url: string; functions: RawFunctionCoverage[] }[];
-    };
-    try {
-      parsed = JSON.parse(readFileSync(join(dir, name), "utf8"));
-    } catch {
-      continue;
-    }
-    for (const script of parsed.result ?? []) {
-      const existing = byUrl.get(script.url);
-      if (existing === undefined) byUrl.set(script.url, script.functions);
-      else existing.push(...script.functions);
-    }
-  }
+  for (const name of readdirSync(dir).filter(remappable))
+    for (const script of readProfileScripts(join(dir, name)))
+      byUrl.set(script.url, [
+        ...(byUrl.get(script.url) ?? []),
+        ...script.functions,
+      ]);
   return byUrl;
 };
 
-type RemapFilter = (path: string) => boolean;
+// Remaps one script's raw offsets onto the original source through the
+// recorded transform. Undefined when the script is out of scope or
+// unremappable — a single bad module must not sink the whole report.
+const remapScript = async (
+  url: string,
+  functions: RawFunctionCoverage[],
+  transform: TransformRecord,
+  isIncluded: RemapFilter,
+) => {
+  let path: string;
+  try {
+    path = fileURLToPath(decodeURIComponent(url));
+  } catch {
+    return undefined;
+  }
+  if (!existsSync(path) || !isIncluded(path)) return undefined;
+  try {
+    return await astV8ToIstanbul({
+      code: transform.code,
+      sourceMap: transform.map as RemapSourceMap,
+      coverage: { url, functions },
+      ast: await parseAstAsync(transform.code),
+    });
+  } catch {
+    return undefined;
+  }
+};
 
-// Merges raw subprocess coverage into `coverageMap`. `isIncluded` is the
-// provider's include/exclude filter, so the merge respects
+// Merges raw subprocess coverage into `coverageMap`. `isIncluded` is
+// the provider's include/exclude filter, so the merge respects
 // coverage.include exactly like in-process collection. URLs without a
-// recorded transform (in-process worker coverage, mock-agent scripts) are
-// skipped: their offsets belong to a different transform pipeline and
-// vitest already handles the in-process ones itself.
+// recorded transform (in-process worker coverage, mock-agent scripts)
+// are skipped: their offsets belong to a different transform pipeline,
+// and vitest already handles the in-process ones itself.
 const mergeSubprocessCoverage = async (
   coverageMap: MergeableCoverageMap,
   rawDir: string,
@@ -143,33 +189,22 @@ const mergeSubprocessCoverage = async (
   if (!existsSync(rawDir)) return 0;
   const { byUrl: transforms, pids } = readTransforms(rawDir);
   if (transforms.size === 0) return 0;
-  const profiles = readRawProfiles(rawDir, pids);
   let merged = 0;
-  for (const [url, functions] of profiles) {
+  for (const [url, functions] of readRawProfiles(rawDir, pids)) {
     const transform = transforms.get(url);
     if (transform === undefined) continue;
-    let path: string;
-    try {
-      path = fileURLToPath(decodeURIComponent(url));
-    } catch {
-      continue;
-    }
-    if (!existsSync(path) || !isIncluded(path)) continue;
-    try {
-      const data = await astV8ToIstanbul({
-        code: transform.code,
-        sourceMap: transform.map as RemapSourceMap,
-        coverage: { url, functions },
-        ast: await parseAstAsync(transform.code),
-      });
-      coverageMap.merge(data);
-      merged += 1;
-    } catch {
-      // A single unparseable module must not sink the whole report.
-      continue;
-    }
+    const data = await remapScript(url, functions, transform, isIncluded);
+    if (data === undefined) continue;
+    coverageMap.merge(data);
+    merged += 1;
   }
   return merged;
 };
 
-export { mergeSubprocessCoverage, RAW_COVERAGE_ENV, subprocessCoverageEnv };
+export type { MergeableCoverageMap };
+export {
+  mergeSubprocessCoverage,
+  RAW_COVERAGE_ENV,
+  rawCoverageDir,
+  subprocessCoverageEnv,
+};

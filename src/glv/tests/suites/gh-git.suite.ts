@@ -1,8 +1,8 @@
-import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { execa } from "execa";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { realPathOrSelf } from "../../git.js";
 import {
   authedFetch,
   type FlavorFixture,
@@ -32,17 +32,8 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
   // and may resolve an 8.3 short TEMP path to its long form, so the
   // worktree chip may render any of several spellings of the dir.
   const worktreeSpellings = (dir: string): string[] => {
-    const spellings = [dir, dir.replaceAll("\\", "/")];
-    try {
-      const real = realpathSync
-        .native(dir)
-        .replace(/^\\\\\?\\UNC\\/, "//")
-        .replace(/^\\\\\?\\/, "");
-      spellings.push(real, real.replaceAll("\\", "/"));
-    } catch {
-      // A missing dir keeps only the literal spellings.
-    }
-    return spellings;
+    const real = realPathOrSelf(dir);
+    return [dir, dir.replaceAll("\\", "/"), real, real.replaceAll("\\", "/")];
   };
 
   beforeAll(async () => {

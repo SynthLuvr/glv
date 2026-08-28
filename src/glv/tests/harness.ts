@@ -376,33 +376,39 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
     mock.neverCreateSession === true ? "1" : "",
 });
 
+// Subprocess coverage is injected only when the caller pins an env
+// (every launcher spawn does); an omitted env must keep Node's
+// full-inherit default rather than get a sparse replacement.
+const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
+  options: T,
+): T => ({
+  ...options,
+  ...(options.env === undefined
+    ? {}
+    : { env: { ...options.env, ...subprocessCoverageEnv() } }),
+});
+
 const spawnLauncher = (
   binPath: string,
   args: readonly string[],
   options: SpawnOptions,
 ): ChildProcess =>
-  spawn(process.execPath, [binPath, ...args], {
-    ...options,
-    // Subprocess coverage is injected only when the caller pins an env
-    // (every launcher spawn does); an omitted env must keep Node's
-    // full-inherit default rather than get a sparse replacement.
-    ...(options.env === undefined
-      ? {}
-      : { env: { ...options.env, ...subprocessCoverageEnv() } }),
-    detached: !IS_WIN,
-  });
+  spawn(
+    process.execPath,
+    [binPath, ...args],
+    withSubprocessCoverageEnv({ ...options, detached: !IS_WIN }),
+  );
 
 const spawnLauncherSync = (
   binPath: string,
   args: readonly string[],
   options: SpawnSyncOptionsWithStringEncoding,
 ): SpawnSyncReturns<string> =>
-  spawnSync(process.execPath, [binPath, ...args], {
-    ...options,
-    ...(options.env === undefined
-      ? {}
-      : { env: { ...options.env, ...subprocessCoverageEnv() } }),
-  });
+  spawnSync(
+    process.execPath,
+    [binPath, ...args],
+    withSubprocessCoverageEnv(options),
+  );
 
 // Environment overrides that point os.homedir() — and, on Windows, the
 // Known Folders glv resolves its data and config dirs through — at a

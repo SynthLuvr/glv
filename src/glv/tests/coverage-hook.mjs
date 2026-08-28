@@ -1,27 +1,16 @@
-// Coverage observer for glv's integration-test servers.
+// Coverage observer for integration-test servers, loaded (--import) by
+// the launchers right after tsx so this load hook runs on top of tsx's
+// (hooks are LIFO). Raw NODE_V8_COVERAGE offsets point into the code
+// Node actually executed — for .ts/.tsx modules that is tsx's esbuild
+// output, not the source on disk — so the hook records { url, code, map }
+// per module under src/: byte-identical transpiled code plus tsx's
+// inline source map, which the vitest provider later uses to remap
+// offsets onto the original files (see subprocess-coverage.ts).
 //
-// The integration harness boots the real `glv-goose serve` /
-// `glv-claude serve` as a subprocess, so vitest's in-process V8 coverage
-// never sees the server code. To fix that, the harness points Node's
-// built-in profiler at a shared directory (NODE_V8_COVERAGE) so each
-// server writes raw script coverage there on exit, and the launcher adds
-// this module as an extra `--import` after the tsx loader.
-//
-// Raw V8 coverage reports offsets into the code Node actually executed.
-// tsx executes an esbuild-transpiled version of every .ts/.tsx module,
-// so offsets point into generated code, not the source on disk. tsx
-// appends an inline base64 source map to each module it hands to Node,
-// and this hook — registered after tsx, hence called on top of tsx's
-// hooks — records { url, code, map } for modules under src/ into the
-// coverage directory. The custom vitest coverage provider later pairs
-// each raw script coverage with the recorded code+map (byte-identical to
-// what ran) and remaps offsets onto the original files.
-//
-// The hook must stay fully synchronous (registerHooks, no await): an
-// async hook breaks Node's synchronous load path (e.g. require(esm))
-// with ERR_INVALID_RETURN_PROPERTY_VALUE. Capture failures are
-// swallowed — a broken observer must never take down a server under
-// test; it only costs coverage data.
+// Must stay fully synchronous (registerHooks, no await): an async load
+// hook breaks Node's synchronous load path (e.g. require(esm)) with
+// ERR_INVALID_RETURN_PROPERTY_VALUE. Capture failures are swallowed — a
+// broken observer must never take down a server under test.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { registerHooks } from "node:module";
@@ -32,9 +21,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SRC_PREFIX = pathToFileURL(join(ROOT, "src", "/")).href;
 const SOURCE_MAP_MARKER = "//# sourceMappingURL=data:application/json;base64,";
 
-const rawDir = process.env.NODE_V8_COVERAGE;
+const rawDir = process.env.NODE_V8_COVERAGE ?? "";
 const cacheFile =
-  rawDir === undefined || rawDir === ""
+  rawDir === ""
     ? undefined
     : join(
         rawDir,
@@ -70,7 +59,7 @@ const record = (url, code) => {
       "utf8",
     );
   } catch {
-    // Coverage capture is best-effort; never break the server.
+    // Best-effort capture; never break the server.
   }
 };
 
@@ -88,4 +77,4 @@ const load = (url, context, nextLoad) => {
   return result;
 };
 
-registerHooks({ load });
+if (cacheFile !== undefined) registerHooks({ load });
