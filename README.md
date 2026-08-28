@@ -272,10 +272,12 @@ pnpm test     # run tests
 pnpm lint     # lint all files
 ```
 
-The integration suite runs on macOS, Linux, and Windows. One caveat on
-Windows: the claude-flavored suites that spawn the mocked agent binary
-are excluded (see `vitest.config.ts` for why); they still run there
-through the goose flavor, which drives the same core.
+The integration suite runs on macOS, Linux, and Windows. CI runs it on
+Linux and Windows for every pull request, and on macOS on a weekly
+schedule. One caveat on Windows: the claude-flavored suites that spawn
+the mocked agent binary are excluded (see `vitest.config.ts` for why);
+they still run there through the goose flavor, which drives the same
+core.
 
 Every test file boots a real `glv serve` process plus a headless
 Chromium, so the suite runs at most two files at a time to keep peak
