@@ -84,10 +84,16 @@ const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
   return info;
 };
 
-// A stale worktree entry or a missing dir keeps the literal path.
+// realpathSync.native resolves an 8.3 short path or symlink to its real
+// form; a stale worktree entry or missing dir keeps the literal path.
+// The \\?\ and \\?\UNC\ device prefixes it can return on Windows are
+// stripped so the result compares as a plain string.
 const realPathOrSelf = (value: string): string => {
   try {
-    return realpathSync.native(value);
+    return realpathSync
+      .native(value)
+      .replace(/^\\\\\?\\UNC\\/, "//")
+      .replace(/^\\\\\?\\/, "");
   } catch {
     return value;
   }
@@ -97,13 +103,10 @@ const realPathOrSelf = (value: string): string => {
 // stored on the session: on Windows the TEMP dir is routinely an 8.3 short
 // path (C:\Users\RUNNE~1\...) while `git worktree list` resolves to the
 // long form (C:/Users/runneradmin/...), so a plain string compare never
-// matches. Canonicalise both sides — real path, forward slashes, no \\?\
-// prefix, case-folded on Windows — before comparing.
+// matches. Canonicalise both sides — real path, forward slashes,
+// case-folded on Windows — before comparing.
 const canonicalizePath = (value: string): string => {
-  const forward = realPathOrSelf(value)
-    .replace(/^\\\\\?\\UNC\\/, "//")
-    .replace(/^\\\\\?\\/, "")
-    .replaceAll("\\", "/");
+  const forward = realPathOrSelf(value).replaceAll("\\", "/");
   const cased = platform() === "win32" ? forward.toLowerCase() : forward;
   return cased.replace(/\/+$/, "");
 };
@@ -192,4 +195,4 @@ const pullRepo = async (
 };
 
 export type { GitRunner };
-export { pullRepo, readGitInfo, readWorktreeByBranch };
+export { pullRepo, readGitInfo, readWorktreeByBranch, realPathOrSelf };
