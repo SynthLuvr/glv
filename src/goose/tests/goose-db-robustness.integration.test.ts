@@ -9,6 +9,7 @@ import {
   dbOverrideArgs,
   findFreePort,
   ROOT,
+  rmScratch,
   spawnLauncher,
   spawnLauncherSync,
   stopProcess,
@@ -52,10 +53,6 @@ describe("goose sessions db robustness", () => {
     let baseUrl: string;
     let proc: ReturnType<typeof spawnLauncher>;
 
-    const rmScratchDir = (): void => {
-      rmSync(scratch, { recursive: true, force: true });
-    };
-
     beforeAll(async () => {
       scratch = mkdtempSync(join(tmpdir(), "glv-busy-"));
       dbPath = join(scratch, "sessions.db");
@@ -88,7 +85,7 @@ describe("goose sessions db robustness", () => {
 
     afterAll(async () => {
       await stopProcess(proc);
-      rmScratchDir();
+      rmScratch(scratch);
     });
 
     it("serves the sidebar while a writer holds an exclusive lock", async () => {
