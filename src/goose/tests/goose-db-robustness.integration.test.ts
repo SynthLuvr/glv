@@ -9,6 +9,7 @@ import {
   dbOverrideArgs,
   findFreePort,
   ROOT,
+  rmScratch,
   spawnLauncher,
   spawnLauncherSync,
   stopProcess,
@@ -52,18 +53,6 @@ describe("goose sessions db robustness", () => {
     let baseUrl: string;
     let proc: ReturnType<typeof spawnLauncher>;
 
-    const rmScratchDir = (): void => {
-      // Windows can transiently EPERM a recursive delete right after the
-      // server process exits, while the OS finishes closing its sqlite
-      // handles — retries ride that window out.
-      rmSync(scratch, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-      });
-    };
-
     beforeAll(async () => {
       scratch = mkdtempSync(join(tmpdir(), "glv-busy-"));
       dbPath = join(scratch, "sessions.db");
@@ -96,7 +85,7 @@ describe("goose sessions db robustness", () => {
 
     afterAll(async () => {
       await stopProcess(proc);
-      rmScratchDir();
+      rmScratch(scratch);
     });
 
     it("serves the sidebar while a writer holds an exclusive lock", async () => {

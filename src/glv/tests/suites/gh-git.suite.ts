@@ -28,6 +28,23 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
   // session-created PR.
   const prContent = (url: string): unknown => [fx.toolResponse(url, false)];
 
+  // git's porcelain output normalizes to forward slashes even on Windows
+  // and may resolve an 8.3 short TEMP path to its long form, so the
+  // worktree chip may render any of several spellings of the dir.
+  const worktreeSpellings = (dir: string): string[] => {
+    const spellings = [dir, dir.replaceAll("\\", "/")];
+    try {
+      const real = realpathSync
+        .native(dir)
+        .replace(/^\\\\\?\\UNC\\/, "//")
+        .replace(/^\\\\\?\\/, "");
+      spellings.push(real, real.replaceAll("\\", "/"));
+    } catch {
+      // A missing dir keeps only the literal spellings.
+    }
+    return spellings;
+  };
+
   beforeAll(async () => {
     env = await fx.startEnv("glv-ghgit-");
 
@@ -94,25 +111,11 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
       expect(html).toContain(GIT_BRANCH);
       expect(html).toContain("git-chip-branch");
       expect(html).toContain("git-chip-worktree");
-      // git's porcelain output normalizes to forward slashes even on
-      // Windows and may additionally resolve 8.3 short TEMP paths to
-      // their long form, so accept any canonical spelling of the dir.
-      const worktreeVariants = [worktreeDir].flatMap((dir) => {
-        const spellings = [dir, dir.replaceAll("\\", "/")];
-        try {
-          const real = realpathSync
-            .native(dir)
-            .replace(/^\\\\\?\\UNC\\/, "//")
-            .replace(/^\\\\\?\\/, "");
-          spellings.push(real, real.replaceAll("\\", "/"));
-        } catch {
-          // The literal spellings still apply.
-        }
-        return spellings;
-      });
       const htmlLower = html.toLowerCase();
       expect(
-        worktreeVariants.some((dir) => htmlLower.includes(dir.toLowerCase())),
+        worktreeSpellings(worktreeDir).some((spelling) =>
+          htmlLower.includes(spelling.toLowerCase()),
+        ),
       ).toBe(true);
     });
 

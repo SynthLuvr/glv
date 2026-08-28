@@ -84,6 +84,15 @@ const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
   return info;
 };
 
+// A stale worktree entry or a missing dir keeps the literal path.
+const realPathOrSelf = (value: string): string => {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    return value;
+  }
+};
+
 // Git can report a different spelling of the same directory than the one
 // stored on the session: on Windows the TEMP dir is routinely an 8.3 short
 // path (C:\Users\RUNNE~1\...) while `git worktree list` resolves to the
@@ -91,16 +100,10 @@ const gitInfoFromBlock = (block: WorktreeBlock): GitInfo => {
 // matches. Canonicalise both sides — real path, forward slashes, no \\?\
 // prefix, case-folded on Windows — before comparing.
 const canonicalizePath = (value: string): string => {
-  let resolved = value;
-  try {
-    resolved = realpathSync.native(value);
-  } catch {
-    // A stale worktree entry or missing dir: compare the literal path.
-  }
-  const withoutPrefix = resolved
+  const forward = realPathOrSelf(value)
     .replace(/^\\\\\?\\UNC\\/, "//")
-    .replace(/^\\\\\?\\/, "");
-  const forward = withoutPrefix.replaceAll("\\", "/");
+    .replace(/^\\\\\?\\/, "")
+    .replaceAll("\\", "/");
   const cased = platform() === "win32" ? forward.toLowerCase() : forward;
   return cased.replace(/\/+$/, "");
 };
