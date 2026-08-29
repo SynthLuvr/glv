@@ -6,24 +6,12 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import { DEFAULT_SYSTEM_PROMPT } from "../../system.js";
 import {
   type FlavorFixture,
+  flagValue,
   type IntegrationEnv,
   postFollowUp,
   postNewSession,
-  waitForJsonFile,
+  waitForArgs,
 } from "../harness.js";
-
-const isArgv = (value: unknown): value is string[] => Array.isArray(value);
-
-const waitForArgs = (path: string): Promise<string[]> =>
-  waitForJsonFile(path, isArgv);
-
-const flagValue = (
-  args: readonly string[],
-  flag: string,
-): string | undefined => {
-  const idx = args.indexOf(flag);
-  return idx >= 0 ? args[idx + 1] : undefined;
-};
 
 const runSystemFlagSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;

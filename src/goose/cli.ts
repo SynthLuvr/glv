@@ -5,6 +5,7 @@ import type { SessionStore } from "../glv/sessions.js";
 import { makeGooseAgent } from "./agent.js";
 import { createSessionStore, openDb, resolveDbPath } from "./db.js";
 import { makeGooseLauncher } from "./launch.js";
+import { makeGooseModelSource } from "./models.js";
 import { gooseProfile } from "./profile.js";
 
 type SessionsOpts = {
@@ -149,6 +150,7 @@ serveCmd.action((opts: ServeOpts) => {
       opts.maxConcurrent,
       makeGooseAgent(opts.gooseBinary),
     ),
+    models: makeGooseModelSource(),
     makeLauncher: (runner) =>
       makeGooseLauncher(db, runner, gooseProfile.sessionTimeoutError),
     closeStore: () => {

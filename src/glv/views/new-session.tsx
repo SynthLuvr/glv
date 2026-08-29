@@ -1,4 +1,5 @@
 import { shortenHome } from "../../glv/format/index.js";
+import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import { PromptLibrarySection } from "./prompt-library.js";
@@ -40,6 +41,43 @@ const TempDirBody = () => (
   </div>
 );
 
+// Model picker, rendered only when the flavor exposes configured models.
+// The first option ("<agent> default — …") submits an empty value so the
+// run passes no model flags and the agent's own precedence applies.
+const ModelSelect = ({
+  agentName,
+  choices,
+  defaultLabel,
+  selected,
+}: {
+  agentName: string;
+  choices: readonly ModelChoice[];
+  defaultLabel: string;
+  selected: string;
+}) => (
+  <label class="form-field">
+    <span class="form-label">Model</span>
+    <select
+      name="model_provider"
+      class="form-input model-select"
+      data-model-select
+    >
+      <option value="" selected={selected === ""}>
+        {agentName} default — {defaultLabel}
+      </option>
+      {choices.map((choice) => (
+        <option value={choice.provider} selected={selected === choice.provider}>
+          {choice.label}
+        </option>
+      ))}
+    </select>
+    <span class="paste-hint model-hint">
+      Only models configured in {agentName} are listed; manage them with{" "}
+      {agentName} configure.
+    </span>
+  </label>
+);
+
 const SourceToggle = () => (
   <fieldset class="source-toggle">
     <legend class="form-label">Working location</legend>
@@ -77,6 +115,7 @@ const NewSessionForm = ({
   error,
   prompts = [],
   categories = [],
+  models,
 }: {
   agentName: string;
   workingDir: string;
@@ -84,6 +123,11 @@ const NewSessionForm = ({
   error?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
+  models?: {
+    choices: readonly ModelChoice[];
+    defaultLabel: string;
+    selected: string;
+  };
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -107,6 +151,14 @@ const NewSessionForm = ({
         <WorkingDirBody workingDir={workingDir} dirs={dirs} />
         <TempDirBody />
       </div>
+      {models !== undefined && (
+        <ModelSelect
+          agentName={agentName}
+          choices={models.choices}
+          defaultLabel={models.defaultLabel}
+          selected={models.selected}
+        />
+      )}
       <label class="form-field">
         <span class="form-label">Prompt</span>
         <textarea

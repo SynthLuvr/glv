@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ModelSelection } from "../models.js";
 import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
@@ -146,11 +147,15 @@ const enqueueNewSession = (
   key: string,
   prompt: string,
   workingDir: string,
+  model?: ModelSelection,
 ): RunHandle =>
   enqueueInvocation(
     runner,
     key,
-    { args: runner.config.agent.newSession(prompt, key), stdin: prompt },
+    {
+      args: runner.config.agent.newSession(prompt, key, model),
+      stdin: prompt,
+    },
     workingDir,
   );
 

@@ -24,10 +24,10 @@ const makeGooseLauncher = (
 ): SessionLauncher => {
   const knownIds = new Map<string, Set<string>>();
   return {
-    startNew: (workingDir, prompt) => {
+    startNew: (workingDir, prompt, model) => {
       const tempKey = generateTempKey();
       knownIds.set(tempKey, new Set(sessionIdsInDir(db, workingDir)));
-      enqueueNewSession(runner, tempKey, prompt, workingDir);
+      enqueueNewSession(runner, tempKey, prompt, workingDir, model);
       return tempKey;
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {

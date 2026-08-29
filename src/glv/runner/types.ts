@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
+import type { ModelSelection } from "../models.js";
 import type { LineBuffer } from "./ring-buffer.js";
 
 // How the shared runner talks to one flavor's agent binary. argv is built
@@ -16,7 +17,11 @@ type AgentInvocation = {
    * can pre-assign the session id forward it to the agent; flavors that
    * discover the id afterwards ignore it.
    */
-  readonly newSession: (prompt: string, key: string) => string[];
+  readonly newSession: (
+    prompt: string,
+    key: string,
+    model?: ModelSelection,
+  ) => string[];
   /** argv for a follow-up run on an existing session. */
   readonly resume: (key: string, prompt: string) => string[];
   /** Extra environment variables for the agent process. */

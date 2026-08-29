@@ -130,6 +130,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
+    const modelProvider = fieldString("model_provider");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(fieldString("working_dir")),
     );
@@ -142,12 +143,27 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, { error, workingDir: submittedWorkingDir }),
+        newSessionDetail(ctx, {
+          error,
+          workingDir: submittedWorkingDir,
+          modelProvider,
+        }),
         { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
+
+    // The dropdown lists what was configured at render time; the config may
+    // have changed since, so re-resolve the provider against a fresh read
+    // before launching.
+    const model =
+      modelProvider === "" ? undefined : ctx.models?.resolve(modelProvider);
+    if (modelProvider !== "" && model === undefined)
+      return rejectForm(
+        `That model is no longer configured in ${ctx.profile.agentName}. Pick another from the list.`,
+        422,
+      );
 
     if (
       sessionMode !== "temp" &&
@@ -188,7 +204,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         async (): Promise<EstablishOutcome> => {
           // Inside the per-directory lock so concurrent starts can't race the pull.
           await pullRepo(workingDir, ctx.runGit);
-          const handle = ctx.launcher.startNew(workingDir, fullPrompt);
+          const handle = ctx.launcher.startNew(workingDir, fullPrompt, model);
 
           const sessionId = await ctx.launcher.awaitNew(
             handle,

@@ -95,6 +95,21 @@ const findFreePort = (): Promise<number> =>
     });
   });
 
+// Shared argv-inspection helpers for suites that assert on the flags a
+// mock agent received (see the captureArgs mock option).
+const isArgv = (value: unknown): value is string[] => Array.isArray(value);
+
+const waitForArgs = (path: string): Promise<string[]> =>
+  waitForJsonFile(path, isArgv);
+
+const flagValue = (
+  args: readonly string[],
+  flag: string,
+): string | undefined => {
+  const idx = args.indexOf(flag);
+  return idx >= 0 ? args[idx + 1] : undefined;
+};
+
 // A capture file written by a mock agent can be read mid-write, so poll
 // until it parses into a value the caller recognises.
 const waitForJsonFile = async <T>(
@@ -727,6 +742,7 @@ export {
   defaultDataDir,
   fakeHomeEnv,
   findFreePort,
+  flagValue,
   IS_WIN,
   mockScript,
   parseSseData,
@@ -740,6 +756,7 @@ export {
   startEnv,
   stopProcess,
   subdirCount,
+  waitForArgs,
   waitForHttp,
   waitForJsonFile,
   withPage,
