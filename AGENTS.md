@@ -136,14 +136,13 @@ If the linter complains about formatting, run:
 pnpm format
 ```
 
-This runs `ts-canon format` (five steps in order: 1. `convert-to-arrow`
-— rewrites `function` declarations to arrow consts 2. `strip-braces` —
-removes unnecessary braces from single-statement blocks 3.
-`biome format` — formats all files 4. `biome check` — applies lint
-auto-fixes 5. pandoc — canonicalizes Markdown), then `pnpm format:tsx`,
-which applies the strip-braces codemod to the `.tsx` views (`ts-canon`’s
-bundled ast-grep rules are `language: TypeScript`, which ast-grep scopes
-to `.ts` files only).
+This runs `ts-canon format`: five steps in order — 1. `convert-to-arrow`
+(rewrites `function` declarations to arrow consts) 2. `strip-braces`
+(removes unnecessary braces from single-statement blocks) 3.
+`biome format` 4. `biome check` (applies lint auto-fixes) 5. pandoc
+(canonicalizes Markdown). Since ts-canon 0.1.4 every ast-grep rule ships
+a TypeScript and a Tsx document under the same id, so both the lint
+rules and the codemods cover `.ts` and `.tsx` files alike.
 
 ## Toolchain
 
@@ -152,10 +151,9 @@ The lint/format toolchain comes from
 `typescript-template` and the org’s other TypeScript repos: it bundles
 biome, oxlint (+ tsgolint), ast-grep, jscpd, and the codemods, and ships
 the canonical `biome.json`, `tsconfig`, and vitest presets this repo
-extends. Repo-specific checks remain local: `lint:mirrored`,
-`lint:cross-tree` (see below), and `lint:tsx`/`format:tsx` (the
-`.tsx`-language ast-grep twins in `.ast-grep/rules/`, driven by
-`scripts/ast-grep-tsx.mts`).
+extends (`sgconfig.yml` points bare `ast-grep scan` and editor
+integrations at its rules). The repo-specific checks remain local:
+`lint:mirrored` and `lint:cross-tree` (see below).
 
 ## Project Structure
 

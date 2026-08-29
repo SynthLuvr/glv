@@ -79,8 +79,8 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
       ts-canon:
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       tsx:
         specifier: ^4.23.12
         version: 4.23.12
@@ -1945,8 +1945,8 @@ packages:
     resolution: {integrity: sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==}
     engines: {node: '>=20'}
 
-  ts-canon@0.1.3:
-    resolution: {integrity: sha512-s5znBCyKU0ieJ17SqvMqT4BrW8QBqEYBufsyFm8BTCYCG0Z0aMWA2HkQz9FQOZURbwZajSa5ow5TPANWTausqg==}
+  ts-canon@0.1.4:
+    resolution: {integrity: sha512-/0kKmxP/HBcwAi6GeJOU9OqZyZDMBgnO/CHS4YroD+/+cOh6yaxCp+eMKoraANjnyFhZqBeAIHvQbxq7yn67cg==}
     engines: {node: '>=24'}
     hasBin: true
 
@@ -3605,7 +3605,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  ts-canon@0.1.3:
+  ts-canon@0.1.4:
     dependencies:
       '@ast-grep/cli': 0.45.2
       '@biomejs/biome': 2.5.10

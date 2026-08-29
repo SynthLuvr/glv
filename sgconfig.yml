@@ -1,12 +1,10 @@
-# ast-grep project config.
+# ast-grep project config preset.
 #
-# ts-canon's bundled rules (language: TypeScript) cover the .ts files,
-# and the local .ast-grep/rules/ twins (language: Tsx) cover the .tsx
-# views — ast-grep scopes each language to its own extensions, so the
-# two directories complement each other without overlap. `ts-canon
-# lint` passes explicit --rule paths into its own copy and does not
-# read this file; it exists for bare `ast-grep scan` runs and the
-# ast-grep editor/LSP integrations.
+# Copy to the consumer repo root (as `sgconfig.yml`) to point bare
+# `ast-grep scan` and the ast-grep editor/LSP integrations at the rules
+# shipped with ts-canon. `ts-canon lint` passes explicit `--rule` paths
+# and does not need this file. Since ts-canon 0.1.4 every rule ships a
+# TypeScript and a Tsx document under the same id, so this covers both
+# `.ts` and `.tsx` files.
 ruleDirs:
   - node_modules/ts-canon/rules
-  - .ast-grep/rules
