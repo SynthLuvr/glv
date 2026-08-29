@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { execa } from "execa";
+import { isRecord } from "../glv/parse.js";
 
 // goose exposes its provider/model catalogue over ACP (the same protocol
 // `goose acp` serves to editors) as unstable extensions:
@@ -18,14 +19,8 @@ type CatalogModel = {
   readonly label: string;
 };
 
-/** A catalogue provider: display name plus the models it offers. */
-type CatalogProvider = {
-  readonly name: string | undefined;
-  readonly models: readonly CatalogModel[];
-};
-
-/** provider id → catalogue entry, for the configured providers only. */
-type ProviderCatalog = ReadonlyMap<string, CatalogProvider>;
+/** provider id → models, for the configured providers only. */
+type ProviderCatalog = ReadonlyMap<string, readonly CatalogModel[]>;
 
 type AcpReply = {
   readonly result?: unknown;
@@ -39,20 +34,14 @@ const LIVE_TIMEOUT_MS = 20_000;
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" && value !== "" ? value : undefined;
 
-const asRecord = (value: unknown): Record<string, unknown> | undefined =>
-  typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
-
 const parseModels = (value: unknown): readonly CatalogModel[] => {
   if (!Array.isArray(value)) return [];
   const models: CatalogModel[] = [];
   for (const entry of value) {
-    const record = asRecord(entry);
-    if (record === undefined) continue;
-    const id = asString(record.id);
+    if (!isRecord(entry)) continue;
+    const id = asString(entry.id);
     if (id === undefined) continue;
-    models.push({ id, label: asString(record.name) ?? id });
+    models.push({ id, label: asString(entry.name) ?? id });
   }
   return models;
 };
@@ -80,6 +69,9 @@ const startAcp = (binary: string) => {
     killDescendants: true,
   });
   const pending = new Map<number, (reply: AcpReply) => void>();
+  const send = (message: object): void => {
+    proc.stdin?.write(`${JSON.stringify(message)}\n`);
+  };
   const onLine = (line: string): void => {
     let msg: { id?: unknown };
     try {
@@ -100,13 +92,14 @@ const startAcp = (binary: string) => {
   // crash, our kill): nothing may hang waiting on a dead agent.
   void proc.then(failAll, failAll);
 
+  let nextId = 0;
   const request = (
-    id: number,
     method: string,
     params: Record<string, unknown>,
     timeoutMs: number,
   ): Promise<AcpReply> =>
     new Promise((resolve) => {
+      const id = (nextId += 1);
       const timer = setTimeout(() => {
         pending.delete(id);
         resolve({ error: { code: -32000, message: "timed out" } });
@@ -115,14 +108,12 @@ const startAcp = (binary: string) => {
         clearTimeout(timer);
         resolve(reply);
       });
-      proc.stdin?.write(
-        `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
-      );
+      send({ jsonrpc: "2.0", id, method, params });
     });
 
   return {
     notify: (method: string): void => {
-      proc.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", method })}\n`);
+      send({ jsonrpc: "2.0", method });
     },
     request,
     kill: (): void => {
@@ -140,60 +131,48 @@ const PROVIDERS_LIST = "_goose/unstable/providers/list";
 const SUPPORTED_MODELS = "_goose/unstable/providers/supported-models/list";
 
 /**
- * Ask the agent binary for the catalogue entries of `providerIds` (the
- * providers configured in config.yaml). Returns an empty map whenever the
- * agent can't or won't answer — old binaries, missing ACP support, or a
- * timeout must all degrade to config-only model choices.
+ * Ask the agent binary for the models each of `providerIds` (the
+ * providers configured in config.yaml) offers. Returns an empty map
+ * whenever the agent can't or won't answer — old binaries, missing ACP
+ * support, or a timeout must all degrade to config-only model choices.
  */
 const fetchProviderCatalog = async (
   binary: string,
   providerIds: readonly string[],
 ): Promise<ProviderCatalog> => {
-  const catalog = new Map<string, CatalogProvider>();
+  const catalog = new Map<string, readonly CatalogModel[]>();
   if (providerIds.length === 0) return catalog;
   const acp = startAcp(binary);
   try {
-    const init = await acp.request(
-      1,
-      "initialize",
-      INIT_PARAMS,
-      INIT_TIMEOUT_MS,
-    );
+    const init = await acp.request("initialize", INIT_PARAMS, INIT_TIMEOUT_MS);
     if (init.error !== undefined) return catalog;
     acp.notify("initialized");
-    const list = await acp.request(2, PROVIDERS_LIST, {}, LIST_TIMEOUT_MS);
-    const entries = asRecord(list.result)?.entries;
+    const list = await acp.request(PROVIDERS_LIST, {}, LIST_TIMEOUT_MS);
+    const entries = isRecord(list.result) ? list.result.entries : undefined;
     if (list.error !== undefined || !Array.isArray(entries)) return catalog;
     for (const entry of entries) {
-      const record = asRecord(entry);
-      if (record === undefined) continue;
-      const providerId = asString(record.providerId);
-      if (providerId === undefined) continue;
-      catalog.set(providerId, {
-        name: asString(record.providerName),
-        models: parseModels(record.models),
-      });
+      if (!isRecord(entry)) continue;
+      const providerId = asString(entry.providerId);
+      if (providerId !== undefined && providerIds.includes(providerId))
+        catalog.set(providerId, parseModels(entry.models));
     }
     // Entries with a catalogue record but no static models (ACP adapters
     // like claude-acp) know their models only at runtime: ask each one.
     // Sequential to bound the load; a failed query leaves the provider's
     // models empty without failing the others.
-    let nextId = 3;
     for (const providerId of providerIds) {
-      const entry = catalog.get(providerId);
-      if (entry === undefined || entry.models.length > 0) continue;
+      const staticModels = catalog.get(providerId);
+      if (staticModels === undefined || staticModels.length > 0) continue;
       const live = await acp.request(
-        nextId,
         SUPPORTED_MODELS,
         { providerId },
         LIVE_TIMEOUT_MS,
       );
-      nextId += 1;
-      const models = asRecord(live.result)?.models;
-      catalog.set(providerId, {
-        name: entry.name,
-        models: Array.isArray(models) ? parseLiveModels(models) : [],
-      });
+      const models = isRecord(live.result) ? live.result.models : undefined;
+      catalog.set(
+        providerId,
+        Array.isArray(models) ? parseLiveModels(models) : [],
+      );
     }
     return catalog;
   } finally {

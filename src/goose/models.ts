@@ -7,6 +7,7 @@ import type {
   ModelSelection,
   ModelSource,
 } from "../glv/models.js";
+import { isRecord } from "../glv/parse.js";
 import { fetchProviderCatalog, type ProviderCatalog } from "./acp-catalog.js";
 
 // Mirrors goose's config/paths.rs: GOOSE_PATH_ROOT redirects every goose
@@ -36,12 +37,8 @@ const asString = (value: unknown): string =>
 // A provider entry feeds the picker only when it is enabled and names a
 // model.
 const usableModel = (value: unknown): string | undefined => {
-  const record =
-    typeof value === "object" && value !== null
-      ? (value as Record<string, unknown>)
-      : undefined;
-  if (record === undefined || record.enabled === false) return undefined;
-  const model = asString(record.model).trim();
+  if (!isRecord(value) || value.enabled === false) return undefined;
+  const model = asString(value.model).trim();
   return model === "" ? undefined : model;
 };
 
@@ -59,7 +56,7 @@ const readProviders = (
 ): ReadonlyMap<string, string> => {
   const providers = new Map<string, string>();
   const raw = record.providers;
-  if (typeof raw !== "object" || raw === null) return providers;
+  if (!isRecord(raw)) return providers;
   for (const [name, value] of Object.entries(raw)) {
     const model = usableModel(value);
     if (model !== undefined) providers.set(name, model);
@@ -77,8 +74,7 @@ const resolveActive = (
     asString(record.active_provider).trim() ||
     undefined;
   if (provider === undefined) return undefined;
-  const model =
-    process.env.GOOSE_MODEL?.trim() || providers.get(provider) || undefined;
+  const model = process.env.GOOSE_MODEL?.trim() || providers.get(provider);
   return model === undefined ? undefined : { provider, model };
 };
 
@@ -92,10 +88,9 @@ const readModelConfig = (): GooseModelConfig => {
   } catch {
     return NO_MODELS;
   }
-  if (typeof doc !== "object" || doc === null) return NO_MODELS;
-  const record = doc as Record<string, unknown>;
-  const providers = readProviders(record);
-  return { providers, active: resolveActive(record, providers) };
+  if (!isRecord(doc)) return NO_MODELS;
+  const providers = readProviders(doc);
+  return { providers, active: resolveActive(doc, providers) };
 };
 
 // The active provider leads the list so goose's own default is easy to find.
@@ -161,7 +156,7 @@ const makeGooseModelSource = (binary: string): ModelSource => {
     const out: ModelChoice[] = [];
     for (const provider of orderedProviderNames(providers, active)) {
       const configured = providers.get(provider) ?? "";
-      const models = [...(catalog.get(provider)?.models ?? [])];
+      const models = [...(catalog.get(provider) ?? [])];
       // The configured model is always offered, even when the catalogue is
       // unavailable or doesn't know it (e.g. a custom provider).
       if (!models.some((model) => model.id === configured))
@@ -185,7 +180,7 @@ const makeGooseModelSource = (binary: string): ModelSource => {
     // Validate against whatever catalogue state is already cached — never
     // spawn for a submit. With nothing cached any model id is accepted;
     // goose itself rejects unknown models at run time.
-    const known = cache?.catalog.get(selection.provider)?.models;
+    const known = cache?.catalog.get(selection.provider);
     if (known !== undefined && !known.some((m) => m.id === selection.model))
       return undefined;
     return selection;

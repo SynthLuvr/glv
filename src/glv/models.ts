@@ -1,5 +1,4 @@
 type ModelSelection = {
-  /** Provider name and model id pair that selects what a run uses. */
   readonly provider: string;
   readonly model: string;
 };

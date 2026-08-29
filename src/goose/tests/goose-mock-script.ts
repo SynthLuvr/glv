@@ -144,9 +144,7 @@ const runAcpMode = async (): Promise<void> => {
         const providerId = (msg.params as { providerId?: unknown } | undefined)
           ?.providerId;
         const models =
-          supported !== undefined && typeof providerId === "string"
-            ? supported[providerId]
-            : undefined;
+          typeof providerId === "string" ? supported?.[providerId] : undefined;
         if (Array.isArray(models)) reply(id, { providerId, models });
         else fail(id);
         return;
