@@ -34,11 +34,10 @@ const STREAM_FLAGS = ["--output-format", "stream-json", "-i", "-"];
 // affects ALL goose usage system-wide, not just GLV-managed sessions.
 const SYSTEM_FLAGS = ["--system", DEFAULT_SYSTEM_PROMPT];
 
-// A model picked on the New Session form is a start-time decision: both
-// flags go together because a model id only means something to its provider.
-// No selection (the "goose default" option) passes no flags, so goose's own
-// env/config precedence stays in charge. Resumes never pass them — the
-// session keeps the model it started with.
+// Both flags go together — a model id only means something to its
+// provider. No selection (the "goose default" option) passes no flags, so
+// goose's own env/config precedence stays in charge. Resumes never pass
+// them; the session keeps the model it started with.
 const modelFlags = (model: ModelSelection | undefined): string[] =>
   model === undefined
     ? []

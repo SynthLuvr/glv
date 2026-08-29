@@ -154,9 +154,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
 
-    // The dropdown lists what was configured at render time; the config may
-    // have changed since, so re-resolve the provider against a fresh read
-    // before launching.
+    // The dropdown listed render-time config; resolve the pick against a
+    // fresh read in case goose's config changed since the form was served.
     const model =
       modelProvider === "" ? undefined : ctx.models?.resolve(modelProvider);
     if (modelProvider !== "" && model === undefined)

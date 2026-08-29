@@ -11,50 +11,75 @@ import type {
 // Mirrors goose's config/paths.rs: GOOSE_PATH_ROOT redirects every goose
 // dir (<root>/config); otherwise the platform default — ~/.config/goose on
 // Unix, Known Folders on Windows (%APPDATA%\Block\goose\config). Like glv's
-// own db-path.ts, the Unix branch resolves via os.homedir() rather than
-// ambient XDG_* vars: a stray XDG_CONFIG_HOME (CI runners set it) would
-// point at a different real profile than the HOME the tests fake, and
-// goose's own default when the var is unset is ~/.config anyway.
-const gooseConfigPath = (): string => {
-  const root = process.env.GOOSE_PATH_ROOT;
+// own db-path.ts, the Unix branch resolves via HOME rather than ambient
+// XDG_* vars: a stray XDG_CONFIG_HOME (CI runners set it) would point at a
+// different profile than the HOME the tests fake.
+const gooseConfigPath = (env: NodeJS.ProcessEnv = process.env): string => {
+  const root = env.GOOSE_PATH_ROOT;
   if (root !== undefined && isAbsolute(root))
     return join(root, "config", "config.yaml");
   if (platform() === "win32")
     return join(
-      process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"),
+      env.APPDATA ?? join(homedir(), "AppData", "Roaming"),
       "Block",
       "goose",
       "config",
       "config.yaml",
     );
-  return join(homedir(), ".config", "goose", "config.yaml");
+  return join(env.HOME ?? homedir(), ".config", "goose", "config.yaml");
 };
-
-type ProviderEntry = { enabled: boolean; model: string };
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : "";
 
-const asEntry = (value: unknown): ProviderEntry | undefined => {
+// A provider entry feeds the picker only when it is enabled and names a
+// model.
+const usableModel = (value: unknown): string | undefined => {
   if (typeof value !== "object" || value === null) return undefined;
   const record = value as Record<string, unknown>;
-  return {
-    enabled: record.enabled !== false,
-    model: asString(record.model).trim(),
-  };
+  if (record.enabled === false) return undefined;
+  const model = asString(record.model).trim();
+  return model === "" ? undefined : model;
 };
 
 type GooseModelConfig = {
-  /** providers map in config order, filtered to usable entries. */
-  readonly providers: ReadonlyMap<string, ProviderEntry>;
+  /** Usable providers in config order, provider name → model id. */
+  readonly providers: ReadonlyMap<string, string>;
   /** Resolved the way goose's get_active_provider/get_active_model do. */
   readonly active: ModelSelection | undefined;
 };
 
-// Read per call (not cached) so `goose configure` changes surface on the
-// next New Session render without restarting the server. A missing or
-// malformed file degrades to "no models" rather than failing the route —
-// the form then simply hides the picker.
+const readProviders = (
+  record: Record<string, unknown>,
+): ReadonlyMap<string, string> => {
+  const providers = new Map<string, string>();
+  const raw = record.providers;
+  if (typeof raw !== "object" || raw === null) return providers;
+  for (const [name, value] of Object.entries(raw)) {
+    const model = usableModel(value);
+    if (model !== undefined) providers.set(name, model);
+  }
+  return providers;
+};
+
+// GOOSE_PROVIDER/GOOSE_MODEL override active_provider, like goose itself.
+const resolveActive = (
+  record: Record<string, unknown>,
+  providers: ReadonlyMap<string, string>,
+): ModelSelection | undefined => {
+  const provider =
+    process.env.GOOSE_PROVIDER?.trim() ||
+    asString(record.active_provider).trim() ||
+    undefined;
+  if (provider === undefined) return undefined;
+  const model =
+    process.env.GOOSE_MODEL?.trim() || providers.get(provider) || undefined;
+  return model === undefined ? undefined : { provider, model };
+};
+
+// Read per call so `goose configure` edits surface on the next New Session
+// render without a restart. A missing or malformed file degrades to "no
+// models", which hides the picker rather than failing the route.
 const readModelConfig = (): GooseModelConfig => {
   let doc: unknown;
   try {
@@ -65,59 +90,36 @@ const readModelConfig = (): GooseModelConfig => {
   if (typeof doc !== "object" || doc === null)
     return { providers: new Map(), active: undefined };
   const record = doc as Record<string, unknown>;
-
-  const providers = new Map<string, ProviderEntry>();
-  const rawProviders = record.providers;
-  if (typeof rawProviders === "object" && rawProviders !== null)
-    for (const [name, value] of Object.entries(rawProviders)) {
-      const entry = asEntry(value);
-      if (entry === undefined || entry.model === "" || !entry.enabled) continue;
-      providers.set(name, entry);
-    }
-
-  const envProvider = process.env.GOOSE_PROVIDER?.trim();
-  const envModel = process.env.GOOSE_MODEL?.trim();
-  const configProvider = asString(record.active_provider).trim();
-  const provider = envProvider || configProvider || undefined;
-  const entry = provider === undefined ? undefined : providers.get(provider);
-  const model = envModel || entry?.model || undefined;
-  const active =
-    provider !== undefined && model !== undefined
-      ? { provider, model }
-      : undefined;
-
-  return { providers, active };
+  const providers = readProviders(record);
+  return { providers, active: resolveActive(record, providers) };
 };
 
-// Dropdown copy: provider and model, the same pair goose's own status line
-// shows, so the option is unambiguous when two providers share a model id.
-const choiceLabel = (provider: string, model: string): string =>
-  `${provider} — ${model}`;
+// The active provider leads the list so goose's own default is easy to find.
+const orderedProviderNames = (
+  providers: ReadonlyMap<string, string>,
+  active: ModelSelection | undefined,
+): readonly string[] => {
+  const names = [...providers.keys()];
+  if (active === undefined || !providers.has(active.provider)) return names;
+  return [active.provider, ...names.filter((name) => name !== active.provider)];
+};
 
 const makeGooseModelSource = (): ModelSource => {
   const choices = (): readonly ModelChoice[] => {
     const { providers, active } = readModelConfig();
-    const names =
-      active !== undefined && providers.has(active.provider)
-        ? [
-            active.provider,
-            ...[...providers.keys()].filter((n) => n !== active.provider),
-          ]
-        : [...providers.keys()];
-    return names.map((provider) => {
-      const model = providers.get(provider)?.model ?? "";
-      return { provider, model, label: choiceLabel(provider, model) };
-    });
+    return orderedProviderNames(providers, active).map((provider) => ({
+      provider,
+      label: `${provider} — ${providers.get(provider)}`,
+    }));
   };
   return {
     choices,
     defaultSelection: () => readModelConfig().active,
     resolve: (provider) => {
-      const { providers } = readModelConfig();
-      const entry = providers.get(provider);
-      return entry === undefined ? undefined : { provider, model: entry.model };
+      const model = readModelConfig().providers.get(provider);
+      return model === undefined ? undefined : { provider, model };
     },
   };
 };
 
-export { makeGooseModelSource };
+export { gooseConfigPath, makeGooseModelSource };

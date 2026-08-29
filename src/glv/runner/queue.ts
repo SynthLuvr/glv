@@ -152,10 +152,7 @@ const enqueueNewSession = (
   enqueueInvocation(
     runner,
     key,
-    {
-      args: runner.config.agent.newSession(prompt, key, model),
-      stdin: prompt,
-    },
+    { args: runner.config.agent.newSession(prompt, key, model), stdin: prompt },
     workingDir,
   );
 

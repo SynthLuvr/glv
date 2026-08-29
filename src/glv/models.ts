@@ -4,10 +4,9 @@ type ModelSelection = {
   readonly model: string;
 };
 
-/** One dropdown entry: the provider name and the model goose has for it. */
+/** One dropdown entry: a configured provider and the model it offers. */
 type ModelChoice = {
   readonly provider: string;
-  readonly model: string;
   /** Dropdown label, e.g. "anthropic — claude-sonnet-4-5". */
   readonly label: string;
 };

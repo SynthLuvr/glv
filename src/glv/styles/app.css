@@ -1637,15 +1637,8 @@ pre::-webkit-scrollbar-thumb {
 }
 /* ---------- model picker ---------- */
 select.form-input {
-  width: 100%;
   cursor: pointer;
-  resize: none;
 }
-
-.model-hint {
-  display: block;
-}
-
 .form-input:focus {
   outline: none;
   border-color: var(--color-accent);

@@ -41,37 +41,38 @@ const TempDirBody = () => (
   </div>
 );
 
-// Model picker, rendered only when the flavor exposes configured models.
+// Render-ready picker state; NewSessionForm hides the field when absent.
+type ModelPicker = {
+  readonly choices: readonly ModelChoice[];
+  readonly defaultLabel: string;
+  readonly selected: string;
+};
+
 // The first option ("<agent> default — …") submits an empty value so the
 // run passes no model flags and the agent's own precedence applies.
 const ModelSelect = ({
   agentName,
-  choices,
-  defaultLabel,
-  selected,
+  models,
 }: {
   agentName: string;
-  choices: readonly ModelChoice[];
-  defaultLabel: string;
-  selected: string;
+  models: ModelPicker;
 }) => (
   <label class="form-field">
     <span class="form-label">Model</span>
-    <select
-      name="model_provider"
-      class="form-input model-select"
-      data-model-select
-    >
-      <option value="" selected={selected === ""}>
-        {agentName} default — {defaultLabel}
+    <select name="model_provider" class="form-input">
+      <option value="" selected={models.selected === ""}>
+        {agentName} default — {models.defaultLabel}
       </option>
-      {choices.map((choice) => (
-        <option value={choice.provider} selected={selected === choice.provider}>
+      {models.choices.map((choice) => (
+        <option
+          value={choice.provider}
+          selected={models.selected === choice.provider}
+        >
           {choice.label}
         </option>
       ))}
     </select>
-    <span class="paste-hint model-hint">
+    <span class="paste-hint">
       Only models configured in {agentName} are listed; manage them with{" "}
       {agentName} configure.
     </span>
@@ -123,11 +124,7 @@ const NewSessionForm = ({
   error?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
-  models?: {
-    choices: readonly ModelChoice[];
-    defaultLabel: string;
-    selected: string;
-  };
+  models?: ModelPicker;
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -152,12 +149,7 @@ const NewSessionForm = ({
         <TempDirBody />
       </div>
       {models !== undefined && (
-        <ModelSelect
-          agentName={agentName}
-          choices={models.choices}
-          defaultLabel={models.defaultLabel}
-          selected={models.selected}
-        />
+        <ModelSelect agentName={agentName} models={models} />
       )}
       <label class="form-field">
         <span class="form-label">Prompt</span>

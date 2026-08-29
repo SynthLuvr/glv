@@ -1,16 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { platform, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
+  fakeHomeEnv,
   flagValue,
   type IntegrationEnv,
   postFollowUp,
   postNewSession,
   waitForArgs,
 } from "../../glv/tests/harness.js";
+import { gooseConfigPath } from "../models.js";
 import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
 
 // goose's provider config, as `goose configure` writes it: one model per
@@ -46,21 +48,9 @@ describe("new-session model picker (goose)", () => {
 
   beforeAll(async () => {
     const home = mkdtempSync(join(tmpdir(), "glv-model-home-"));
-    // Same platform path src/goose/models.ts reads: the fake home's APPDATA
-    // is what the server sees (harness fakeHomeEnv), so this lands where
-    // gooseConfigPath() looks on both OSes.
-    const configYaml =
-      platform() === "win32"
-        ? join(
-            home,
-            "AppData",
-            "Roaming",
-            "Block",
-            "goose",
-            "config",
-            "config.yaml",
-          )
-        : join(home, ".config", "goose", "config.yaml");
+    // Written where the server resolves goose's config for the fake home
+    // (fakeHomeEnv is what the harness passes to the server process).
+    const configYaml = gooseConfigPath(fakeHomeEnv(home));
     mkdirSync(dirname(configYaml), { recursive: true });
     writeFileSync(configYaml, CONFIG_YAML);
     argsDir = mkdtempSync(join(tmpdir(), "glv-model-args-"));

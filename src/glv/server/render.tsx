@@ -172,6 +172,26 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
     { status: 404, title: "Session not found — GLV" },
   );
 
+// The picker shows only when the flavor exposes configured models and a
+// resolvable default. `submitted` carries the provider from a rejected
+// submit so the user's selection survives the re-render.
+const modelPicker = (ctx: ServerContext, submitted: string | undefined) => {
+  const source = ctx.models;
+  if (source === undefined) return undefined;
+  const choices = source.choices();
+  const defaultSelection = source.defaultSelection();
+  if (choices.length === 0 || defaultSelection === undefined) return undefined;
+  return {
+    choices,
+    defaultLabel: `${defaultSelection.provider} / ${defaultSelection.model}`,
+    selected:
+      submitted !== undefined &&
+      choices.some((choice) => choice.provider === submitted)
+        ? submitted
+        : "",
+  };
+};
+
 const newSessionDetail = (
   ctx: ServerContext,
   {
@@ -183,23 +203,6 @@ const newSessionDetail = (
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
-  // Model picker only when the flavor exposes configured models and a
-  // resolvable default; a hidden field on validation errors keeps the
-  // user's last selection selected across re-renders.
-  const modelChoices = ctx.models?.choices() ?? [];
-  const defaultSelection = ctx.models?.defaultSelection();
-  const models =
-    modelChoices.length > 0 && defaultSelection !== undefined
-      ? {
-          choices: modelChoices,
-          defaultLabel: `${defaultSelection.provider} / ${defaultSelection.model}`,
-          selected:
-            modelProvider !== undefined &&
-            modelChoices.some((choice) => choice.provider === modelProvider)
-              ? modelProvider
-              : "",
-        }
-      : undefined;
   return (
     <NewSessionForm
       agentName={ctx.profile.agentName}
@@ -208,7 +211,7 @@ const newSessionDetail = (
       error={error}
       prompts={prompts}
       categories={categories}
-      models={models}
+      models={modelPicker(ctx, modelProvider)}
     />
   );
 };
