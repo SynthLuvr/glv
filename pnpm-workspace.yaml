@@ -3,4 +3,6 @@ allowBuilds:
   '@parcel/watcher': true
   esbuild: true
 minimumReleaseAgeExclude:
+  - ts-canon@0.1.4
   - type-a-bin@0.1.2
+scriptShell: bash
