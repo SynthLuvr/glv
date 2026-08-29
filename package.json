@@ -61,7 +61,7 @@
     "oxlint-tsgolint": "^7.0.2001",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
-    "type-a-bin": "github:SynthLuvr/type-a-bin#dist",
+    "type-a-bin": "^0.1.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

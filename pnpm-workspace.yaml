@@ -2,3 +2,5 @@ allowBuilds:
   '@ast-grep/cli': true
   '@parcel/watcher': true
   esbuild: true
+minimumReleaseAgeExclude:
+  - type-a-bin@0.1.2
