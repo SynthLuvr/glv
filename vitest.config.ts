@@ -32,6 +32,7 @@ const WINDOWS_EXCLUDED_SUITES = [
   "src/claude/tests/group-running-indicator.integration.test.ts",
   "src/claude/tests/mobile-upload-start.integration.test.ts",
   "src/claude/tests/new-session.integration.test.ts",
+  "src/claude/tests/sessions-routes.integration.test.ts",
   "src/claude/tests/runner-stream.integration.test.ts",
   "src/claude/tests/sandboxed-env.integration.test.ts",
   "src/claude/tests/status-feed.integration.test.ts",
