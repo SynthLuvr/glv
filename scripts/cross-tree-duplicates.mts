@@ -6,13 +6,14 @@
  *
  *   pnpm lint:cross-tree -> tsx scripts/cross-tree-duplicates.mts
  *
- * jscpd's per-tree runs (lint:duplicates) see each tree in isolation, so
- * the two product trees could drift into near-identical copies without
- * tripping it. This check closes that gap: any clone pair spanning two
- * trees fails the build. The enforced floor is at least 3 lines AND 50
- * tokens — jscpd's defaults, passed explicitly in runJscpd so the bar is
- * deliberate rather than inherited. Byte-identical copies of ANY size are
- * still caught by lint:mirrored.
+ * The jscpd step inside `ts-canon lint` only fails when the aggregate
+ * duplication rate crosses its 5% threshold, so the two product trees
+ * could drift into near-identical copies without tripping it. This
+ * check closes that gap: any clone pair spanning two trees fails the
+ * build. The enforced floor is at least 3 lines AND 50 tokens —
+ * jscpd's defaults, passed explicitly in runJscpd so the bar is
+ * deliberate rather than inherited. Byte-identical copies of ANY size
+ * are still caught by lint:mirrored.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,8 +21,8 @@ import { join } from "node:path";
 import { runPnpm } from "./run-pnpm.mts";
 
 const TREES = new Set(["goose", "claude", "glv"]);
-// typescript + tsx mirror lint:duplicates' scope plus the .tsx views; css
-// covers styles/, markdown the shared system prompt.
+// typescript + tsx mirror the ts-canon jscpd step's scope plus the .tsx
+// views; css covers styles/, markdown the shared system prompt.
 const FORMAT_LIST = ["typescript", "tsx", "css", "markdown"];
 const FORMATS = FORMAT_LIST.join(",");
 

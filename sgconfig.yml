@@ -1,0 +1,10 @@
+# ast-grep project config preset.
+#
+# Copy to the consumer repo root (as `sgconfig.yml`) to point bare
+# `ast-grep scan` and the ast-grep editor/LSP integrations at the rules
+# shipped with ts-canon. `ts-canon lint` passes explicit `--rule` paths
+# and does not need this file. Since ts-canon 0.1.4 every rule ships a
+# TypeScript and a Tsx document under the same id, so this covers both
+# `.ts` and `.tsx` files.
+ruleDirs:
+  - node_modules/ts-canon/rules
