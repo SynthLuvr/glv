@@ -104,20 +104,20 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  app.get("/", (c) =>
-    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
+  app.get("/", async (c) =>
+    render(c, ctx, sessionsAll(), undefined, await newSessionDetail(ctx)),
   );
 
   // Registered before the /sessions/:id wildcard so "new" is treated as a
   // literal segment rather than a session id.
-  app.get("/sessions/new", (c) => {
+  app.get("/sessions/new", async (c) => {
     const workingDir = c.req.query("working_dir") || undefined;
     return render(
       c,
       ctx,
       sessionsAll(),
       undefined,
-      newSessionDetail(ctx, { workingDir }),
+      await newSessionDetail(ctx, { workingDir }),
       { title: NEW_SESSION_TITLE },
     );
   });
@@ -130,24 +130,41 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = fieldString("prompt");
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
+    const modelProvider = fieldString("model_provider");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(fieldString("working_dir")),
     );
 
     const files = collectFiles(body.uploads);
 
-    const rejectForm = (error: string, status: ContentfulStatusCode) =>
+    const rejectForm = async (
+      error: string,
+      status: ContentfulStatusCode,
+    ): Promise<Response> =>
       render(
         c,
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, { error, workingDir: submittedWorkingDir }),
+        await newSessionDetail(ctx, {
+          error,
+          workingDir: submittedWorkingDir,
+          modelProvider,
+        }),
         { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
+
+    // The dropdown listed render-time config; resolve the pick against a
+    // fresh read in case goose's config changed since the form was served.
+    const model = ctx.models?.resolve(modelProvider);
+    if (modelProvider !== "" && model === undefined)
+      return rejectForm(
+        `That model is no longer available in ${ctx.profile.agentName}. Pick another from the list.`,
+        422,
+      );
 
     if (
       sessionMode !== "temp" &&
@@ -188,7 +205,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         async (): Promise<EstablishOutcome> => {
           // Inside the per-directory lock so concurrent starts can't race the pull.
           await pullRepo(workingDir, ctx.runGit);
-          const handle = ctx.launcher.startNew(workingDir, fullPrompt);
+          const handle = ctx.launcher.startNew(workingDir, fullPrompt, model);
 
           const sessionId = await ctx.launcher.awaitNew(
             handle,
@@ -273,7 +290,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.post("/sessions/:id/archive", (c) => {
+  app.post("/sessions/:id/archive", async (c) => {
     const id = c.req.param("id");
     // Stop an in-flight run first: sweeping the temp working dir out from
     // under a live agent (or deleting uploads its prompt references) leaves
@@ -282,10 +299,17 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
-    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
-      refreshSidebar: true,
-      title: NEW_SESSION_TITLE,
-    });
+    return render(
+      c,
+      ctx,
+      sessionsAll(),
+      undefined,
+      await newSessionDetail(ctx),
+      {
+        refreshSidebar: true,
+        title: NEW_SESSION_TITLE,
+      },
+    );
   });
 
   app.post("/sessions/:id/rename", async (c) => {

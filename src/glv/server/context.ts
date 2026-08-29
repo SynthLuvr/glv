@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { AuthService } from "../auth/service.js";
 import type { GitRunner } from "../git.js";
 import type { SessionLauncher } from "../launch.js";
+import type { ModelSource } from "../models.js";
 import type { CommandRunner } from "../pr-state.js";
 import type { FlavorProfile } from "../profile.js";
 import type { Runner } from "../runner/index.js";
@@ -34,6 +35,8 @@ type ServerOptions = {
   runPrState?: CommandRunner;
   /** Subprocess runner for local `git` queries; tests inject a fake. */
   runGit?: GitRunner;
+  /** Model picker for the New Session form; undefined hides the field. */
+  models?: ModelSource;
 };
 
 // Everything a route handler needs, threaded in explicitly so route modules
@@ -59,6 +62,7 @@ type ServerContext = {
   readonly maxStatusPolls: number;
   readonly runPrState: CommandRunner | undefined;
   readonly runGit: GitRunner | undefined;
+  readonly models: ModelSource | undefined;
   readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };

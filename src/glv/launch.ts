@@ -1,4 +1,5 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ModelSelection } from "./models.js";
 import type { SessionRow } from "./sessions.js";
 
 type EstablishOutcome =
@@ -11,7 +12,11 @@ type EstablishOutcome =
 // interface only, so the create-session flow is identical for both.
 type SessionLauncher = {
   /** Enqueue the run and return an opaque handle for it. */
-  readonly startNew: (workingDir: string, prompt: string) => string;
+  readonly startNew: (
+    workingDir: string,
+    prompt: string,
+    model?: ModelSelection,
+  ) => string;
   /**
    * Resolve the run's real session id, or undefined when the agent did not
    * create one within the timeout.

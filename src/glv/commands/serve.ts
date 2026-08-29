@@ -7,6 +7,7 @@ import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
 import { setupLogging } from "../log.js";
+import type { ModelSource } from "../models.js";
 import type { FlavorProfile } from "../profile.js";
 import { openPromptsDb } from "../prompts/db.js";
 import {
@@ -24,6 +25,8 @@ type ServeOpts = {
   runner: RunnerConfig;
   /** Binds the flavor's new-session strategy once the runner exists. */
   makeLauncher: (runner: Runner) => SessionLauncher;
+  /** Optional model picker source; undefined hides the picker entirely. */
+  models?: ModelSource;
   /** Closes the flavor's storage handles on shutdown. */
   closeStore: () => void;
   authDbPath: string;
@@ -132,6 +135,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     auth,
     prompts: promptsDb,
     groups: groupsDb,
+    models: opts.models,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
@@ -141,6 +145,10 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     console.log(
       `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
     );
+    // Enumerating the model catalogue can spawn the agent binary, which
+    // takes seconds; warm it now so the first New Session render is instant.
+    // Best-effort only: a failure degrades the picker, never the server.
+    void opts.models?.choices();
     if (opts.forwardHost !== undefined)
       tunnel = startForwardTunnel(info.port, opts.forwardHost);
   });

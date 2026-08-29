@@ -7,7 +7,11 @@ import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import type { SessionRow } from "../sessions.js";
 import { Layout } from "../views/Layout.js";
-import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
+import {
+  type ModelPicker,
+  NewSessionForm,
+  NotFoundDetail,
+} from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
@@ -172,10 +176,37 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
     { status: 404, title: "Session not found — GLV" },
   );
 
-const newSessionDetail = (
+// The picker shows only when the flavor exposes configured models and a
+// resolvable default. `submitted` carries the form value from a rejected
+// submit so the user's selection survives the re-render; the cheap sync
+// default check runs before the async choices, which may spawn the agent
+// binary to enumerate the catalogue.
+const modelPicker = async (
   ctx: ServerContext,
-  { error, workingDir }: { error?: string; workingDir?: string } = {},
-): Child => {
+  submitted: string | undefined,
+): Promise<ModelPicker | undefined> => {
+  const source = ctx.models;
+  if (source === undefined) return undefined;
+  const defaultSelection = source.defaultSelection();
+  if (defaultSelection === undefined) return undefined;
+  const choices = await source.choices();
+  if (choices.length === 0) return undefined;
+  const value = submitted ?? "";
+  return {
+    choices,
+    defaultLabel: `${defaultSelection.provider} / ${defaultSelection.model}`,
+    selected: choices.some((choice) => choice.value === value) ? value : "",
+  };
+};
+
+const newSessionDetail = async (
+  ctx: ServerContext,
+  {
+    error,
+    workingDir,
+    modelProvider,
+  }: { error?: string; workingDir?: string; modelProvider?: string } = {},
+): Promise<Child> => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
@@ -187,6 +218,7 @@ const newSessionDetail = (
       error={error}
       prompts={prompts}
       categories={categories}
+      models={await modelPicker(ctx, modelProvider)}
     />
   );
 };

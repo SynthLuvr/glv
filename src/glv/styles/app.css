@@ -1635,6 +1635,10 @@ pre::-webkit-scrollbar-thumb {
   background: var(--color-surface);
   color: var(--color-text);
 }
+/* ---------- model picker ---------- */
+select.form-input {
+  cursor: pointer;
+}
 .form-input:focus {
   outline: none;
   border-color: var(--color-accent);
@@ -1697,6 +1701,14 @@ pre::-webkit-scrollbar-thumb {
 }
 .paste-hint {
   margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+}
+/* Not .paste-hint: uploads.ts rewrites the first .paste-hint inside a
+   data-upload-form, so the picker hint needs its own class. */
+.model-hint {
+  display: block;
+  margin: 0.35rem 0 0;
   font-size: 0.78rem;
   color: var(--color-faint);
 }

@@ -42,6 +42,7 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     runGit: opts.runGit,
+    models: opts.models,
     createLocks: new Map(),
     assets: buildAssetBundle(opts.profile.id),
   };

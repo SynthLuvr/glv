@@ -1,3 +1,4 @@
+import type { ModelSelection } from "../glv/models.js";
 import type { AgentInvocation } from "../glv/runner/types.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../glv/system.js";
 import { gooseProfile } from "./profile.js";
@@ -33,13 +34,27 @@ const STREAM_FLAGS = ["--output-format", "stream-json", "-i", "-"];
 // affects ALL goose usage system-wide, not just GLV-managed sessions.
 const SYSTEM_FLAGS = ["--system", DEFAULT_SYSTEM_PROMPT];
 
+// Both flags go together — a model id only means something to its
+// provider. No selection (the "goose default" option) passes no flags, so
+// goose's own env/config precedence stays in charge. Resumes never pass
+// them; the session keeps the model it started with.
+const modelFlags = (model: ModelSelection | undefined): string[] =>
+  model === undefined
+    ? []
+    : ["--provider", model.provider, "--model", model.model];
+
 // goose discovers its own session id by writing to its database, so the
 // runner's handle key is never forwarded to the binary: new sessions start
 // without one and the launch strategy discovers the real id afterwards.
 const makeGooseAgent = (binary: string): AgentInvocation => ({
   name: gooseProfile.agentName,
   binary,
-  newSession: () => ["run", ...SYSTEM_FLAGS, ...STREAM_FLAGS],
+  newSession: (_prompt, _key, model) => [
+    "run",
+    ...SYSTEM_FLAGS,
+    ...modelFlags(model),
+    ...STREAM_FLAGS,
+  ],
   resume: (key) => [
     "run",
     "-r",
