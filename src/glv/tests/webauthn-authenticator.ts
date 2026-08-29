@@ -241,4 +241,5 @@ const makeSoftwareAuthenticator = (): SoftwareAuthenticator => {
   };
 };
 
+export type { SoftwareAuthenticator };
 export { makeSoftwareAuthenticator };

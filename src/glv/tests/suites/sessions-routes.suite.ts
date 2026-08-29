@@ -43,6 +43,22 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     return row?.n ?? -1;
   };
 
+  const promptId = (title: string): string => {
+    const db = new DatabaseSync(env.dbs.promptsDb, { readOnly: true });
+    const row = db
+      .prepare("SELECT id FROM saved_prompts WHERE title = ?")
+      .get(title) as { id: string } | undefined;
+    db.close();
+    if (row === undefined) throw new Error(`prompt ${title} not found`);
+    return row.id;
+  };
+
+  const sessionIdOf = (html: string): string => {
+    const match = /detail-inner" data-session-id="([^"]+)"/.exec(html);
+    expect(match).not.toBeNull();
+    return match?.[1] ?? "";
+  };
+
   beforeAll(async () => {
     // A long sleep keeps the first run busy so a follow-up queues behind it.
     env = await fx.startEnv("glv-sessrt-", { sleepMs: 15000 });
@@ -148,9 +164,7 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
       });
       expect(start.status).toBe(200);
       const startHtml = await start.text();
-      const match = /detail-inner" data-session-id="([^"]+)"/.exec(startHtml);
-      expect(match).not.toBeNull();
-      sessionId = match?.[1] ?? "";
+      sessionId = sessionIdOf(startHtml);
       expect(startHtml).toContain('data-run-status="running"');
 
       const queued = await postFollowUp(env, sessionId, "second prompt");
@@ -180,38 +194,27 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
 
   describe("saved prompt run", () => {
     it("bumps usage when a run starts from a saved prompt", async () => {
-      const created = await authedFetch(env, "/prompts", {
-        method: "POST",
-        body: new URLSearchParams({ title: "Runner", body: "run me" }),
+      const created = await postForm("/prompts", {
+        title: "Runner",
+        body: "run me",
       });
       expect(created.status).toBe(200);
       expect(usageCount("Runner")).toBe(0);
 
       const res = await postForm("/sessions", {
         prompt: "kick off from a saved prompt",
-        prompt_id: promptIdOf(env, "Runner"),
+        prompt_id: promptId("Runner"),
         working_dir: env.scratchDir,
       });
       expect(res.status).toBe(200);
       expect(usageCount("Runner")).toBeGreaterThan(0);
 
-      // Stop the spawned agent; the test only needed the establishment.
+      // Only the run's start mattered; stop the agent so cleanup is not
+      // held waiting for it.
       const html = await res.text();
-      const match = /detail-inner" data-session-id="([^"]+)"/.exec(html);
-      expect(match).not.toBeNull();
-      await postForm(`/sessions/${match?.[1] ?? ""}/stop`, {});
+      await postForm(`/sessions/${sessionIdOf(html)}/stop`, {});
     }, 60000);
   });
-};
-
-const promptIdOf = (env: IntegrationEnv, title: string): string => {
-  const db = new DatabaseSync(env.dbs.promptsDb, { readOnly: true });
-  const row = db
-    .prepare("SELECT id FROM saved_prompts WHERE title = ?")
-    .get(title) as { id: string } | undefined;
-  db.close();
-  if (row === undefined) throw new Error(`prompt ${title} not found`);
-  return row.id;
 };
 
 export { runSessionsRoutesSuite };

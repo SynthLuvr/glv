@@ -8,11 +8,9 @@ import {
   type IntegrationEnv,
 } from "../harness.js";
 
-// Exercises PR detection across every candidate rank in pr.ts — a bare
-// `gh pr create` URL (created), an MCP JSON result (mcpResult), an assistant
-// summary, a user mention, and thinking text — through the sidebar-meta
-// routes that scan a session's transcript, plus rank precedence when several
-// appear in one session. `gh` on PATH is the harness's state-mocked script
+// Exercises PR detection across every candidate rank in pr.ts through the
+// sidebar-meta routes, plus rank precedence when several appear in one
+// session. `gh` on PATH is the harness's state-mocked script
 // (gh-mock-script.ts); the working dir is a real git repository so the
 // branch chip resolves through real git.
 
@@ -102,8 +100,7 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
         ],
       },
     ]);
-    // Both a user mention (rank 4) and an assistant summary (rank 3): the
-    // summary must win.
+    // Rank precedence: assistant summary (3) beats user mention (4).
     fx.seedMessages(env, "pr-precedence", [
       {
         role: "user",

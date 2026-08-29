@@ -2,13 +2,14 @@ import { DatabaseSync } from "node:sqlite";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { type FlavorFixture, type IntegrationEnv } from "../harness.js";
-import { makeSoftwareAuthenticator } from "../webauthn-authenticator.js";
+import {
+  makeSoftwareAuthenticator,
+  type SoftwareAuthenticator,
+} from "../webauthn-authenticator.js";
 
-// Exercises the real WebAuthn stack end-to-end over HTTP: options issuance,
-// registration (claim), enrollment links, devices, login, challenge
-// single-use, signature/origin/counter rejection, and logout. The "client"
-// is a software authenticator producing genuine ES256-signed ceremonies —
-// no function is mocked; the server verifies real cryptography.
+// The "client" is a software authenticator producing genuine ES256-signed
+// ceremonies — no function is mocked; the server verifies real cryptography
+// over real HTTP.
 
 type OptionsJson = {
   challenge: string;
@@ -23,9 +24,8 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
   const stranger = makeSoftwareAuthenticator();
 
   // The harness pre-seeds an owner session; these tests need a brand-new,
-  // unclaimed app, so the owner/session rows are cleared. The server
-  // re-reads the tables on every request and created the full schema at
-  // boot, so this leaves a clean, unclaimed auth DB behind.
+  // unclaimed app. The server created the full schema at boot and re-reads
+  // the tables on every request, so clearing them after boot is safe.
   const resetAuthDb = (path: string): void => {
     const db = new DatabaseSync(path);
     db.exec("DELETE FROM sessions");
@@ -53,6 +53,43 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
       body: typeof body === "string" ? body : JSON.stringify(body),
     });
 
+  // Every ceremony signs for the harness server's own rpId/origin; only the
+  // challenge varies (plus `count`, impersonating a cloned authenticator).
+  const ceremony = (challenge: string) => ({
+    challenge,
+    rpId: "localhost",
+    origin: env.baseUrl,
+  });
+
+  const register = (
+    auth: SoftwareAuthenticator,
+    challenge: string,
+  ): Promise<Response> =>
+    postJson(
+      "/auth/register/verify",
+      auth.registrationResponse(ceremony(challenge)),
+    );
+
+  const login = (
+    auth: SoftwareAuthenticator,
+    challenge: string,
+    count?: number,
+  ): Promise<Response> =>
+    postJson(
+      "/auth/login/verify",
+      auth.authenticationResponse({ ...ceremony(challenge), count }),
+    );
+
+  const enroll = (
+    token: string,
+    auth: SoftwareAuthenticator,
+    challenge: string,
+  ): Promise<Response> =>
+    postJson(
+      `/auth/enroll/${token}/verify`,
+      auth.registrationResponse(ceremony(challenge)),
+    );
+
   const registerOptions = async (): Promise<OptionsJson> => {
     const res = await get("/auth/register/options");
     expect(res.status).toBe(200);
@@ -64,6 +101,11 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     expect(res.status).toBe(200);
     return (await res.json()) as OptionsJson;
   };
+
+  const verificationBody = async (
+    res: Response,
+  ): Promise<{ verified: boolean; error: string }> =>
+    (await res.json()) as { verified: boolean; error: string };
 
   const sessionTokenOf = (res: Response): string => {
     const setCookie = res.headers.getSetCookie();
@@ -94,9 +136,9 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
       const page = await get("/auth/register");
       expect(page.status).toBe(200);
       expect(await page.text()).toContain("passkey-button");
-      const login = await get("/auth/login");
-      expect(login.status).toBe(302);
-      expect(login.headers.get("location")).toBe("/auth/register");
+      const loginPage = await get("/auth/login");
+      expect(loginPage.status).toBe(302);
+      expect(loginPage.headers.get("location")).toBe("/auth/register");
     });
 
     it("derives the RP from x-forwarded proxy headers", async () => {
@@ -120,15 +162,9 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     let claimToken = "";
 
     it("rejects a registration without an issued challenge", async () => {
-      const res = await postJson("/auth/register/verify", {
-        ...owner.registrationResponse({
-          challenge: "never-issued-by-this-server",
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      });
+      const res = await register(owner, "never-issued-by-this-server");
       expect(res.status).toBe(400);
-      const body = (await res.json()) as { verified: boolean; error: string };
+      const body = await verificationBody(res);
       expect(body.verified).toBe(false);
       expect(body.error).toContain("No registration in progress");
     });
@@ -142,14 +178,7 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
 
     it("claims the app with a genuine passkey registration", async () => {
       const options = await registerOptions();
-      const res = await postJson(
-        "/auth/register/verify",
-        owner.registrationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await register(owner, options.challenge);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { verified: boolean };
       expect(body.verified).toBe(true);
@@ -180,19 +209,11 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     let claimToken = "";
     let enrollToken = "";
 
-    // The claim cookie from the previous describe (re-derived here because
-    // describes cannot share locals) — a fresh login is not needed, any
-    // valid owner session unlocks device management.
+    // Any valid owner session unlocks device management; the claim cookie
+    // lives in another describe's scope, so mint a fresh one.
     beforeAll(async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        owner.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await login(owner, options.challenge);
       expect(res.status).toBe(200);
       claimToken = sessionTokenOf(res);
     });
@@ -237,16 +258,9 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("keeps the link alive after a failed ceremony", async () => {
-      const res = await postJson(
-        `/auth/enroll/${enrollToken}/verify`,
-        phone.registrationResponse({
-          challenge: "bogus-challenge",
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await enroll(enrollToken, phone, "bogus-challenge");
       expect(res.status).toBe(400);
-      // The token must not be burned by a failure — retry must be possible.
+      // A failed ceremony must not burn the token — retry stays possible.
       expect((await get(`/auth/enroll/${enrollToken}/options`)).status).toBe(
         200,
       );
@@ -255,19 +269,12 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     it("enrolls a second passkey through the link", async () => {
       const options = await get(`/auth/enroll/${enrollToken}/options`);
       const body = (await options.json()) as OptionsJson;
-      const res = await postJson(
-        `/auth/enroll/${enrollToken}/verify`,
-        phone.registrationResponse({
-          challenge: body.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await enroll(enrollToken, phone, body.challenge);
       expect(res.status).toBe(200);
       expect(((await res.json()) as { verified: boolean }).verified).toBe(true);
       expect(sessionTokenOf(res)).not.toBe("");
 
-      // Single-use: only a successful enrollment burns the link.
+      // Only a successful enrollment burns the link.
       expect((await get(`/auth/enroll/${enrollToken}`)).status).toBe(302);
       expect((await get(`/auth/enroll/${enrollToken}/options`)).status).toBe(
         403,
@@ -310,44 +317,27 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
 
     it("rejects an unknown credential", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        stranger.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await login(stranger, options.challenge);
       expect(res.status).toBe(400);
-      const body = (await res.json()) as { verified: boolean; error: string };
+      const body = await verificationBody(res);
       expect(body.error).toContain("Unknown credential");
     });
 
     it("rejects an assertion signed for a foreign origin", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        owner.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: "https://evil.example",
-        }),
-      );
+      const assertion = owner.authenticationResponse({
+        ...ceremony(options.challenge),
+        origin: "https://evil.example",
+      });
+      const res = await postJson("/auth/login/verify", assertion);
       expect(res.status).toBe(400);
-      const body = (await res.json()) as { verified: boolean; error: string };
+      const body = await verificationBody(res);
       expect(body.error).toContain("origin");
     });
 
     it("logs in with a genuine assertion and admits the cookie", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        owner.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await login(owner, options.challenge);
       expect(res.status).toBe(200);
       const token = sessionTokenOf(res);
 
@@ -358,64 +348,36 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
 
     it("rejects a replayed assertion (the challenge is single-use)", async () => {
       const options = await loginOptions();
-      const assertion = owner.authenticationResponse({
-        challenge: options.challenge,
-        rpId: "localhost",
-        origin: env.baseUrl,
-      });
+      const assertion = owner.authenticationResponse(
+        ceremony(options.challenge),
+      );
       expect((await postJson("/auth/login/verify", assertion)).status).toBe(
         200,
       );
       const replay = await postJson("/auth/login/verify", assertion);
       expect(replay.status).toBe(400);
-      const body = (await replay.json()) as {
-        verified: boolean;
-        error: string;
-      };
+      const body = await verificationBody(replay);
       expect(body.error).toContain("No login in progress");
     });
 
     it("rejects a cloned authenticator (counter regression)", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        owner.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-          count: 1,
-        }),
-      );
+      const res = await login(owner, options.challenge, 1);
       expect(res.status).toBe(400);
-      const body = (await res.json()) as { verified: boolean; error: string };
+      const body = await verificationBody(res);
       expect(body.error).toContain("counter");
     });
 
     it("keeps the passkey usable after the rejected clones", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        owner.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-          count: 9999,
-        }),
-      );
+      const res = await login(owner, options.challenge, 9999);
       expect(res.status).toBe(200);
       expect(((await res.json()) as { verified: boolean }).verified).toBe(true);
     });
 
     it("logs out and invalidates the session", async () => {
       const options = await loginOptions();
-      const res = await postJson(
-        "/auth/login/verify",
-        phone.authenticationResponse({
-          challenge: options.challenge,
-          rpId: "localhost",
-          origin: env.baseUrl,
-        }),
-      );
+      const res = await login(phone, options.challenge);
       expect(res.status).toBe(200);
       const token = sessionTokenOf(res);
 
