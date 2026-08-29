@@ -2,50 +2,20 @@ import { platform } from "node:os";
 import { vitestPreset } from "ts-canon/presets/vitest";
 import { configDefaults } from "vitest/config";
 
-// Two categories of suites cannot run on Windows yet.
+// The coverage-propagation suites cannot run on Windows: kill() there is
+// an unconditional TerminateProcess (libuv delivers no signal events), so
+// a SIGTERM-stopped server never runs its exit handlers and never flushes
+// its NODE_V8_COVERAGE profile — the artifacts the suite asserts cannot
+// exist. Subprocess coverage for serve processes is therefore POSIX-only
+// for now; normally-exiting CLI invocations still flush and merge there.
 //
-// 1. The claude-flavored suites that spawn the (mocked) agent binary:
-//    PATH interception there needs a real .exe (Node refuses to spawn
-//    .cmd/.bat shims without a shell), and both available hosting
-//    tricks fail for claude's flag-first CLI: a hard-linked node.exe
-//    dies in Node's option parser before any preload can run ("bad
-//    option: --session-id") — the goose flavor works only because its
-//    first argument is a positional ("run"; see type-a-bin's Windows
-//    support) — and a .cmd shim cannot carry claude's multi-line
-//    --append-system-prompt argument (execa rejects line breaks to
-//    prevent cmd.exe injection). Until a real passthrough .exe ships,
-//    these suites are excluded on Windows here; the same suites still
-//    run there through the goose flavor, which drives the identical
-//    glv core.
-//
-// 2. The coverage-propagation suites: Node's kill() on Windows is an
-//    unconditional TerminateProcess (libuv delivers no signal events),
-//    so a SIGTERM-stopped server never runs its exit handlers and never
-//    flushes its NODE_V8_COVERAGE profile — the artifacts the suite
-//    asserts cannot exist there. Subprocess coverage for serve
-//    processes is therefore POSIX-only for now (normally-exiting CLI
-//    invocations still flush and merge on Windows).
+// The claude-flavored suites that spawn the mocked agent binary were
+// excluded here too until type-a-bin 0.1.3. Hosting the mock in a hard
+// link of node.exe fed claude's flag-first argv through Node's option
+// parser ("bad option: --session-id"), and a .cmd shim could not carry
+// the multi-line --append-system-prompt argument. The native trampoline
+// launcher passes the caller's argv through verbatim, so they run again.
 const WINDOWS_EXCLUDED_SUITES = [
-  "src/claude/tests/archive-stops-run.integration.test.ts",
-  "src/claude/tests/dir-spelling.integration.test.ts",
-  "src/claude/tests/follow-up-upload.integration.test.ts",
-  "src/claude/tests/git-pull-before-session.integration.test.ts",
-  "src/claude/tests/group-running-indicator.integration.test.ts",
-  "src/claude/tests/mobile-upload-start.integration.test.ts",
-  "src/claude/tests/new-session.integration.test.ts",
-  "src/claude/tests/sessions-routes.integration.test.ts",
-  "src/claude/tests/runner-stream.integration.test.ts",
-  "src/claude/tests/sandboxed-env.integration.test.ts",
-  "src/claude/tests/status-feed.integration.test.ts",
-  "src/claude/tests/stop-escalation.integration.test.ts",
-  "src/claude/tests/stop-kills-descendants.integration.test.ts",
-  "src/claude/tests/stream-discard-non-json.integration.test.ts",
-  "src/claude/tests/stream-live.integration.test.ts",
-  "src/claude/tests/stream-preview-live.integration.test.ts",
-  "src/claude/tests/system-flag.integration.test.ts",
-  "src/claude/tests/temp-dir.integration.test.ts",
-  "src/claude/tests/upload.integration.test.ts",
-  "src/claude/tests/ux-audit.integration.test.ts",
   "src/goose/tests/coverage-propagation.integration.test.ts",
   "src/claude/tests/coverage-propagation.integration.test.ts",
 ];

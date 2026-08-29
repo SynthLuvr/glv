@@ -1,6 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -12,7 +10,6 @@ import {
 
 const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-  let childPidFile: string;
 
   const delay = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,13 +32,11 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
     });
 
   beforeAll(async () => {
-    childPidFile = join(
-      tmpdir(),
-      `glv-child-${randomBytes(6).toString("hex")}.pid`,
-    );
+    // A silent, long-lived agent that forks a descendant: the run stays
+    // alive until the stop lands, and the behaviour records the child's
+    // pid so the suite can watch the whole tree die.
     env = await fx.startEnv("glv-stop-tree-", {
-      sleepMs: 30000,
-      spawnChild: childPidFile,
+      behaviour: { delayMs: 30000, spawnChild: true },
     });
     const workingDir = join(env.scratchDir, "d");
     mkdirSync(workingDir, { recursive: true });
@@ -52,9 +47,9 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   }, 120000);
 
   afterAll(async () => {
-    // No reaping safety net: the descendant bounds its own lifetime (see
-    // spawnLongChild in mock-common), and a kill-by-pid net could terminate
-    // an unrelated process on Windows, where pids are recycled.
+    // No reaping safety net: the descendant bounds its own lifetime (the
+    // behaviour's default), and a kill-by-pid net could terminate an
+    // unrelated process on Windows, where pids are recycled.
     await env?.cleanup();
   });
 
@@ -62,17 +57,18 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
     it(`kills a descendant spawned by ${fx.name} when the session is stopped`, async () => {
       await startRun("spawn a child please");
 
-      // The mock writes the descendant's PID before sleeping, so poll for it.
+      // The behaviour records the descendant's pid as the mock starts, so
+      // poll the handle until the invocation shows up. Other features
+      // invoke the same mocked binary (goose's model picker probes it with
+      // `acp`), so the run is the invocation carrying the resume flag —
+      // any other invocation's descendant belongs to a different tree.
       let pid = 0;
       const writeDeadline = Date.now() + 10000;
-      while (Date.now() < writeDeadline) {
-        try {
-          pid = Number(readFileSync(childPidFile, "utf8").trim());
-        } catch {
-          pid = 0;
-        }
-        if (pid > 0) break;
-        await delay(100);
+      while (Date.now() < writeDeadline && pid === 0) {
+        pid =
+          env.agentMock?.calls.find((call) => call.args.includes(fx.resumeFlag))
+            ?.childPid ?? 0;
+        if (pid === 0) await delay(100);
       }
       expect(pid).toBeGreaterThan(0);
       expect(isAlive(pid)).toBe(true);

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { mockBin } from "type-a-bin";
 import * as harness from "../../glv/tests/harness.js";
 
 // The goose flavor of the shared test harness: everything generic (SSE,
@@ -53,7 +54,7 @@ const gooseMockScriptPath = fileURLToPath(
 const GLV = join(harness.ROOT, "bin", "glv-goose.mjs");
 
 const mockGoose = (): Promise<() => void> =>
-  harness.mockScript("goose", gooseMockScriptPath);
+  mockBin("goose", { file: gooseMockScriptPath });
 
 // WAL lets a test process (or the mock goose) write while the server reads,
 // without SQLITE_BUSY.

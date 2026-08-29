@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mockBin } from "type-a-bin";
 import { openMetaDb } from "../../glv/session-meta.js";
 import * as harness from "../../glv/tests/harness.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
@@ -27,7 +28,7 @@ const claudeMockScriptPath = fileURLToPath(
 const GLV = join(harness.ROOT, "bin", "glv-claude.mjs");
 
 const mockClaude = (): Promise<() => void> =>
-  harness.mockScript("claude", claudeMockScriptPath);
+  mockBin("claude", { file: claudeMockScriptPath });
 
 // The projects dir is plain JSONL the mock claude appends to while the
 // server reads.
