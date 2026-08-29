@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { platform, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -46,9 +46,23 @@ describe("new-session model picker (goose)", () => {
 
   beforeAll(async () => {
     const home = mkdtempSync(join(tmpdir(), "glv-model-home-"));
-    mkdirSync(join(home, ".config", "goose"), { recursive: true });
-    writeFileSync(join(home, ".config", "goose", "config.yaml"), CONFIG_YAML);
-
+    // Same platform path src/goose/models.ts reads: the fake home's APPDATA
+    // is what the server sees (harness fakeHomeEnv), so this lands where
+    // gooseConfigPath() looks on both OSes.
+    const configYaml =
+      platform() === "win32"
+        ? join(
+            home,
+            "AppData",
+            "Roaming",
+            "Block",
+            "goose",
+            "config",
+            "config.yaml",
+          )
+        : join(home, ".config", "goose", "config.yaml");
+    mkdirSync(dirname(configYaml), { recursive: true });
+    writeFileSync(configYaml, CONFIG_YAML);
     argsDir = mkdtempSync(join(tmpdir(), "glv-model-args-"));
     argsPath = join(argsDir, "args.json");
 

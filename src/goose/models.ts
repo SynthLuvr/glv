@@ -9,8 +9,12 @@ import type {
 } from "../glv/models.js";
 
 // Mirrors goose's config/paths.rs: GOOSE_PATH_ROOT redirects every goose
-// dir (<root>/config); otherwise the platform default — XDG on Unix
-// (~/.config/goose), Known Folders on Windows (%APPDATA%\Block\goose\config).
+// dir (<root>/config); otherwise the platform default — ~/.config/goose on
+// Unix, Known Folders on Windows (%APPDATA%\Block\goose\config). Like glv's
+// own db-path.ts, the Unix branch resolves via os.homedir() rather than
+// ambient XDG_* vars: a stray XDG_CONFIG_HOME (CI runners set it) would
+// point at a different real profile than the HOME the tests fake, and
+// goose's own default when the var is unset is ~/.config anyway.
 const gooseConfigPath = (): string => {
   const root = process.env.GOOSE_PATH_ROOT;
   if (root !== undefined && isAbsolute(root))
@@ -23,11 +27,7 @@ const gooseConfigPath = (): string => {
       "config",
       "config.yaml",
     );
-  return join(
-    process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
-    "goose",
-    "config.yaml",
-  );
+  return join(homedir(), ".config", "goose", "config.yaml");
 };
 
 type ProviderEntry = { enabled: boolean; model: string };
