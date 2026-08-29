@@ -4,30 +4,40 @@ type ModelSelection = {
   readonly model: string;
 };
 
-/** One dropdown entry: a configured provider and the model it offers. */
+/** One dropdown entry: a specific model offered by a configured provider. */
 type ModelChoice = {
   readonly provider: string;
-  /** Dropdown label, e.g. "anthropic — claude-sonnet-4-5". */
+  /** Dropdown label, e.g. "GLM-5.1" or a bare model id. */
   readonly label: string;
+  /** Submitted form value encoding the provider/model pair. */
+  readonly value: string;
 };
 
 /**
  * The model surface a flavor exposes to the shared UI: per-run model
  * selection, threaded from the New Session form to the agent's argv.
- * Defined flavor-agnostically; only flavors whose agent supports model
- * overrides (goose) wire one. All functions read fresh state per call so
- * a config edited while the server runs is picked up without a restart.
+ * Only flavors whose agent supports model overrides (goose) wire one;
+ * functions read fresh state per call so a config edited while the
+ * server runs is picked up without a restart.
  */
 type ModelSource = {
-  /** Configured models for the dropdown; [] when none are configured. */
-  readonly choices: () => readonly ModelChoice[];
+  /**
+   * Every model each configured provider offers, provider-ordered with
+   * each provider's models contiguous (the form renders one optgroup
+   * per provider). Resolving the catalogue may spawn the agent binary,
+   * so this is async; implementations cache. [] when nothing is
+   * configured.
+   */
+  readonly choices: () => Promise<readonly ModelChoice[]>;
   /** The agent's own default, resolved the way the agent resolves it. */
   readonly defaultSelection: () => ModelSelection | undefined;
   /**
-   * Validates a submitted provider name against current config; undefined
-   * when that provider has no (usable) model anymore.
+   * Validates a submitted form value against current config; undefined
+   * when the provider is no longer configured or the model is not one
+   * it offers. Sync on purpose: it consults only what is already cached
+   * so submitting never pays the catalogue cost.
    */
-  readonly resolve: (provider: string) => ModelSelection | undefined;
+  readonly resolve: (value: string) => ModelSelection | undefined;
 };
 
 export type { ModelChoice, ModelSelection, ModelSource };

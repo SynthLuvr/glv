@@ -7,13 +7,14 @@ import type {
   ModelSelection,
   ModelSource,
 } from "../glv/models.js";
+import { fetchProviderCatalog, type ProviderCatalog } from "./acp-catalog.js";
 
 // Mirrors goose's config/paths.rs: GOOSE_PATH_ROOT redirects every goose
 // dir (<root>/config); otherwise the platform default — ~/.config/goose on
-// Unix, Known Folders on Windows (%APPDATA%\Block\goose\config). Like glv's
-// own db-path.ts, the Unix branch resolves via HOME rather than ambient
-// XDG_* vars: a stray XDG_CONFIG_HOME (CI runners set it) would point at a
-// different profile than the HOME the tests fake.
+// Unix, %APPDATA%\Block\goose\config on Windows. Like glv's own db-path.ts,
+// the Unix branch resolves via HOME rather than ambient XDG_* vars: a stray
+// XDG_CONFIG_HOME (CI runners set it) would point at a different profile
+// than the HOME the tests fake.
 const gooseConfigPath = (env: NodeJS.ProcessEnv = process.env): string => {
   const root = env.GOOSE_PATH_ROOT;
   if (root !== undefined && isAbsolute(root))
@@ -35,19 +36,23 @@ const asString = (value: unknown): string =>
 // A provider entry feeds the picker only when it is enabled and names a
 // model.
 const usableModel = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as Record<string, unknown>;
-  if (record.enabled === false) return undefined;
+  const record =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : undefined;
+  if (record === undefined || record.enabled === false) return undefined;
   const model = asString(record.model).trim();
   return model === "" ? undefined : model;
 };
 
 type GooseModelConfig = {
-  /** Usable providers in config order, provider name → model id. */
+  /** Usable providers in config order, provider name → configured model id. */
   readonly providers: ReadonlyMap<string, string>;
   /** Resolved the way goose's get_active_provider/get_active_model do. */
   readonly active: ModelSelection | undefined;
 };
+
+const NO_MODELS: GooseModelConfig = { providers: new Map(), active: undefined };
 
 const readProviders = (
   record: Record<string, unknown>,
@@ -85,10 +90,9 @@ const readModelConfig = (): GooseModelConfig => {
   try {
     doc = parse(readFileSync(gooseConfigPath(), "utf8"));
   } catch {
-    return { providers: new Map(), active: undefined };
+    return NO_MODELS;
   }
-  if (typeof doc !== "object" || doc === null)
-    return { providers: new Map(), active: undefined };
+  if (typeof doc !== "object" || doc === null) return NO_MODELS;
   const record = doc as Record<string, unknown>;
   const providers = readProviders(record);
   return { providers, active: resolveActive(record, providers) };
@@ -104,21 +108,93 @@ const orderedProviderNames = (
   return [active.provider, ...names.filter((name) => name !== active.provider)];
 };
 
-const makeGooseModelSource = (): ModelSource => {
-  const choices = (): readonly ModelChoice[] => {
-    const { providers, active } = readModelConfig();
-    return orderedProviderNames(providers, active).map((provider) => ({
-      provider,
-      label: `${provider} — ${providers.get(provider)}`,
-    }));
+// The dropdown offers provider/model pairs, so the submitted form value
+// packs both as "provider:model" (split at the first colon: model ids may
+// contain colons, provider ids never do).
+const encodeChoiceValue = (provider: string, model: string): string =>
+  `${provider}:${model}`;
+
+const decodeChoiceValue = (value: string): ModelSelection | undefined => {
+  const sep = value.indexOf(":");
+  if (sep <= 0 || sep === value.length - 1) return undefined;
+  return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
+};
+
+const EMPTY_CATALOG: ProviderCatalog = new Map();
+const CATALOG_TTL_MS = 60_000;
+const CATALOG_RETRY_MS = 5_000;
+
+const makeGooseModelSource = (binary: string): ModelSource => {
+  // The catalogue is static for a given goose binary, so it is fetched at
+  // most once per TTL and shared between concurrent renders. A failed or
+  // empty fetch is retried sooner; the picker degrades to config-only
+  // models meanwhile.
+  let cache: { at: number; ttl: number; catalog: ProviderCatalog } | undefined;
+  let inflight: Promise<ProviderCatalog> | undefined;
+
+  const currentCatalog = (): Promise<ProviderCatalog> => {
+    if (cache !== undefined && Date.now() - cache.at < cache.ttl)
+      return Promise.resolve(cache.catalog);
+    if (inflight === undefined) {
+      inflight = (async () => {
+        const ids = [...readModelConfig().providers.keys()];
+        const fetched = await fetchProviderCatalog(binary, ids).catch(
+          () => EMPTY_CATALOG,
+        );
+        cache = {
+          at: Date.now(),
+          ttl: fetched.size > 0 ? CATALOG_TTL_MS : CATALOG_RETRY_MS,
+          catalog: fetched,
+        };
+        return fetched;
+      })();
+      void inflight.finally(() => {
+        inflight = undefined;
+      });
+    }
+    return inflight;
   };
+
+  const choices = async (): Promise<readonly ModelChoice[]> => {
+    const { providers, active } = readModelConfig();
+    const catalog = await currentCatalog();
+    const out: ModelChoice[] = [];
+    for (const provider of orderedProviderNames(providers, active)) {
+      const configured = providers.get(provider) ?? "";
+      const models = [...(catalog.get(provider)?.models ?? [])];
+      // The configured model is always offered, even when the catalogue is
+      // unavailable or doesn't know it (e.g. a custom provider).
+      if (!models.some((model) => model.id === configured))
+        models.push({ id: configured, label: configured });
+      for (const model of models)
+        out.push({
+          provider,
+          label: model.label,
+          value: encodeChoiceValue(provider, model.id),
+        });
+    }
+    return out;
+  };
+
+  const resolve = (value: string): ModelSelection | undefined => {
+    const selection = decodeChoiceValue(value);
+    if (selection === undefined) return undefined;
+    const configured = readModelConfig().providers.get(selection.provider);
+    if (configured === undefined) return undefined;
+    if (selection.model === configured) return selection;
+    // Validate against whatever catalogue state is already cached — never
+    // spawn for a submit. With nothing cached any model id is accepted;
+    // goose itself rejects unknown models at run time.
+    const known = cache?.catalog.get(selection.provider)?.models;
+    if (known !== undefined && !known.some((m) => m.id === selection.model))
+      return undefined;
+    return selection;
+  };
+
   return {
     choices,
     defaultSelection: () => readModelConfig().active,
-    resolve: (provider) => {
-      const model = readModelConfig().providers.get(provider);
-      return model === undefined ? undefined : { provider, model };
-    },
+    resolve,
   };
 };
 

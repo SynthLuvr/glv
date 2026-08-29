@@ -1704,6 +1704,14 @@ select.form-input {
   font-size: 0.78rem;
   color: var(--color-faint);
 }
+/* Not .paste-hint: uploads.ts rewrites the first .paste-hint inside a
+   data-upload-form, so the picker hint needs its own class. */
+.model-hint {
+  display: block;
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+}
 .upload-chips {
   display: flex;
   flex-wrap: wrap;

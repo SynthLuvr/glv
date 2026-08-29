@@ -95,21 +95,6 @@ const findFreePort = (): Promise<number> =>
     });
   });
 
-// Shared argv-inspection helpers for suites that assert on the flags a
-// mock agent received (see the captureArgs mock option).
-const isArgv = (value: unknown): value is string[] => Array.isArray(value);
-
-const waitForArgs = (path: string): Promise<string[]> =>
-  waitForJsonFile(path, isArgv);
-
-const flagValue = (
-  args: readonly string[],
-  flag: string,
-): string | undefined => {
-  const idx = args.indexOf(flag);
-  return idx >= 0 ? args[idx + 1] : undefined;
-};
-
 // A capture file written by a mock agent can be read mid-write, so poll
 // until it parses into a value the caller recognises.
 const waitForJsonFile = async <T>(
@@ -126,6 +111,21 @@ const waitForJsonFile = async <T>(
     await sleep(50);
   }
   throw new Error(`json file ${path} not written within ${timeoutMs}ms`);
+};
+
+// Shared argv-inspection helpers for suites that assert on the flags a
+// mock agent received (see the captureArgs mock option).
+const isArgv = (value: unknown): value is string[] => Array.isArray(value);
+
+const waitForArgs = (path: string): Promise<string[]> =>
+  waitForJsonFile(path, isArgv);
+
+const flagValue = (
+  args: readonly string[],
+  flag: string,
+): string | undefined => {
+  const idx = args.indexOf(flag);
+  return idx >= 0 ? args[idx + 1] : undefined;
 };
 
 const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
@@ -176,6 +176,17 @@ type MockConfig = {
   captureArgs?: string;
   /** When set, writes the agent's extra env (JSON) to this path. */
   captureEnv?: string;
+  /**
+   * JSON value the mock agent reports for its ACP provider inventory
+   * (`{ entries: [...] }`); unset means "agent can't list providers" so the
+   * model picker degrades to config-only choices. Goose mock only.
+   */
+  acpProviders?: string;
+  /**
+   * JSON map provider id → model ids the mock agent reports for ACP
+   * providers with no static catalogue models. Goose mock only.
+   */
+  acpSupportedModels?: string;
   /** When set, the agent spawns a long-lived descendant, PID written here. */
   spawnChild?: string;
   /**
@@ -389,6 +400,12 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_TRAP_SIGNALS`]: mock.trapSignals ?? "",
   [`${prefix}_MOCK_NEVER_CREATE_SESSION`]:
     mock.neverCreateSession === true ? "1" : "",
+  ...(mock.acpProviders !== undefined
+    ? { [`${prefix}_MOCK_ACP_PROVIDERS`]: mock.acpProviders }
+    : {}),
+  ...(mock.acpSupportedModels !== undefined
+    ? { [`${prefix}_MOCK_ACP_SUPPORTED_MODELS`]: mock.acpSupportedModels }
+    : {}),
 });
 
 // Subprocess coverage is injected only when the caller pins an env

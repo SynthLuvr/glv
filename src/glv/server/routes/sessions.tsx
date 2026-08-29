@@ -104,20 +104,20 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  app.get("/", (c) =>
-    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
+  app.get("/", async (c) =>
+    render(c, ctx, sessionsAll(), undefined, await newSessionDetail(ctx)),
   );
 
   // Registered before the /sessions/:id wildcard so "new" is treated as a
   // literal segment rather than a session id.
-  app.get("/sessions/new", (c) => {
+  app.get("/sessions/new", async (c) => {
     const workingDir = c.req.query("working_dir") || undefined;
     return render(
       c,
       ctx,
       sessionsAll(),
       undefined,
-      newSessionDetail(ctx, { workingDir }),
+      await newSessionDetail(ctx, { workingDir }),
       { title: NEW_SESSION_TITLE },
     );
   });
@@ -137,13 +137,16 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     const files = collectFiles(body.uploads);
 
-    const rejectForm = (error: string, status: ContentfulStatusCode) =>
+    const rejectForm = async (
+      error: string,
+      status: ContentfulStatusCode,
+    ): Promise<Response> =>
       render(
         c,
         ctx,
         sessions,
         undefined,
-        newSessionDetail(ctx, {
+        await newSessionDetail(ctx, {
           error,
           workingDir: submittedWorkingDir,
           modelProvider,
@@ -156,11 +159,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case goose's config changed since the form was served.
-    const model =
-      modelProvider === "" ? undefined : ctx.models?.resolve(modelProvider);
+    const model = ctx.models?.resolve(modelProvider);
     if (modelProvider !== "" && model === undefined)
       return rejectForm(
-        `That model is no longer configured in ${ctx.profile.agentName}. Pick another from the list.`,
+        `That model is no longer available in ${ctx.profile.agentName}. Pick another from the list.`,
         422,
       );
 
@@ -288,7 +290,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.post("/sessions/:id/archive", (c) => {
+  app.post("/sessions/:id/archive", async (c) => {
     const id = c.req.param("id");
     // Stop an in-flight run first: sweeping the temp working dir out from
     // under a live agent (or deleting uploads its prompt references) leaves
@@ -297,10 +299,17 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
-    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
-      refreshSidebar: true,
-      title: NEW_SESSION_TITLE,
-    });
+    return render(
+      c,
+      ctx,
+      sessionsAll(),
+      undefined,
+      await newSessionDetail(ctx),
+      {
+        refreshSidebar: true,
+        title: NEW_SESSION_TITLE,
+      },
+    );
   });
 
   app.post("/sessions/:id/rename", async (c) => {

@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import {
   captureStdinTo,
@@ -79,8 +80,97 @@ const streamAndCommit = async (
   db.close();
 };
 
+// Minimal ACP server for goose's unstable provider-catalogue extensions:
+// the New Session model picker runs `<goose-binary> acp` and asks for the
+// provider/model inventory. Fixtures come from GOOSE_MOCK_ACP_* env vars
+// (JSON); with no fixture set the _goose methods answer "method not found",
+// matching a goose too old for the extensions — the picker must degrade to
+// config-only choices. Runs before anything else so `acp` never touches the
+// sessions DB or streams run output.
+const runAcpMode = async (): Promise<void> => {
+  const parseEnvJson = (name: string): unknown => {
+    const raw = process.env[name] ?? "";
+    if (raw === "") return undefined;
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return undefined;
+    }
+  };
+  const providers = parseEnvJson("GOOSE_MOCK_ACP_PROVIDERS");
+  const supported = parseEnvJson("GOOSE_MOCK_ACP_SUPPORTED_MODELS") as
+    | Record<string, readonly string[]>
+    | undefined;
+
+  const write = (message: unknown): void => {
+    process.stdout.write(`${JSON.stringify(message)}\n`);
+  };
+  const reply = (id: number, result: unknown): void =>
+    write({ jsonrpc: "2.0", id, result });
+  const fail = (id: number): void =>
+    write({
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32601, message: "Method not found" },
+    });
+
+  const lines = createInterface({ input: process.stdin });
+  lines.on("line", (line) => {
+    if (line.trim() === "") return;
+    let msg: { id?: unknown; method?: unknown; params?: unknown };
+    try {
+      msg = JSON.parse(line) as typeof msg;
+    } catch {
+      return;
+    }
+    if (typeof msg.method !== "string") return;
+    const id = typeof msg.id === "number" ? msg.id : undefined;
+    switch (msg.method) {
+      case "initialize":
+        if (id !== undefined)
+          reply(id, {
+            protocolVersion: 1,
+            agentCapabilities: {},
+            agentInfo: { name: "goose-mock", version: "0" },
+          });
+        return;
+      case "_goose/unstable/providers/list":
+        if (id === undefined) return;
+        if (providers === undefined) fail(id);
+        else reply(id, providers);
+        return;
+      case "_goose/unstable/providers/supported-models/list": {
+        if (id === undefined) return;
+        const providerId = (msg.params as { providerId?: unknown } | undefined)
+          ?.providerId;
+        const models =
+          supported !== undefined && typeof providerId === "string"
+            ? supported[providerId]
+            : undefined;
+        if (Array.isArray(models)) reply(id, { providerId, models });
+        else fail(id);
+        return;
+      }
+      default:
+        return; // notifications and unknown methods get no reply
+    }
+  });
+  // The caller kills this process when done (closing stdin); the timer is
+  // only a guard against a stdin that never closes.
+  const guard = setTimeout(() => lines.close(), 30_000);
+  guard.unref();
+  await new Promise<void>((resolve) => {
+    lines.on("close", resolve);
+  });
+  process.exit(0);
+};
+
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
+  if (args[0] === "acp") {
+    await runAcpMode();
+    return;
+  }
   const isResume = args.includes("--session-id");
   trapSignals("GOOSE_MOCK_TRAP_SIGNALS");
 

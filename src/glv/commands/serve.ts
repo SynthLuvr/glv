@@ -145,6 +145,10 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     console.log(
       `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
     );
+    // Enumerating the model catalogue can spawn the agent binary, which
+    // takes seconds; warm it now so the first New Session render is instant.
+    // Best-effort only: a failure degrades the picker, never the server.
+    void opts.models?.choices();
     if (opts.forwardHost !== undefined)
       tunnel = startForwardTunnel(info.port, opts.forwardHost);
   });

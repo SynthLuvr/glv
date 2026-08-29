@@ -48,6 +48,24 @@ type ModelPicker = {
   readonly selected: string;
 };
 
+// Choices arrive provider-ordered with each provider's models contiguous;
+// bucket them so the select shows one optgroup per provider.
+type ModelGroup = {
+  readonly provider: string;
+  readonly choices: ModelChoice[];
+};
+
+const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
+  const groups: ModelGroup[] = [];
+  for (const choice of choices) {
+    const last = groups[groups.length - 1];
+    if (last !== undefined && last.provider === choice.provider)
+      last.choices.push(choice);
+    else groups.push({ provider: choice.provider, choices: [choice] });
+  }
+  return groups;
+};
+
 // The first option ("<agent> default — …") submits an empty value so the
 // run passes no model flags and the agent's own precedence applies.
 const ModelSelect = ({
@@ -63,18 +81,22 @@ const ModelSelect = ({
       <option value="" selected={models.selected === ""}>
         {agentName} default — {models.defaultLabel}
       </option>
-      {models.choices.map((choice) => (
-        <option
-          value={choice.provider}
-          selected={models.selected === choice.provider}
-        >
-          {choice.label}
-        </option>
+      {groupByProvider(models.choices).map((group) => (
+        <optgroup label={group.provider}>
+          {group.choices.map((choice) => (
+            <option
+              value={choice.value}
+              selected={models.selected === choice.value}
+            >
+              {choice.label}
+            </option>
+          ))}
+        </optgroup>
       ))}
     </select>
-    <span class="paste-hint">
-      Only models configured in {agentName} are listed; manage them with{" "}
-      {agentName} configure.
+    <span class="model-hint">
+      Providers configured in {agentName} only; add more with {agentName}{" "}
+      configure.
     </span>
   </label>
 );
@@ -183,4 +205,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { NewSessionForm, NotFoundDetail };
+export { ModelPicker, NewSessionForm, NotFoundDetail };

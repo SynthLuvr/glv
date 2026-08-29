@@ -150,7 +150,7 @@ serveCmd.action((opts: ServeOpts) => {
       opts.maxConcurrent,
       makeGooseAgent(opts.gooseBinary),
     ),
-    models: makeGooseModelSource(),
+    models: makeGooseModelSource(opts.gooseBinary),
     makeLauncher: (runner) =>
       makeGooseLauncher(db, runner, gooseProfile.sessionTimeoutError),
     closeStore: () => {
