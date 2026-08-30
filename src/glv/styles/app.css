@@ -1713,6 +1713,13 @@ select.form-input {
   font-size: 0.78rem;
   color: var(--color-faint);
 }
+/* Loading stand-in, swapped out by the /sessions/model-picker fragment. */
+.model-slot-loading {
+  display: flex;
+  align-items: center;
+  color: var(--color-faint);
+  cursor: progress;
+}
 .upload-chips {
   display: flex;
   flex-wrap: wrap;

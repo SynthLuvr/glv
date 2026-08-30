@@ -191,6 +191,11 @@ type MockConfig = {
    * providers with no static catalogue models. Goose mock only.
    */
   acpSupportedModels?: string;
+  /**
+   * Delay (ms) before the mock's ACP conversation starts answering,
+   * simulating a slow agent-binary catalogue enumeration. Goose mock only.
+   */
+  acpDelayMs?: number;
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
   /**
@@ -399,6 +404,9 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
     : {}),
   ...(mock.acpSupportedModels !== undefined
     ? { [`${prefix}_MOCK_ACP_SUPPORTED_MODELS`]: mock.acpSupportedModels }
+    : {}),
+  ...(mock.acpDelayMs !== undefined
+    ? { [`${prefix}_MOCK_ACP_DELAY_MS`]: String(mock.acpDelayMs) }
     : {}),
 });
 

@@ -177,10 +177,10 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
   );
 
 // The picker shows only when the flavor exposes configured models and a
-// resolvable default. `submitted` carries the form value from a rejected
-// submit so the user's selection survives the re-render; the cheap sync
-// default check runs before the async choices, which may spawn the agent
-// binary to enumerate the catalogue.
+// resolvable default. Resolving the catalogue may spawn the agent binary
+// (seconds), so this powers only the lazy /sessions/model-picker fragment —
+// never the New Session form, which must render instantly. `submitted`
+// carries a rejected submit's value so the selection survives.
 const modelPicker = async (
   ctx: ServerContext,
   submitted: string | undefined,
@@ -199,14 +199,20 @@ const modelPicker = async (
   };
 };
 
-const newSessionDetail = async (
+// Cheap sync gate (config read, never a spawn) deciding whether the form
+// renders the lazy slot at all: flavors without model support (claude) and
+// provider-less configs get no field.
+const hasModelPicker = (ctx: ServerContext): boolean =>
+  ctx.models?.defaultSelection() !== undefined;
+
+const newSessionDetail = (
   ctx: ServerContext,
   {
     error,
     workingDir,
     modelProvider,
   }: { error?: string; workingDir?: string; modelProvider?: string } = {},
-): Promise<Child> => {
+): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
@@ -218,9 +224,17 @@ const newSessionDetail = async (
       error={error}
       prompts={prompts}
       categories={categories}
-      models={await modelPicker(ctx, modelProvider)}
+      modelPicker={
+        hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
+      }
     />
   );
 };
 
-export { newSessionDetail, render, renderNotFound, sidebarEntries };
+export {
+  modelPicker,
+  newSessionDetail,
+  render,
+  renderNotFound,
+  sidebarEntries,
+};

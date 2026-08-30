@@ -66,27 +66,48 @@ const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
   return groups;
 };
 
+// Stand-in rendered in place of the picker; the real <select> loads lazily
+// because resolving the catalogue can spawn the agent binary, and the form
+// must never wait on that.
+const ModelPickerSlot = ({ submitted }: { submitted?: string }) => {
+  const query = submitted ? `?submitted=${encodeURIComponent(submitted)}` : "";
+  return (
+    <div
+      class="form-field model-picker-slot"
+      hx-get={`/sessions/model-picker${query}`}
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML"
+    >
+      <span class="form-label">Model</span>
+      <div class="form-input model-slot-loading" aria-busy="true">
+        Loading models…
+      </div>
+    </div>
+  );
+};
+
 // The first option ("<agent> default — …") submits an empty value so the
 // run passes no model flags and the agent's own precedence applies.
 const ModelSelect = ({
   agentName,
-  models,
+  picker,
 }: {
   agentName: string;
-  models: ModelPicker;
+  picker: ModelPicker;
 }) => (
   <label class="form-field">
     <span class="form-label">Model</span>
     <select name="model_provider" class="form-input">
-      <option value="" selected={models.selected === ""}>
-        {agentName} default — {models.defaultLabel}
+      <option value="" selected={picker.selected === ""}>
+        {agentName} default — {picker.defaultLabel}
       </option>
-      {groupByProvider(models.choices).map((group) => (
+      {groupByProvider(picker.choices).map((group) => (
         <optgroup label={group.provider}>
           {group.choices.map((choice) => (
             <option
               value={choice.value}
-              selected={models.selected === choice.value}
+              selected={picker.selected === choice.value}
             >
               {choice.label}
             </option>
@@ -138,7 +159,7 @@ const NewSessionForm = ({
   error,
   prompts = [],
   categories = [],
-  models,
+  modelPicker,
 }: {
   agentName: string;
   workingDir: string;
@@ -146,7 +167,9 @@ const NewSessionForm = ({
   error?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
-  models?: ModelPicker;
+  /** When present, render the lazy picker slot; `submitted` restores a
+   * rejected submit's selection across the re-render. */
+  modelPicker?: { submitted?: string };
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -170,8 +193,8 @@ const NewSessionForm = ({
         <WorkingDirBody workingDir={workingDir} dirs={dirs} />
         <TempDirBody />
       </div>
-      {models !== undefined && (
-        <ModelSelect agentName={agentName} models={models} />
+      {modelPicker !== undefined && (
+        <ModelPickerSlot submitted={modelPicker.submitted} />
       )}
       <label class="form-field">
         <span class="form-label">Prompt</span>
@@ -205,4 +228,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { ModelPicker, NewSessionForm, NotFoundDetail };
+export { ModelPicker, ModelSelect, NewSessionForm, NotFoundDetail };

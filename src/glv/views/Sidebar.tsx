@@ -90,6 +90,7 @@ const Sidebar = ({
           hx-get="/sessions/new"
           hx-target="#detail-pane"
           hx-swap="innerHTML"
+          hx-push-url="true"
         >
           Start a new session
         </a>

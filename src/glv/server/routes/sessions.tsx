@@ -15,6 +15,7 @@ import {
   stop,
 } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
+import { ModelSelect } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
@@ -22,6 +23,7 @@ import { ServerContext, VIEWER_FILTER } from "../context.js";
 import { extractIds, isHtmxRequest } from "../http.js";
 import { expandHome } from "../paths.js";
 import {
+  modelPicker,
   newSessionDetail,
   render,
   renderNotFound,
@@ -104,21 +106,36 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  app.get("/", async (c) =>
-    render(c, ctx, sessionsAll(), undefined, await newSessionDetail(ctx)),
+  app.get("/", (c) =>
+    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
   );
 
-  // Registered before the /sessions/:id wildcard so "new" is treated as a
-  // literal segment rather than a session id.
-  app.get("/sessions/new", async (c) => {
+  // Registered before the /sessions/:id wildcard so "new" and "model-picker"
+  // read as literal segments rather than session ids.
+  app.get("/sessions/new", (c) => {
     const workingDir = c.req.query("working_dir") || undefined;
     return render(
       c,
       ctx,
       sessionsAll(),
       undefined,
-      await newSessionDetail(ctx, { workingDir }),
+      newSessionDetail(ctx, { workingDir }),
       { title: NEW_SESSION_TITLE },
+    );
+  });
+
+  // Lazy fragment behind the picker slot: resolving the catalogue may
+  // spawn the agent binary, so the form renders instantly and swaps this in
+  // once it lands. A no-picker result still swaps a hidden placeholder —
+  // htmx skips empty response bodies, which would strand the loading slot.
+  app.get("/sessions/model-picker", async (c) => {
+    const picker = await modelPicker(ctx, c.req.query("submitted"));
+    return c.html(
+      picker === undefined ? (
+        <span class="model-picker-empty" hidden />
+      ) : (
+        <ModelSelect agentName={ctx.profile.agentName} picker={picker} />
+      ),
     );
   });
 
@@ -146,7 +163,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        await newSessionDetail(ctx, {
+        newSessionDetail(ctx, {
           error,
           workingDir: submittedWorkingDir,
           modelProvider,
@@ -254,6 +271,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (promptId !== "" && ctx.prompts !== undefined)
       bumpUsage(ctx.prompts, promptId);
 
+    // The transcript swaps into #detail-pane; push the new session's URL
+    // so the address bar (and a refresh) match what is on screen.
+    c.header("HX-Push-Url", `/sessions/${sessionId}`);
     return renderSession(c, sessionId, session, {
       prompt,
       refreshSidebar: true,
@@ -290,7 +310,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.post("/sessions/:id/archive", async (c) => {
+  app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
     // Stop an in-flight run first: sweeping the temp working dir out from
     // under a live agent (or deleting uploads its prompt references) leaves
@@ -299,17 +319,13 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
-    return render(
-      c,
-      ctx,
-      sessionsAll(),
-      undefined,
-      await newSessionDetail(ctx),
-      {
-        refreshSidebar: true,
-        title: NEW_SESSION_TITLE,
-      },
-    );
+    // The response swaps the New Session form into #detail-pane; keep the
+    // URL in step so a refresh doesn't land on the archived session (404).
+    c.header("HX-Push-Url", "/sessions/new");
+    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
+      refreshSidebar: true,
+      title: NEW_SESSION_TITLE,
+    });
   });
 
   app.post("/sessions/:id/rename", async (c) => {
