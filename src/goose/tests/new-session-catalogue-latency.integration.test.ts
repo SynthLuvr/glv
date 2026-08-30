@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
+import {
+  fakeHomeEnv,
+  type IntegrationEnv,
+  withPage,
+} from "../../glv/tests/harness.js";
 import { gooseConfigPath } from "../models.js";
 import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
 
@@ -32,7 +36,7 @@ describe("new session with a slow model catalogue (goose)", () => {
 
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "glv-slow-catalogue-"));
-    const configYaml = gooseConfigPath({ HOME: home });
+    const configYaml = gooseConfigPath(fakeHomeEnv(home));
     mkdirSync(dirname(configYaml), { recursive: true });
     writeFileSync(configYaml, CONFIG_YAML);
 
