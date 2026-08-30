@@ -1,6 +1,11 @@
 import { type Hono } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
-import { type ParsedMessage, parseMessage } from "../../format/index.js";
+import {
+  type ParsedMessage,
+  parseMessage,
+  pendingTool,
+  type ToolRun,
+} from "../../format/index.js";
 import {
   getHandle,
   isTerminalStatus,
@@ -27,6 +32,10 @@ type PollState = {
   lastStartedCount: number;
   sentLineOffset: number;
   flushedTerminal: boolean;
+  /** Tool call the newest rows say is in flight; undefined once answered. */
+  pendingTool: ToolRun | undefined;
+  /** Identity of pendingTool as last emitted, for delta detection. */
+  lastToolKey: string;
 };
 
 // Resume cursor: stream.lastEventId (auto-sent by EventSource on reconnect)
@@ -51,12 +60,22 @@ const renderCatchup = (
   return deltas;
 };
 
+// Identity of the in-flight tool call: which tool, which request row, how
+// many parallel calls. The elapsed clock is client-side, so a steady call
+// produces a steady key and no repeated status events.
+const toolKey = (tool: ToolRun | undefined): string =>
+  tool === undefined
+    ? ""
+    : `${tool.name}|${tool.startMs}|${tool.count}|${tool.timeoutSec ?? ""}`;
+
 // Records the status fields emitStatus just sent, so later polls only emit
-// changes against this baseline.
+// changes against this baseline. The tool key mirrors emitStatus's filter:
+// a tool is only "in flight" while the run is actually running.
 const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
   state.lastStatus = h.status;
   state.lastQueuePosition = h.queuePosition;
   state.lastPendingCount = h.pendingPrompts.length;
+  state.lastToolKey = h.status === "running" ? toolKey(state.pendingTool) : "";
 };
 
 // Emits DB deltas — new messages, in-place edits, renames, and the meta chip.
@@ -111,6 +130,8 @@ const pollDb = async (
     metaChanged = true;
   }
   state.snapshots = rows.map((row) => row.content_json);
+  // The tail moved, so re-derive which tool call (if any) is now in flight.
+  state.pendingTool = pendingTool(messages);
 
   // The agent derives a real title mid-run; follow the rename.
   if (session.name !== state.lastName) {
@@ -152,9 +173,10 @@ const pollRunner = async (
   if (
     h.status !== state.lastStatus ||
     h.queuePosition !== state.lastQueuePosition ||
-    h.pendingPrompts.length !== state.lastPendingCount
+    h.pendingPrompts.length !== state.lastPendingCount ||
+    toolKey(state.pendingTool) !== state.lastToolKey
   ) {
-    await emitStatus(stream, h, state.msgCursor);
+    await emitStatus(stream, h, state.pendingTool, state.msgCursor);
     recordStatusBaseline(state, h);
   }
 
@@ -195,6 +217,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
       const cursor = resumeCursor(stream.lastEventId, c.req.query("cursor"));
 
       const baselineRows = ctx.sessions.listMessages(id);
+      const baselineMessages = baselineRows.map(parseMessage);
       const state: PollState = {
         snapshots: baselineRows.map((row) => row.content_json),
         msgCursor: baselineRows.length,
@@ -207,9 +230,11 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         lastStartedCount: 0,
         sentLineOffset: 0,
         flushedTerminal: false,
+        pendingTool: pendingTool(baselineMessages),
+        lastToolKey: "",
       };
 
-      const catchup = renderCatchup(baselineRows.map(parseMessage), cursor);
+      const catchup = renderCatchup(baselineMessages, cursor);
       await emit(
         stream,
         "messages",
@@ -221,7 +246,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
       const active = handle !== undefined && !isTerminalStatus(handle.status);
 
       if (handle !== undefined) {
-        await emitStatus(stream, handle, state.msgCursor);
+        await emitStatus(stream, handle, state.pendingTool, state.msgCursor);
         recordStatusBaseline(state, handle);
         state.lastStartedCount = handle.startedPrompts.length;
       } else

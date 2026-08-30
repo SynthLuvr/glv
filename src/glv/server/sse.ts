@@ -1,5 +1,5 @@
 import type { SSEStreamingApi } from "hono/streaming";
-import { fmtRelative } from "../format/index.js";
+import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
 import type { SessionRow } from "../sessions.js";
@@ -32,12 +32,18 @@ const flushPreview = async (
   return nextSeq;
 };
 
+// Status payloads carry the run's bookkeeping plus, while a run is running,
+// the tool call it is currently waiting on (from the persisted request
+// row) — null when the newest row is not an unanswered request. The client
+// turns it into "bash running for 3m (timeout 30m)".
 const emitStatus = (
   stream: SSEStreamingApi,
   handle: RunHandle,
+  tool: ToolRun | undefined,
   id?: number,
-): Promise<void> =>
-  emit(
+): Promise<void> => {
+  const live = handle.status === "running" ? tool : undefined;
+  return emit(
     stream,
     "status",
     JSON.stringify({
@@ -46,9 +52,19 @@ const emitStatus = (
       pendingCount: handle.pendingPrompts.length,
       startedCount: handle.startedPrompts.length,
       error: handle.error ?? null,
+      tool:
+        live === undefined
+          ? null
+          : {
+              name: live.name,
+              count: live.count,
+              startMs: live.startMs,
+              timeoutSec: live.timeoutSec ?? null,
+            },
     }),
     id,
   );
+};
 
 const emitMeta = (
   stream: SSEStreamingApi,

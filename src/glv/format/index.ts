@@ -4,6 +4,8 @@ export {
   formatTranscript,
   renderTable,
 } from "./cli.js";
+export type { ToolRun } from "./duration.js";
+export { fmtDuration, toolRunText } from "./duration.js";
 export { renderMarkdown } from "./markdown.js";
 export type {
   ContentItem,
@@ -17,6 +19,7 @@ export {
   messageKind,
   parseContent,
   parseMessage,
+  pendingTool,
   thinkingText,
   toolCallInfo,
   toolResultInfo,
@@ -24,6 +27,7 @@ export {
 export {
   fmtRelative,
   fmtTokens,
+  parseTimestamp,
   shortenHome,
   toIso,
   truncate,

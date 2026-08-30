@@ -1,5 +1,8 @@
 import { type } from "arktype";
+import { isRecord } from "../parse.js";
 import type { MessageRow } from "../sessions.js";
+import type { ToolRun } from "./duration.js";
+import { parseTimestamp } from "./text.js";
 
 const ContentItem = type({
   type: "string",
@@ -125,6 +128,60 @@ const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
   };
 };
 
+// Argument keys that carry a tool timeout, paired with their unit: goose's
+// shell tools take seconds (timeout_secs), claude's Bash takes minutes
+// under bare `timeout`. Unknown spellings simply leave the timeout leg off.
+const TIMEOUT_ARG_KEYS: ReadonlyArray<readonly [string, boolean]> = [
+  ["timeout_secs", false],
+  ["timeout_sec", false],
+  ["timeout_seconds", false],
+  ["timeout", true],
+];
+
+const timeoutFromArgs = (args: unknown): number | undefined => {
+  if (!isRecord(args)) return undefined;
+  for (const [key, minutes] of TIMEOUT_ARG_KEYS) {
+    const raw = args[key];
+    if (raw === undefined) continue;
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (Number.isFinite(value) && value > 0)
+      return minutes ? value * 60 : value;
+  }
+  return undefined;
+};
+
+// A tool call is in flight when the newest message is an assistant row
+// carrying tool requests: the answering toolResponse always lands as its
+// own (user-role) row, so any row after the request means it finished.
+// Trailing empty rows are skipped so a half-written transcript still reads;
+// anything else at the tail (a prompt, a plain reply) means no pending call.
+const pendingTool = (
+  messages: readonly ParsedMessage[],
+): ToolRun | undefined => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.items.length === 0) continue;
+    if (message.role === "user") return undefined;
+    const infos = message.items
+      .map(toolCallInfo)
+      .filter((info): info is ToolCallInfo => info !== undefined);
+    if (infos.length === 0) return undefined;
+    const startMs = parseTimestamp(message.timestamp);
+    if (Number.isNaN(startMs)) return undefined;
+    const timeouts = infos
+      .map((info) => timeoutFromArgs(info.args))
+      .filter((t): t is number => t !== undefined);
+    const last = infos[infos.length - 1];
+    return {
+      name: last.name,
+      count: infos.length,
+      startMs,
+      timeoutSec: timeouts.length === 0 ? undefined : Math.max(...timeouts),
+    };
+  }
+  return undefined;
+};
+
 type MessageKind = "prompt" | "output" | "tool" | "context" | "summary";
 
 const MESSAGE_TAGS: Record<MessageKind, string> = {
@@ -173,6 +230,7 @@ export {
   messageKind,
   parseContent,
   parseMessage,
+  pendingTool,
   thinkingText,
   toolCallInfo,
   toolResultInfo,

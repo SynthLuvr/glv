@@ -1,3 +1,4 @@
+import { type ToolRun, toolRunText } from "../format/duration.js";
 import { fillPromptInput, parseJson } from "./shared.js";
 
 declare const htmx: {
@@ -15,11 +16,53 @@ let activeSource: EventSource | null = null;
 let pendingBarDraft: string | undefined;
 let lastBusy: boolean | undefined;
 
+// While a tool call is in flight, the status hint carries a live elapsed
+// clock ("bash running for 3m (timeout 30m)"). The element is re-queried on
+// every tick because the prompt bar is swapped wholesale on busy/idle
+// transitions; a vanished hint means the run moved on and the ticker
+// retires itself.
+let activeTool: ToolRun | undefined;
+let activeQueued = 0;
+let toolTimer: ReturnType<typeof setInterval> | undefined;
+
+const queuedSuffix = (count: number): string =>
+  count > 0 ? ` (${count} prompt${count > 1 ? "s" : ""} queued next)` : "";
+
+const renderToolHint = (): string =>
+  activeTool === undefined
+    ? ""
+    : `⟳ ${toolRunText(activeTool)}${queuedSuffix(activeQueued)}`;
+
+const stopToolTicker = (): void => {
+  if (toolTimer !== undefined) clearInterval(toolTimer);
+  toolTimer = undefined;
+  activeTool = undefined;
+};
+
+const tickToolHint = (): void => {
+  const hint = document.querySelector(".status-hint[data-tool-running]");
+  if (hint === null || activeTool === undefined) {
+    stopToolTicker();
+    return;
+  }
+  // A ticking clock is noise for screen readers; the meaningful
+  // transitions (tool started / finished) still announce via the polite
+  // region that updateStatusHint restores.
+  hint.setAttribute("aria-live", "off");
+  hint.textContent = renderToolHint();
+};
+
+const startToolTicker = (): void => {
+  if (toolTimer !== undefined) return;
+  toolTimer = setInterval(tickToolHint, 1000);
+};
+
 const teardown = (): void => {
   if (activeSource !== null) {
     activeSource.close();
     activeSource = null;
   }
+  stopToolTicker();
 };
 
 const scrollToBottom = (): void => {
@@ -210,21 +253,31 @@ type StreamStatus = {
   queuePosition?: number;
   pendingCount?: number;
   error?: string | null;
+  /** Tool call the run is currently waiting on; null when none is pending. */
+  tool?: ToolRun | null;
 };
 
 const updateStatusHint = (data: StreamStatus): void => {
   const hint = document.querySelector(".status-hint");
   if (hint === null) return;
+  // Every transition re-arms the polite region (the ticker silences it
+  // while it owns the element) and resets any stale tool marker first.
+  hint.setAttribute("aria-live", "polite");
+  hint.removeAttribute("data-tool-running");
+  stopToolTicker();
   if (data.status === "queued" && data.queuePosition !== undefined) {
     hint.className = "status-hint queued";
     hint.textContent = `Queued, waiting… (position ${data.queuePosition})`;
   } else if (data.status === "running") {
     hint.className = "status-hint running";
     const count = data.pendingCount ?? 0;
-    hint.textContent =
-      count > 0
-        ? `Running… (${count} prompt${count > 1 ? "s" : ""} queued next)`
-        : "Running…";
+    if (data.tool != null) {
+      hint.setAttribute("data-tool-running", "");
+      activeTool = data.tool;
+      activeQueued = count;
+      hint.textContent = renderToolHint();
+      startToolTicker();
+    } else hint.textContent = `Running…${queuedSuffix(count)}`;
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;

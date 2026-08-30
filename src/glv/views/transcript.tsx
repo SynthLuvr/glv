@@ -1,8 +1,10 @@
 import { renderToString } from "hono/jsx/dom/server";
-import type { ParsedMessage } from "../../glv/format/index.js";
+import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
 import {
   fmtRelative,
+  pendingTool,
   shortenHome,
+  toolRunText,
   truncateMiddle,
 } from "../../glv/format/index.js";
 import { detectPrUrl } from "../../glv/pr.js";
@@ -219,6 +221,7 @@ const PromptBar = ({
   prompts = [],
   workingDir = "",
   uploadError,
+  pendingTool: tool,
 }: {
   agentName: string;
   sessionId: string;
@@ -226,6 +229,8 @@ const PromptBar = ({
   prompts?: SavedPrompt[];
   workingDir?: string;
   uploadError?: string;
+  /** In-flight tool call derived from the persisted request row, if any. */
+  pendingTool?: ToolRun;
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
@@ -245,8 +250,12 @@ const PromptBar = ({
         </p>
       )}
       {run?.status === "running" && (
-        <p class="status-hint running" aria-live="polite">
-          Running…
+        <p
+          class="status-hint running"
+          aria-live="polite"
+          data-tool-running={tool !== undefined ? "" : undefined}
+        >
+          {tool !== undefined ? `⟳ ${toolRunText(tool)}` : "Running…"}
           {pendingCount > 0 &&
             ` (${pendingCount} prompt${pendingCount > 1 ? "s" : ""} queued next)`}
         </p>
@@ -319,6 +328,9 @@ const Transcript = ({
     .filter((entry) => hasContent(entry.message));
   const isEmpty = visible.length === 0 && prompt === undefined;
   const prUrl = detectPrUrl(messages);
+  // Only meaningful while the run is live: the newest row is a request the
+  // agent has not answered yet, so the bar can say what it is waiting on.
+  const tool = run?.status === "running" ? pendingTool(messages) : undefined;
   return (
     <div
       class="detail-inner"
@@ -364,6 +376,7 @@ const Transcript = ({
         prompts={prompts}
         workingDir={session.working_dir}
         uploadError={uploadError}
+        pendingTool={tool}
       />
     </div>
   );

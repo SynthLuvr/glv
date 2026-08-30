@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { displayName, parseMessage } from "../../format/index.js";
+import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
 import type { SavedPrompt } from "../../prompts/db.js";
@@ -299,6 +299,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const session = ctx.sessions.getSession(id);
     if (session === undefined) return renderNotFound(c, ctx, id);
     const run = getHandle(ctx.runner, id);
+    const tool =
+      run?.status === "running"
+        ? pendingTool(ctx.sessions.listMessages(id).map(parseMessage))
+        : undefined;
     return c.html(
       <PromptBar
         agentName={ctx.profile.agentName}
@@ -306,6 +310,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         run={run}
         prompts={libraryPrompts()}
         workingDir={session.working_dir}
+        pendingTool={tool}
       />,
     );
   });
