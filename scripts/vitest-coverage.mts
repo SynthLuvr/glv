@@ -1,11 +1,10 @@
 #!/usr/bin/env tsx
 // Runs vitest with subprocess coverage propagation enabled
-// (`pnpm test:vitest`). The env var below makes the test harness point
-// each spawned launcher's NODE_V8_COVERAGE at a shared raw-profile
-// directory, which the custom coverage provider configured in
-// vitest.config.ts merges into the report (see
-// src/glv/tests/subprocess-coverage.ts). A bare `vitest run` without
-// this wrapper behaves exactly as before.
+// (`pnpm test:vitest`). The env var below opts glv into type-a-bin's
+// subprocess-coverage companion: the custom provider configured in
+// vitest.config.ts points NODE_V8_COVERAGE at a shared raw-profile
+// directory and merges the children's profiles into the report. A bare
+// `vitest run` without this wrapper behaves exactly as before.
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +19,7 @@ const result = spawnSync(
     stdio: "inherit",
     env: {
       ...process.env,
-      GLV_SUBPROCESS_COVERAGE_DIR: join(ROOT, "coverage", ".v8-raw"),
+      TYPE_A_BIN_SUBPROCESS_COVERAGE_DIR: join(ROOT, "coverage", ".v8-raw"),
     },
   },
 );

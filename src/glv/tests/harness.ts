@@ -27,9 +27,13 @@ import {
   mockBin,
   rmScratch,
 } from "type-a-bin";
+import {
+  coverageHookUrl,
+  ROOTS_ENV,
+  rawCoverageDir,
+} from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
-import { subprocessCoverageEnv } from "./subprocess-coverage.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -405,14 +409,52 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
 // Subprocess coverage is injected only when the caller pins an env
 // (every launcher spawn does); an omitted env must keep Node's
 // full-inherit default rather than get a sparse replacement.
+// The observer rides the launcher's `--import` right after tsx (see
+// bin/glv-*.mjs), so it records tsx's transpiled output with its
+// inline source map: the raw profile offsets address esbuild's output,
+// not the pre-transform source. The vitest provider also wires the
+// observer into NODE_OPTIONS of everything the runner spawns — Node
+// processes NODE_OPTIONS before the launcher's trailing --import, and
+// the hook module registers its loader only once, so that earlier
+// pre-tsx registration would win. Strip it from inherited NODE_OPTIONS
+// (keeping any other options) to leave the launcher-ordered one the
+// sole registration.
+const stripCoverageHookFromNodeOptions = (
+  nodeOptions: string,
+  hook: string,
+): string => {
+  const tokens = nodeOptions.split(" ").filter((token) => token !== "");
+  return tokens
+    .filter(
+      (token, index) =>
+        !(
+          token === hook ||
+          (token === "--import" && tokens[index + 1] === hook)
+        ),
+    )
+    .join(" ");
+};
+
 const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
   options: T,
-): T => ({
-  ...options,
-  ...(options.env === undefined
-    ? {}
-    : { env: { ...options.env, ...subprocessCoverageEnv() } }),
-});
+): T => {
+  const rawDir = rawCoverageDir();
+  if (rawDir === undefined || options.env === undefined) return options;
+  const hook = coverageHookUrl();
+  return {
+    ...options,
+    env: {
+      ...options.env,
+      NODE_V8_COVERAGE: rawDir,
+      GLV_COVERAGE_HOOK: hook,
+      [ROOTS_ENV]: ROOT,
+      NODE_OPTIONS: stripCoverageHookFromNodeOptions(
+        options.env.NODE_OPTIONS ?? "",
+        hook,
+      ),
+    },
+  };
+};
 
 const spawnLauncher = (
   binPath: string,
@@ -573,22 +615,18 @@ const startEnv = async (
 
 // The scripted agent records every invocation of the mocked binary; the
 // session run is the one carrying the resume flag, because other features
-// (goose's model picker `acp` probe) invoke the same binary. Polls the
-// handle until that invocation appears; undefined when it never does.
+// (goose's model picker `acp` probe) invoke the same binary. Delegates to
+// the handle's waitForCall, which polls the recorded calls until the
+// invocation appears and rejects with the calls recorded so far when the
+// budget runs out; undefined when no scripted behaviour is in play.
 const waitForAgentRun = async (
   env: IntegrationEnv,
   resumeFlag: string,
   timeoutMs = 10000,
 ): Promise<MockBinCall | undefined> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const run = env.agentMock?.calls.find((call) =>
-      call.args.includes(resumeFlag),
-    );
-    if (run !== undefined) return run;
-    await sleep(100);
-  }
-  return undefined;
+  const mock = env.agentMock;
+  if (mock === undefined) return undefined;
+  return mock.waitForCall((call) => call.args.includes(resumeFlag), timeoutMs);
 };
 
 // Starts a brand-new run over HTTP (the create-session form's endpoint).

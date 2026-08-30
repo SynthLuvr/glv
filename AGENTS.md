@@ -54,7 +54,7 @@ a test or call handlers directly.
 `pnpm test` runs through `scripts/vitest-coverage.mts`, which enables
 subprocess coverage: spawned servers/CLIs write raw V8 profiles, and the
 recorded tsx transforms get merged into the vitest report (see
-`src/glv/tests/subprocess-coverage.ts`). Thresholds in
+type-a-bin’s `subprocess-coverage` companion). Thresholds in
 `vitest.config.ts` fail the run if coverage drops below the floors —
 when adding product code, either cover it with a new integration test or
 expect the floors to catch the drop.
