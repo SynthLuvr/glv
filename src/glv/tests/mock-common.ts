@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 // Behaviour shared by the per-flavor mock agent scripts (goose-mock-script,
@@ -32,27 +31,6 @@ const captureTo = (envVar: string, content: string): void => {
   if (path !== undefined && path !== "") writeFileSync(path, content);
 };
 
-// Spawns a long-lived descendant so session-stop tests can verify the whole
-// process tree (not just the agent) is reaped; its PID is written to the
-// capture file.
-const spawnLongChild = (envVar: string): void => {
-  const to = process.env[envVar];
-  if (to === undefined || to === "") return;
-  // On Windows the mock agent is a hard link of node.exe, so the harness's
-  // NODE_OPTIONS preload would redirect this child back into the mock
-  // script — a fork chain of phantom agents. Dropping the targets variable
-  // from its env makes the preload no-op; the 120s timer bounds the
-  // child's life so a descendant missed by a stop cannot outlive the suite.
-  const env = { ...process.env };
-  delete env.GLV_MOCK_BIN_TARGETS;
-  const child = spawn(
-    process.execPath,
-    ["-e", "setTimeout(() => {}, 120000)"],
-    { stdio: "ignore", env },
-  );
-  if (child.pid !== undefined) writeFileSync(to, String(child.pid));
-};
-
 // Prints each line to stdout, spacing them by `delay` so a tailing consumer
 // sees them arrive one at a time rather than in a single burst; `commit`
 // persists each line as it is produced.
@@ -70,23 +48,4 @@ const streamLines = async (
   }
 };
 
-// Stop-escalation tests need an agent that ignores the graceful stop
-// signals: install no-op SIGINT/SIGTERM handlers and publish this process's
-// pid so the test can watch for the ladder's SIGKILL rung to land.
-const trapSignals = (envVar: string): void => {
-  const to = process.env[envVar];
-  if (to === undefined || to === "") return;
-  process.on("SIGINT", () => undefined);
-  process.on("SIGTERM", () => undefined);
-  writeFileSync(to, String(process.pid));
-};
-
-export {
-  captureStdinTo,
-  captureTo,
-  linesFromEnv,
-  sleep,
-  spawnLongChild,
-  streamLines,
-  trapSignals,
-};
+export { captureStdinTo, captureTo, linesFromEnv, sleep, streamLines };
