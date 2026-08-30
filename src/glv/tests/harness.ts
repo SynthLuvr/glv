@@ -28,7 +28,6 @@ import {
   rmScratch,
 } from "type-a-bin";
 import {
-  coverageHookUrl,
   ROOTS_ENV,
   rawCoverageDir,
   stripCoverageHookFromNodeOptions,
@@ -423,31 +422,30 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
 
 // Subprocess coverage is injected only when the caller pins an env
 // (every launcher spawn does); an omitted env must keep Node's
-// full-inherit default rather than get a sparse replacement.
-// The launcher imports the observer right after tsx (see
-// bin/glv-*.mjs), so it records tsx's transpiled output with its
-// inline source map: the raw profile offsets address esbuild's output,
-// not the pre-transform source. The vitest provider also wires the
-// observer into NODE_OPTIONS of everything the runner spawns — Node
-// processes NODE_OPTIONS before anything the launcher imports
-// in-process, and the hook module registers its loader only once, so
-// that earlier pre-tsx registration would win. Strip it from inherited
-// NODE_OPTIONS (keeping any other options) to leave the
-// launcher-ordered one the sole registration; the launcher restarts
-// with ordered argv imports only if a hook slipped through anyway
-// (hookPresentInNodeOptions, type-a-bin 0.1.6).
+// full-inherit default rather than get a sparse replacement. The
+// launcher (bin/glv-*.mjs) is type-a-bin's runCliAsMain, triggered by
+// the same RAW_COVERAGE_ENV: it loads tsx, then the observer ordered
+// above it, in the launcher's own process, so the observer records
+// tsx's transpiled output with its inline source map — the raw
+// NODE_V8_COVERAGE offsets address esbuild's output, not the
+// pre-transform source. The vitest provider also wires the observer
+// into NODE_OPTIONS of everything the runner spawns — Node processes
+// NODE_OPTIONS before anything the launcher imports in-process, and
+// the hook module registers its loader only once, so that earlier
+// pre-tsx registration would win (runCliAsMain would then restart on
+// a scrubbed NODE_OPTIONS to restore the order). Strip the hook from
+// inherited NODE_OPTIONS (keeping any other options) up front so the
+// launcher takes its in-process path with no restart at all.
 const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
   options: T,
 ): T => {
   const rawDir = rawCoverageDir();
   if (rawDir === undefined || options.env === undefined) return options;
-  const hook = coverageHookUrl();
   return {
     ...options,
     env: {
       ...options.env,
       NODE_V8_COVERAGE: rawDir,
-      GLV_COVERAGE_HOOK: hook,
       [ROOTS_ENV]: ROOT,
       NODE_OPTIONS: stripCoverageHookFromNodeOptions(
         options.env.NODE_OPTIONS ?? "",
