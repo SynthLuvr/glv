@@ -60,22 +60,24 @@ const renderCatchup = (
   return deltas;
 };
 
-// Identity of the in-flight tool call: which tool, which request row, how
-// many parallel calls. The elapsed clock is client-side, so a steady call
-// produces a steady key and no repeated status events.
-const toolKey = (tool: ToolRun | undefined): string =>
-  tool === undefined
-    ? ""
-    : `${tool.name}|${tool.startMs}|${tool.count}|${tool.timeoutSec ?? ""}`;
+// Identity of the in-flight tool call for delta detection: which tool,
+// which request row, how many parallel calls, and the timeout. Elapsed
+// time is client-side, so a steady call yields a steady key and no
+// repeated status events. A tool is only in flight while the run is
+// actually running — the same filter emitStatus applies.
+const statusToolKey = (state: PollState, h: RunHandle): string => {
+  if (h.status !== "running" || state.pendingTool === undefined) return "";
+  const tool = state.pendingTool;
+  return `${tool.name}|${tool.startMs}|${tool.count}|${tool.timeoutSec ?? ""}`;
+};
 
 // Records the status fields emitStatus just sent, so later polls only emit
-// changes against this baseline. The tool key mirrors emitStatus's filter:
-// a tool is only "in flight" while the run is actually running.
+// changes against this baseline.
 const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
   state.lastStatus = h.status;
   state.lastQueuePosition = h.queuePosition;
   state.lastPendingCount = h.pendingPrompts.length;
-  state.lastToolKey = h.status === "running" ? toolKey(state.pendingTool) : "";
+  state.lastToolKey = statusToolKey(state, h);
 };
 
 // Emits DB deltas — new messages, in-place edits, renames, and the meta chip.
@@ -174,7 +176,7 @@ const pollRunner = async (
     h.status !== state.lastStatus ||
     h.queuePosition !== state.lastQueuePosition ||
     h.pendingPrompts.length !== state.lastPendingCount ||
-    toolKey(state.pendingTool) !== state.lastToolKey
+    statusToolKey(state, h) !== state.lastToolKey
   ) {
     await emitStatus(stream, h, state.pendingTool, state.msgCursor);
     recordStatusBaseline(state, h);

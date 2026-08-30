@@ -9,10 +9,9 @@ type ToolRun = {
   timeoutSec?: number;
 };
 
-// Duration formatting for status hints, plus the sentence the viewer shows
-// while a tool call is in flight. Pure and import-free on purpose: the
-// client bundle (esbuild, platform "browser") shares these with
-// server-side rendering, so nothing here may touch Node built-ins.
+// Status-hint text shared by server-side rendering and the client bundle
+// (esbuild, platform "browser"). Pure and import-free on purpose: nothing
+// here may touch Node built-ins.
 
 // Compact wall-clock durations: 45s, 12m, 3h 05m, 2h.
 const fmtDuration = (seconds: number): string => {
@@ -28,9 +27,8 @@ const fmtDuration = (seconds: number): string => {
 };
 
 // The status-hint sentence for an in-flight tool call:
-// "bash running for 3m (timeout 30m)". The elapsed leg ticks client-side;
-// the timeout leg is static — together they keep a long-running tool
-// visibly alive and visibly bounded instead of an unexplained spinner.
+// "⟳ bash running for 3m (timeout 30m)". The elapsed leg ticks
+// client-side; the timeout leg is static.
 const toolRunText = (tool: ToolRun, now: number = Date.now()): string => {
   const who = tool.count > 1 ? `${tool.name} (+${tool.count - 1})` : tool.name;
   const elapsed = fmtDuration((now - tool.startMs) / 1000);
@@ -38,8 +36,11 @@ const toolRunText = (tool: ToolRun, now: number = Date.now()): string => {
     tool.timeoutSec !== undefined && tool.timeoutSec > 0
       ? ` (timeout ${fmtDuration(tool.timeoutSec)})`
       : "";
-  return `${who} running for ${elapsed}${timeout}`;
+  return `⟳ ${who} running for ${elapsed}${timeout}`;
 };
 
+const queuedSuffix = (count: number): string =>
+  count > 0 ? ` (${count} prompt${count > 1 ? "s" : ""} queued next)` : "";
+
 export type { ToolRun };
-export { fmtDuration, toolRunText };
+export { fmtDuration, queuedSuffix, toolRunText };

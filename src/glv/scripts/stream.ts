@@ -1,4 +1,4 @@
-import { type ToolRun, toolRunText } from "../format/duration.js";
+import { queuedSuffix, type ToolRun, toolRunText } from "../format/duration.js";
 import { fillPromptInput, parseJson } from "./shared.js";
 
 declare const htmx: {
@@ -17,21 +17,15 @@ let pendingBarDraft: string | undefined;
 let lastBusy: boolean | undefined;
 
 // While a tool call is in flight, the status hint carries a live elapsed
-// clock ("bash running for 3m (timeout 30m)"). The element is re-queried on
-// every tick because the prompt bar is swapped wholesale on busy/idle
-// transitions; a vanished hint means the run moved on and the ticker
-// retires itself.
+// clock. The element is re-queried on every tick because the prompt bar is
+// swapped wholesale on busy/idle transitions; a vanished hint means the run
+// moved on and the ticker retires itself.
 let activeTool: ToolRun | undefined;
 let activeQueued = 0;
 let toolTimer: ReturnType<typeof setInterval> | undefined;
 
-const queuedSuffix = (count: number): string =>
-  count > 0 ? ` (${count} prompt${count > 1 ? "s" : ""} queued next)` : "";
-
-const renderToolHint = (): string =>
-  activeTool === undefined
-    ? ""
-    : `⟳ ${toolRunText(activeTool)}${queuedSuffix(activeQueued)}`;
+const toolHintText = (tool: ToolRun, queued: number): string =>
+  `${toolRunText(tool)}${queuedSuffix(queued)}`;
 
 const stopToolTicker = (): void => {
   if (toolTimer !== undefined) clearInterval(toolTimer);
@@ -49,7 +43,7 @@ const tickToolHint = (): void => {
   // transitions (tool started / finished) still announce via the polite
   // region that updateStatusHint restores.
   hint.setAttribute("aria-live", "off");
-  hint.textContent = renderToolHint();
+  hint.textContent = toolHintText(activeTool, activeQueued);
 };
 
 const startToolTicker = (): void => {
@@ -275,7 +269,7 @@ const updateStatusHint = (data: StreamStatus): void => {
       hint.setAttribute("data-tool-running", "");
       activeTool = data.tool;
       activeQueued = count;
-      hint.textContent = renderToolHint();
+      hint.textContent = toolHintText(data.tool, count);
       startToolTicker();
     } else hint.textContent = `Running…${queuedSuffix(count)}`;
   } else if (data.status === "error" && data.error != null) {

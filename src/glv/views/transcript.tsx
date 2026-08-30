@@ -3,6 +3,7 @@ import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
 import {
   fmtRelative,
   pendingTool,
+  queuedSuffix,
   shortenHome,
   toolRunText,
   truncateMiddle,
@@ -255,9 +256,8 @@ const PromptBar = ({
           aria-live="polite"
           data-tool-running={tool !== undefined ? "" : undefined}
         >
-          {tool !== undefined ? `⟳ ${toolRunText(tool)}` : "Running…"}
-          {pendingCount > 0 &&
-            ` (${pendingCount} prompt${pendingCount > 1 ? "s" : ""} queued next)`}
+          {tool !== undefined ? toolRunText(tool) : "Running…"}
+          {queuedSuffix(pendingCount)}
         </p>
       )}
       {run?.status === "error" && run.error !== undefined && (
@@ -328,8 +328,8 @@ const Transcript = ({
     .filter((entry) => hasContent(entry.message));
   const isEmpty = visible.length === 0 && prompt === undefined;
   const prUrl = detectPrUrl(messages);
-  // Only meaningful while the run is live: the newest row is a request the
-  // agent has not answered yet, so the bar can say what it is waiting on.
+  // Only meaningful while the run is live: an unanswered request row in an
+  // idle session is stale history, not something the bar should name.
   const tool = run?.status === "running" ? pendingTool(messages) : undefined;
   return (
     <div
