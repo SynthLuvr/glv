@@ -78,4 +78,12 @@ const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   return formatDate(then, now);
 };
 
-export { fmtRelative, fmtTokens, shortenHome, toIso, truncate, truncateMiddle };
+export {
+  fmtRelative,
+  fmtTokens,
+  parseTimestamp,
+  shortenHome,
+  toIso,
+  truncate,
+  truncateMiddle,
+};
