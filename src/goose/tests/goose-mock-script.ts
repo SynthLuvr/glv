@@ -95,14 +95,10 @@ const runAcpMode = async (): Promise<void> => {
       return undefined;
     }
   };
-  // Optional stall before the conversation answers, so tests can reproduce
-  // a real agent binary taking seconds to enumerate its catalogue.
-  const delayMs = Number.parseInt(
-    process.env.GOOSE_MOCK_ACP_DELAY_MS ?? "",
-    10,
-  );
-  if (Number.isFinite(delayMs) && delayMs > 0)
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  // Optional stall before the conversation answers, simulating a real
+  // agent binary taking seconds to enumerate its catalogue.
+  const delayMs = Number(process.env.GOOSE_MOCK_ACP_DELAY_MS);
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   const providers = parseEnvJson("GOOSE_MOCK_ACP_PROVIDERS");
   const supported = parseEnvJson("GOOSE_MOCK_ACP_SUPPORTED_MODELS") as
     | Record<string, readonly string[]>

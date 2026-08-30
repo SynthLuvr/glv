@@ -1712,8 +1712,7 @@ select.form-input {
   font-size: 0.78rem;
   color: var(--color-faint);
 }
-/* Placeholder shown where the model picker loads in; swapped out by the
-   /sessions/model-picker fragment. */
+/* Loading stand-in, swapped out by the /sessions/model-picker fragment. */
 .model-slot-loading {
   display: flex;
   align-items: center;

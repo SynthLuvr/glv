@@ -178,10 +178,9 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
 
 // The picker shows only when the flavor exposes configured models and a
 // resolvable default. Resolving the catalogue may spawn the agent binary
-// (seconds), so this powers the lazy /sessions/model-picker fragment —
-// never the New Session form itself, which must render instantly.
-// `submitted` carries the form value from a rejected submit so the user's
-// selection survives the re-render.
+// (seconds), so this powers only the lazy /sessions/model-picker fragment —
+// never the New Session form, which must render instantly. `submitted`
+// carries a rejected submit's value so the selection survives.
 const modelPicker = async (
   ctx: ServerContext,
   submitted: string | undefined,
@@ -200,9 +199,9 @@ const modelPicker = async (
   };
 };
 
-// Cheap sync check (config read only, never a spawn): whether the flavor
-// exposes a model picker at all. Gates the lazy slot so flavors without
-// model support (claude) and configs without providers render no field.
+// Cheap sync gate (config read, never a spawn) deciding whether the form
+// renders the lazy slot at all: flavors without model support (claude) and
+// provider-less configs get no field.
 const hasModelPicker = (ctx: ServerContext): boolean =>
   ctx.models?.defaultSelection() !== undefined;
 

@@ -106,13 +106,13 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  app.get("/", async (c) =>
+  app.get("/", (c) =>
     render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
   );
 
-  // Registered before the /sessions/:id wildcard so "new" is treated as a
-  // literal segment rather than a session id.
-  app.get("/sessions/new", async (c) => {
+  // Registered before the /sessions/:id wildcard so "new" and "model-picker"
+  // read as literal segments rather than session ids.
+  app.get("/sessions/new", (c) => {
     const workingDir = c.req.query("working_dir") || undefined;
     return render(
       c,
@@ -124,18 +124,17 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  // The lazy model-picker fragment: the New Session form renders instantly
-  // and swaps this in once the catalogue resolves (which may spawn the
-  // agent binary and take seconds). Also registered before the :id
-  // wildcard. An empty result must still swap — htmx skips empty response
-  // bodies — so hide-the-picker resolves to a hidden placeholder.
+  // Lazy fragment behind the picker slot: resolving the catalogue may
+  // spawn the agent binary, so the form renders instantly and swaps this in
+  // once it lands. A no-picker result still swaps a hidden placeholder —
+  // htmx skips empty response bodies, which would strand the loading slot.
   app.get("/sessions/model-picker", async (c) => {
-    const models = await modelPicker(ctx, c.req.query("submitted"));
+    const picker = await modelPicker(ctx, c.req.query("submitted"));
     return c.html(
-      models === undefined ? (
+      picker === undefined ? (
         <span class="model-picker-empty" hidden />
       ) : (
-        <ModelSelect agentName={ctx.profile.agentName} models={models} />
+        <ModelSelect agentName={ctx.profile.agentName} picker={picker} />
       ),
     );
   });
@@ -272,8 +271,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (promptId !== "" && ctx.prompts !== undefined)
       bumpUsage(ctx.prompts, promptId);
 
-    // htmx swaps the transcript into #detail-pane; push the new session's
-    // URL so the address bar (and a refresh) match what is on screen.
+    // The transcript swaps into #detail-pane; push the new session's URL
+    // so the address bar (and a refresh) match what is on screen.
     c.header("HX-Push-Url", `/sessions/${sessionId}`);
     return renderSession(c, sessionId, session, {
       prompt,
@@ -311,7 +310,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.post("/sessions/:id/archive", async (c) => {
+  app.post("/sessions/:id/archive", (c) => {
     const id = c.req.param("id");
     // Stop an in-flight run first: sweeping the temp working dir out from
     // under a live agent (or deleting uploads its prompt references) leaves

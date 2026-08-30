@@ -66,19 +66,15 @@ const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
   return groups;
 };
 
-// The slot the server renders in place of a picker; the real <select> is
-// fetched lazily (hx-trigger="load") because resolving the catalogue can
-// spawn the agent binary, and the form must never wait on that.
+// Stand-in rendered in place of the picker; the real <select> loads lazily
+// because resolving the catalogue can spawn the agent binary, and the form
+// must never wait on that.
 const ModelPickerSlot = ({ submitted }: { submitted?: string }) => {
-  const target = "/sessions/model-picker";
-  const path =
-    submitted === undefined || submitted === ""
-      ? target
-      : `${target}?submitted=${encodeURIComponent(submitted)}`;
+  const query = submitted ? `?submitted=${encodeURIComponent(submitted)}` : "";
   return (
     <div
       class="form-field model-picker-slot"
-      hx-get={path}
+      hx-get={`/sessions/model-picker${query}`}
       hx-trigger="load"
       hx-target="this"
       hx-swap="outerHTML"
@@ -95,23 +91,23 @@ const ModelPickerSlot = ({ submitted }: { submitted?: string }) => {
 // run passes no model flags and the agent's own precedence applies.
 const ModelSelect = ({
   agentName,
-  models,
+  picker,
 }: {
   agentName: string;
-  models: ModelPicker;
+  picker: ModelPicker;
 }) => (
   <label class="form-field">
     <span class="form-label">Model</span>
     <select name="model_provider" class="form-input">
-      <option value="" selected={models.selected === ""}>
-        {agentName} default — {models.defaultLabel}
+      <option value="" selected={picker.selected === ""}>
+        {agentName} default — {picker.defaultLabel}
       </option>
-      {groupByProvider(models.choices).map((group) => (
+      {groupByProvider(picker.choices).map((group) => (
         <optgroup label={group.provider}>
           {group.choices.map((choice) => (
             <option
               value={choice.value}
-              selected={models.selected === choice.value}
+              selected={picker.selected === choice.value}
             >
               {choice.label}
             </option>
@@ -171,11 +167,8 @@ const NewSessionForm = ({
   error?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
-  /**
-   * Render the model picker slot; the <select> itself arrives via the
-   * lazy /sessions/model-picker fragment. `submitted` carries a rejected
-   * form value so the selection survives a re-render.
-   */
+  /** When present, render the lazy picker slot; `submitted` restores a
+   * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
 }) => (
   <div class="detail-inner new-session">

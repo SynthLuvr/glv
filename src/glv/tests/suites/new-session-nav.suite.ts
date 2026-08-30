@@ -8,11 +8,10 @@ import {
   withPage,
 } from "../harness.js";
 
-// Navigation-state regression suite: the sidebar's detail-pane swaps must
-// keep the URL in step with what is on screen. The plus button historically
-// swapped the New Session form in without pushing /sessions/new, so the
-// address bar kept pointing at the last-viewed session — a refresh then
-// "took the user back" to it.
+// Navigation-state regression suite: detail-pane swaps must keep the URL
+// in step with what is on screen. The plus button historically swapped the
+// New Session form in without pushing /sessions/new, so a refresh "took the
+// user back" to the last-viewed session.
 const runNewSessionNavSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;

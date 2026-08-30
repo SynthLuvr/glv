@@ -7,12 +7,10 @@ import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
 import { gooseConfigPath } from "../models.js";
 import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
 
-// Regression: /sessions/new used to await the model catalogue, which spawns
-// `goose acp` and can stall for seconds (10-20s timeouts in acp-catalog).
-// The whole New Session form blocked on it, so clicking the sidebar's plus
-// button left the previous session's transcript on screen — looking like
-// the button had navigated to the last-viewed session. The form must render
-// instantly; the picker arrives afterwards via the lazy fragment.
+// Regression: /sessions/new used to await the model catalogue, which
+// spawns `goose acp` and can stall for seconds — the whole form blocked on
+// it, so the plus button left the previous session's transcript on screen.
+// The form must render instantly; the picker arrives via the lazy fragment.
 const CONFIG_YAML = `active_provider: zai
 providers:
   zai:
@@ -67,13 +65,10 @@ describe("new session with a slow model catalogue (goose)", () => {
       await page.locator('.mobile-pane-btn[data-pane="sidebar"]').click();
       await page.locator(".new-session-btn").click();
 
-      // Before the fix this swap only landed after the stalled catalogue
-      // request finished, leaving the previous session's transcript showing.
       await expect(page.locator("form.new-session-form")).toBeVisible({
         timeout: FORM_BUDGET_MS,
       });
       await expect(page.locator("textarea[name='prompt']")).toBeVisible();
-      // The picker is a lazy slot at this point, not a blocking <select>.
       await expect(page.locator(".model-picker-slot")).toBeVisible();
       await expect(page).toHaveURL(/\/sessions\/new$/);
     });
