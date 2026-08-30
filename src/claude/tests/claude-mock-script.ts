@@ -6,9 +6,7 @@ import {
   captureTo,
   linesFromEnv,
   sleep,
-  spawnLongChild,
   streamLines,
-  trapSignals,
 } from "../../glv/tests/mock-common.js";
 import { encodeWorkingDir } from "../store/working-dir.js";
 
@@ -103,7 +101,6 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
-  trapSignals("CLAUDE_MOCK_TRAP_SIGNALS");
 
   // A --resume flag means a follow-up on an existing session; otherwise this
   // is a new session whose id glv pre-assigned via --session-id. Create
@@ -121,7 +118,6 @@ const main = async (): Promise<void> => {
   captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());
   captureTo("CLAUDE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
   captureTo("CLAUDE_MOCK_CAPTURE_ENV", JSON.stringify(claudeCodeEnv()));
-  spawnLongChild("CLAUDE_MOCK_SPAWN_CHILD");
 
   const sleepMs = Number(process.env.CLAUDE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

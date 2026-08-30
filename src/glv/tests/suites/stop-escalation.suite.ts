@@ -1,6 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -8,6 +6,7 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  waitForAgentRun,
 } from "../harness.js";
 
 // A silent agent that traps SIGINT/SIGTERM used to park the runner's stdout
@@ -16,7 +15,6 @@ import {
 // stop() must eventually land SIGKILL even with no output flowing.
 const runStopEscalationSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-  let pidFile: string;
 
   const delay = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,13 +30,11 @@ const runStopEscalationSuite = (fx: FlavorFixture): void => {
   };
 
   beforeAll(async () => {
-    pidFile = join(
-      tmpdir(),
-      `glv-sigtrap-${randomBytes(6).toString("hex")}.pid`,
-    );
+    // An agent that ignores SIGINT/SIGTERM and never speaks; the behaviour
+    // bounds its own lifetime, so a stop the ladder somehow misses cannot
+    // outlive the suite.
     env = await fx.startEnv("glv-stop-esc-", {
-      sleepMs: 120000,
-      trapSignals: pidFile,
+      behaviour: { trapSignals: true },
     });
     const workingDir = join(env.scratchDir, "d");
     mkdirSync(workingDir, { recursive: true });
@@ -58,17 +54,7 @@ const runStopEscalationSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(200);
 
-      let pid = 0;
-      const writeDeadline = Date.now() + 10000;
-      while (Date.now() < writeDeadline) {
-        try {
-          pid = Number(readFileSync(pidFile, "utf8").trim());
-        } catch {
-          pid = 0;
-        }
-        if (pid > 0) break;
-        await delay(100);
-      }
+      const pid = (await waitForAgentRun(env, fx.resumeFlag))?.pid ?? 0;
       expect(pid).toBeGreaterThan(0);
       expect(isAlive(pid)).toBe(true);
 

@@ -14,17 +14,21 @@ import {
   readdirSync,
   readFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
-import { mockBin } from "type-a-bin";
+import {
+  type MockBinBehaviour,
+  type MockBinCall,
+  type MockBinHandle,
+  mockBin,
+  rmScratch,
+} from "type-a-bin";
 import { sessionCookieName } from "../auth/service.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
-import { rmScratch } from "./rm-scratch.js";
 import { subprocessCoverageEnv } from "./subprocess-coverage.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -187,15 +191,15 @@ type MockConfig = {
    * providers with no static catalogue models. Goose mock only.
    */
   acpSupportedModels?: string;
-  /** When set, the agent spawns a long-lived descendant, PID written here. */
-  spawnChild?: string;
-  /**
-   * When set, the agent traps SIGINT/SIGTERM (staying alive until SIGKILL)
-   * and writes its own PID to this path — for stop-escalation tests.
-   */
-  trapSignals?: string;
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
+  /**
+   * Replaces the mock agent script with a scripted type-a-bin behaviour,
+   * for suites that need the agent as a process (silent, long-lived,
+   * signal-trapping, spawning a descendant) rather than as a store writer.
+   * The invocations land on `env.agentMock`.
+   */
+  behaviour?: MockBinBehaviour;
 };
 
 type Databases = {
@@ -224,6 +228,8 @@ type IntegrationEnv = {
   tempDir: string;
   /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
   serverStderr: () => string;
+  /** Recorded agent invocations, when the config scripted a behaviour. */
+  agentMock: MockBinHandle | undefined;
   cleanup: () => Promise<void>;
 };
 
@@ -367,23 +373,13 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     killTree("SIGTERM");
   });
 
-// mockBin prepends a temp dir to PATH so glv finds the mocked binary.
-// POSIX runs the mock with its working dir outside the repo, so the loader
-// must be an absolute file:// URL for bare `tsx` to resolve; on Windows
-// type-a-bin runs node-interpreter mocks in-process and resolves `tsx`
-// itself.
-const tsxLoader = pathToFileURL(
-  createRequire(import.meta.url).resolve("tsx"),
-).href;
-const mockScript = (bin: string, file: string): Promise<() => void> =>
-  mockBin(bin, `node --import ${IS_WIN ? "tsx" : tsxLoader}`, { file });
-
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or
 // network.
 const ghMockScriptPath = fileURLToPath(
   new URL("./gh-mock-script.ts", import.meta.url),
 );
-const mockGh = (): Promise<() => void> => mockScript("gh", ghMockScriptPath);
+const mockGh = (): Promise<() => void> =>
+  mockBin("gh", { file: ghMockScriptPath });
 
 const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_SESSION_NAME`]: mock.sessionName ?? "",
@@ -396,8 +392,6 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_CAPTURE_CWD`]: mock.captureCwd ?? "",
   [`${prefix}_MOCK_CAPTURE_ARGS`]: mock.captureArgs ?? "",
   [`${prefix}_MOCK_CAPTURE_ENV`]: mock.captureEnv ?? "",
-  [`${prefix}_MOCK_SPAWN_CHILD`]: mock.spawnChild ?? "",
-  [`${prefix}_MOCK_TRAP_SIGNALS`]: mock.trapSignals ?? "",
   [`${prefix}_MOCK_NEVER_CREATE_SESSION`]:
     mock.neverCreateSession === true ? "1" : "",
   ...(mock.acpProviders !== undefined
@@ -501,10 +495,13 @@ const startEnv = async (
   mkdirSync(uploadsDir, { recursive: true });
   const tempDir = join(scratchDir, "tmp");
   mkdirSync(tempDir, { recursive: true });
-  const restoreAgentPath = await mockScript(
-    adapter.mockBinName,
-    adapter.mockScriptPath,
-  );
+  const agentMock =
+    mock.behaviour === undefined
+      ? undefined
+      : await mockBin(adapter.mockBinName, mock.behaviour);
+  const restoreAgentPath =
+    agentMock ??
+    (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
   const restoreGhPath = await mockGh();
 
   const port = await findFreePort();
@@ -569,8 +566,29 @@ const startEnv = async (
     uploadsDir,
     tempDir,
     serverStderr: readStderr,
+    agentMock,
     cleanup,
   };
+};
+
+// The scripted agent records every invocation of the mocked binary; the
+// session run is the one carrying the resume flag, because other features
+// (goose's model picker `acp` probe) invoke the same binary. Polls the
+// handle until that invocation appears; undefined when it never does.
+const waitForAgentRun = async (
+  env: IntegrationEnv,
+  resumeFlag: string,
+  timeoutMs = 10000,
+): Promise<MockBinCall | undefined> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = env.agentMock?.calls.find((call) =>
+      call.args.includes(resumeFlag),
+    );
+    if (run !== undefined) return run;
+    await sleep(100);
+  }
+  return undefined;
 };
 
 // Starts a brand-new run over HTTP (the create-session form's endpoint).
@@ -761,7 +779,6 @@ export {
   findFreePort,
   flagValue,
   IS_WIN,
-  mockScript,
   parseSseData,
   postFollowUp,
   postNewSession,
@@ -773,6 +790,7 @@ export {
   startEnv,
   stopProcess,
   subdirCount,
+  waitForAgentRun,
   waitForArgs,
   waitForHttp,
   waitForJsonFile,

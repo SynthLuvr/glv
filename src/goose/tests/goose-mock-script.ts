@@ -5,9 +5,7 @@ import {
   captureTo,
   linesFromEnv,
   sleep,
-  spawnLongChild,
   streamLines,
-  trapSignals,
 } from "../../glv/tests/mock-common.js";
 
 // Stand-in for the real goose binary. A `--session-id` flag means a resume
@@ -170,7 +168,6 @@ const main = async (): Promise<void> => {
     return;
   }
   const isResume = args.includes("--session-id");
-  trapSignals("GOOSE_MOCK_TRAP_SIGNALS");
 
   // Insert first so the server's session poll detects the row promptly even
   // when a long sleep keeps the process alive afterwards. Tests that need a
@@ -183,7 +180,6 @@ const main = async (): Promise<void> => {
   await captureStdinTo("GOOSE_MOCK_CAPTURE_STDIN");
   captureTo("GOOSE_MOCK_CAPTURE_CWD", process.cwd());
   captureTo("GOOSE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
-  spawnLongChild("GOOSE_MOCK_SPAWN_CHILD");
 
   const sleepMs = Number(process.env.GOOSE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);
