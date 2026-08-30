@@ -31,6 +31,7 @@ import {
   coverageHookUrl,
   ROOTS_ENV,
   rawCoverageDir,
+  stripCoverageHookFromNodeOptions,
 } from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
@@ -419,22 +420,6 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
 // pre-tsx registration would win. Strip it from inherited NODE_OPTIONS
 // (keeping any other options) to leave the launcher-ordered one the
 // sole registration.
-const stripCoverageHookFromNodeOptions = (
-  nodeOptions: string,
-  hook: string,
-): string => {
-  const tokens = nodeOptions.split(" ").filter((token) => token !== "");
-  return tokens
-    .filter(
-      (token, index) =>
-        !(
-          token === hook ||
-          (token === "--import" && tokens[index + 1] === hook)
-        ),
-    )
-    .join(" ");
-};
-
 const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
   options: T,
 ): T => {
@@ -450,7 +435,6 @@ const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
       [ROOTS_ENV]: ROOT,
       NODE_OPTIONS: stripCoverageHookFromNodeOptions(
         options.env.NODE_OPTIONS ?? "",
-        hook,
       ),
     },
   };
