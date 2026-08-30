@@ -37,14 +37,14 @@ const config = vitestPreset({
   testTimeout: 120000,
   hookTimeout: 120000,
   coverage: {
-    // The custom provider extends the stock v8 one and additionally
+    // The custom provider is type-a-bin's subprocess-coverage
+    // companion: it extends the stock v8 provider and additionally
     // merges the raw NODE_V8_COVERAGE profiles written by the
-    // server/CLI subprocesses the integration suite spawns (see
-    // src/glv/tests/subprocess-coverage.ts). Enabled by `pnpm test` /
-    // `pnpm test:vitest`; a bare `vitest run --coverage` reports
-    // in-process coverage only, exactly like before.
+    // server/CLI subprocesses the integration suite spawns. Enabled by
+    // `pnpm test` / `pnpm test:vitest`; a bare `vitest run --coverage`
+    // reports in-process coverage only, exactly like before.
     provider: "custom",
-    customProviderModule: "./src/glv/tests/subprocess-coverage-provider.ts",
+    customProviderModule: "type-a-bin/subprocess-coverage/provider",
     include: [
       "src/glv/**/*.ts",
       "src/goose/**/*.ts",

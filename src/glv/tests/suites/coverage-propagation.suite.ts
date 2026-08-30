@@ -2,9 +2,9 @@ import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
+import { RAW_COVERAGE_ENV } from "type-a-bin/subprocess-coverage";
 import { describe, it } from "vitest";
 import { type FlavorFixture, withPage } from "../harness.js";
-import { RAW_COVERAGE_ENV } from "../subprocess-coverage.js";
 
 const PROFILE_FILE = /^coverage-.*\.json$/;
 const TRANSFORM_FILE = /^transforms-.*\.jsonl$/;
