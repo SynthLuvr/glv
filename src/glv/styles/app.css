@@ -983,7 +983,8 @@ a.git-chip:focus-visible {
 .tag.tool {
   color: var(--color-muted);
 }
-.tag.context {
+.tag.context,
+.tag.summary {
   color: var(--color-faint);
 }
 .message-head time {

@@ -125,13 +125,14 @@ const toolResultInfo = (item: ContentItem): ToolResultInfo | undefined => {
   };
 };
 
-type MessageKind = "prompt" | "output" | "tool" | "context";
+type MessageKind = "prompt" | "output" | "tool" | "context" | "summary";
 
 const MESSAGE_TAGS: Record<MessageKind, string> = {
   prompt: "▸ PROMPT",
   output: "◆ OUTPUT",
   tool: "⟳ TOOL",
   context: "◇ CONTEXT",
+  summary: "◌ SUMMARY",
 };
 
 // goose injects each turn's context as its own user message that is
@@ -141,12 +142,22 @@ const isTurnContextMessage = (items: readonly ContentItem[]): boolean =>
   items[0].type === "text" &&
   /^\s*<turn-context>[\s\S]*<\/turn-context>\s*$/.test(items[0].text ?? "");
 
+// Resuming a goose session compacts the replayed history into user
+// messages shaped [thinking, text]: the model's reasoning about the
+// summary plus the compacted text (verified in a real sessions.db).
+// Authored prompts never carry thinking items, so a user message with
+// one is machine-injected replay, not a prompt.
+const isCompactedSummary = (items: readonly ContentItem[]): boolean =>
+  items.some((item) => item.type === "thinking");
+
 // A user-role message that only carries a tool response is really tool
 // activity, not a prompt — label it neutrally instead of mis-tagging it.
 const messageKind = (role: string, items: ContentItem[]): MessageKind => {
   if (items.some((item) => item.type === "toolResponse")) return "tool";
-  if (role === "user" && isTurnContextMessage(items)) return "context";
-  return role === "user" ? "prompt" : "output";
+  if (role !== "user") return "output";
+  if (isTurnContextMessage(items)) return "context";
+  if (isCompactedSummary(items)) return "summary";
+  return "prompt";
 };
 
 export type {
