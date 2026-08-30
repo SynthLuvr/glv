@@ -230,9 +230,8 @@ type IntegrationEnv = {
   /** Session cookie name this server reads (derived from its auth DB). */
   cookieName: string;
   /**
-   * PID of the launcher process the harness spawned. The launcher
-   * (bin/glv-*.mjs) loads the CLI in-process, so this is also the
-   * serve process's PID.
+   * PID of the spawned launcher process — the launcher loads the CLI
+   * in-process, so this is also the serve process's PID.
    */
   serverPid: number | undefined;
   context: BrowserContext;
@@ -423,19 +422,16 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
 // Subprocess coverage is injected only when the caller pins an env
 // (every launcher spawn does); an omitted env must keep Node's
 // full-inherit default rather than get a sparse replacement. The
-// launcher (bin/glv-*.mjs) is type-a-bin's runCliAsMain, triggered by
-// the same RAW_COVERAGE_ENV: it loads tsx, then the observer ordered
-// above it, in the launcher's own process, so the observer records
-// tsx's transpiled output with its inline source map — the raw
-// NODE_V8_COVERAGE offsets address esbuild's output, not the
-// pre-transform source. The vitest provider also wires the observer
-// into NODE_OPTIONS of everything the runner spawns — Node processes
-// NODE_OPTIONS before anything the launcher imports in-process, and
-// the hook module registers its loader only once, so that earlier
-// pre-tsx registration would win (runCliAsMain would then restart on
-// a scrubbed NODE_OPTIONS to restore the order). Strip the hook from
-// inherited NODE_OPTIONS (keeping any other options) up front so the
-// launcher takes its in-process path with no restart at all.
+// launcher loads tsx and then the observer in its own process, so the
+// observer records tsx's transpiled output with its inline source map
+// — the raw NODE_V8_COVERAGE offsets address esbuild's output, not
+// the pre-transform source. The vitest provider also wires the
+// observer into NODE_OPTIONS of everything the runner spawns, and Node
+// processes NODE_OPTIONS before any in-process import, so an
+// inherited registration would pre-date tsx and win (the hook
+// registers its loader only once). Strip it up front, keeping any
+// other options, so the launcher keeps its observer-after-tsx
+// ordering without the restart runCliAsMain would otherwise do.
 const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
   options: T,
 ): T => {

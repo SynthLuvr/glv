@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // Cross-platform Node launcher for the claude viewer, published via
 // package.json's "bin" field; bin/glv-claude (POSIX shell) is retained
-// for direct Unix invocation. The launcher shape itself — tsx ordered
-// below the coverage observer, argv repositioned around the entry,
-// the ordered restart for an inherited NODE_OPTIONS hook — is
-// type-a-bin's runCliAsMain (0.1.7, from SynthLuvr/type-a-bin#37): the
-// CLI loads in this process as the main module, so signals reach it
-// directly and its exit code is the launcher's own.
+// for direct Unix invocation. runCliAsMain loads the CLI as this
+// process's main module (tsx first, and under subprocess coverage the
+// observer ordered above it), so signals and the exit code are the
+// CLI's own.
 import { runCliAsMain } from "type-a-bin/subprocess-coverage/run-cli";
 
 await runCliAsMain(new URL("../src/claude/cli.ts", import.meta.url));
