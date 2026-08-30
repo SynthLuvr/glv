@@ -40,7 +40,7 @@
     "tailwindcss": "^4.3.3",
     "ts-canon": "^0.1.4",
     "tsx": "^4.23.12",
-    "type-a-bin": "^0.1.5",
+    "type-a-bin": "^0.1.7",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

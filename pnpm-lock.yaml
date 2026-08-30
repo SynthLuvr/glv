@@ -91,8 +91,8 @@ importers:
         specifier: ^4.23.12
         version: 4.23.12
       type-a-bin:
-        specifier: ^0.1.5
-        version: 0.1.5(@vitest/coverage-v8@4.1.11)(ast-v8-to-istanbul@1.0.5)(vitest@4.1.11)
+        specifier: ^0.1.7
+        version: 0.1.7(@vitest/coverage-v8@4.1.11)(ast-v8-to-istanbul@1.0.5)(vitest@4.1.11)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1978,8 +1978,8 @@ packages:
     resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
     engines: {node: '>= 6.0.0'}
 
-  type-a-bin@0.1.5:
-    resolution: {integrity: sha512-Sspz5ELUPF9mJTdN5/L4d1TqeAKELBViwWXpXBKn1ntSxWIzFhIUSGrk9m/xbokttyAd5uRYy/uJcbIdDogHqg==}
+  type-a-bin@0.1.7:
+    resolution: {integrity: sha512-UlqgPMG6z1xJsc/ddsvJiq7Fdc4YtdYHK+JayUMKc+f13oZ3TtCgQ20zLwfxl79DqTsh/KvG+0iZbBZInNC63Q==}
     engines: {node: '==26'}
     peerDependencies:
       '@vitest/coverage-v8': '>= 2'
@@ -3662,7 +3662,7 @@ snapshots:
     dependencies:
       tslib: 1.14.1
 
-  type-a-bin@0.1.5(@vitest/coverage-v8@4.1.11)(ast-v8-to-istanbul@1.0.5)(vitest@4.1.11):
+  type-a-bin@0.1.7(@vitest/coverage-v8@4.1.11)(ast-v8-to-istanbul@1.0.5)(vitest@4.1.11):
     optionalDependencies:
       '@vitest/coverage-v8': 4.1.11(vitest@4.1.11)
       ast-v8-to-istanbul: 1.0.5
