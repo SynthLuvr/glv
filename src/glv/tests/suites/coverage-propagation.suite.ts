@@ -38,6 +38,25 @@ const runCoveragePropagationSuite = (fx: FlavorFixture): void => {
       assertRawProfiles(rawDir, fx.name);
       assertTransforms(rawDir);
     });
+
+    it("runs the CLI in the launcher's own process", async () => {
+      const rawDir = mkdtempSync(join(tmpdir(), "glv-covprop-pid-"));
+      const previous = process.env[RAW_COVERAGE_ENV];
+      process.env[RAW_COVERAGE_ENV] = rawDir;
+      const env = await fx.startEnv("glv-covprop-pid-");
+      try {
+        await withPage(env.context, async (page) => {
+          await page.goto(env.baseUrl);
+          await expect(page.locator(".sidebar")).toBeVisible();
+        });
+      } finally {
+        await env.cleanup();
+        if (previous === undefined) delete process.env[RAW_COVERAGE_ENV];
+        else process.env[RAW_COVERAGE_ENV] = previous;
+      }
+
+      assertLauncherRanCli(rawDir, fx.name, env.serverPid);
+    });
   });
 };
 
@@ -52,6 +71,28 @@ const assertRawProfiles = (rawDir: string, flavor: string): void => {
     readFileSync(join(rawDir, name), "utf8").includes(`/src/${flavor}/cli.ts`),
   );
   expect(mentionsCli).toBe(true);
+};
+
+// The launcher (bin/glv-*.mjs) loads tsx, the observer, and the CLI in
+// its own process rather than spawning a second node — so the profile
+// written by the PID the harness spawned must itself mention the CLI
+// entry. Under a spawn-a-child launcher that PID's profile would cover
+// only the .mjs wrapper.
+const assertLauncherRanCli = (
+  rawDir: string,
+  flavor: string,
+  serverPid: number | undefined,
+): void => {
+  expect(serverPid).toBeDefined();
+  const own = readdirSync(rawDir).filter(
+    (name) =>
+      PROFILE_FILE.test(name) && name.startsWith(`coverage-${serverPid}-`),
+  );
+  expect(own.length).toBeGreaterThan(0);
+  const ranCli = own.some((name) =>
+    readFileSync(join(rawDir, name), "utf8").includes(`/src/${flavor}/cli.ts`),
+  );
+  expect(ranCli).toBe(true);
 };
 
 type RecordedTransform = {

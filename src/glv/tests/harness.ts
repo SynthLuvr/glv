@@ -230,6 +230,12 @@ type IntegrationEnv = {
   cookie: string;
   /** Session cookie name this server reads (derived from its auth DB). */
   cookieName: string;
+  /**
+   * PID of the launcher process the harness spawned. The launcher
+   * (bin/glv-*.mjs) loads the CLI in-process, so this is also the
+   * serve process's PID.
+   */
+  serverPid: number | undefined;
   context: BrowserContext;
   dbs: Databases;
   /** GLV's private uploads directory (temp dir, cleaned up on test end). */
@@ -418,16 +424,18 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
 // Subprocess coverage is injected only when the caller pins an env
 // (every launcher spawn does); an omitted env must keep Node's
 // full-inherit default rather than get a sparse replacement.
-// The observer rides the launcher's `--import` right after tsx (see
+// The launcher imports the observer right after tsx (see
 // bin/glv-*.mjs), so it records tsx's transpiled output with its
 // inline source map: the raw profile offsets address esbuild's output,
 // not the pre-transform source. The vitest provider also wires the
 // observer into NODE_OPTIONS of everything the runner spawns — Node
-// processes NODE_OPTIONS before the launcher's trailing --import, and
-// the hook module registers its loader only once, so that earlier
-// pre-tsx registration would win. Strip it from inherited NODE_OPTIONS
-// (keeping any other options) to leave the launcher-ordered one the
-// sole registration.
+// processes NODE_OPTIONS before anything the launcher imports
+// in-process, and the hook module registers its loader only once, so
+// that earlier pre-tsx registration would win. Strip it from inherited
+// NODE_OPTIONS (keeping any other options) to leave the
+// launcher-ordered one the sole registration; the launcher restarts
+// with ordered argv imports only if a hook slipped through anyway
+// (hookPresentInNodeOptions, type-a-bin 0.1.6).
 const withSubprocessCoverageEnv = <T extends { env?: NodeJS.ProcessEnv }>(
   options: T,
 ): T => {
@@ -595,6 +603,7 @@ const startEnv = async (
     baseUrl,
     cookie: `${cookieName}=${dbs.token}`,
     cookieName,
+    serverPid: proc.pid,
     context,
     dbs,
     uploadsDir,
