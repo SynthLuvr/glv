@@ -143,8 +143,20 @@ describe("new-session model picker (goose)", () => {
     rmSync(argsDir, { recursive: true, force: true });
   });
 
-  it("lists every model each configured provider offers", async () => {
+  it("renders the form instantly with a lazy picker slot", async () => {
     const res = await authedFetch(env, "/sessions/new");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    // The picker itself is not in the initial HTML: resolving the catalogue
+    // can spawn the agent binary, and the form must never block on that.
+    expect(html).not.toContain('name="model_provider"');
+    expect(html).toContain('class="form-field model-picker-slot"');
+    expect(html).toContain('hx-get="/sessions/model-picker"');
+    expect(html).toContain('hx-trigger="load"');
+  });
+
+  it("lists every model each configured provider offers", async () => {
+    const res = await authedFetch(env, "/sessions/model-picker");
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('name="model_provider"');
@@ -225,8 +237,12 @@ describe("new-session model picker (goose)", () => {
     expect(res.status).toBe(422);
     const html = await res.text();
     expect(html).toContain("no longer available in goose");
-    // The form re-renders rather than leaking a broken selection.
-    expect(html).toContain('name="model_provider"');
+    // The form re-renders rather than leaking a broken selection: the lazy
+    // slot comes back carrying the submitted value so the picker restores it.
+    expect(html).toContain('class="form-field model-picker-slot"');
+    expect(html).toContain(
+      'hx-get="/sessions/model-picker?submitted=ghost%3Awhatever"',
+    );
   });
 
   it("rejects a model the provider does not offer", async () => {
@@ -241,7 +257,9 @@ describe("new-session model picker (goose)", () => {
     expect(res.status).toBe(422);
     const html = await res.text();
     expect(html).toContain("no longer available in goose");
-    expect(html).toContain('name="model_provider"');
+    expect(html).toContain(
+      'hx-get="/sessions/model-picker?submitted=zai%3Anot-a-glm"',
+    );
   });
 
   it("keeps model flags off follow-up (resume) runs", async () => {
@@ -274,14 +292,26 @@ describe("new-session model picker (goose)", () => {
   });
 
   it("hides the picker when goose has no configured models", async () => {
-    const res = await authedFetch(bareEnv, "/sessions/new");
-    const html = await res.text();
-    expect(res.status).toBe(200);
-    expect(html).not.toContain('name="model_provider"');
+    const form = await authedFetch(bareEnv, "/sessions/new");
+    const formHtml = await form.text();
+    expect(form.status).toBe(200);
+    expect(formHtml).not.toContain("model-picker-slot");
+    expect(formHtml).not.toContain('name="model_provider"');
+    // The fragment answers with a hidden placeholder: an empty body would
+    // make htmx skip the swap and strand the loading slot forever.
+    const frag = await authedFetch(bareEnv, "/sessions/model-picker");
+    const fragHtml = await frag.text();
+    expect(frag.status).toBe(200);
+    expect(fragHtml).toContain("model-picker-empty");
+    expect(fragHtml).not.toContain('name="model_provider"');
   });
 
   it("falls back to configured models when the agent can't list them", async () => {
-    const res = await authedFetch(legacyEnv, "/sessions/new");
+    const form = await authedFetch(legacyEnv, "/sessions/new");
+    const formHtml = await form.text();
+    expect(form.status).toBe(200);
+    expect(formHtml).toContain('class="form-field model-picker-slot"');
+    const res = await authedFetch(legacyEnv, "/sessions/model-picker");
     const html = await res.text();
     expect(res.status).toBe(200);
     // One option per provider — the configured model — and no catalogue

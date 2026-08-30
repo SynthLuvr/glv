@@ -66,6 +66,31 @@ const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
   return groups;
 };
 
+// The slot the server renders in place of a picker; the real <select> is
+// fetched lazily (hx-trigger="load") because resolving the catalogue can
+// spawn the agent binary, and the form must never wait on that.
+const ModelPickerSlot = ({ submitted }: { submitted?: string }) => {
+  const target = "/sessions/model-picker";
+  const path =
+    submitted === undefined || submitted === ""
+      ? target
+      : `${target}?submitted=${encodeURIComponent(submitted)}`;
+  return (
+    <div
+      class="form-field model-picker-slot"
+      hx-get={path}
+      hx-trigger="load"
+      hx-target="this"
+      hx-swap="outerHTML"
+    >
+      <span class="form-label">Model</span>
+      <div class="form-input model-slot-loading" aria-busy="true">
+        Loading models…
+      </div>
+    </div>
+  );
+};
+
 // The first option ("<agent> default — …") submits an empty value so the
 // run passes no model flags and the agent's own precedence applies.
 const ModelSelect = ({
@@ -138,7 +163,7 @@ const NewSessionForm = ({
   error,
   prompts = [],
   categories = [],
-  models,
+  modelPicker,
 }: {
   agentName: string;
   workingDir: string;
@@ -146,7 +171,12 @@ const NewSessionForm = ({
   error?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
-  models?: ModelPicker;
+  /**
+   * Render the model picker slot; the <select> itself arrives via the
+   * lazy /sessions/model-picker fragment. `submitted` carries a rejected
+   * form value so the selection survives a re-render.
+   */
+  modelPicker?: { submitted?: string };
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -170,8 +200,8 @@ const NewSessionForm = ({
         <WorkingDirBody workingDir={workingDir} dirs={dirs} />
         <TempDirBody />
       </div>
-      {models !== undefined && (
-        <ModelSelect agentName={agentName} models={models} />
+      {modelPicker !== undefined && (
+        <ModelPickerSlot submitted={modelPicker.submitted} />
       )}
       <label class="form-field">
         <span class="form-label">Prompt</span>
@@ -205,4 +235,4 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { ModelPicker, NewSessionForm, NotFoundDetail };
+export { ModelPicker, ModelSelect, NewSessionForm, NotFoundDetail };

@@ -15,6 +15,7 @@ import {
   stop,
 } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
+import { ModelSelect } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
@@ -22,6 +23,7 @@ import { ServerContext, VIEWER_FILTER } from "../context.js";
 import { extractIds, isHtmxRequest } from "../http.js";
 import { expandHome } from "../paths.js";
 import {
+  modelPicker,
   newSessionDetail,
   render,
   renderNotFound,
@@ -105,7 +107,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   };
 
   app.get("/", async (c) =>
-    render(c, ctx, sessionsAll(), undefined, await newSessionDetail(ctx)),
+    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
   );
 
   // Registered before the /sessions/:id wildcard so "new" is treated as a
@@ -117,8 +119,24 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       ctx,
       sessionsAll(),
       undefined,
-      await newSessionDetail(ctx, { workingDir }),
+      newSessionDetail(ctx, { workingDir }),
       { title: NEW_SESSION_TITLE },
+    );
+  });
+
+  // The lazy model-picker fragment: the New Session form renders instantly
+  // and swaps this in once the catalogue resolves (which may spawn the
+  // agent binary and take seconds). Also registered before the :id
+  // wildcard. An empty result must still swap — htmx skips empty response
+  // bodies — so hide-the-picker resolves to a hidden placeholder.
+  app.get("/sessions/model-picker", async (c) => {
+    const models = await modelPicker(ctx, c.req.query("submitted"));
+    return c.html(
+      models === undefined ? (
+        <span class="model-picker-empty" hidden />
+      ) : (
+        <ModelSelect agentName={ctx.profile.agentName} models={models} />
+      ),
     );
   });
 
@@ -146,7 +164,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         ctx,
         sessions,
         undefined,
-        await newSessionDetail(ctx, {
+        newSessionDetail(ctx, {
           error,
           workingDir: submittedWorkingDir,
           modelProvider,
@@ -254,6 +272,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     if (promptId !== "" && ctx.prompts !== undefined)
       bumpUsage(ctx.prompts, promptId);
 
+    // htmx swaps the transcript into #detail-pane; push the new session's
+    // URL so the address bar (and a refresh) match what is on screen.
+    c.header("HX-Push-Url", `/sessions/${sessionId}`);
     return renderSession(c, sessionId, session, {
       prompt,
       refreshSidebar: true,
@@ -299,17 +320,13 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
-    return render(
-      c,
-      ctx,
-      sessionsAll(),
-      undefined,
-      await newSessionDetail(ctx),
-      {
-        refreshSidebar: true,
-        title: NEW_SESSION_TITLE,
-      },
-    );
+    // The response swaps the New Session form into #detail-pane; keep the
+    // URL in step so a refresh doesn't land on the archived session (404).
+    c.header("HX-Push-Url", "/sessions/new");
+    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
+      refreshSidebar: true,
+      title: NEW_SESSION_TITLE,
+    });
   });
 
   app.post("/sessions/:id/rename", async (c) => {

@@ -177,10 +177,11 @@ const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
   );
 
 // The picker shows only when the flavor exposes configured models and a
-// resolvable default. `submitted` carries the form value from a rejected
-// submit so the user's selection survives the re-render; the cheap sync
-// default check runs before the async choices, which may spawn the agent
-// binary to enumerate the catalogue.
+// resolvable default. Resolving the catalogue may spawn the agent binary
+// (seconds), so this powers the lazy /sessions/model-picker fragment —
+// never the New Session form itself, which must render instantly.
+// `submitted` carries the form value from a rejected submit so the user's
+// selection survives the re-render.
 const modelPicker = async (
   ctx: ServerContext,
   submitted: string | undefined,
@@ -199,14 +200,20 @@ const modelPicker = async (
   };
 };
 
-const newSessionDetail = async (
+// Cheap sync check (config read only, never a spawn): whether the flavor
+// exposes a model picker at all. Gates the lazy slot so flavors without
+// model support (claude) and configs without providers render no field.
+const hasModelPicker = (ctx: ServerContext): boolean =>
+  ctx.models?.defaultSelection() !== undefined;
+
+const newSessionDetail = (
   ctx: ServerContext,
   {
     error,
     workingDir,
     modelProvider,
   }: { error?: string; workingDir?: string; modelProvider?: string } = {},
-): Promise<Child> => {
+): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
   const categories = db !== undefined ? listCategories(db) : [];
@@ -218,9 +225,17 @@ const newSessionDetail = async (
       error={error}
       prompts={prompts}
       categories={categories}
-      models={await modelPicker(ctx, modelProvider)}
+      modelPicker={
+        hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
+      }
     />
   );
 };
 
-export { newSessionDetail, render, renderNotFound, sidebarEntries };
+export {
+  modelPicker,
+  newSessionDetail,
+  render,
+  renderNotFound,
+  sidebarEntries,
+};

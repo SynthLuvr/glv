@@ -85,6 +85,7 @@ const NewSessionButton = () => (
     hx-get="/sessions/new"
     hx-target="#detail-pane"
     hx-swap="innerHTML"
+    hx-push-url="true"
     title="Start a new session"
     aria-label="Start a new session"
   >
