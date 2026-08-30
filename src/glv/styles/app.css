@@ -986,6 +986,9 @@ a.git-chip:focus-visible {
 .tag.context {
   color: var(--color-faint);
 }
+.tag.summary {
+  color: var(--color-faint);
+}
 .message-head time {
   margin-left: auto;
   font-size: 0.72rem;
