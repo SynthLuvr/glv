@@ -2,13 +2,12 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
-import { gooseFixture } from "./integration-harness";
+import { gooseFixture } from "./integration-harness.js";
 
-// Mirrors what goose writes when a session is resumed and the replayed
-// history gets compacted (verified against a real sessions.db, session
-// 20260829_80): user-role messages shaped [thinking, text] — the model's
-// reasoning about the summary plus the compacted text. Eighty of these
-// rendered as "▸ PROMPT" bubbles each hiding a collapsed Thinking block.
+// Mirrors what goose writes when a resumed session's replayed history is
+// compacted (verified against a real sessions.db): user-role messages
+// shaped [thinking, text] — the model's reasoning about the summary plus
+// the compacted text.
 const compactedSummary = (thinking: string, text: string) => [
   { type: "thinking", thinking, signature: "sig-compact" },
   { type: "text", text },

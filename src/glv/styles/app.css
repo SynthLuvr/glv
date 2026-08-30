@@ -983,9 +983,7 @@ a.git-chip:focus-visible {
 .tag.tool {
   color: var(--color-muted);
 }
-.tag.context {
-  color: var(--color-faint);
-}
+.tag.context,
 .tag.summary {
   color: var(--color-faint);
 }
