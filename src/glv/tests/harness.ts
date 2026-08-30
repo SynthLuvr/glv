@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import {
   type MockBinBehaviour,
+  type MockBinCall,
   type MockBinHandle,
   mockBin,
   rmScratch,
@@ -373,9 +374,7 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
   });
 
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or
-// network. mockBin's script-file shorthand prepends a temp dir to PATH and
-// picks the interpreter from the extension, resolving tsx to an absolute
-// loader URL so a mock run from any working directory transforms TypeScript.
+// network.
 const ghMockScriptPath = fileURLToPath(
   new URL("./gh-mock-script.ts", import.meta.url),
 );
@@ -496,9 +495,6 @@ const startEnv = async (
   mkdirSync(uploadsDir, { recursive: true });
   const tempDir = join(scratchDir, "tmp");
   mkdirSync(tempDir, { recursive: true });
-  // A scripted behaviour replaces the agent script outright: it is the
-  // same mocked binary on PATH, recording its invocations instead of
-  // writing the flavor's store.
   const agentMock =
     mock.behaviour === undefined
       ? undefined
@@ -573,6 +569,26 @@ const startEnv = async (
     agentMock,
     cleanup,
   };
+};
+
+// The scripted agent records every invocation of the mocked binary; the
+// session run is the one carrying the resume flag, because other features
+// (goose's model picker `acp` probe) invoke the same binary. Polls the
+// handle until that invocation appears; undefined when it never does.
+const waitForAgentRun = async (
+  env: IntegrationEnv,
+  resumeFlag: string,
+  timeoutMs = 10000,
+): Promise<MockBinCall | undefined> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = env.agentMock?.calls.find((call) =>
+      call.args.includes(resumeFlag),
+    );
+    if (run !== undefined) return run;
+    await sleep(100);
+  }
+  return undefined;
 };
 
 // Starts a brand-new run over HTTP (the create-session form's endpoint).
@@ -774,6 +790,7 @@ export {
   startEnv,
   stopProcess,
   subdirCount,
+  waitForAgentRun,
   waitForArgs,
   waitForHttp,
   waitForJsonFile,

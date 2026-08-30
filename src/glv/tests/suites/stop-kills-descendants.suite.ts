@@ -6,6 +6,7 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  waitForAgentRun,
 } from "../harness.js";
 
 const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
@@ -57,19 +58,7 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
     it(`kills a descendant spawned by ${fx.name} when the session is stopped`, async () => {
       await startRun("spawn a child please");
 
-      // The behaviour records the descendant's pid as the mock starts, so
-      // poll the handle until the invocation shows up. Other features
-      // invoke the same mocked binary (goose's model picker probes it with
-      // `acp`), so the run is the invocation carrying the resume flag —
-      // any other invocation's descendant belongs to a different tree.
-      let pid = 0;
-      const writeDeadline = Date.now() + 10000;
-      while (Date.now() < writeDeadline && pid === 0) {
-        pid =
-          env.agentMock?.calls.find((call) => call.args.includes(fx.resumeFlag))
-            ?.childPid ?? 0;
-        if (pid === 0) await delay(100);
-      }
+      const pid = (await waitForAgentRun(env, fx.resumeFlag))?.childPid ?? 0;
       expect(pid).toBeGreaterThan(0);
       expect(isAlive(pid)).toBe(true);
 

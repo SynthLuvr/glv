@@ -8,13 +8,6 @@ import { configDefaults } from "vitest/config";
 // its NODE_V8_COVERAGE profile — the artifacts the suite asserts cannot
 // exist. Subprocess coverage for serve processes is therefore POSIX-only
 // for now; normally-exiting CLI invocations still flush and merge there.
-//
-// The claude-flavored suites that spawn the mocked agent binary were
-// excluded here too until type-a-bin 0.1.3. Hosting the mock in a hard
-// link of node.exe fed claude's flag-first argv through Node's option
-// parser ("bad option: --session-id"), and a .cmd shim could not carry
-// the multi-line --append-system-prompt argument. The native trampoline
-// launcher passes the caller's argv through verbatim, so they run again.
 const WINDOWS_EXCLUDED_SUITES = [
   "src/goose/tests/coverage-propagation.integration.test.ts",
   "src/claude/tests/coverage-propagation.integration.test.ts",
