@@ -101,7 +101,6 @@ const insertSessions = (
       s.name,
       s.workingDir,
       s.providerName ?? null,
-      // goose nests the model inside model_config_json on the row.
       s.model === undefined ? null : JSON.stringify({ model_name: s.model }),
     );
   db.close();

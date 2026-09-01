@@ -2,8 +2,11 @@ import { join } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { type IntegrationEnv, withPage } from "../../glv/tests/harness.js";
-import { runSessionModelSuite } from "../../glv/tests/suites/session-model.suite.js";
-import { claudeFixture, insertMessages } from "./integration-harness.js";
+import {
+  modelChip,
+  runSessionModelSuite,
+} from "../../glv/tests/suites/session-model.suite.js";
+import { claudeFixture } from "./integration-harness.js";
 
 // claude records the model on the transcript's assistant turns.
 describe("session model chip", () =>
@@ -11,8 +14,8 @@ describe("session model chip", () =>
 
 // claude-specific: locally generated assistant lines (API-error notices)
 // carry a bracketed "<synthetic>" placeholder rather than a model id, and
-// the parser takes the last model seen — so the chip must skip them and
-// keep naming the model that produced real turns.
+// the parser takes the last model seen — the chip must keep naming the
+// model that produced the real turns.
 describe("synthetic assistant turns", () => {
   let env: IntegrationEnv;
 
@@ -25,7 +28,7 @@ describe("synthetic assistant turns", () => {
         workingDir: join(env.scratchDir, "synthetic"),
       },
     ]);
-    insertMessages(env.dbs.flavor.projectsDir, "t-synthetic", [
+    claudeFixture.seedMessages(env, "t-synthetic", [
       {
         role: "assistant",
         content: [{ type: "text", text: "Real reply." }],
@@ -46,10 +49,9 @@ describe("synthetic assistant turns", () => {
   it("keeps the real model when the transcript ends with a synthetic turn", async () => {
     await withPage(env.context, async (page: Page) => {
       await page.goto(`${env.baseUrl}/sessions/t-synthetic`);
-      const chip = page
-        .locator(".session-meta .meta-chip")
-        .filter({ has: page.locator(".meta-label", { hasText: /^Model$/ }) });
-      await expect(chip.locator(".meta-value")).toHaveText("claude-sonnet-4-5");
+      await expect(modelChip(page).locator(".meta-value")).toHaveText(
+        "claude-sonnet-4-5",
+      );
     });
   });
 });

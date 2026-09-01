@@ -7,11 +7,15 @@ import {
   withPage,
 } from "../harness.js";
 
-// The right pane's header carries a Model chip showing what the session ran
-// with. Each flavor surfaces it from its own store — goose records it on the
-// session row's model_config_json, claude on the transcript's assistant
-// turns — so the shared assertions run against whatever the flavor's
-// seeding wrote, and each wrapper names the model its store should surface.
+// The right pane's Model meta chip.
+const modelChip = (page: Page): Locator =>
+  page
+    .locator(".session-meta .meta-chip")
+    .filter({ has: page.locator(".meta-label", { hasText: /^Model$/ }) });
+
+// Each flavor surfaces the session's model from its own store (goose: the
+// row's model_config_json, claude: the transcript's assistant turns), so the
+// shared assertions run against whatever the flavor's seeding wrote.
 const runSessionModelSuite = (fx: FlavorFixture, expected: string): void => {
   let env: IntegrationEnv;
 
@@ -59,15 +63,11 @@ const runSessionModelSuite = (fx: FlavorFixture, expected: string): void => {
       await run(page);
     });
 
-  const modelChip = (page: Page): Locator =>
-    page
-      .locator(".session-meta .meta-chip")
-      .filter({ has: page.locator(".meta-label", { hasText: /^Model$/ }) });
-
   it("shows the model the session ran with in the right pane", async () => {
     await open("t-model", async (page) => {
-      await expect(modelChip(page).locator(".meta-value")).toHaveText(expected);
-      await expect(modelChip(page)).toBeVisible();
+      const chip = modelChip(page);
+      await expect(chip).toBeVisible();
+      await expect(chip.locator(".meta-value")).toHaveText(expected);
     });
   });
 
@@ -78,4 +78,4 @@ const runSessionModelSuite = (fx: FlavorFixture, expected: string): void => {
   });
 };
 
-export { runSessionModelSuite };
+export { modelChip, runSessionModelSuite };

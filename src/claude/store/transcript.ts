@@ -160,9 +160,9 @@ const appendMessage = (
     parsed.type === "assistant" &&
     typeof message.model === "string" &&
     message.model !== "" &&
-    // Locally generated assistant lines (API-error notices) carry a
-    // bracketed placeholder instead of a model id; the chip should name
-    // the model that actually produced turns.
+    // Locally generated lines (API-error notices) carry a bracketed
+    // "<synthetic>" placeholder, not a model id; name the model that
+    // produced the real turns.
     !message.model.startsWith("<")
   )
     transcript.model = message.model;

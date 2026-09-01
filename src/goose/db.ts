@@ -123,22 +123,30 @@ const listSessions = (
   ).map((row) => ({ ...row, model: null }));
 };
 
-// goose records the model a session ran with on its row, as
-// model_config_json — {"model_name": ...} — rather than a plain column.
+// goose records the model a session ran with on the session row, inside
+// model_config_json ({"model_name": ...}) rather than a plain column.
+const parseModelName = (configJson: string): string | null => {
+  const parsed = parseJson(configJson, JsonObject);
+  if (!parsed.ok) return null;
+  const name = parsed.data.model_name;
+  return typeof name === "string" && name !== "" ? name : null;
+};
+
+const readModelConfig = (db: DatabaseSync, id: string): string | null => {
+  const row = db
+    .prepare("SELECT model_config_json FROM sessions WHERE id = ?")
+    .get(id);
+  if (!isRecord(row) || typeof row.model_config_json !== "string") return null;
+  return row.model_config_json;
+};
+
 // The column postdates some goose schemas and the database is agent-owned,
-// so any read or parse failure degrades to "no model known"; the header
+// so any read or parse failure degrades to "no model known" — the header
 // simply omits the chip.
 const readModelName = (db: DatabaseSync, id: string): string | null => {
   try {
-    const row = db
-      .prepare("SELECT model_config_json FROM sessions WHERE id = ?")
-      .get(id);
-    if (!isRecord(row) || typeof row.model_config_json !== "string")
-      return null;
-    const parsed = parseJson(row.model_config_json, JsonObject);
-    if (!parsed.ok) return null;
-    const name = parsed.data.model_name;
-    return typeof name === "string" && name !== "" ? name : null;
+    const config = readModelConfig(db, id);
+    return config === null ? null : parseModelName(config);
   } catch {
     return null;
   }
