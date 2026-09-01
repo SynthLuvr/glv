@@ -10,6 +10,10 @@ type SessionRow = {
   updated_at: string;
   total_tokens: number | null;
   provider_name: string | null;
+  // The model the session ran with, as the flavor's store records it
+  // (goose: model_config_json's model_name; claude: the assistant turns).
+  // null when the store has none — the header omits the chip then.
+  model: string | null;
   archived_at: string | null;
 };
 

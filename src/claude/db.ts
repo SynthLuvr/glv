@@ -72,6 +72,7 @@ const sessionRow = (
   total_tokens: transcript.tokens,
   provider_name:
     transcript.model ?? (transcript.messages.length > 0 ? "claude" : null),
+  model: transcript.model ?? null,
   archived_at: meta?.archived_at ?? null,
 });
 

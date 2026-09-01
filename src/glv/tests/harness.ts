@@ -152,7 +152,15 @@ const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
   throw new Error(`server at ${url} never responded: ${String(lastErr)}`);
 };
 
-type SessionSeed = { id: string; name: string; workingDir: string };
+type SessionSeed = {
+  id: string;
+  name: string;
+  workingDir: string;
+  /** The provider recorded on the session row (goose's store). */
+  providerName?: string;
+  /** The model the session ran with; flavors map it into their own store. */
+  model?: string;
+};
 
 // A content payload (plain string or content-block array), written verbatim
 // into the flavor's store so transcript-rendering tests can seed rich data.
@@ -161,6 +169,8 @@ type MessageSeed = {
   content: unknown;
   createdTimestamp?: number;
   messageId?: string;
+  /** The model that produced an assistant turn (claude's transcript). */
+  model?: string;
 };
 
 type MockConfig = {

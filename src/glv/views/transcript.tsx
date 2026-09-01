@@ -107,6 +107,9 @@ const TranscriptHeader = ({
     </div>
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />
+      {session.model !== null && (
+        <MetaChip label="Model" value={session.model} mono />
+      )}
       <MetaChip
         label="Working dir"
         value={truncateMiddle(shortenHome(session.working_dir), 48)}

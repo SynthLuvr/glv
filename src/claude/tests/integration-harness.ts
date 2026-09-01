@@ -140,7 +140,7 @@ const insertMessages = (
         parentUuid: null,
         isSidechain: false,
         type: m.role === "user" ? "user" : "assistant",
-        message: { role: m.role, content: m.content },
+        message: { role: m.role, content: m.content, model: m.model },
         uuid: m.messageId ?? randomUUID(),
         timestamp: new Date(t).toISOString(),
         sessionId,

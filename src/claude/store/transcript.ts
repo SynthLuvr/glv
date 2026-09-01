@@ -159,7 +159,11 @@ const appendMessage = (
   if (
     parsed.type === "assistant" &&
     typeof message.model === "string" &&
-    message.model !== ""
+    message.model !== "" &&
+    // Locally generated assistant lines (API-error notices) carry a
+    // bracketed placeholder instead of a model id; the chip should name
+    // the model that actually produced turns.
+    !message.model.startsWith("<")
   )
     transcript.model = message.model;
   const timestamp =
