@@ -112,6 +112,38 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
 // result record is a stdout artifact, not a session row.
 const RESULT_LINE = JSON.stringify({ type: "result", subtype: "success" });
 
+// The capture mirrors "the prompt text the agent received": a user-message
+// line is captured decoded (its content string) rather than as the raw
+// NDJSON envelope, so prompt-body assertions hold for both delivery
+// dialects. Raw JSON would also escape Windows path backslashes, breaking
+// substring comparisons that the raw-stdin (goose) flavor satisfies.
+const decodeUserMessage = (line: string): string => {
+  let parsed: {
+    type?: unknown;
+    message?: { role?: unknown; content?: unknown };
+  };
+  try {
+    parsed = JSON.parse(line) as typeof parsed;
+  } catch {
+    return line;
+  }
+  if (parsed.type !== "user" || parsed.message?.role !== "user") return line;
+  const content = parsed.message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content))
+    return content
+      .map((block) =>
+        typeof block === "object" &&
+        block !== null &&
+        "text" in block &&
+        typeof (block as { text?: unknown }).text === "string"
+          ? (block as { text: string }).text
+          : "",
+      )
+      .join("\n");
+  return line;
+};
+
 // Streaming-input mode (verified against claude 2.1.233): read stdin
 // line-by-line; every user message is one turn — committed to the
 // transcript, answered with the configured output lines, then closed with a
@@ -144,7 +176,8 @@ const runStreamMode = async (sessionId: string | undefined): Promise<void> => {
     const line = raw.trim();
     if (line === "") return;
     logLine(line);
-    if (capturePath !== "") appendFileSync(capturePath, line + "\n");
+    if (capturePath !== "")
+      appendFileSync(capturePath, decodeUserMessage(line) + "\n");
     pending.push(line);
     wake?.();
   });
