@@ -2854,72 +2854,21 @@ select.form-input {
   flex-direction: column;
   gap: 0.4rem;
 }
-.schedule-option {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+.schedule-input {
+  max-width: 22rem;
+  font-family: inherit;
 }
-.schedule-option-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.75rem;
-  width: fit-content;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--color-muted);
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    color 0.12s ease;
-}
-.schedule-option-pill:hover {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-.schedule-option-pill input {
+.schedule-validation {
   margin: 0;
-  accent-color: var(--color-accent);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-muted);
 }
-.schedule-option:has(.schedule-option-pill input:checked) {
-  color: var(--color-text);
+.schedule-validation[data-state="ok"] {
+  color: var(--color-ok);
 }
-.schedule-option:has(.schedule-option-pill input:checked)
-  .schedule-option-pill {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-/* Per-kind inputs appear only for the selected option (:has() again —
-   hidden inputs still submit, but the server reads only the active
-   kind's fields). */
-.schedule-option-body {
-  display: none;
-  padding-left: 0.25rem;
-}
-.schedule-option:has(.schedule-option-pill input:checked)
-  .schedule-option-body {
-  display: block;
-}
-.schedule-inputs {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.schedule-time {
-  width: 7rem;
-}
-.schedule-date {
-  width: 10.5rem;
-}
-.schedule-weekday {
-  width: 10.5rem;
-}
-.schedule-cron-input {
-  max-width: 16rem;
+.schedule-validation[data-state="err"] {
+  color: var(--color-err);
 }
 .next-runs {
   display: flex;
@@ -2950,7 +2899,7 @@ select.form-input {
   font-variant-numeric: tabular-nums;
 }
 .next-runs-list li::before {
-  content: "→ ";
+  content: "\2192  ";
   color: var(--color-faint);
 }
 .next-runs-error {

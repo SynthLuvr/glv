@@ -37,6 +37,7 @@ const CLIENT_ENTRY_NAMES = [
   "prompts",
   "passkey",
   "uploads",
+  "schedule",
 ];
 
 const CLIENT_ENTRIES = CLIENT_ENTRY_NAMES.map((name) =>

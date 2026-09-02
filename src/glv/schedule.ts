@@ -1,111 +1,67 @@
+import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
 import type { CronJobConfig, NamedCronJob } from "./config.js";
 import { errorMessage } from "./util.js";
 
-// Pure helpers around a job's `schedule` string. A schedule is either a
-// cron pattern ("0 9 * * 1-5") or an ISO 8601 local datetime
-// ("2026-09-03T09:00") — croner treats the latter as fire-once, and these
-// helpers keep every producer (form, config file) and consumer (scheduler,
-// preview, cards) on one spelling.
+// Everything a schedule can be, parsed once and shared by every consumer
+// (the form's live validation, the preview, the cards, and the
+// scheduler). A schedule is one of:
+//
+//   - an ISO 8601 local datetime ("2026-09-03T09:00") — fires once
+//   - a cron pattern ("0 9 * * 1-5") — croner, optional timezone
+//   - human text ("every weekday at 9:00") — parsed by @breejs/later
+//
+// Text schedules are always in the server's local timezone (cron
+// patterns keep a job's timezone override); later is switched to local
+// time here, once, before anything parses or enumerates.
+later.date.localTime();
 
-// The shape the New Session form submits and the preview endpoint reads.
-type ScheduleSelection = {
-  readonly kind: "once" | "daily" | "weekly" | "cron";
-  readonly name: string;
-  readonly onceDate: string;
-  readonly onceTime: string;
-  readonly dailyTime: string;
-  readonly weeklyDay: string;
-  readonly weeklyTime: string;
-  readonly cronPattern: string;
+// The examples the form's datalist and the error copy suggest — every
+// string here must parse (see the suite).
+const SCHEDULE_EXAMPLES: readonly string[] = [
+  "every weekday at 9:00",
+  "at 9:00",
+  "on sunday at 18:00",
+  "every 30 minutes",
+  "on the 1st day of the month at 9:00",
+  "0 9 * * 1-5",
+  "2026-09-03T09:00",
+];
+
+type ScheduleKind = "once" | "cron" | "text";
+
+type ScheduleInfo = {
+  readonly kind: ScheduleKind;
+  /** Plain-language rendering for cards and confirmations. */
+  readonly human: string;
+  /** The next fire times, soonest first (empty when it never fires). */
+  readonly next: readonly Date[];
+  /** The parsed later schedule (text kind only — what the scheduler runs). */
+  readonly sched?: LaterSchedule;
 };
 
-type ScheduleBuild =
-  | { readonly ok: true; readonly schedule: string }
+type ScheduleParse =
+  | { readonly ok: true; readonly info: ScheduleInfo }
   | { readonly ok: false; readonly error: string };
 
-const SELECTION_DEFAULTS: ScheduleSelection = {
-  kind: "daily",
-  name: "",
-  onceDate: "",
-  onceTime: "09:00",
-  dailyTime: "09:00",
-  weeklyDay: "1",
-  weeklyTime: "09:00",
-  cronPattern: "",
-};
-
-// Submitted form field name → selection property.
-const FIELD_MAP: Readonly<
-  Record<string, keyof Omit<ScheduleSelection, "kind">>
-> = {
-  job_name: "name",
-  once_date: "onceDate",
-  once_time: "onceTime",
-  daily_time: "dailyTime",
-  weekly_day: "weeklyDay",
-  weekly_time: "weeklyTime",
-  cron_pattern: "cronPattern",
-};
-
-// Field-by-field read of a submitted body (form or query params). Fields
-// that are present-but-empty override the defaults (a blank time must
-// surface as an error, not silently become 09:00); fields that are
-// missing entirely keep the defaults.
-const readScheduleSelection = (
-  body: Record<string, unknown>,
-): ScheduleSelection => {
-  const raw = (key: string): string | undefined => {
-    const value = body[key];
-    if (value === undefined) return undefined;
-    if (Array.isArray(value))
-      return typeof value[0] === "string" ? value[0].trim() : "";
-    return typeof value === "string" ? value.trim() : "";
-  };
-  const selection: Record<string, string> = { ...SELECTION_DEFAULTS };
-  for (const [field, prop] of Object.entries(FIELD_MAP)) {
-    const value = raw(field);
-    if (value !== undefined) selection[prop] = value;
-  }
-  const kind = raw("schedule_kind");
-  return {
-    ...selection,
-    kind:
-      kind === "once" || kind === "weekly" || kind === "cron" ? kind : "daily",
-  } as ScheduleSelection;
-};
-
-const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // ISO-local datetimes (what the form writes) plus full ISO with a zone
-// (what Date#toISOString writes) — both are fire-once inputs for croner.
+// (what Date#toISOString writes) — both are fire-once inputs.
 const ONE_SHOT_RE =
   /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?$/;
 
-const parseTime = (raw: string): { h: number; m: number } | undefined => {
-  const match = TIME_RE.exec(raw);
-  if (match === null) return undefined;
-  return { h: Number(match[1]), m: Number(match[2]) };
-};
-
-// "9:5" style typos are rejected, not silently coerced; the caller turns
-// undefined into a plain-language form error.
-const validTime = (raw: string): boolean => parseTime(raw) !== undefined;
-
 const twoDigits = (n: number): string => String(n).padStart(2, "0");
 
-const fmtTime = (h: number, m: number): string =>
-  `${twoDigits(h)}:${twoDigits(m)}`;
-
-// The one-shot spelling the form produces: local ISO to minute precision.
+// The one-shot spelling the form produces: local ISO to minute
+// precision.
 const formatOneShotLocal = (date: Date): string =>
   `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(
     date.getDate(),
   )}T${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 
-// Returns the instant a fire-once schedule targets, or undefined for cron
-// patterns (and malformed values). Calendar validity is checked by
-// round-tripping the parsed components.
+// Returns the instant a fire-once schedule targets, or undefined for
+// cron patterns, human text (and malformed values). Zone-less spellings
+// roll impossible dates over silently (Feb 30 → Mar 2), so they must
+// round-trip to count as valid.
 const parseOneShotSchedule = (schedule: string): Date | undefined => {
   if (!ONE_SHOT_RE.test(schedule)) return undefined;
   const time = Date.parse(schedule.replace(" ", "T"));
@@ -117,164 +73,10 @@ const parseOneShotSchedule = (schedule: string): Date | undefined => {
     date.getTime() < 0
   )
     return undefined;
-  // Zone-less ISO strings roll impossible dates over silently (Feb 30 →
-  // Mar 2), so a local spelling is only valid when it round-trips.
   if (!/(Z|[+-]\d{2}:?\d{2})$/.test(schedule))
     if (formatOneShotLocal(date) !== schedule) return undefined;
 
   return date;
-};
-
-const friendlyCronError = (detail: string): string =>
-  `That doesn’t look like a cron pattern — try something like "0 9 * * 1-5" ` +
-  `(at 09:00 on weekdays). Details: ${detail}`;
-
-// Validates a raw cron pattern exactly the way serve will (by
-// constructing croner's Cron), with the technical message wrapped in
-// plain language.
-const validateCronPattern = (pattern: string): string | undefined => {
-  const fields = pattern.split(/\s+/);
-  if (fields.length < 5 || fields.length > 7)
-    return friendlyCronError(
-      `expected 5 to 7 space-separated fields, got ${fields.length}`,
-    );
-  try {
-    new Cron(pattern);
-    return undefined;
-  } catch (err) {
-    return friendlyCronError(errorMessage(err).replace(/^CronPattern:\s*/, ""));
-  }
-};
-
-// The cron day-of-week field is 0-6 with Sunday 0 (croner's default).
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-const weekdayLabel = (value: string): string => {
-  const index = Number(value);
-  return WEEKDAYS[index] ?? value;
-};
-
-// Turns the form's selection into the schedule string stored in the
-// config file, validating every field with errors a human can act on.
-const buildSchedule = (
-  selection: ScheduleSelection,
-  now: Date = new Date(),
-): ScheduleBuild => {
-  switch (selection.kind) {
-    case "once": {
-      if (!DATE_RE.test(selection.onceDate))
-        return { ok: false, error: "Pick a date for the one-time run." };
-      if (!validTime(selection.onceTime))
-        return {
-          ok: false,
-          error: "The time must look like 09:00 (24-hour clock).",
-        };
-      const schedule = `${selection.onceDate}T${selection.onceTime}`;
-      const instant = parseOneShotSchedule(schedule);
-      // Reject impossible calendar dates (Feb 30) and instants already past.
-      if (instant === undefined || Number.isNaN(instant.getTime()))
-        return { ok: false, error: "That date does not exist." };
-      if (instant.getTime() <= now.getTime())
-        return {
-          ok: false,
-          error: "That time is already in the past — pick a future one.",
-        };
-      return { ok: true, schedule };
-    }
-    case "daily": {
-      const daily = parseTime(selection.dailyTime);
-      if (daily === undefined)
-        return {
-          ok: false,
-          error: "The time must look like 09:00 (24-hour clock).",
-        };
-      return { ok: true, schedule: `${daily.m} ${daily.h} * * *` };
-    }
-    case "weekly": {
-      const weekly = parseTime(selection.weeklyTime);
-      if (weekly === undefined)
-        return {
-          ok: false,
-          error: "The time must look like 09:00 (24-hour clock).",
-        };
-      const day = Number(selection.weeklyDay);
-      if (!Number.isInteger(day) || day < 0 || day > 6)
-        return { ok: false, error: "Pick a weekday for the weekly run." };
-      return { ok: true, schedule: `${weekly.m} ${weekly.h} * * ${day}` };
-    }
-    case "cron": {
-      if (selection.cronPattern === "")
-        return { ok: false, error: "Enter a cron pattern (e.g. 0 9 * * 1-5)." };
-      const error = validateCronPattern(selection.cronPattern);
-      if (error !== undefined) return { ok: false, error };
-      return { ok: true, schedule: selection.cronPattern };
-    }
-  }
-};
-
-// Infers the form selection a stored schedule maps back to, so editing a
-// job pre-fills the controls it was created with. Anything non-trivial
-// lands on the cron escape hatch.
-const detectScheduleSelection = (
-  schedule: string,
-): Omit<ScheduleSelection, "name"> => {
-  const selection = {
-    ...SELECTION_DEFAULTS,
-    onceDate: "",
-    onceTime: "09:00",
-    dailyTime: "09:00",
-    weeklyDay: "1",
-    weeklyTime: "09:00",
-    cronPattern: schedule,
-  };
-  const once = parseOneShotSchedule(schedule);
-  if (once !== undefined)
-    return {
-      ...selection,
-      kind: "once",
-      onceDate: schedule.slice(0, 10),
-      onceTime: schedule.slice(11, 16),
-      cronPattern: "",
-    };
-  const fields = schedule.split(/\s+/);
-  const parts =
-    fields.length === 6 && fields[0] === "0" ? fields.slice(1) : fields;
-  if (parts.length === 5) {
-    const [minute, hour, dom, month, dow] = parts;
-    if (dom === "*" && month === "*") {
-      const plainTime = /^\d{1,2}$/.test(minute) && /^\d{1,2}$/.test(hour);
-      if (!plainTime) return selection;
-      const time = fmtTime(Number(hour), Number(minute));
-      if (dow === "*")
-        return {
-          ...selection,
-          kind: "daily",
-          dailyTime: time,
-          cronPattern: "",
-        };
-      if (/^\d$/.test(dow))
-        return {
-          ...selection,
-          kind: "weekly",
-          weeklyDay: dow,
-          weeklyTime: time,
-          cronPattern: "",
-        };
-    }
-  }
-  return selection;
-};
-
-// The next `count` fire times, or undefined when the schedule never fires
-// again (a one-shot whose moment has passed). Invalid schedules throw —
-// callers validate first.
-const nextFireTimes = (
-  schedule: string,
-  timezone: string | undefined,
-  count: number,
-): Date[] | undefined => {
-  const cron = new Cron(schedule, { timezone });
-  return cron.nextRuns(count);
 };
 
 const fmtDateTime = (date: Date): string =>
@@ -287,12 +89,141 @@ const fmtDateTime = (date: Date): string =>
     hour12: false,
   });
 
-// Plain-language rendering of a schedule, cron second. "Every day at
-// 09:00" for the shapes the form generates, the raw pattern otherwise.
-const humanizeSchedule = (schedule: string, timezone?: string): string => {
-  const tzSuffix = timezone === undefined ? "" : ` (${timezone})`;
+const friendlyCronError = (detail: string): string =>
+  `That doesn’t look like a cron pattern — try something like "0 9 * * 1-5" ` +
+  `(at 09:00 on weekdays). Details: ${detail}`;
+
+// Validates a cron pattern exactly the way serve will (by constructing
+// croner's Cron), wrapping the technical message in plain language.
+const buildCron = (
+  pattern: string,
+  timezone: string | undefined,
+): { ok: true; cron: Cron } | { ok: false; error: string } => {
+  const fields = pattern.split(/\s+/);
+  // @nicknames (@daily, …) are single-token croner patterns; plain
+  // patterns are 5-7 fields.
+  if (!pattern.startsWith("@") && (fields.length < 5 || fields.length > 7))
+    return {
+      ok: false,
+      error: friendlyCronError(
+        `expected 5 to 7 space-separated fields, got ${fields.length}`,
+      ),
+    };
+  try {
+    return { ok: true, cron: new Cron(pattern, { timezone }) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: friendlyCronError(
+        errorMessage(err).replace(/^CronPattern:\s*/, ""),
+      ),
+    };
+  }
+};
+
+// Cron-shaped means: a @nickname, or 5-7 whitespace tokens whose first
+// starts with a digit or * — anything else is offered to the human-text
+// parser. (Human text never starts with a digit, * or @.)
+const cronShaped = (schedule: string): boolean => {
+  if (schedule.startsWith("@")) return true;
+  const fields = schedule.split(/\s+/);
+  return (
+    fields.length >= 5 &&
+    fields.length <= 7 &&
+    /^[*\d]/.test(schedule) &&
+    /^[\d*,/\-?LW#A-Za-z]+$/.test(fields[0])
+  );
+};
+
+// The minimum gap between two fires. Text schedules without a time
+// ("every weekday") match every second — an agent storm — so they are
+// rejected up front instead of ever being scheduled.
+const MIN_FIRE_GAP_MS = 60_000;
+
+const TEXT_HELP =
+  `Try “${SCHEDULE_EXAMPLES[0]}”, “at 9:00”, ` +
+  `“on sunday at 18:00”, or a cron pattern like “0 9 * * 1-5”.`;
+
+const parseTextSchedule = (schedule: string): ScheduleParse => {
+  const parsed = later.parse.text(schedule);
+  if (parsed.error !== -1 || parsed.schedules.length === 0)
+    return {
+      ok: false,
+      error: `Couldn’t understand that schedule — ${TEXT_HELP}`,
+    };
+  const runs = later.schedule(parsed).next(2);
+  if (runs.length === 0)
+    return { ok: false, error: `That schedule never fires — ${TEXT_HELP}` };
+  if (
+    runs.length > 1 &&
+    runs[1].getTime() - runs[0].getTime() < MIN_FIRE_GAP_MS
+  )
+    return {
+      ok: false,
+      error:
+        "That fires more often than once a minute — give it a time, " +
+        `like “every weekday at 9:00”.`,
+    };
+  return {
+    ok: true,
+    info: {
+      kind: "text",
+      human: schedule,
+      next: later.schedule(parsed).next(3),
+      sched: parsed,
+    },
+  };
+};
+
+// The one entry point: classifies and validates a raw schedule string,
+// returning its human form and next fire times, or a plain-language
+// error. The client bundles this exact function for as-you-type
+// validation; the server re-runs it on submit and at boot.
+const parseSchedule = (
+  raw: string,
+  opts: { timezone?: string } = {},
+): ScheduleParse => {
+  const schedule = raw.trim();
+  if (schedule === "")
+    return { ok: false, error: `Type a schedule — ${TEXT_HELP}` };
+
   const once = parseOneShotSchedule(schedule);
-  if (once !== undefined) return `Once at ${fmtDateTime(once)}${tzSuffix}`;
+  if (once !== undefined) {
+    if (once.getTime() <= Date.now())
+      return {
+        ok: false,
+        error: "That time is already in the past — pick a future one.",
+      };
+    return {
+      ok: true,
+      info: {
+        kind: "once",
+        human: `Once at ${fmtDateTime(once)}`,
+        next: [once],
+      },
+    };
+  }
+
+  if (cronShaped(schedule)) {
+    const built = buildCron(schedule, opts.timezone);
+    if (!built.ok) return built;
+    return {
+      ok: true,
+      info: {
+        kind: "cron",
+        human: humanizeCron(schedule, opts.timezone),
+        next: built.cron.nextRuns(3),
+      },
+    };
+  }
+
+  return parseTextSchedule(schedule);
+};
+
+// Cron rendered plainly when it matches the shapes people mean
+// ("0 9 * * *" → "Every day at 09:00"), the raw pattern otherwise.
+const humanizeCron = (schedule: string, timezone?: string): string => {
+  const tzSuffix = timezone === undefined ? "" : ` (${timezone})`;
   const fields = schedule.split(/\s+/);
   const parts =
     fields.length === 6 && fields[0] === "0" ? fields.slice(1) : fields;
@@ -300,18 +231,45 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
     const [minute, hour, dom, month, dow] = parts;
     const plainTime = /^\d{1,2}$/.test(minute) && /^\d{1,2}$/.test(hour);
     if (plainTime && dom === "*" && month === "*") {
-      const time = fmtTime(Number(hour), Number(minute));
+      const time = `${twoDigits(Number(hour))}:${twoDigits(Number(minute))}`;
       if (dow === "*") return `Every day at ${time}${tzSuffix}`;
-      if (/^[0-6](,[0-6])*$/.test(dow)) {
-        const days = dow
-          .split(",")
-          .map((value) => weekdayLabel(value))
-          .join(", ");
-        return `Every ${days} at ${time}${tzSuffix}`;
-      }
+      const days = expandWeekdays(dow);
+      if (days !== undefined) return `Every ${days} at ${time}${tzSuffix}`;
     }
   }
   return `Cron ${schedule}${tzSuffix}`;
+};
+
+// A cron day-of-week field of plain digits, ranges, and lists expanded
+// into day names ("1-5" → "Mon, Tue, Wed, Thu, Fri"); undefined when the
+// field uses anything fancier (steps, names, L/W/#).
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+const expandWeekdays = (dow: string): string | undefined => {
+  if (!/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(dow)) return undefined;
+  const days: string[] = [];
+  for (const part of dow.split(",")) {
+    const [first, last] = part.split("-").map(Number);
+    const end = last ?? first;
+    if (
+      !Number.isInteger(first) ||
+      first < 0 ||
+      first > 6 ||
+      !Number.isInteger(end) ||
+      end < first ||
+      end > 6
+    )
+      return undefined;
+    for (let day = first; day <= end; day++) days.push(DAY_NAMES[day]);
+  }
+  return days.join(", ");
+};
+
+// Plain-language rendering of any stored schedule (text schedules are
+// their own human form; broken ones fall back to the raw string).
+const humanizeSchedule = (schedule: string, timezone?: string): string => {
+  const parsed = parseSchedule(schedule, { timezone });
+  return parsed.ok ? parsed.info.human : schedule;
 };
 
 // The scheduler defaults unnamed config entries to cron-<index+1>; the UI
@@ -322,19 +280,14 @@ const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
     name: job.name?.trim() || `cron-${index + 1}`,
   }));
 
-export type { ScheduleBuild, ScheduleSelection };
+export type { LaterSchedule, ScheduleInfo, ScheduleParse };
 export {
-  buildSchedule,
-  detectScheduleSelection,
+  buildCron,
   fmtDateTime,
   formatOneShotLocal,
   humanizeSchedule,
-  nextFireTimes,
   parseOneShotSchedule,
-  readScheduleSelection,
-  SELECTION_DEFAULTS,
-  validateCronPattern,
-  WEEKDAYS,
-  weekdayLabel,
+  parseSchedule,
+  SCHEDULE_EXAMPLES,
   withResolvedNames,
 };

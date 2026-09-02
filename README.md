@@ -235,24 +235,40 @@ To define jobs by hand, add a `cronJobs` array to the config file:
 }
 ```
 
-- `schedule` is a [croner](https://github.com/hexagon/croner) pattern —
-  the usual 5-field cron, or 6 fields when you need a leading seconds
-  part — **or** an ISO 8601 local datetime like `"2026-09-03T09:00"` for
-  a one-time run. A one-shot fires once and retires itself from the
-  config; if its moment is already past when `serve` starts, it is
-  removed without running (a missed run stays missed).
+- `schedule` is typed, not compiled — the file stores exactly what you
+  wrote, and one of three engines reads it:
+
+  - human text, parsed by
+    [@breejs/later](https://github.com/breejs/later):
+    `"every weekday at 9:00"`, `"at 9:00"` (daily),
+    `"on sunday at 18:00"`, `"every 30 minutes"`,
+    `"on the 1st day of the month at 9:00"`. Text schedules always fire
+    in the server’s local timezone, and anything that would fire more
+    often than once a minute is rejected.
+  - a [croner](https://github.com/hexagon/croner) pattern — the usual
+    5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
+    part, or a nickname like `"@daily"`. An optional `timezone` applies
+    to cron schedules.
+  - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
+    run. A one-shot fires once and retires itself from the config; if
+    its moment is already past when `serve` starts, it is removed
+    without running (a missed run stays missed).
+
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
   it shows up in the sidebar like any other session — badged with a
   clock chip naming the job, in the sidebar and the transcript header. A
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
+
 - `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
   defaults to system-local time; `enabled: false` pauses a job without
   deleting it.
+
 - Jobs are read once at `serve` startup. An invalid job — bad schedule,
   unknown timezone, duplicate name, or (for an enabled job) a missing
   working directory — stops the server from starting, naming the job.
   Edits apply on the next restart.
+
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
 

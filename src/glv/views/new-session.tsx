@@ -3,7 +3,6 @@ import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import type { NamedCronJob } from "../config.js";
-import { type ScheduleSelection, SELECTION_DEFAULTS } from "../schedule.js";
 import { PromptLibrarySection } from "./prompt-library.js";
 import {
   ScheduleConfirmation,
@@ -168,7 +167,7 @@ const NewSessionForm = ({
   prompts = [],
   categories = [],
   modelPicker,
-  scheduleValues = SELECTION_DEFAULTS,
+  schedule = "",
   scheduleName = "",
   jobs = [],
   confirmation,
@@ -184,8 +183,8 @@ const NewSessionForm = ({
   /** When present, render the lazy picker slot; `submitted` restores a
    * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
-  /** Restores a rejected schedule submit's controls. */
-  scheduleValues?: Omit<ScheduleSelection, "name">;
+  /** Restores a rejected schedule submit's typed schedule. */
+  schedule?: string;
   /** Restores a rejected schedule submit's job name. */
   scheduleName?: string;
   /** Scheduled runs from the config file — drives the management section. */
@@ -234,7 +233,7 @@ const NewSessionForm = ({
       <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
       <ScheduleDisclosure
         agentName={agentName}
-        values={scheduleValues}
+        schedule={schedule}
         jobName={scheduleName}
       />
       <div class="form-actions upload-actions">
@@ -253,6 +252,10 @@ const NewSessionForm = ({
             class="schedule-send-btn"
             name="submit_action"
             value="schedule"
+            data-schedule-submit=""
+            // Disabled until the typed schedule validates —
+            // /assets/schedule.js enables it live.
+            disabled={schedule === ""}
           >
             Schedule run
           </button>

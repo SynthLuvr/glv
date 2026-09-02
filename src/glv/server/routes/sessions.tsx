@@ -17,11 +17,7 @@ import {
   getHandle,
   stop,
 } from "../../runner/index.js";
-import {
-  buildSchedule,
-  readScheduleSelection,
-  withResolvedNames,
-} from "../../schedule.js";
+import { parseSchedule, withResolvedNames } from "../../schedule.js";
 import type { SessionRow } from "../../sessions.js";
 import { errorMessage } from "../../util.js";
 import { ModelSelect } from "../../views/new-session.js";
@@ -164,7 +160,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const sessionMode = fieldString("session_mode");
     const modelProvider = fieldString("model_provider");
     const scheduleAction = fieldString("submit_action") === "schedule";
-    const selection = readScheduleSelection(body);
+    const scheduleRaw = fieldString("schedule");
+    const jobName = fieldString("job_name");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(fieldString("working_dir")),
     );
@@ -188,8 +185,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           workingDir: submittedWorkingDir,
           prompt,
           modelProvider,
-          scheduleValues: selection,
-          scheduleName: selection.name,
+          schedule: scheduleRaw,
+          scheduleName: jobName,
         }),
         { status, title: NEW_SESSION_TITLE },
       );
@@ -225,11 +222,11 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
             "model for now — set the model picker back to default.",
           422,
         );
-      if (!NAME_RE.test(selection.name)) return rejectForm(NAME_ERROR, 422);
+      if (!NAME_RE.test(jobName)) return rejectForm(NAME_ERROR, 422);
       if (submittedWorkingDir === "" || !existsSync(submittedWorkingDir))
         return rejectForm("That working directory does not exist.", 422);
-      const built = buildSchedule(selection);
-      if (!built.ok) return rejectForm(built.error, 422);
+      const parsed = parseSchedule(scheduleRaw);
+      if (!parsed.ok) return rejectForm(parsed.error, 422);
       let existing: readonly NamedCronJob[] = [];
       try {
         existing = withResolvedNames(readCronJobs(ctx.profile.dataDirName));
@@ -239,14 +236,14 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           500,
         );
       }
-      if (existing.some((job) => job.name === selection.name))
+      if (existing.some((job) => job.name === jobName))
         return rejectForm(
-          `A scheduled run named "${selection.name}" already exists.`,
+          `A scheduled run named "${jobName}" already exists.`,
           422,
         );
       const job: NamedCronJob = {
-        name: selection.name,
-        schedule: built.schedule,
+        name: jobName,
+        schedule: scheduleRaw,
         prompt,
         workingDir: submittedWorkingDir,
       };

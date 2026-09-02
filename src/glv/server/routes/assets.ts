@@ -20,6 +20,7 @@ const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
     { path: "/assets/groups.js", body: a.groups },
     { path: "/assets/passkey.js", body: a.passkey },
     { path: "/assets/uploads.js", body: a.uploads },
+    { path: "/assets/schedule.js", body: a.schedule },
   ];
   for (const { path, body } of routes)
     app.get(path, (c) => serveAsset(c, body, contentTypeFor(path)));

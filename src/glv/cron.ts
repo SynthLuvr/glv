@@ -1,11 +1,16 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import later from "@breejs/later";
 import { Cron } from "croner";
 import type { CronJobConfig } from "./config.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { type Runner, stop } from "./runner/index.js";
-import { fmtDateTime, parseOneShotSchedule } from "./schedule.js";
+import {
+  fmtDateTime,
+  parseOneShotSchedule,
+  parseSchedule,
+} from "./schedule.js";
 import { expandHome } from "./server/paths.js";
 import { errorMessage } from "./util.js";
 
@@ -99,19 +104,32 @@ const validateJob = (job: ResolvedJob): void => {
     );
 };
 
-// Constructing a Cron parses the pattern, so an invalid schedule fails
-// startup with the job's name. A disabled job is still constructed — for
-// validation — but with no callback, which croner never schedules.
-const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
-  const options = { name: job.name, timezone: job.timezone };
-  try {
-    return new Cron(job.schedule, options, job.enabled ? fire : undefined);
-  } catch (err) {
-    const detail = errorMessage(err);
+// Anything the scheduler must stop at shutdown: croner handles cron
+// patterns and one-shots; later intervals drive human-text schedules.
+type FireTimer = { readonly stop: () => void };
+
+// Validating (parseSchedule) fails startup with the job named for any
+// invalid schedule. A disabled job is parsed for validation but never
+// given a callback/timer, so it stays dormant.
+const scheduleJob = (job: ResolvedJob, fire: () => void): FireTimer => {
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  if (!parsed.ok)
     throw new Error(
-      `cron job "${job.name}" has an invalid schedule "${job.schedule}": ${detail}`,
+      `cron job "${job.name}" has an invalid schedule ` +
+        `"${job.schedule}": ${parsed.error}`,
     );
+  if (parsed.info.kind === "text") {
+    if (!job.enabled || parsed.info.sched === undefined)
+      return { stop: () => undefined };
+    const timer = later.setInterval(fire, parsed.info.sched);
+    return { stop: () => timer.clear() };
   }
+  const cron = new Cron(
+    job.schedule,
+    { name: job.name, timezone: job.timezone },
+    job.enabled ? fire : undefined,
+  );
+  return { stop: () => cron.stop() };
 };
 
 // One fire of one job: the same establish flow as the HTTP create route —
@@ -176,7 +194,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
   const locks = new Map<string, Promise<void>>();
   const establishing = new Set<string>();
   const timeoutMs = sessionTimeoutMs();
-  const scheduled: Cron[] = [];
+  const scheduled: FireTimer[] = [];
 
   const retire = (job: ResolvedJob): void => {
     try {
@@ -223,7 +241,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
   console.log(`cron: ${scheduled.length} job(s) scheduled from the config`);
   return {
     stop: () => {
-      for (const cron of scheduled) cron.stop();
+      for (const timer of scheduled) timer.stop();
     },
   };
 };

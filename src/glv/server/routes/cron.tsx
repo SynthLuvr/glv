@@ -8,13 +8,8 @@ import {
   writeCronJobs,
 } from "../../config.js";
 import {
-  buildSchedule,
-  detectScheduleSelection,
   fmtDateTime,
-  humanizeSchedule,
-  nextFireTimes,
-  readScheduleSelection,
-  type ScheduleSelection,
+  parseSchedule,
   withResolvedNames,
 } from "../../schedule.js";
 import { errorMessage } from "../../util.js";
@@ -61,20 +56,13 @@ const readJobsOr = (
 };
 
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
-  // Live "Next runs" preview for the schedule controls. Accepts the same
-  // fields the form submits (only the active kind's fields matter).
+  // Live "Next runs" preview for the typed schedule — the same parse the
+  // client bundles and the submit route runs.
   app.get("/cron/preview", (c) => {
-    const selection = readScheduleSelection(c.req.query());
-    const built = buildSchedule(selection);
-    if (!built.ok)
-      return c.html(<span class="next-runs-error">{built.error}</span>);
-    let runs: Date[] | undefined;
-    try {
-      runs = nextFireTimes(built.schedule, undefined, 3);
-    } catch (err) {
-      return c.html(<span class="next-runs-error">{errorMessage(err)}</span>);
-    }
-    if (runs === undefined || runs.length === 0)
+    const parsed = parseSchedule(c.req.query("schedule") ?? "");
+    if (!parsed.ok)
+      return c.html(<span class="next-runs-error">{parsed.error}</span>);
+    if (parsed.info.next.length === 0)
       return c.html(
         <span class="next-runs-error">
           This schedule has no upcoming runs.
@@ -82,11 +70,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       );
     return c.html(
       <span class="next-runs-value">
-        <strong class="next-runs-schedule">
-          {humanizeSchedule(built.schedule)}
-        </strong>
+        <strong class="next-runs-schedule">{parsed.info.human}</strong>
         <ul class="next-runs-list">
-          {runs.map((run) => (
+          {parsed.info.next.map((run) => (
             <li>
               <time>{fmtDateTime(run)}</time>
             </li>
@@ -108,12 +94,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const { jobs } = readJobsOr(ctx);
     const job = findJob(jobs, c.req.param("name"));
     if (job === undefined) return c.notFound();
-    return c.html(
-      <ScheduleJobEditForm
-        job={job}
-        values={detectScheduleSelection(job.schedule)}
-      />,
-    );
+    return c.html(<ScheduleJobEditForm job={job} />);
   });
 
   app.put("/cron/:name", async (c) => {
@@ -132,12 +113,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       return typeof value === "string" ? value.trim() : "";
     };
 
-    const selection = readScheduleSelection(body);
-    const name = selection.name;
+    const name = str("job_name");
+    const schedule = str("schedule");
     const prompt = str("prompt");
     const workingDir = resolve(expandHome(str("working_dir")));
 
-    const reject = (error: string, submitted: ScheduleSelection) =>
+    const reject = (error: string) =>
       c.html(
         <ScheduleJobEditForm
           job={{
@@ -147,32 +128,29 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
             workingDir,
             timezone: existing.timezone,
           }}
-          values={submitted}
+          schedule={schedule}
           error={error}
         />,
       );
 
-    if (prompt === "") return reject("A prompt is required.", selection);
-    if (!NAME_RE.test(name)) return reject(NAME_ERROR, selection);
+    if (prompt === "") return reject("A prompt is required.");
+    if (!NAME_RE.test(name)) return reject(NAME_ERROR);
     if (str("working_dir") === "")
-      return reject("A working directory is required.", selection);
+      return reject("A working directory is required.");
     if (!existsSync(workingDir))
-      return reject("That working directory does not exist.", selection);
-    const built = buildSchedule(selection);
-    if (!built.ok) return reject(built.error, selection);
+      return reject("That working directory does not exist.");
+    const parsed = parseSchedule(schedule);
+    if (!parsed.ok) return reject(parsed.error);
     // Renaming onto a different existing job collides.
     if (jobs.some((job) => job.name === name && job.name !== existing.name))
-      return reject(
-        `A scheduled run named "${name}" already exists.`,
-        selection,
-      );
+      return reject(`A scheduled run named "${name}" already exists.`);
 
     // Unexposed fields (timezone, enabled, …) survive the edit; only the
     // form's own fields are overwritten.
     const updated: NamedCronJob = {
       ...existing,
       name,
-      schedule: built.schedule,
+      schedule,
       prompt,
       workingDir,
     };
@@ -184,7 +162,6 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     } catch (err) {
       return reject(
         `Could not save — the config file rejected the change: ${errorMessage(err)}`,
-        selection,
       );
     }
     return c.html(<ScheduleJobCard job={updated} />);

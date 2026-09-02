@@ -94,29 +94,49 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).not.toContain("cron-job-card");
     });
 
-    it("previews upcoming runs for a daily schedule", async () => {
+    it("previews upcoming runs for a typed human schedule", async () => {
       const res = await authedFetch(
         env,
-        "/cron/preview?schedule_kind=daily&daily_time=09%3A00",
+        "/cron/preview?schedule=every%20weekday%20at%209%3A00",
       );
       const html = await res.text();
-      expect(html).toContain("Every day at 09:00");
+      expect(html).toContain("every weekday at 9:00");
       expect(html).toContain("next-runs-list");
     });
 
-    it("explains an invalid cron pattern in plain language", async () => {
+    it("previews a cron schedule humanized", async () => {
       const res = await authedFetch(
         env,
-        "/cron/preview?schedule_kind=cron&cron_pattern=not+a+pattern",
+        "/cron/preview?schedule=0%209%20*%20*%20*",
       );
       const html = await res.text();
-      expect(html).toContain("doesn’t look like a cron pattern");
+      expect(html).toContain("Every day at 09:00");
+    });
+
+    it("explains an unparseable schedule in plain language", async () => {
+      const res = await authedFetch(
+        env,
+        "/cron/preview?schedule=banana%20sandwich",
+      );
+      const html = await res.text();
+      expect(html).toContain("Couldn’t understand that schedule");
+    });
+
+    it("rejects a schedule that fires more often than once a minute", async () => {
+      // "after 9:00am" parses but matches every second after 9am — an
+      // agent storm the guard must refuse.
+      const res = await authedFetch(
+        env,
+        "/cron/preview?schedule=after%209%3A00am",
+      );
+      const html = await res.text();
+      expect(html).toContain("more often than once a minute");
     });
 
     it("rejects a one-shot time in the past", async () => {
       const res = await authedFetch(
         env,
-        "/cron/preview?schedule_kind=once&once_date=2000-01-01&once_time=09%3A00",
+        "/cron/preview?schedule=2000-01-01T09%3A00",
       );
       const html = await res.text();
       expect(html).toContain("already in the past");
@@ -129,9 +149,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Run the nightly build",
           working_dir: workingDir,
           submit_action: "schedule",
-          schedule_kind: "weekly",
-          weekly_day: "1",
-          weekly_time: "09:00",
+          schedule: "every weekday at 9:00",
           job_name: "Weekly build",
         }),
       });
@@ -140,17 +158,18 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // Confirmation state: name, humanized schedule, restart notice.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
-      expect(html).toContain("Every Mon at 09:00");
+      expect(html).toContain("every weekday at 9:00");
       expect(html).toContain("Changes apply when glv serve restarts");
       // The management section now shows the card.
       expect(html).toContain("cron-job-card");
       expect(html).toContain("Run the nightly build");
 
+      // The typed schedule is stored verbatim — the file stays readable.
       const config = readConfig(cfgPath);
       expect(config.cronJobs).toEqual([
         {
           name: "Weekly build",
-          schedule: "0 9 * * 1",
+          schedule: "every weekday at 9:00",
           prompt: "Run the nightly build",
           workingDir,
         },
@@ -169,17 +188,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Keep this exact text",
           working_dir: workingDir,
           submit_action: "schedule",
-          schedule_kind: "cron",
-          cron_pattern: "definitely not cron",
+          schedule: "definitely not a schedule",
           job_name: "broken-job",
         }),
       });
       expect(res.status).toBe(422);
       const html = await res.text();
-      expect(html).toContain("doesn’t look like a cron pattern");
-      // The prompt and the pattern survive the rejection.
+      expect(html).toContain("Couldn’t understand that schedule");
+      // The prompt and the typed schedule survive the rejection.
       expect(html).toContain("Keep this exact text");
-      expect(html).toContain("definitely not cron");
+      expect(html).toContain("definitely not a schedule");
       expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
@@ -190,8 +208,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Another sweep",
           working_dir: workingDir,
           submit_action: "schedule",
-          schedule_kind: "daily",
-          daily_time: "08:30",
+          schedule: "at 8:30",
           job_name: "Weekly build",
         }),
       });
@@ -207,8 +224,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       body.set("prompt", "Sweep with an attachment");
       body.set("working_dir", workingDir);
       body.set("submit_action", "schedule");
-      body.set("schedule_kind", "daily");
-      body.set("daily_time", "08:30");
+      body.set("schedule", "every weekday at 9:00");
       body.set("job_name", "attached");
       body.set(
         "uploads",
@@ -227,8 +243,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Model pick",
           working_dir: workingDir,
           submit_action: "schedule",
-          schedule_kind: "daily",
-          daily_time: "08:30",
+          schedule: "every weekday at 9:00",
           job_name: "modelpick",
           model_provider: "anthropic/claude",
         }),
@@ -245,8 +260,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Start me right now",
           working_dir: workingDir,
           submit_action: "run",
-          schedule_kind: "daily",
-          daily_time: "08:30",
+          schedule: "every weekday at 9:00",
         }),
         headers: { "HX-Request": "true" },
       });
@@ -256,7 +270,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).not.toContain("Scheduled run saved");
     });
 
-    it("schedules from the browser without navigating away", async () => {
+    it("validates the typed schedule live and schedules without navigating", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
@@ -270,33 +284,43 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("button.schedule-send-btn")).toBeVisible();
         await expect(page.locator("button.send-btn")).toBeHidden();
 
-        // The default (every day) preview loads live.
+        // No schedule typed: the schedule button is disabled.
+        const scheduleBtn = page.locator("button.schedule-send-btn");
+        await expect(scheduleBtn).toBeDisabled();
+
+        // Typing something unparseable shows the error before any click
+        // and keeps the button disabled.
+        await page.locator("input[data-schedule-input]").fill("banana");
+        await expect(page.locator("[data-schedule-validation]")).toContainText(
+          "Couldn’t understand",
+        );
+        await expect(scheduleBtn).toBeDisabled();
+
+        // A valid schedule enables the button, shows the live verdict,
+        // and the server preview lists upcoming runs.
+        await page
+          .locator("input[data-schedule-input]")
+          .fill("every weekday at 9:00");
+        await expect(page.locator("[data-schedule-validation]")).toContainText(
+          "✓ every weekday at 9:00",
+        );
+        await expect(scheduleBtn).toBeEnabled();
         await expect(page.locator(".next-runs-body")).toContainText(
-          "Every day at 09:00",
+          "every weekday at 9:00",
           { timeout: 10_000 },
         );
 
-        // Compose: prompt + weekly on Monday at 09:00.
+        // Compose and submit — the page never navigates.
         await page.locator('textarea[name="prompt"]').fill("Weekly sweep");
         await page.locator('input[name="job_name"]').fill("Browser job");
-        await page.locator('[data-schedule-radio="weekly"]').check();
-        await page
-          .locator("select.schedule-weekday")
-          .selectOption({ label: "Monday" });
-        await page.locator('input[name="weekly_time"]').fill("09:00");
-        await expect(page.locator(".next-runs-body")).toContainText(
-          "Every Mon at 09:00",
-        );
-
-        // Submit schedules — the page never navigates.
-        await page.locator("button.schedule-send-btn").click();
+        await scheduleBtn.click();
         await expect(page.locator(".schedule-confirmation")).toContainText(
           "Scheduled run saved",
           { timeout: 15_000 },
         );
         expect(page.url()).toBe(`${env.baseUrl}/sessions/new`);
         await expect(page.locator(".schedule-confirmation")).toContainText(
-          "Every Mon at 09:00",
+          "every weekday at 9:00",
         );
         await expect(page.locator("#scheduled-runs")).toContainText(
           "Browser job",
@@ -385,20 +409,18 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     });
 
     it("edits a job and preserves fields the form doesn't expose", async () => {
-      // The edit form pre-fills the controls from the stored schedule:
-      // "30 8 * * 5" reads back as weekly Friday at 08:30.
+      // The edit form pre-fills the typed schedule from the job as stored.
       const edit = await authedFetch(env, "/cron/friday-tz/edit");
       const editHtml = await edit.text();
       expect(edit.status).toBe(200);
-      expect(editHtml).toContain('value="5" selected');
+      expect(editHtml).toContain('value="30 8 * * 5"');
       expect(editHtml).toContain("Friday EU report");
 
       const put = await authedFetch(env, "/cron/friday-tz", {
         method: "PUT",
         body: new URLSearchParams({
           job_name: "friday-eu",
-          schedule_kind: "daily",
-          daily_time: "07:15",
+          schedule: "on sunday at 18:00",
           prompt: "Rewritten EU report",
           working_dir: jobByName("friday-tz")?.workingDir as string,
         }),
@@ -407,11 +429,11 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(put.status).toBe(200);
       const putHtml = await put.text();
       expect(putHtml).toContain("friday-eu");
-      expect(putHtml).toContain("Every day at 07:15");
+      expect(putHtml).toContain("on sunday at 18:00");
 
       const job = jobByName("friday-eu");
       expect(job).toBeDefined();
-      expect(job?.schedule).toBe("15 7 * * *");
+      expect(job?.schedule).toBe("on sunday at 18:00");
       expect(job?.prompt).toBe("Rewritten EU report");
       // The form never exposes timezone or enabled; both survive.
       expect(job?.timezone).toBe("Europe/Berlin");
@@ -425,8 +447,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         method: "PUT",
         body: new URLSearchParams({
           job_name: "nightly",
-          schedule_kind: "daily",
-          daily_time: "07:15",
+          schedule: "on sunday at 18:00",
           prompt: "Rewritten EU report",
           working_dir: jobByName("friday-eu")?.workingDir as string,
         }),
@@ -513,7 +534,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  describe("one-shot lifecycle", () => {
+  describe("schedule lifecycle", () => {
     it("fires once at the chosen time and retires itself from the config", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-once-"));
       const cfgPath = writeConfig(homeDir, [
@@ -592,6 +613,43 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         rmSync(homeDir, { recursive: true, force: true });
       }
     }, 60000);
+
+    it("fires a typed human schedule through later", async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-text-"));
+      const cfgPath = writeConfig(homeDir, [
+        {
+          name: "text-sweep",
+          schedule: "every 2 minutes",
+          prompt: "Typed schedule sweep",
+          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-tw-")),
+        },
+      ]);
+      const env = await fx.startEnv(
+        "glv-cronui-text-",
+        { sessionName: "Typed Schedule Session" },
+        homeDir,
+        { GLV_CONFIG: cfgPath },
+      );
+      try {
+        // "every 2 minutes" fires at the next even-minute boundary, so
+        // the first session lands within ~2 minutes of boot.
+        const deadline = Date.now() + 150_000;
+        let html = "";
+        while (Date.now() < deadline) {
+          const res = await authedFetch(env, "/");
+          html = await res.text();
+          if (html.includes("Typed Schedule Session")) break;
+          await sleep(1000);
+        }
+        expect(html).toContain("Typed Schedule Session");
+        // A recurring job stays in the config (unlike a one-shot).
+        const jobs = readConfig(cfgPath).cronJobs ?? [];
+        expect(jobs).toHaveLength(1);
+      } finally {
+        await env.cleanup();
+        rmSync(homeDir, { recursive: true, force: true });
+      }
+    }, 180000);
   });
 };
 

@@ -45,6 +45,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@breejs/later": "^4.2.0",
     "@hono/node-server": "github:SynthLuvr/node-server#dist/open-prs",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",

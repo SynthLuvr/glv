@@ -7,8 +7,7 @@ import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
-import type { ScheduleSelection } from "../schedule.js";
-import { SELECTION_DEFAULTS, withResolvedNames } from "../schedule.js";
+import { withResolvedNames } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
@@ -217,7 +216,7 @@ type NewSessionDetailOpts = {
   workingDir?: string;
   prompt?: string;
   modelProvider?: string;
-  scheduleValues?: Omit<ScheduleSelection, "name">;
+  schedule?: string;
   scheduleName?: string;
   confirmation?: NamedCronJob;
 };
@@ -240,7 +239,7 @@ const newSessionDetail = (
     workingDir,
     prompt = "",
     modelProvider,
-    scheduleValues = SELECTION_DEFAULTS,
+    schedule = "",
     scheduleName = "",
     confirmation,
   }: NewSessionDetailOpts = {},
@@ -260,7 +259,7 @@ const newSessionDetail = (
       modelPicker={
         hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
       }
-      scheduleValues={scheduleValues}
+      schedule={schedule}
       scheduleName={scheduleName}
       jobs={safeCronJobs(ctx)}
       confirmation={confirmation}

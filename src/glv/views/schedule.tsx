@@ -1,17 +1,13 @@
 import type { NamedCronJob } from "../config.js";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
-import {
-  fmtDateTime,
-  humanizeSchedule,
-  nextFireTimes,
-  type ScheduleSelection,
-  SELECTION_DEFAULTS,
-} from "../schedule.js";
+import { fmtDateTime, parseSchedule, SCHEDULE_EXAMPLES } from "../schedule.js";
 
-// Views for scheduling: the disclosure + frequency controls inside the
-// New Session form, the confirmation banner after a job is saved, and the
-// "Scheduled runs" management section (Prompt Library placement and
-// styling). Everything is server-rendered; htmx swaps fragments in place.
+// Views for scheduling: the disclosure with one typed schedule field
+// inside the New Session form, the confirmation banner after a job is
+// saved, and the "Scheduled runs" management section (Prompt Library
+// placement and styling). Everything is server-rendered; htmx swaps
+// fragments in place, and /assets/schedule.js validates the typed
+// schedule live before the user can click "Schedule run".
 
 const clockIcon = (
   <svg
@@ -24,17 +20,6 @@ const clockIcon = (
   </svg>
 );
 
-// Cron's day-of-week order: 0 = Sunday.
-const WEEKDAY_LABELS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-] as const;
-
 // The restart notice is standing copy: the running serve snapshots jobs
 // at boot, so nothing scheduled or edited here is live until it restarts.
 const RESTART_NOTICE =
@@ -42,146 +27,74 @@ const RESTART_NOTICE =
   "firing after the next restart.";
 
 // Cards and the confirmation share these renderings; a job that can no
-// longer fire (an expired one-shot) shows a dash instead of pretending.
-const humanizeOf = (job: NamedCronJob): string =>
-  humanizeSchedule(job.schedule, job.timezone);
+// longer fire (an expired one-shot) or no longer parses (hand-edited)
+// shows a dash instead of pretending.
+const humanizeOf = (job: NamedCronJob): string => {
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  return parsed.ok ? parsed.info.human : job.schedule;
+};
 
 const nextRunText = (job: NamedCronJob): string => {
   if (job.enabled === false) return "paused";
-  try {
-    const runs = nextFireTimes(job.schedule, job.timezone, 1);
-    return runs !== undefined && runs.length > 0 ? fmtDateTime(runs[0]) : "—";
-  } catch {
-    return "—";
-  }
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  if (!parsed.ok || parsed.info.next.length === 0) return "—";
+  return fmtDateTime(parsed.info.next[0]);
 };
 
-const TimeInput = ({ name, value }: { name: string; value: string }) => (
-  <input
-    type="time"
-    name={name}
-    value={value}
-    class="form-input schedule-time"
-    step={60}
-  />
-);
-
-// One frequency option: a radio pill (source-toggle styling) plus the
-// inputs that only apply to it. Bodies are toggled purely with CSS :has()
-// — same technique as .source-toggle-option:has(input:checked) — so no
-// client wiring is needed and htmx swaps keep working. Hidden inputs
-// still submit; the server reads only the active kind's fields.
-const ScheduleOption = ({
-  kind,
-  label,
-  checked,
-  children,
-}: {
-  kind: string;
-  label: string;
-  checked: boolean;
-  children?: unknown;
-}) => (
-  <div class="schedule-option" data-schedule-option={kind}>
-    <label class="schedule-option-pill">
-      <input
-        type="radio"
-        name="schedule_kind"
-        value={kind}
-        data-schedule-radio={kind}
-        checked={checked}
-      />
-      <span>{label}</span>
-    </label>
-    {children !== undefined && (
-      <div class="schedule-option-body" data-schedule-body={kind}>
-        {children}
-      </div>
-    )}
-  </div>
-);
-
-// The frequency controls, shared by the New Session form (Phase 1) and
-// the edit form (Phase 2). `values` restores a rejected submit's or an
-// existing job's values so nothing typed is ever lost.
+// The typed schedule field plus its live server preview. `datalistId`
+// differs between the create form and a card's edit form so the id stays
+// unique when both are on the page.
 const ScheduleControls = ({
-  values = SELECTION_DEFAULTS,
+  schedule = "",
+  datalistId,
 }: {
-  values?: Omit<ScheduleSelection, "name">;
+  /** Restores a rejected submit's (or existing job's) schedule. */
+  schedule?: string;
+  datalistId: string;
 }) => (
   <div
     class="schedule-options"
     data-schedule-options
+    // Preview fires on load and ~400ms after typing settles; the input
+    // event bubbles to this container and hx-include/reach stay within
+    // it, so a page never mixes up two forms' fields.
     hx-get="/cron/preview"
-    hx-trigger="load, change"
+    hx-trigger="load, input changed delay:400ms from:find input"
     hx-target="find .next-runs-body"
     hx-swap="innerHTML"
     hx-include="find .schedule-fields"
     hx-push-url="false"
   >
     <div class="schedule-fields" data-schedule-fields>
-      <ScheduleOption
-        kind="once"
-        label="Once at"
-        checked={values.kind === "once"}
-      >
-        <span class="schedule-inputs">
-          <input
-            type="date"
-            name="once_date"
-            value={values.onceDate}
-            class="form-input schedule-date"
-          />
-          <TimeInput name="once_time" value={values.onceTime} />
-        </span>
-      </ScheduleOption>
-      <ScheduleOption
-        kind="daily"
-        label="Every day at"
-        checked={values.kind === "daily"}
-      >
-        <span class="schedule-inputs">
-          <TimeInput name="daily_time" value={values.dailyTime} />
-        </span>
-      </ScheduleOption>
-      <ScheduleOption
-        kind="weekly"
-        label="Weekly on"
-        checked={values.kind === "weekly"}
-      >
-        <span class="schedule-inputs">
-          <select name="weekly_day" class="form-input schedule-weekday">
-            {WEEKDAY_LABELS.map((day, index) => (
-              <option
-                value={String(index)}
-                selected={values.weeklyDay === String(index)}
-              >
-                {day}
-              </option>
-            ))}
-          </select>
-          <TimeInput name="weekly_time" value={values.weeklyTime} />
-        </span>
-      </ScheduleOption>
-      <ScheduleOption
-        kind="cron"
-        label="Advanced: cron pattern"
-        checked={values.kind === "cron"}
-      >
+      <label class="form-field">
+        <span class="form-label">Schedule</span>
         <input
           type="text"
-          name="cron_pattern"
-          value={values.cronPattern}
-          class="form-input schedule-cron-input mono"
-          placeholder="0 9 * * 1-5"
-          spellcheck={false}
+          name="schedule"
+          data-schedule-input
+          list={datalistId}
+          class="form-input schedule-input"
+          value={schedule}
+          placeholder="every weekday at 9:00"
           autocomplete="off"
+          spellcheck={false}
         />
-      </ScheduleOption>
+        <datalist id={datalistId}>
+          {SCHEDULE_EXAMPLES.map((example) => (
+            <option value={example} />
+          ))}
+        </datalist>
+      </label>
+      {/* Live as-you-type verdict from /assets/schedule.js; the server
+          re-validates on submit regardless. */}
+      <p
+        class="schedule-validation"
+        data-schedule-validation=""
+        aria-live="polite"
+      >
+        Plain English or cron — validated as you type.
+      </p>
     </div>
-    {/* The htmx attributes live on the wrapping container (above) so both
-        the fields (hx-include) and this body (hx-target) are descendants;
-        change events from the fields bubble up to it. */}
     <div class="next-runs">
       <span class="form-label">Next runs</span>
       <div class="next-runs-body">
@@ -197,11 +110,13 @@ const ScheduleControls = ({
 // — all via CSS :has(), no navigation, no typed work lost.
 const ScheduleDisclosure = ({
   agentName,
-  values = SELECTION_DEFAULTS,
+  schedule = "",
   jobName = "",
 }: {
   agentName: string;
-  values?: Omit<ScheduleSelection, "name">;
+  /** Restores a rejected submit's schedule. */
+  schedule?: string;
+  /** Restores a rejected submit's job name. */
   jobName?: string;
 }) => (
   <details class="schedule-disclosure" data-schedule-disclosure>
@@ -222,7 +137,7 @@ const ScheduleDisclosure = ({
           autocomplete="off"
         />
       </label>
-      <ScheduleControls values={values} />
+      <ScheduleControls schedule={schedule} datalistId="schedule-examples" />
       <p class="schedule-mode-note">
         Scheduled runs use {agentName}&rsquo;s default model and can&rsquo;t
         include attachments yet — leave the model picker on {agentName} default
@@ -316,16 +231,18 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
   );
 };
 
-// Edit form reusing the Phase 1 controls, pre-filled from the job. Fields
-// the form doesn't expose (e.g. a timezone override) are preserved by the
-// PUT route, and called out here so editing is honest about them.
+// Edit form reusing the typed-schedule controls, pre-filled from the
+// job. Fields the form doesn't expose (e.g. a timezone override) are
+// preserved by the PUT route, and called out here so editing is honest
+// about them.
 const ScheduleJobEditForm = ({
   job,
-  values,
+  schedule,
   error,
 }: {
   job: NamedCronJob;
-  values?: Omit<ScheduleSelection, "name">;
+  /** Restores a rejected edit's schedule. */
+  schedule?: string;
   error?: string;
 }) => {
   const name = encodeURIComponent(job.name);
@@ -349,7 +266,10 @@ const ScheduleJobEditForm = ({
             autocomplete="off"
           />
         </label>
-        <ScheduleControls values={values} />
+        <ScheduleControls
+          schedule={schedule ?? job.schedule}
+          datalistId={`schedule-examples-${name}`}
+        />
         <label class="form-field">
           <span class="form-label">Prompt</span>
           <textarea name="prompt" class="form-input" rows={4}>
@@ -368,12 +288,13 @@ const ScheduleJobEditForm = ({
         </label>
         {job.timezone !== undefined && (
           <p class="cron-job-kept-note">
-            Timezone {job.timezone} is kept as configured in the file — the form
-            previews and fires in the server&rsquo;s timezone otherwise.
+            Timezone {job.timezone} is kept as configured in the file — it
+            applies to cron schedules; typed schedules always fire in the
+            server&rsquo;s timezone.
           </p>
         )}
         <div class="prompt-form-actions">
-          <button type="submit" class="prompt-save-btn">
+          <button type="submit" class="prompt-save-btn" data-schedule-submit="">
             Save
           </button>
           <button
