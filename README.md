@@ -54,6 +54,10 @@ the browser.
 - **PR tracking.** When a session mentions a GitHub pull request, glv
   surfaces a link with a live open / merged / closed status badge (via
   `gh`).
+- **Scheduled runs.** Create, preview, pause, edit, and delete scheduled
+  runs from the New Session page — one-shot (“tomorrow at 9:00”), daily,
+  weekly, or raw cron — or hand-edit the same jobs in the config file.
+  Sessions a job starts carry a clock badge naming the job.
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -207,8 +211,14 @@ the flag errors out if the key is missing or the file is malformed.
 
 ### Scheduled runs (cron)
 
-Add a `cronJobs` array to the config file to run prompts on a schedule
-(there is no UI for this yet — the file is the interface):
+Scheduled runs can be managed two ways: from the **web viewer** (open
+the “Schedule…” disclosure in the New Session form to create one; a
+“Scheduled runs” section below the form lists every job with pause,
+edit, and delete) or by hand in the config file. Both write the same
+entries — the config file is the source of truth, and the running server
+picks changes up on the next restart.
+
+To define jobs by hand, add a `cronJobs` array to the config file:
 
 ``` json
 {
@@ -227,11 +237,15 @@ Add a `cronJobs` array to the config file to run prompts on a schedule
 
 - `schedule` is a [croner](https://github.com/hexagon/croner) pattern —
   the usual 5-field cron, or 6 fields when you need a leading seconds
-  part.
+  part — **or** an ISO 8601 local datetime like `"2026-09-03T09:00"` for
+  a one-time run. A one-shot fires once and retires itself from the
+  config; if its moment is already past when `serve` starts, it is
+  removed without running (a missed run stays missed).
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
-  it shows up in the sidebar like any other session. A fire whose
-  session is still being established skips the next tick rather than
-  piling runs onto the same directory.
+  it shows up in the sidebar like any other session — badged with a
+  clock chip naming the job, in the sidebar and the transcript header. A
+  fire whose session is still being established skips the next tick
+  rather than piling runs onto the same directory.
 - `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
   defaults to system-local time; `enabled: false` pauses a job without
   deleting it.
