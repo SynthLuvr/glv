@@ -1,8 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  type FSWatcher,
+  mkdirSync,
+  readFileSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { type } from "arktype";
 import { JsonObject, parseJson } from "./parse.js";
+import { positiveEnvNumber } from "./util.js";
 
 const configRoot = (): string => {
   if (platform() === "win32")
@@ -66,5 +74,89 @@ const writeConfig = (
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };
 
+// Editors write configs in bursts (and often replace the file by atomic
+// rename), so events are debounced and the settled content is compared
+// against the last content seen — only real changes surface.
+const WATCH_DEBOUNCE_MS = 250;
+
+// fs.watch directory events are unreliable on some filesystems (network
+// mounts) and impossible before the config directory exists, so a
+// content-comparing poll backs the watcher up. GLV_CONFIG_WATCH_POLL_MS
+// overrides the interval so tests can bound the reload latency.
+const DEFAULT_WATCH_POLL_MS = 5_000;
+
+// undefined while the file is absent, so a later (re)creation reads as a
+// change just like an edit.
+const readConfigText = (path: string): string | undefined => {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return undefined;
+  }
+};
+
+// Watches the config file and calls onChange once it settles on content
+// it has not shown before. The directory (not the file) is watched so
+// editors that replace the file by rename are still seen; if watching
+// fails, the poll alone still notices the file appearing.
+const watchConfigFile = (
+  path: string,
+  onChange: () => void,
+): { readonly stop: () => void } => {
+  let last = readConfigText(path);
+  let stopped = false;
+  let pending: NodeJS.Timeout | undefined;
+
+  const check = (): void => {
+    pending = undefined;
+    if (stopped) return;
+    const text = readConfigText(path);
+    if (text === last) return;
+    last = text;
+    onChange();
+  };
+
+  const schedule = (): void => {
+    if (stopped || pending !== undefined) return;
+    pending = setTimeout(check, WATCH_DEBOUNCE_MS);
+  };
+
+  let watcher: FSWatcher | undefined;
+  try {
+    watcher = watch(dirname(path), (_event, file) => {
+      if (file === undefined || file === basename(path)) schedule();
+    });
+    watcher.on("error", () => {
+      watcher?.close();
+      watcher = undefined;
+    });
+  } catch {
+    // Nothing to watch yet — the poll still notices the file appearing.
+  }
+
+  const poll = setInterval(
+    () => {
+      if (pending === undefined) check();
+    },
+    positiveEnvNumber("GLV_CONFIG_WATCH_POLL_MS", DEFAULT_WATCH_POLL_MS),
+  );
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (pending !== undefined) clearTimeout(pending);
+      clearInterval(poll);
+      watcher?.close();
+    },
+  };
+};
+
 export type { CronJobConfig };
-export { CONFIG_KEYS, readConfig, readRawConfig, writeConfig };
+export {
+  CONFIG_KEYS,
+  readConfig,
+  readRawConfig,
+  resolveConfigPath,
+  watchConfigFile,
+  writeConfig,
+};
