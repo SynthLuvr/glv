@@ -210,6 +210,43 @@ get committed:
 `glv-goose serve --forward` uses `forwardHost` as the SSH tunnel target;
 the flag errors out if the key is missing or the file is malformed.
 
+### Scheduled runs (cron)
+
+Add a `cronJobs` array to the config file to run prompts on a schedule
+(there is no UI for this yet — the file is the interface):
+
+``` json
+{
+  "cronJobs": [
+    {
+      "name": "nightly-review",
+      "schedule": "0 3 * * *",
+      "prompt": "Summarize today's commits and flag risks",
+      "workingDir": "/home/you/project",
+      "timezone": "Europe/Oslo",
+      "enabled": true
+    }
+  ]
+}
+```
+
+- `schedule` is a [croner](https://github.com/hexagon/croner) pattern —
+  the usual 5-field cron, or 6 fields when you need a leading seconds
+  part.
+- Every fire starts a **new session** in `workingDir` with `prompt`, and
+  it shows up in the sidebar like any other session. A fire whose
+  session is still being established skips the next tick rather than
+  piling runs onto the same directory.
+- `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
+  defaults to system-local time; `enabled: false` pauses a job without
+  deleting it.
+- Jobs are read once at `serve` startup. An invalid job — bad schedule,
+  unknown timezone, duplicate name, or (for an enabled job) a missing
+  working directory — stops the server from starting, naming the job.
+  Edits apply on the next restart.
+- `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
+  waits for the agent to create its session before the run is stopped.
+
 ## Authentication
 
 The web viewer is protected by **passkey authentication** (WebAuthn) —

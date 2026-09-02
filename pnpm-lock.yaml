@@ -26,6 +26,9 @@ importers:
       consola:
         specifier: ^3.4.2
         version: 3.4.2
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
       dompurify:
         specifier: ^3.4.14
         version: 3.4.14
@@ -1390,6 +1393,10 @@ packages:
     resolution: {integrity: sha512-uV05wQd9GxL8qHAbTJLLbbxms3B4PSDjiXWiEQUB2NOzRBynpKHm6klgGLzVPHzVNIavpNlFLKrqCV6Y9y7CmQ==}
     engines: {node: '>=16'}
     hasBin: true
+
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -3084,6 +3091,8 @@ snapshots:
   convert-to-arrow@1.1.4:
     dependencies:
       ts-morph: 28.0.0
+
+  croner@10.0.1: {}
 
   cross-spawn@7.0.6:
     dependencies:
