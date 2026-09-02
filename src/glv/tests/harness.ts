@@ -104,11 +104,12 @@ const findFreePort = (): Promise<number> =>
   });
 
 // A capture file written by a mock agent can be read mid-write, so poll
-// until it parses into a value the caller recognises.
+// until it parses into a value the caller recognises. The 30s default
+// absorbs slow mock-agent spawns on loaded CI runners.
 const waitForJsonFile = async <T>(
   path: string,
   accept: (value: unknown) => value is T,
-  timeoutMs = 8000,
+  timeoutMs = 30000,
 ): Promise<T> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -127,6 +128,35 @@ const isArgv = (value: unknown): value is string[] => Array.isArray(value);
 
 const waitForArgs = (path: string): Promise<string[]> =>
   waitForJsonFile(path, isArgv);
+
+// Waits for a capture file to settle before assertions see it: reads are
+// retried through transient failures (file not created yet, Windows
+// locking a fresh rename), and only content identical on two consecutive
+// polls is returned — a mid-write read must never leak into an expect.
+const waitForFile = async (
+  path: string,
+  timeoutMs = 30000,
+): Promise<string> => {
+  const deadline = Date.now() + timeoutMs;
+  let previous: string | undefined;
+  while (Date.now() < deadline) {
+    try {
+      const content = readFileSync(path, "utf-8");
+      if (content === previous) return content;
+      previous = content;
+    } catch {
+      // the writer may not have started yet — keep polling
+    }
+    await sleep(50);
+  }
+  const lastRead =
+    previous === undefined
+      ? "never readable"
+      : `last read ${previous.length} bytes`;
+  throw new Error(
+    `file ${path} not written within ${timeoutMs}ms (${lastRead})`,
+  );
+};
 
 const flagValue = (
   args: readonly string[],
@@ -846,6 +876,7 @@ export {
   subdirCount,
   waitForAgentRun,
   waitForArgs,
+  waitForFile,
   waitForHttp,
   waitForJsonFile,
   withPage,

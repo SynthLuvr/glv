@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
@@ -13,27 +7,13 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  waitForFile,
   withPage,
 } from "../harness.js";
 
 const runTempDirSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Temp Dir Session";
   const PROMPT_TEXT = "Work in a temporary directory and report back.";
-
-  const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
-  const waitForFile = async (
-    path: string,
-    timeoutMs = 8000,
-  ): Promise<string> => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (existsSync(path)) return readFileSync(path, "utf-8");
-      await sleep(50);
-    }
-    throw new Error(`file ${path} not written within ${timeoutMs}ms`);
-  };
 
   const tempSubDirs = (base: string) =>
     readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory());
