@@ -2,6 +2,7 @@ import { platform } from "node:os";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { type } from "arktype";
 import { resolveDataPath } from "../glv/db-path.js";
+import { isRecord, JsonObject, parseJson } from "../glv/parse.js";
 import { placeholders, validate, validateAll } from "../glv/query.js";
 import type {
   MessageRow,
@@ -114,14 +115,52 @@ const listSessions = (
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
   parts.push("ORDER BY updated_at DESC", "LIMIT ?");
   params.push(filter.limit);
-  return validateAll(SessionRowModel, allRows(db, parts.join(" "), ...params));
+  // The sidebar never renders the model, so listing skips the extra
+  // readModelName query; the detail pane re-reads the row via getSession.
+  return validateAll(
+    SessionRowModel,
+    allRows(db, parts.join(" "), ...params),
+  ).map((row) => ({ ...row, model: null }));
 };
 
-const getSession = (db: DatabaseSync, id: string): SessionRow | undefined =>
-  validate(
+// goose records the model a session ran with on the session row, inside
+// model_config_json ({"model_name": ...}) rather than a plain column.
+const parseModelName = (configJson: string): string | null => {
+  const parsed = parseJson(configJson, JsonObject);
+  if (!parsed.ok) return null;
+  const name = parsed.data.model_name;
+  return typeof name === "string" && name !== "" ? name : null;
+};
+
+const readModelConfig = (db: DatabaseSync, id: string): string | null => {
+  const row = db
+    .prepare("SELECT model_config_json FROM sessions WHERE id = ?")
+    .get(id);
+  if (!isRecord(row) || typeof row.model_config_json !== "string") return null;
+  return row.model_config_json;
+};
+
+// The column postdates some goose schemas and the database is agent-owned,
+// so any read or parse failure degrades to "no model known" — the header
+// simply omits the chip.
+const readModelName = (db: DatabaseSync, id: string): string | null => {
+  try {
+    const config = readModelConfig(db, id);
+    return config === null ? null : parseModelName(config);
+  } catch {
+    return null;
+  }
+};
+
+const getSession = (db: DatabaseSync, id: string): SessionRow | undefined => {
+  const row = validate(
     SessionRowModel,
     getRow(db, `SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`, id),
   );
+  return row === undefined
+    ? undefined
+    : { ...row, model: readModelName(db, id) };
+};
 
 // goose appends each turn's context right after its prompt and the rows
 // can share a timestamp; the rowid tiebreak preserves insertion order.

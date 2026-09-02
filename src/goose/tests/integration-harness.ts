@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   total_tokens INTEGER,
   provider_name TEXT,
+  model_config_json TEXT,
   user_set_name BOOLEAN DEFAULT FALSE,
   archived_at TIMESTAMP
 );
@@ -40,8 +41,9 @@ CREATE TABLE IF NOT EXISTS messages (
 `;
 
 const INSERT_SESSION_SQL =
-  "INSERT INTO sessions (id, name, session_type, working_dir, created_at, updated_at) " +
-  "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'))";
+  "INSERT INTO sessions (id, name, session_type, working_dir, created_at, " +
+  "updated_at, provider_name, model_config_json) " +
+  "VALUES (?, ?, 'user', ?, datetime('now'), datetime('now'), ?, ?)";
 
 const INSERT_MESSAGE_SQL =
   "INSERT INTO messages (message_id, session_id, role, content_json, " +
@@ -93,7 +95,14 @@ const insertSessions = (
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
   const stmt = db.prepare(INSERT_SESSION_SQL);
-  for (const s of sessions) stmt.run(s.id, s.name, s.workingDir);
+  for (const s of sessions)
+    stmt.run(
+      s.id,
+      s.name,
+      s.workingDir,
+      s.providerName ?? null,
+      s.model === undefined ? null : JSON.stringify({ model_name: s.model }),
+    );
   db.close();
 };
 
