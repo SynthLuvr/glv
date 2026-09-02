@@ -108,7 +108,7 @@ const findFreePort = (): Promise<number> =>
 const waitForJsonFile = async <T>(
   path: string,
   accept: (value: unknown) => value is T,
-  timeoutMs = 8000,
+  timeoutMs = 30000,
 ): Promise<T> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -127,6 +127,39 @@ const isArgv = (value: unknown): value is string[] => Array.isArray(value);
 
 const waitForArgs = (path: string): Promise<string[]> =>
   waitForJsonFile(path, isArgv);
+
+// Waits for a mock agent's capture file to carry its full contents. Reads
+// are retried through transient failures (the file not existing yet, or
+// Windows denying a freshly written file to a concurrent reader), and the
+// content must come back identical on two consecutive polls before it is
+// handed to assertions — a mid-write read must never leak into an expect.
+// The default budget is generous because spawning the mock agent on a
+// loaded CI runner (native trampoline, then node + tsx under coverage)
+// routinely takes seconds and occasionally much more on Windows.
+const waitForFile = async (
+  path: string,
+  timeoutMs = 30000,
+): Promise<string> => {
+  const deadline = Date.now() + timeoutMs;
+  let previous: string | undefined;
+  while (Date.now() < deadline) {
+    try {
+      const content = readFileSync(path, "utf-8");
+      if (content === previous) return content;
+      previous = content;
+    } catch {
+      // keep polling — the writer may not have started or may be mid-rename
+    }
+    await sleep(50);
+  }
+  const lastRead =
+    previous === undefined
+      ? "never readable"
+      : `last read ${previous.length} bytes`;
+  throw new Error(
+    `file ${path} not written within ${timeoutMs}ms (${lastRead})`,
+  );
+};
 
 const flagValue = (
   args: readonly string[],
@@ -846,6 +879,7 @@ export {
   subdirCount,
   waitForAgentRun,
   waitForArgs,
+  waitForFile,
   waitForHttp,
   waitForJsonFile,
   withPage,

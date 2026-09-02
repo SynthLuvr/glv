@@ -15,6 +15,7 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  waitForFile,
   withPage,
 } from "../harness.js";
 
@@ -29,21 +30,6 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
   let uploadFilePath: string;
   const uploadFilename = "followup-notes.txt";
   const uploadContent = "Notes for the follow-up run.";
-
-  const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
-  const waitForFile = async (
-    path: string,
-    timeoutMs = 8000,
-  ): Promise<string> => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (existsSync(path)) return readFileSync(path, "utf-8");
-      await sleep(50);
-    }
-    throw new Error(`file ${path} not written within ${timeoutMs}ms`);
-  };
 
   beforeAll(async () => {
     captureDir = mkdtempSync(join(tmpdir(), "glv-followup-cap-"));

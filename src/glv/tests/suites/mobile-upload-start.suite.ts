@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
@@ -12,6 +6,7 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type FlavorFixture,
   type IntegrationEnv,
+  waitForFile,
   withPage,
 } from "../harness.js";
 
@@ -25,21 +20,6 @@ globalThis.DataTransfer = class {
   constructor() { throw new TypeError("DataTransfer is not supported on this iOS build"); }
 };
 `;
-
-  const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
-  const waitForFile = async (
-    path: string,
-    timeoutMs = 8000,
-  ): Promise<string> => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (existsSync(path)) return readFileSync(path, "utf-8");
-      await sleep(50);
-    }
-    throw new Error(`file ${path} not written within ${timeoutMs}ms`);
-  };
 
   const PROMPT = "Summarize the attached notes.";
   const FILENAME = "notes.txt";
