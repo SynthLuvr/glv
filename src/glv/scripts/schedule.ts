@@ -65,6 +65,19 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("DOMContentLoaded", validateAll);
 
+// Cancel closes the inline form the way the Saved prompts save form does:
+// client-side, no round trip.
+const closeSlot = (): void => {
+  const slot = document.getElementById("cron-save-slot");
+  if (slot !== null) slot.innerHTML = "";
+};
+
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) return;
+  const trigger = e.target.closest<HTMLElement>("[data-action]");
+  if (trigger?.dataset.action === "close-schedule-slot") closeSlot();
+});
+
 const afterSwap = (e: Event): void => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;

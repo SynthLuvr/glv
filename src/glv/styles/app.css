@@ -2756,91 +2756,9 @@ select.form-input {
 }
 
 /* ---------- scheduled runs ---------- */
-/* The disclosure lives inside the New Session form; schedule mode is an
-   alternate submit. While it is open the model picker and attachments
-   dim (unsupported on scheduled runs for now) and the submit button
-   relabels — all via :has(), so no client wiring is needed. */
-.schedule-disclosure {
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface-2);
-}
-.schedule-disclosure[open] {
-  padding-bottom: 0.85rem;
-}
-.schedule-summary {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.55rem 0.75rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--color-muted);
-  cursor: pointer;
-  list-style: none;
-  border-radius: 10px;
-}
-.schedule-summary::-webkit-details-marker {
-  display: none;
-}
-.schedule-summary svg {
-  width: 0.95rem;
-  height: 0.95rem;
-  flex: 0 0 auto;
-}
-.schedule-summary:hover {
-  color: var(--color-accent);
-}
-.schedule-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  padding: 0.25rem 0.85rem 0;
-}
-.submit-group {
-  display: inline-flex;
-  gap: 0.5rem;
-  margin-left: auto;
-}
-.schedule-send-btn {
-  display: none;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 8px;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font: inherit;
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.schedule-send-btn:hover {
-  background: var(--color-accent-hover);
-}
-.new-session-form:has(.schedule-disclosure[open]) .schedule-send-btn {
-  display: inline-block;
-}
-/* In schedule mode "Start session" stays available — it just steps back
-   to a secondary style so "Schedule run" is the prominent action while
-   the way back to running now stays visible. */
-.new-session-form:has(.schedule-disclosure[open]) .send-btn {
-  background: var(--color-surface);
-  color: var(--color-muted);
-  border: 1px solid var(--color-border-strong);
-}
-.new-session-form:has(.schedule-disclosure[open]) .send-btn:hover {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.new-session-form:has(.schedule-disclosure[open]) .model-picker-slot,
-.new-session-form:has(.schedule-disclosure[open]) .paperclip-btn,
-.new-session-form:has(.schedule-disclosure[open]) .paste-hint,
-.new-session-form:has(.schedule-disclosure[open]) .upload-chips {
-  opacity: 0.45;
-  pointer-events: none;
-}
+/* The Saved-prompts pattern: a section below the form whose header
+   button loads an inline form into a slot. The New Session form above
+   is untouched — one "Start session" submit, always. */
 .schedule-mode-note,
 .schedule-restart-note {
   margin: 0;
@@ -2966,8 +2884,20 @@ select.form-input {
 .scheduled-runs-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.4rem;
+}
+.scheduled-runs-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cron-job-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
 }
 .scheduled-runs-count {
   display: inline-flex;

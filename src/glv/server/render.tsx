@@ -209,16 +209,13 @@ const modelPicker = async (
 const hasModelPicker = (ctx: ServerContext): boolean =>
   ctx.models?.defaultSelection() !== undefined;
 
-// Everything a rejected submit needs to re-render the form without losing
-// typed work, plus the confirmation shown after a job is saved.
+// Everything a rejected submit needs to re-render the form without
+// losing typed work.
 type NewSessionDetailOpts = {
   error?: string;
   workingDir?: string;
   prompt?: string;
   modelProvider?: string;
-  schedule?: string;
-  scheduleName?: string;
-  confirmation?: NamedCronJob;
 };
 
 // Reads the config file's cron jobs for the Scheduled runs section. A
@@ -239,9 +236,6 @@ const newSessionDetail = (
     workingDir,
     prompt = "",
     modelProvider,
-    schedule = "",
-    scheduleName = "",
-    confirmation,
   }: NewSessionDetailOpts = {},
 ): Child => {
   const db = ctx.prompts;
@@ -259,10 +253,7 @@ const newSessionDetail = (
       modelPicker={
         hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
       }
-      schedule={schedule}
-      scheduleName={scheduleName}
       jobs={safeCronJobs(ctx)}
-      confirmation={confirmation}
     />
   );
 };

@@ -104,48 +104,70 @@ const ScheduleControls = ({
   </div>
 );
 
-// The collapsed-by-default disclosure inside the New Session form. While
-// open, the form dims the model picker and attachments (schedule mode
-// doesn't support them yet) and the submit button becomes "Schedule run"
-// — all via CSS :has(), no navigation, no typed work lost.
-const ScheduleDisclosure = ({
+// The inline schedule form, loaded into the section's slot by
+// "Schedule…" (the Saved prompts save-form pattern). It schedules the
+// prompt and working directory composed in the New Session form above —
+// hx-include pulls those fields at submit time, so the latest typing is
+// what gets scheduled, and the composed prompt is never duplicated or
+// lost.
+const ScheduleSaveForm = ({
   agentName,
-  schedule = "",
   jobName = "",
+  schedule = "",
+  error,
 }: {
   agentName: string;
-  /** Restores a rejected submit's schedule. */
-  schedule?: string;
   /** Restores a rejected submit's job name. */
   jobName?: string;
+  /** Restores a rejected submit's schedule. */
+  schedule?: string;
+  error?: string;
 }) => (
-  <details class="schedule-disclosure" data-schedule-disclosure>
-    <summary class="schedule-summary">
-      {clockIcon}
-      <span>Schedule…</span>
-    </summary>
-    <div class="schedule-panel">
-      <label class="form-field">
-        <span class="form-label">Job name</span>
-        <input
-          type="text"
-          name="job_name"
-          class="form-input"
-          value={jobName}
-          placeholder="e.g. Nightly test sweep"
-          maxlength={64}
-          autocomplete="off"
-        />
-      </label>
-      <ScheduleControls schedule={schedule} datalistId="schedule-examples" />
-      <p class="schedule-mode-note">
-        Scheduled runs use {agentName}&rsquo;s default model and can&rsquo;t
-        include attachments yet — leave the model picker on {agentName} default
-        and the paperclip off.
-      </p>
-      <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+  <form
+    class="prompt-form"
+    data-schedule-form="save"
+    hx-post="/cron"
+    hx-target="#cron-save-slot"
+    hx-swap="innerHTML"
+    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form input[name=session_mode], .new-session-form select[name=model_provider]"
+  >
+    {error !== undefined && <p class="status-hint error">{error}</p>}
+    <p class="schedule-mode-note">
+      Schedules the prompt and working directory composed in the form
+      above — {agentName} runs them with its default model.
+    </p>
+    <label class="form-field">
+      <span class="form-label">Job name</span>
+      <input
+        type="text"
+        name="job_name"
+        class="form-input"
+        value={jobName}
+        placeholder="e.g. Nightly test sweep"
+        maxlength={64}
+        autocomplete="off"
+      />
+    </label>
+    <ScheduleControls schedule={schedule} datalistId="schedule-examples" />
+    <div class="prompt-form-actions">
+      <button
+        type="submit"
+        class="prompt-save-btn"
+        data-schedule-submit=""
+        disabled={schedule === ""}
+      >
+        Schedule run
+      </button>
+      <button
+        type="button"
+        class="prompt-cancel-btn"
+        data-action="close-schedule-slot"
+      >
+        Cancel
+      </button>
     </div>
-  </details>
+    <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+  </form>
 );
 
 // Success state rendered into the detail pane after a job is saved: the
@@ -313,9 +335,36 @@ const ScheduleJobEditForm = ({
   );
 };
 
-// The management section below the form. Rendered hidden when no jobs
-// exist so the page looks exactly like today, while the swap target
-// (#scheduled-runs) always exists for the mutation responses.
+// The job grid carries its own id so creation can refresh it out of
+// band without touching the save slot above it.
+const CronJobGrid = ({
+  jobs,
+  oob = false,
+}: {
+  jobs: readonly NamedCronJob[];
+  oob?: boolean;
+}) => (
+  <div
+    id="cron-job-grid"
+    class="cron-job-grid"
+    {...(oob ? { "hx-swap-oob": "outerHTML" } : {})}
+  >
+    {jobs.length === 0 && (
+      <p class="cron-job-empty">
+        No scheduled runs yet. Use “Schedule…” to schedule the prompt
+        above.
+      </p>
+    )}
+    {jobs.map((job) => (
+      <ScheduleJobCard job={job} />
+    ))}
+  </div>
+);
+
+// The management section below the form — Saved prompts placement and
+// styling, always present: the header's "Schedule…" button is how a run
+// gets scheduled in the first place. The slot holds the inline form (or
+// the confirmation after a save); the grid below lists every job.
 const ScheduledRunsSection = ({
   jobs,
   oob = false,
@@ -326,28 +375,40 @@ const ScheduledRunsSection = ({
   <section
     id="scheduled-runs"
     class="scheduled-runs-section"
-    hidden={jobs.length === 0}
     {...(oob ? { "hx-swap-oob": "true" } : {})}
   >
     <div class="scheduled-runs-head">
-      <h3 class="prompt-library-title">Scheduled runs</h3>
-      <span class="scheduled-runs-count">{jobs.length}</span>
+      <div class="scheduled-runs-title">
+        <h3 class="prompt-library-title">Scheduled runs</h3>
+        <span id="scheduled-runs-count" class="scheduled-runs-count">
+          {jobs.length}
+        </span>
+      </div>
+      <button
+        type="button"
+        class="prompt-save-toggle"
+        data-action="open-schedule"
+        hx-get="/cron/new"
+        hx-target="#cron-save-slot"
+        hx-swap="innerHTML"
+      >
+        🕒 Schedule…
+      </button>
     </div>
+    {/* Swapped in by htmx on demand; empty until the user opens it. */}
+    <div id="cron-save-slot" class="prompt-save-slot"></div>
     <p class="scheduled-runs-notice">{RESTART_NOTICE}</p>
-    <div class="cron-job-grid">
-      {jobs.map((job) => (
-        <ScheduleJobCard job={job} />
-      ))}
-    </div>
+    <CronJobGrid jobs={jobs} />
   </section>
 );
 
 export {
+  CronJobGrid,
   RESTART_NOTICE,
   ScheduleConfirmation,
   ScheduleControls,
-  ScheduleDisclosure,
-  ScheduledRunsSection,
   ScheduleJobCard,
   ScheduleJobEditForm,
+  ScheduledRunsSection,
+  ScheduleSaveForm,
 };

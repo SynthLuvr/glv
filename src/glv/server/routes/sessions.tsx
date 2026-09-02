@@ -3,8 +3,6 @@ import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { NamedCronJob } from "../../config.js";
-import { appendCronJob, readCronJobs } from "../../config.js";
 import { jobNameFor } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
@@ -17,7 +15,6 @@ import {
   getHandle,
   stop,
 } from "../../runner/index.js";
-import { parseSchedule, withResolvedNames } from "../../schedule.js";
 import type { SessionRow } from "../../sessions.js";
 import { errorMessage } from "../../util.js";
 import { ModelSelect } from "../../views/new-session.js";
@@ -47,7 +44,6 @@ import {
   tagDir,
   uploadErrorMessage,
 } from "../uploads.js";
-import { NAME_ERROR, NAME_RE } from "./cron.js";
 
 // parseBody({ all: true }) returns an array per field; take the first string.
 const firstString = (val: unknown): string => {
@@ -159,9 +155,6 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const promptId = fieldString("prompt_id");
     const sessionMode = fieldString("session_mode");
     const modelProvider = fieldString("model_provider");
-    const scheduleAction = fieldString("submit_action") === "schedule";
-    const scheduleRaw = fieldString("schedule");
-    const jobName = fieldString("job_name");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(fieldString("working_dir")),
     );
@@ -185,88 +178,12 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           workingDir: submittedWorkingDir,
           prompt,
           modelProvider,
-          schedule: scheduleRaw,
-          scheduleName: jobName,
         }),
         { status, title: NEW_SESSION_TITLE },
       );
 
     if (prompt === "")
-      return rejectForm(
-        scheduleAction
-          ? "A prompt is required to schedule a run."
-          : "A prompt is required to start a session.",
-        422,
-      );
-
-    // Schedule mode: an alternate submit of the same form. The job is
-    // written to the config file — the file stays the source of truth —
-    // and the running serve is left untouched (it snapshots jobs at
-    // boot), which the confirmation says out loud.
-    if (scheduleAction) {
-      if (sessionMode === "temp")
-        return rejectForm(
-          "Scheduled runs need a working directory — a temporary one " +
-            "is deleted when its session archives.",
-          422,
-        );
-      if (files.length > 0)
-        return rejectForm(
-          "Scheduled runs can’t include attachments yet — remove the " +
-            "files, or start a session instead.",
-          422,
-        );
-      if (modelProvider !== "")
-        return rejectForm(
-          `Scheduled runs always use ${ctx.profile.agentName}’s default ` +
-            "model for now — set the model picker back to default.",
-          422,
-        );
-      if (!NAME_RE.test(jobName)) return rejectForm(NAME_ERROR, 422);
-      if (submittedWorkingDir === "" || !existsSync(submittedWorkingDir))
-        return rejectForm("That working directory does not exist.", 422);
-      const parsed = parseSchedule(scheduleRaw);
-      if (!parsed.ok) return rejectForm(parsed.error, 422);
-      let existing: readonly NamedCronJob[] = [];
-      try {
-        existing = withResolvedNames(readCronJobs(ctx.profile.dataDirName));
-      } catch (err) {
-        return rejectForm(
-          `Could not read the config file: ${errorMessage(err)}`,
-          500,
-        );
-      }
-      if (existing.some((job) => job.name === jobName))
-        return rejectForm(
-          `A scheduled run named "${jobName}" already exists.`,
-          422,
-        );
-      const job: NamedCronJob = {
-        name: jobName,
-        schedule: scheduleRaw,
-        prompt,
-        workingDir: submittedWorkingDir,
-      };
-      try {
-        appendCronJob(ctx.profile.dataDirName, job);
-      } catch (err) {
-        return rejectForm(
-          `Could not save the scheduled run: ${errorMessage(err)}`,
-          500,
-        );
-      }
-      return render(
-        c,
-        ctx,
-        sessions,
-        undefined,
-        newSessionDetail(ctx, {
-          workingDir: submittedWorkingDir,
-          confirmation: job,
-        }),
-        { title: NEW_SESSION_TITLE },
-      );
-    }
+      return rejectForm("A prompt is required to start a session.", 422);
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case goose's config changed since the form was served.

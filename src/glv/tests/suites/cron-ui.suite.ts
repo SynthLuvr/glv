@@ -84,14 +84,30 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
-    it("shows the collapsed disclosure and hides the section when no jobs exist", async () => {
+    it("keeps one Start session and shows the section's empty state", async () => {
       const res = await authedFetch(env, "/");
       const html = await res.text();
-      expect(html).toContain("Schedule…");
-      expect(html).toContain("data-schedule-disclosure");
-      // The section renders hidden — the page looks like today's.
+      // The New Session form is untouched: one submit, no schedule fields.
+      expect(html).toContain("Start session");
+      expect(html).not.toContain("schedule-send-btn");
+      expect(html).not.toContain("data-schedule-input");
+      // The Scheduled runs section is always present (Saved prompts
+      // pattern): header button, empty state, restart notice.
       expect(html).toContain('id="scheduled-runs"');
+      expect(html).toContain("Schedule…");
+      expect(html).toContain("No scheduled runs yet");
+      expect(html).toContain("Changes apply when glv serve restarts");
       expect(html).not.toContain("cron-job-card");
+    });
+
+    it("serves the inline schedule form for the section slot", async () => {
+      const res = await authedFetch(env, "/cron/new");
+      const html = await res.text();
+      expect(res.status).toBe(200);
+      expect(html).toContain('hx-post="/cron"');
+      expect(html).toContain('name="job_name"');
+      expect(html).toContain("data-schedule-input");
+      expect(html).toContain("Schedule run");
     });
 
     it("previews upcoming runs for a typed human schedule", async () => {
@@ -142,25 +158,26 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("already in the past");
     });
 
-    it("schedules from the form, writes the config file, and starts nothing", async () => {
-      const res = await authedFetch(env, "/sessions", {
+    it("creates a job from the slot form, writes the config file, and starts nothing", async () => {
+      const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
+          job_name: "Weekly build",
+          schedule: "every weekday at 9:00",
           prompt: "Run the nightly build",
           working_dir: workingDir,
-          submit_action: "schedule",
-          schedule: "every weekday at 9:00",
-          job_name: "Weekly build",
+          session_mode: "working_dir",
         }),
       });
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Confirmation state: name, humanized schedule, restart notice.
+      // Confirmation lands in the slot: name, schedule, restart notice.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       expect(html).toContain("every weekday at 9:00");
       expect(html).toContain("Changes apply when glv serve restarts");
-      // The management section now shows the card.
+      // The grid and count refresh out of band with the new card.
+      expect(html).toContain('id="cron-job-grid"');
       expect(html).toContain("cron-job-card");
       expect(html).toContain("Run the nightly build");
 
@@ -175,41 +192,71 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         },
       ]);
 
-      // Scheduling is an alternate submit — no session may have started.
+      // Scheduling never starts a session.
       const page = await authedFetch(env, "/");
       const sidebar = await page.text();
       expect(sidebar).not.toContain("Should Not Start");
     });
 
-    it("re-renders the form without losing typed work on a bad pattern", async () => {
-      const res = await authedFetch(env, "/sessions", {
+    it("re-renders the slot form without losing typed work on a bad schedule", async () => {
+      const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
+          job_name: "broken-job",
+          schedule: "definitely not a schedule",
           prompt: "Keep this exact text",
           working_dir: workingDir,
-          submit_action: "schedule",
-          schedule: "definitely not a schedule",
-          job_name: "broken-job",
+          session_mode: "working_dir",
         }),
       });
       expect(res.status).toBe(422);
       const html = await res.text();
       expect(html).toContain("Couldn’t understand that schedule");
-      // The prompt and the typed schedule survive the rejection.
-      expect(html).toContain("Keep this exact text");
+      // The typed job name and schedule survive the rejection (the
+      // composed prompt lives in the untouched form above).
+      expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
       expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
-    it("rejects a name collision with an existing job", async () => {
-      const res = await authedFetch(env, "/sessions", {
+    it("rejects an empty prompt with a pointer back to the form", async () => {
+      const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
+          job_name: "no-prompt",
+          schedule: "every weekday at 9:00",
+          prompt: "",
+          working_dir: workingDir,
+          session_mode: "working_dir",
+        }),
+      });
+      expect(res.status).toBe(422);
+      expect(await res.text()).toContain("type one in the form above");
+    });
+
+    it("rejects temp-directory mode for a scheduled run", async () => {
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "temp-job",
+          schedule: "every weekday at 9:00",
+          prompt: "Somewhere temporary",
+          session_mode: "temp",
+        }),
+      });
+      expect(res.status).toBe(422);
+      expect(await res.text()).toContain("need a working directory");
+    });
+
+    it("rejects a name collision with an existing job", async () => {
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "Weekly build",
+          schedule: "at 8:30",
           prompt: "Another sweep",
           working_dir: workingDir,
-          submit_action: "schedule",
-          schedule: "at 8:30",
-          job_name: "Weekly build",
+          session_mode: "working_dir",
         }),
       });
       expect(res.status).toBe(422);
@@ -219,82 +266,48 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
-    it("rejects attachments in schedule mode with a clear message", async () => {
-      const body = new FormData();
-      body.set("prompt", "Sweep with an attachment");
-      body.set("working_dir", workingDir);
-      body.set("submit_action", "schedule");
-      body.set("schedule", "every weekday at 9:00");
-      body.set("job_name", "attached");
-      body.set(
-        "uploads",
-        new File(["hello"], "note.txt", { type: "text/plain" }),
-      );
-      const res = await authedFetch(env, "/sessions", { method: "POST", body });
-      expect(res.status).toBe(422);
-      const html = await res.text();
-      expect(html).toContain("can’t include attachments");
-    });
-
-    it("rejects a non-default model in schedule mode", async () => {
-      const res = await authedFetch(env, "/sessions", {
+    it("rejects a non-default model with a pointer back to the picker", async () => {
+      const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
+          job_name: "modelpick",
+          schedule: "every weekday at 9:00",
           prompt: "Model pick",
           working_dir: workingDir,
-          submit_action: "schedule",
-          schedule: "every weekday at 9:00",
-          job_name: "modelpick",
+          session_mode: "working_dir",
           model_provider: "anthropic/claude",
         }),
       });
       expect(res.status).toBe(422);
-      const html = await res.text();
-      expect(html).toContain("default model");
+      expect(await res.text()).toContain("default model");
     });
 
-    it("still starts a session when schedule mode is not used", async () => {
-      const res = await authedFetch(env, "/sessions", {
-        method: "POST",
-        body: new URLSearchParams({
-          prompt: "Start me right now",
-          working_dir: workingDir,
-          submit_action: "run",
-          schedule: "every weekday at 9:00",
-        }),
-        headers: { "HX-Request": "true" },
-      });
-      expect(res.status).toBe(200);
-      const html = await res.text();
-      expect(html).toContain("Start me right now");
-      expect(html).not.toContain("Scheduled run saved");
-    });
-
-    it("validates the typed schedule live and schedules without navigating", async () => {
+    it("validates the typed schedule live and schedules without losing the prompt", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
-        // Collapsed by default: the run button is the visible one.
-        await expect(page.locator("button.send-btn")).toBeVisible();
-        await expect(page.locator("button.schedule-send-btn")).toBeHidden();
-
-        // Opening the disclosure is schedule mode: "Schedule run" becomes
-        // the primary action while "Start session" stays visible as the
-        // way back to running now (stepped back to a secondary style).
-        await page.locator(".schedule-summary").click();
-        await expect(page.locator("button.schedule-send-btn")).toBeVisible();
-        await expect(page.locator("button.send-btn")).toBeVisible();
+        // One submit in the form; the section below carries scheduling.
         await expect(page.locator("button.send-btn")).toHaveText(
           "Start session",
         );
+        await expect(page.locator("button.schedule-send-btn")).toHaveCount(0);
+        // Earlier tests in this env may have created jobs, so read the
+        // count instead of assuming the empty state.
+        const before = await page
+          .locator("#scheduled-runs-count")
+          .textContent();
 
-        // No schedule typed: the schedule button is disabled.
-        const scheduleBtn = page.locator("button.schedule-send-btn");
+        // "Schedule…" loads the inline form into the section's slot.
+        await page.getByRole("button", { name: "🕒 Schedule…" }).click();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+        const scheduleBtn = page.locator(
+          '#cron-save-slot button[data-schedule-submit]',
+        );
         await expect(scheduleBtn).toBeDisabled();
 
-        // Typing something unparseable shows the error before any click
-        // and keeps the button disabled.
+        // Unparseable input shows the error before any click and keeps
+        // the button disabled.
         await page.locator("input[data-schedule-input]").fill("banana");
         await expect(page.locator("[data-schedule-validation]")).toContainText(
           "Couldn’t understand",
@@ -315,20 +328,24 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           { timeout: 10_000 },
         );
 
-        // Compose and submit — the page never navigates.
+        // Compose the prompt in the form above, then schedule from the
+        // slot — the page never navigates and the form keeps its text.
         await page.locator('textarea[name="prompt"]').fill("Weekly sweep");
         await page.locator('input[name="job_name"]').fill("Browser job");
         await scheduleBtn.click();
-        await expect(page.locator(".schedule-confirmation")).toContainText(
+        await expect(page.locator("#cron-save-slot")).toContainText(
           "Scheduled run saved",
           { timeout: 15_000 },
         );
         expect(page.url()).toBe(`${env.baseUrl}/sessions/new`);
-        await expect(page.locator(".schedule-confirmation")).toContainText(
-          "every weekday at 9:00",
+        await expect(page.locator('textarea[name="prompt"]')).toHaveValue(
+          "Weekly sweep",
         );
-        await expect(page.locator("#scheduled-runs")).toContainText(
+        await expect(page.locator("#cron-job-grid")).toContainText(
           "Browser job",
+        );
+        await expect(page.locator("#scheduled-runs-count")).toHaveText(
+          String(Number(before) + 1),
         );
       });
     });
@@ -478,9 +495,10 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       expect(second.status).toBe(200);
       const html = await second.text();
-      // The empty section swaps back in hidden.
+      // The section swaps back with its empty state — cards gone.
       expect(html).toContain('id="scheduled-runs"');
-      expect(html).toContain("hidden");
+      expect(html).toContain("No scheduled runs yet");
+      expect(html).not.toContain("cron-job-card");
       expect(readConfig(cfgPath).cronJobs).toEqual([]);
     });
   });
