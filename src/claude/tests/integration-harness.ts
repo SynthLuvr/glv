@@ -152,12 +152,7 @@ const insertMessages = (
   utimesSync(path, new Date(), new Date(ts));
 };
 
-const startIntegrationEnv = (
-  prefix: string,
-  mock: harness.MockConfig = {},
-  homeDir?: string,
-): Promise<harness.IntegrationEnv> =>
-  harness.startEnv(claudeAdapter, prefix, mock, homeDir);
+const startIntegrationEnv = harness.makeStartEnv(claudeAdapter);
 
 const claudeFixture: harness.FlavorFixture = {
   name: "claude",

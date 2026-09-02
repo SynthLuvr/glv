@@ -314,6 +314,7 @@ type FlavorFixture = {
     prefix: string,
     mock?: MockConfig,
     homeDir?: string,
+    extraEnv?: Record<string, string>,
   ) => Promise<IntegrationEnv>;
   readonly seedSessions: (env: IntegrationEnv, seeds: SessionSeed[]) => void;
   readonly seedMessages: (
@@ -534,6 +535,7 @@ const startEnv = async (
   prefix: string,
   mock: MockConfig = {},
   homeDir?: string,
+  extraEnv: Record<string, string> = {},
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = adapter.createDatabases(scratchDir);
@@ -558,6 +560,7 @@ const startEnv = async (
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
     ...mockEnv(adapter.mockEnvPrefix, mock),
+    ...extraEnv,
   });
 
   const abortBoot = async (err: unknown): Promise<never> => {
@@ -617,6 +620,13 @@ const startEnv = async (
     cleanup,
   };
 };
+
+// The per-flavor startEnv wrapper every integration harness binds; the
+// only flavor-specific part is the adapter.
+const makeStartEnv =
+  (adapter: FlavorAdapter): FlavorFixture["startEnv"] =>
+  (prefix, mock = {}, homeDir, extraEnv = {}) =>
+    startEnv(adapter, prefix, mock, homeDir, extraEnv);
 
 // The scripted agent records every invocation of the mocked binary; the
 // session run is the one carrying the resume flag, because other features
@@ -822,6 +832,7 @@ export {
   findFreePort,
   flagValue,
   IS_WIN,
+  makeStartEnv,
   parseSseData,
   postFollowUp,
   postNewSession,

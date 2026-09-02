@@ -134,12 +134,7 @@ const insertMessages = (
   db.close();
 };
 
-const startIntegrationEnv = (
-  prefix: string,
-  mock: harness.MockConfig = {},
-  homeDir?: string,
-): Promise<harness.IntegrationEnv> =>
-  harness.startEnv(gooseAdapter, prefix, mock, homeDir);
+const startIntegrationEnv = harness.makeStartEnv(gooseAdapter);
 
 const gooseFixture: harness.FlavorFixture = {
   name: "goose",
