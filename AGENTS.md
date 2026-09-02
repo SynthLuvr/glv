@@ -7,19 +7,43 @@ Instructions for AI coding agents working in this repository.
 ``` bash
 pnpm install
 pnpm build    # type-check
-pnpm test     # run tests
+pnpm test     # run tests (local before a PR opens, CI once open)
 pnpm lint     # lint all files
 ```
 
 ## Required Workflow
 
-Always run these before considering work complete:
+Split each check by where it runs — build and lint are always local;
+testing moves to CI once a pull request is open:
+
+### Build and lint: always local, before every push
 
 ``` bash
-pnpm build && pnpm lint && pnpm test
+pnpm build && pnpm lint
 ```
 
-All three must pass with zero errors.
+Both must pass with zero errors. They are fast, so run them before every
+push — never push code that would fail either.
+
+### Testing: local before a PR exists, CI while it is open
+
+The test suite is slow (every test file boots a real server plus a
+headless Chromium) and CI re-runs it in shards on every push to an open
+pull request. Do not duplicate that work:
+
+- **Before opening a PR:** run `pnpm test` locally once and make it pass
+  (zero failures, coverage floors intact). Only then open the PR.
+- **While a PR is open:** testing happens in CI
+  (`.github/workflows/ci.yml` triggers on `pull_request`). After the
+  local build and lint pass, push and watch the PR checks instead of
+  re-running the full suite locally — re-run it locally only to
+  reproduce a failure CI reported.
+- **No PR open** (early exploration, or work heading straight to
+  `main`): testing is local — run `pnpm test` when you need test
+  validation.
+
+This split exists to avoid the wasteful loop of running the suite
+locally, pushing, then waiting for CI to run the identical suite again.
 
 ## Testing Requirements (Enforced)
 
