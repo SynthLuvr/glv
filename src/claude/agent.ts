@@ -28,6 +28,20 @@ const PERMISSION_MODES: readonly string[] = [
 // result record.
 const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
 
+// DESIGN DECISION (verified empirically against claude 2.1.233,
+// 2026-09-02): `--input-format stream-json` makes claude accept user
+// messages as NDJSON lines on a long-lived stdin. The first line starts a
+// turn immediately while stdin stays open; further lines are processed as
+// subsequent turns in the same process and session (each emitting its own
+// system/init + assistant messages + one terminal {"type":"result"}
+// record); on stdin EOF claude finishes its queue and exits 0. Steered
+// messages are persisted into the session transcript, so GLV's transcript
+// reader picks them up with zero changes. Upstream support is longstanding
+// (changelog v0.2.108) — a message arriving mid-turn is queued by claude
+// and starts a new turn, so worst case steering degrades to a turn
+// boundary, never a lost prompt.
+const STEER_INPUT_FLAGS = ["--input-format", "stream-json"];
+
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
 // new session. It is a per-invocation runtime injection that claude does
@@ -61,11 +75,16 @@ const permissionFlags = (mode: string): string[] =>
 const makeClaudeAgent = (
   binary: string,
   permissionMode: string = DEFAULT_PERMISSION_MODE,
+  steering: boolean = true,
 ): AgentInvocation => {
   if (!PERMISSION_MODES.includes(permissionMode))
     throw new Error(
       `Invalid permission mode "${permissionMode}": must be one of ${PERMISSION_MODES.join(", ")}`,
     );
+  // The streaming-input flags and the steer spec go together: without them
+  // the prompt travels as raw write-and-close stdin (the pre-steering
+  // contract) and GLV_DISABLE_STEERING restores exactly that behaviour.
+  const steerFlags = steering ? STEER_INPUT_FLAGS : [];
   return {
     name: claudeProfile.agentName,
     binary,
@@ -75,6 +94,7 @@ const makeClaudeAgent = (
       ...SYSTEM_FLAGS,
       ...permissionFlags(permissionMode),
       ...STREAM_FLAGS,
+      ...steerFlags,
     ],
     resume: (key) => [
       "--resume",
@@ -82,6 +102,7 @@ const makeClaudeAgent = (
       ...SYSTEM_FLAGS,
       ...permissionFlags(permissionMode),
       ...STREAM_FLAGS,
+      ...steerFlags,
     ],
     // claude gates a directory it has never seen behind an interactive "do
     // you trust the files in this folder?" dialog that a headless --print run
@@ -90,6 +111,23 @@ const makeClaudeAgent = (
     // marks the directory trusted — what claude may do there is still bounded
     // by the permission mode.
     env: () => ({ CLAUDE_CODE_SANDBOXED: "1" }),
+    steer: steering
+      ? {
+          inputFlags: STEER_INPUT_FLAGS,
+          encode: (p) =>
+            JSON.stringify({
+              type: "user",
+              message: { role: "user", content: p },
+            }),
+          isTurnEnd: (line) => {
+            try {
+              return (JSON.parse(line) as { type?: unknown }).type === "result";
+            } catch {
+              return false;
+            }
+          },
+        }
+      : undefined,
   };
 };
 

@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command, InvalidArgumentError } from "commander";
 import * as cli from "../glv/cli-shared.js";
+import { steeringDisabled } from "../glv/commands/serve.js";
 import { openMetaDb, resolveMetaDbPath } from "../glv/session-meta.js";
 import type { SessionStore } from "../glv/sessions.js";
 import { makeClaudeAgent, PERMISSION_MODES } from "./agent.js";
@@ -139,7 +140,11 @@ serveCmd.action((opts: ServeOpts) => {
     profile: claudeProfile,
     runner: cli.makeRunnerConfig(
       opts.maxConcurrent,
-      makeClaudeAgent(opts.claudeBinary, opts.permissionMode),
+      makeClaudeAgent(
+        opts.claudeBinary,
+        opts.permissionMode,
+        !steeringDisabled(),
+      ),
     ),
     makeLauncher: (runner) =>
       makeClaudeLauncher(

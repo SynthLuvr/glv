@@ -120,11 +120,27 @@ const registerShutdown = (
   emitter.on("unhandledRejection", onCrash);
 };
 
+// GLV_DISABLE_STEERING=1 strips the steer spec from the runner config, so
+// every submit normalizes to queue mode and pure pre-steering semantics are
+// restored — a one-line rollback lever that needs no logic change. The
+// flavor CLIs read the same flag when building their agent invocation (the
+// streaming-input argv flags must drop together with the spec, or the
+// agent would speak stream-json to a raw-stdin pipe).
+const steeringDisabled = (): boolean =>
+  process.env.GLV_DISABLE_STEERING === "1";
+
 const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.profile.id);
   // Created here so shutdown can reap detached agent processes.
-  const runner = createRunner(opts.runner);
+  const runnerConfig =
+    opts.runner.agent.steer !== undefined && steeringDisabled()
+      ? {
+          ...opts.runner,
+          agent: { ...opts.runner.agent, steer: undefined },
+        }
+      : opts.runner;
+  const runner = createRunner(runnerConfig);
   const launcher = opts.makeLauncher(runner);
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
@@ -180,4 +196,4 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   registerShutdown(shutdown);
 };
 
-export { runServe };
+export { runServe, steeringDisabled };
