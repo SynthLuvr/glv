@@ -104,7 +104,8 @@ const findFreePort = (): Promise<number> =>
   });
 
 // A capture file written by a mock agent can be read mid-write, so poll
-// until it parses into a value the caller recognises.
+// until it parses into a value the caller recognises. The 30s default
+// absorbs slow mock-agent spawns on loaded CI runners.
 const waitForJsonFile = async <T>(
   path: string,
   accept: (value: unknown) => value is T,
@@ -128,14 +129,10 @@ const isArgv = (value: unknown): value is string[] => Array.isArray(value);
 const waitForArgs = (path: string): Promise<string[]> =>
   waitForJsonFile(path, isArgv);
 
-// Waits for a mock agent's capture file to carry its full contents. Reads
-// are retried through transient failures (the file not existing yet, or
-// Windows denying a freshly written file to a concurrent reader), and the
-// content must come back identical on two consecutive polls before it is
-// handed to assertions — a mid-write read must never leak into an expect.
-// The default budget is generous because spawning the mock agent on a
-// loaded CI runner (native trampoline, then node + tsx under coverage)
-// routinely takes seconds and occasionally much more on Windows.
+// Waits for a capture file to settle before assertions see it: reads are
+// retried through transient failures (file not created yet, Windows
+// locking a fresh rename), and only content identical on two consecutive
+// polls is returned — a mid-write read must never leak into an expect.
 const waitForFile = async (
   path: string,
   timeoutMs = 30000,
@@ -148,7 +145,7 @@ const waitForFile = async (
       if (content === previous) return content;
       previous = content;
     } catch {
-      // keep polling — the writer may not have started or may be mid-rename
+      // the writer may not have started yet — keep polling
     }
     await sleep(50);
   }

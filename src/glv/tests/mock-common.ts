@@ -16,23 +16,22 @@ const linesFromEnv = (prefix: string, defaultLine: string): string[] => {
   );
 };
 
-// Blocks the thread briefly; used between rename retries below.
+// Synchronous sleep — Node has none built in, so block on a shared
+// buffer. Used between rename retries below.
 const sleepSync = (ms: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
-// Windows refuses a replace while a reader or an AV scan holds the
-// destination open; a few short retries ride that out and are no-ops on
-// POSIX, where the first rename lands.
+// Windows rejects a rename while a reader or antivirus scan holds the
+// destination open; brief retries ride that out and are no-ops on POSIX.
 const isRenameBusy = (err: unknown): boolean => {
   const code = (err as { code?: unknown } | undefined)?.code;
   return code === "EPERM" || code === "EACCES";
 };
 
 // Writes via a sibling temp file and a final rename so a polling reader
-// only ever sees the previous contents or the complete new ones — never a
-// partial or empty file, which existsSync-then-read handshakes would
-// otherwise race straight into assertions.
+// sees only the previous or the complete new contents — never a partial
+// write.
 const writeFileAtomic = (path: string, data: string | Buffer): void => {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, data);
