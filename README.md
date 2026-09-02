@@ -314,11 +314,17 @@ pnpm test     # run tests
 pnpm lint     # lint all files
 ```
 
-The integration suite runs on Linux and Windows; CI exercises both on
-every pull request. One caveat on Windows: the claude-flavored suites
-that spawn the mocked agent binary are excluded (see `vitest.config.ts`
-for why); they still run there through the goose flavor, which drives
-the same core.
+Build and lint are fast — run both locally before every push. The test
+suite is slow (every file boots a real `glv serve` process plus a
+headless Chromium), so testing is split by pull-request state: run
+`pnpm test` locally **before opening a pull request**, and once a PR is
+open let CI do the testing — it exercises the suite on Linux and Windows
+on every push (`.github/workflows/ci.yml`), so don’t re-run it locally
+per iteration; watch the PR checks instead. While no PR is open, testing
+stays local. One caveat on Windows: the claude-flavored suites that
+spawn the mocked agent binary are excluded (see `vitest.config.ts` for
+why); they still run there through the goose flavor, which drives the
+same core.
 
 Every test file boots a real `glv serve` process plus a headless
 Chromium, so the suite runs at most two files at a time to keep peak
