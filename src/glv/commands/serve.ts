@@ -3,8 +3,13 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { readConfig } from "../config.js";
+import { deleteCronJob, readConfig } from "../config.js";
 import { startCronScheduler } from "../cron.js";
+import {
+  openCronSessionsDb,
+  resolveCronDbPath,
+  tagCronSession,
+} from "../cron-sessions.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
@@ -130,12 +135,24 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
+  // Sidecar remembering which scheduled job started which session, so the
+  // sidebar and transcript can badge them. The scheduler writes, the UI
+  // reads; both live in this process.
+  const cronSessions = openCronSessionsDb(
+    resolveCronDbPath(opts.profile.dataDirName),
+  );
   // Scheduled runs from the config file, read once at boot — an invalid
   // job fails startup loudly rather than running a partial schedule.
   const cron = startCronScheduler({
     launcher,
     runner,
     jobs: readConfig(opts.profile.dataDirName).cronJobs ?? [],
+    tagSession: (sessionId, jobName) =>
+      tagCronSession(cronSessions, sessionId, jobName),
+    // One-shots retire themselves from the config once their moment
+    // passes, so the file (and the UI reading it) tell the truth.
+    retireOneShot: (jobName) =>
+      deleteCronJob(opts.profile.dataDirName, jobName),
   });
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
@@ -147,6 +164,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     prompts: promptsDb,
     groups: groupsDb,
     models: opts.models,
+    cronSessions,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
@@ -170,6 +188,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     authDb.close();
     promptsDb.close();
     groupsDb.close();
+    cronSessions.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

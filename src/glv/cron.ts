@@ -5,6 +5,7 @@ import type { CronJobConfig } from "./config.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { type Runner, stop } from "./runner/index.js";
+import { fmtDateTime, parseOneShotSchedule } from "./schedule.js";
 import { expandHome } from "./server/paths.js";
 import { errorMessage } from "./util.js";
 
@@ -17,6 +18,13 @@ type SchedulerDeps = {
   readonly launcher: SessionLauncher;
   readonly runner: Runner;
   readonly jobs: readonly CronJobConfig[];
+  /** Records which job started a session, for sidebar recognition. */
+  readonly tagSession?: (sessionId: string, jobName: string) => void;
+  /**
+   * Retires a one-shot job (removes it from the config) once its moment
+   * has passed — after it fired, or at boot when it expired unfired.
+   */
+  readonly retireOneShot?: (jobName: string) => void;
 };
 
 // name/workingDir canonicalized and `enabled` defaulted so every later
@@ -137,6 +145,7 @@ const runFire = async (
     console.error(`cron job "${job.name}": ${outcome.error}`);
     return;
   }
+  deps.tagSession?.(outcome.sessionId, job.name);
   console.log(`cron job "${job.name}" started session ${outcome.sessionId}`);
 };
 
@@ -169,6 +178,17 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
   const timeoutMs = sessionTimeoutMs();
   const scheduled: Cron[] = [];
 
+  const retire = (job: ResolvedJob): void => {
+    try {
+      deps.retireOneShot?.(job.name);
+    } catch (err) {
+      console.error(
+        `cron job "${job.name}": could not retire it from the config — ` +
+          errorMessage(err),
+      );
+    }
+  };
+
   for (const job of jobs) {
     validateJob(job);
     // A fire whose establishment (poll + rekey) is still in flight skips
@@ -176,10 +196,27 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
     const fire = (): void => {
       if (establishing.has(job.name)) return;
       establishing.add(job.name);
-      void fireJob(deps, locks, timeoutMs, job).finally(() => {
+      const done = fireJob(deps, locks, timeoutMs, job).finally(() => {
         establishing.delete(job.name);
       });
+      // A one-shot's moment has passed whatever the outcome; retire it so
+      // the config (and the UI reading it) tells the truth.
+      if (parseOneShotSchedule(job.schedule) !== undefined)
+        void done.then(() => retire(job));
     };
+    // One-shot whose time already passed: never fires late — retire it so
+    // the config (and the UI reading it) tells the truth. A missed moment
+    // stays missed, whether the job was enabled or paused.
+    const once = parseOneShotSchedule(job.schedule);
+    if (once !== undefined && once.getTime() <= Date.now()) {
+      if (job.enabled)
+        console.log(
+          `cron job "${job.name}": one-shot time ` +
+            `${fmtDateTime(once)} is in the past — removed without running`,
+        );
+      retire(job);
+      continue;
+    }
     scheduled.push(scheduleJob(job, fire));
   }
 

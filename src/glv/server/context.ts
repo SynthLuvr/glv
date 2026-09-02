@@ -37,6 +37,11 @@ type ServerOptions = {
   runGit?: GitRunner;
   /** Model picker for the New Session form; undefined hides the field. */
   models?: ModelSource;
+  /**
+   * Sidecar remembering which scheduled job started which session; powers
+   * the sidebar/transcript clock badges. Optional so app-less tests work.
+   */
+  cronSessions?: DatabaseSync;
 };
 
 // Everything a route handler needs, threaded in explicitly so route modules
@@ -63,6 +68,7 @@ type ServerContext = {
   readonly runPrState: CommandRunner | undefined;
   readonly runGit: GitRunner | undefined;
   readonly models: ModelSource | undefined;
+  readonly cronSessions: DatabaseSync | undefined;
   readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };
