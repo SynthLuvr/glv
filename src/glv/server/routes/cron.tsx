@@ -18,10 +18,10 @@ import { errorMessage } from "../../util.js";
 import {
   CronJobGrid,
   ScheduleConfirmation,
+  ScheduledRunsSection,
   ScheduleJobCard,
   ScheduleJobEditForm,
   ScheduleSaveForm,
-  ScheduledRunsSection,
 } from "../../views/schedule.js";
 import type { ServerContext } from "../context.js";
 import { expandHome } from "../paths.js";
@@ -75,7 +75,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       );
     return c.html(
       <span class="next-runs-value">
-        <strong class="next-runs-schedule">{parsed.info.human}</strong>
+        <strong class="next-runs-schedule">
+          {parsed.info.human}
+          {parsed.info.cron !== undefined && (
+            <span class="next-runs-cron mono"> → {parsed.info.cron}</span>
+          )}
+        </strong>
         <ul class="next-runs-list">
           {parsed.info.next.map((run) => (
             <li>
@@ -148,25 +153,23 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     try {
       existing = readJobsOr(ctx).jobs;
     } catch (err) {
-      return reject(
-        `Could not read the config file: ${errorMessage(err)}`,
-      );
+      return reject(`Could not read the config file: ${errorMessage(err)}`);
     }
     if (existing.some((job) => job.name === jobName))
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
+    // English becomes its cron pattern here — the file stores one
+    // canonical spelling.
     const job: NamedCronJob = {
       name: jobName,
-      schedule,
+      schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
     };
     try {
       appendCronJob(ctx.profile.dataDirName, job);
     } catch (err) {
-      return reject(
-        `Could not save the scheduled run: ${errorMessage(err)}`,
-      );
+      return reject(`Could not save the scheduled run: ${errorMessage(err)}`);
     }
     // Confirmation inline in the slot; the grid and count swap out of
     // band so the new card appears below without touching the slot.
@@ -254,7 +257,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const updated: NamedCronJob = {
       ...existing,
       name,
-      schedule,
+      schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
     };

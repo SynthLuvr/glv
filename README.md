@@ -54,10 +54,12 @@ the browser.
 - **PR tracking.** When a session mentions a GitHub pull request, glv
   surfaces a link with a live open / merged / closed status badge (via
   `gh`).
-- **Scheduled runs.** Create, preview, pause, edit, and delete scheduled
-  runs from the New Session page — one-shot (“tomorrow at 9:00”), daily,
-  weekly, or raw cron — or hand-edit the same jobs in the config file.
-  Sessions a job starts carry a clock badge naming the job.
+- **Scheduled runs.** Click “Schedule…” in the Scheduled runs section
+  and type a schedule in plain English (“every weekday at 9:00”) or cron
+  — validated live before you can click “Schedule run”, converted to the
+  equivalent cron pattern on save, with upcoming runs previewed. Pause,
+  edit, and delete from the same section, or hand-edit the jobs in the
+  config file. Sessions a job starts carry a clock badge naming the job.
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -211,12 +213,13 @@ the flag errors out if the key is missing or the file is malformed.
 
 ### Scheduled runs (cron)
 
-Scheduled runs can be managed two ways: from the **web viewer** (open
-the “Schedule…” disclosure in the New Session form to create one; a
-“Scheduled runs” section below the form lists every job with pause,
-edit, and delete) or by hand in the config file. Both write the same
-entries — the config file is the source of truth, and the running server
-picks changes up on the next restart.
+Scheduled runs can be managed two ways: from the **web viewer** (the
+“Scheduled runs” section below the New Session form has a “Schedule…”
+button that opens an inline form — **type a schedule in plain English or
+cron**, validated live as you type with upcoming runs previewed; the
+section lists every job with pause, edit, and delete) or by hand in the
+config file. Both write the same entries — the config file is the source
+of truth, and the running server picks changes up on the next restart.
 
 To define jobs by hand, add a `cronJobs` array to the config file:
 
@@ -235,24 +238,26 @@ To define jobs by hand, add a `cronJobs` array to the config file:
 }
 ```
 
-- `schedule` is typed, not compiled — the file stores exactly what you
-  wrote, and one of three engines reads it:
+- `schedule` is one of two spellings:
 
-  - human text, parsed by
-    [@breejs/later](https://github.com/breejs/later):
-    `"every weekday at 9:00"`, `"at 9:00"` (daily),
-    `"on sunday at 18:00"`, `"every 30 minutes"`,
-    `"on the 1st day of the month at 9:00"`. Text schedules always fire
-    in the server’s local timezone, and anything that would fire more
-    often than once a minute is rejected.
   - a [croner](https://github.com/hexagon/croner) pattern — the usual
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
-    part, or a nickname like `"@daily"`. An optional `timezone` applies
-    to cron schedules.
+    part, or a nickname like `"@daily"`. An optional `timezone` applies.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the config; if
     its moment is already past when `serve` starts, it is removed
     without running (a missed run stays missed).
+
+In the web form you can also **type a schedule in English** —
+`every weekday at 9:00`, `at 9:00` (daily), `on sunday at 18:00`,
+`every 30 minutes`, `every 2 hours`,
+`on the last day of the month at 18:00`. It is translated by
+[@breejs/later](https://github.com/breejs/later) into the equivalent
+cron pattern, and the **cron pattern is what gets saved**
+(`every weekday at 9:00` → `"0 9 * * 1-5"`); the live preview shows the
+conversion before you save. English hand-written in the config file also
+still works — it is translated the same way at serve boot. Phrasings
+that would fire more often than once a minute are rejected.
 
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
   it shows up in the sidebar like any other session — badged with a

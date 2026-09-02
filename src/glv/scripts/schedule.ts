@@ -42,10 +42,14 @@ const syncField = (field: HTMLInputElement): void => {
   const parsed = parseSchedule(value);
   if (!parsed.ok) return disable(parsed.error, "err");
   const first = parsed.info.next[0];
+  const withCron =
+    parsed.info.cron === undefined
+      ? parsed.info.human
+      : `${parsed.info.human} → ${parsed.info.cron}`;
   setSlot(
     first === undefined
-      ? `✓ ${parsed.info.human}`
-      : `✓ ${parsed.info.human} — first run ${firstRunText(first)}`,
+      ? `✓ ${withCron}`
+      : `✓ ${withCron} — first run ${firstRunText(first)}`,
     "ok",
   );
   if (submit !== undefined) submit.disabled = false;

@@ -231,12 +231,7 @@ const safeCronJobs = (ctx: ServerContext): NamedCronJob[] => {
 
 const newSessionDetail = (
   ctx: ServerContext,
-  {
-    error,
-    workingDir,
-    prompt = "",
-    modelProvider,
-  }: NewSessionDetailOpts = {},
+  { error, workingDir, prompt = "", modelProvider }: NewSessionDetailOpts = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];

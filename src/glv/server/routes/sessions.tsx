@@ -16,7 +16,6 @@ import {
   stop,
 } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
-import { errorMessage } from "../../util.js";
 import { ModelSelect } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";

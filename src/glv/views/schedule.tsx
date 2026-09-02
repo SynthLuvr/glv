@@ -1,6 +1,6 @@
 import type { NamedCronJob } from "../config.js";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
-import { fmtDateTime, parseSchedule, SCHEDULE_EXAMPLES } from "../schedule.js";
+import { fmtDateTime, parseSchedule } from "../schedule.js";
 
 // Views for scheduling: the disclosure with one typed schedule field
 // inside the New Session form, the confirmation banner after a job is
@@ -41,16 +41,12 @@ const nextRunText = (job: NamedCronJob): string => {
   return fmtDateTime(parsed.info.next[0]);
 };
 
-// The typed schedule field plus its live server preview. `datalistId`
-// differs between the create form and a card's edit form so the id stays
-// unique when both are on the page.
+// The typed schedule field plus its live server preview.
 const ScheduleControls = ({
   schedule = "",
-  datalistId,
 }: {
   /** Restores a rejected submit's (or existing job's) schedule. */
   schedule?: string;
-  datalistId: string;
 }) => (
   <div
     class="schedule-options"
@@ -72,18 +68,12 @@ const ScheduleControls = ({
           type="text"
           name="schedule"
           data-schedule-input
-          list={datalistId}
           class="form-input schedule-input"
           value={schedule}
           placeholder="every weekday at 9:00"
           autocomplete="off"
           spellcheck={false}
         />
-        <datalist id={datalistId}>
-          {SCHEDULE_EXAMPLES.map((example) => (
-            <option value={example} />
-          ))}
-        </datalist>
       </label>
       {/* Live as-you-type verdict from /assets/schedule.js; the server
           re-validates on submit regardless. */}
@@ -133,8 +123,8 @@ const ScheduleSaveForm = ({
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
-      Schedules the prompt and working directory composed in the form
-      above — {agentName} runs them with its default model.
+      Schedules the prompt and working directory composed in the form above —{" "}
+      {agentName} runs them with its default model.
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -148,7 +138,7 @@ const ScheduleSaveForm = ({
         autocomplete="off"
       />
     </label>
-    <ScheduleControls schedule={schedule} datalistId="schedule-examples" />
+    <ScheduleControls schedule={schedule} />
     <div class="prompt-form-actions">
       <button
         type="submit"
@@ -182,7 +172,12 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => (
       <dt>Job</dt>
       <dd>{job.name}</dd>
       <dt>Schedule</dt>
-      <dd>{humanizeOf(job)}</dd>
+      <dd>
+        {humanizeOf(job)}
+        {humanizeOf(job) !== job.schedule && (
+          <span class="cron-pattern mono"> ({job.schedule})</span>
+        )}
+      </dd>
       <dt>Next run</dt>
       <dd>{nextRunText(job)}</dd>
       <dt>Prompt</dt>
@@ -288,10 +283,7 @@ const ScheduleJobEditForm = ({
             autocomplete="off"
           />
         </label>
-        <ScheduleControls
-          schedule={schedule ?? job.schedule}
-          datalistId={`schedule-examples-${name}`}
-        />
+        <ScheduleControls schedule={schedule ?? job.schedule} />
         <label class="form-field">
           <span class="form-label">Prompt</span>
           <textarea name="prompt" class="form-input" rows={4}>
@@ -351,8 +343,7 @@ const CronJobGrid = ({
   >
     {jobs.length === 0 && (
       <p class="cron-job-empty">
-        No scheduled runs yet. Use “Schedule…” to schedule the prompt
-        above.
+        No scheduled runs yet. Use “Schedule…” to schedule the prompt above.
       </p>
     )}
     {jobs.map((job) => (
@@ -407,8 +398,8 @@ export {
   RESTART_NOTICE,
   ScheduleConfirmation,
   ScheduleControls,
+  ScheduledRunsSection,
   ScheduleJobCard,
   ScheduleJobEditForm,
-  ScheduledRunsSection,
   ScheduleSaveForm,
 };

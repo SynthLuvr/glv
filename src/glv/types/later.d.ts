@@ -14,11 +14,6 @@ declare module "@breejs/later" {
     readonly schedule: (sched: LaterSchedule) => {
       next: (count: number, start?: Date) => Date[];
     };
-    readonly setInterval: (
-      fire: () => void,
-      sched: LaterSchedule,
-      timezone?: string,
-    ) => { clear: () => void };
   };
 
   export default later;

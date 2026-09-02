@@ -34,10 +34,14 @@ type ScheduleInfo = {
   readonly kind: ScheduleKind;
   /** Plain-language rendering for cards and confirmations. */
   readonly human: string;
+  /**
+   * The cron pattern an English schedule translated to (text kind only).
+   * English is never stored or fired directly — it becomes cron at save
+   * time, so the config file keeps one canonical schedule spelling.
+   */
+  readonly cron?: string;
   /** The next fire times, soonest first (empty when it never fires). */
   readonly next: readonly Date[];
-  /** The parsed later schedule (text kind only — what the scheduler runs). */
-  readonly sched?: LaterSchedule;
 };
 
 type ScheduleParse =
@@ -144,7 +148,106 @@ const TEXT_HELP =
   `Try “${SCHEDULE_EXAMPLES[0]}”, “at 9:00”, ` +
   `“on sunday at 18:00”, or a cron pattern like “0 9 * * 1-5”.`;
 
-const parseTextSchedule = (schedule: string): ScheduleParse => {
+const TOO_INTRICATE =
+  "That schedule is too intricate to turn into cron — try " +
+  `“every weekday at 9:00”, “every 30 minutes”, or write the cron ` +
+  "pattern yourself.";
+
+// A list of cron field values compressed for readability: even steps
+// from zero over the full cycle become "*/n", consecutive runs become
+// "a-b", anything else a plain list.
+const compressField = (
+  values: readonly number[],
+  stepCycle: number | undefined,
+): string => {
+  const list = [...new Set(values)].sort((a, b) => a - b);
+  if (list.length === 1) return String(list[0]);
+  if (
+    stepCycle !== undefined &&
+    list[0] === 0 &&
+    (list[1] - list[0]) * list.length + 0 === stepCycle
+  ) {
+    const step = list[1] - list[0];
+    const spansCycle =
+      list.every((value, index) => value === index * step) &&
+      list[list.length - 1] + step === stepCycle;
+    if (spansCycle && step > 1) return `*/${step}`;
+  }
+  const parts: string[] = [];
+  let start = list[0];
+  let prev = list[0];
+  for (const value of [...list.slice(1), undefined]) {
+    if (value !== prev + 1) {
+      parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+      if (value !== undefined) start = value;
+    }
+    if (value !== undefined) prev = value;
+  }
+  return parts.join(",");
+};
+
+// Translates one of later's parsed text schedules into an equivalent
+// cron pattern. later's day-of-week is 1=Sunday..7=Saturday (cron is
+// 0=Sunday), and day-of-month 0 means "the last day" (cron "L"). Only
+// the plain shapes the documented vocabulary produces are translated;
+// anything else is rejected as too intricate rather than mistranslated.
+const translateToCron = (sched: LaterSchedule): string | undefined => {
+  if (sched.schedules.length !== 1 || sched.exceptions.length > 0)
+    return undefined;
+  const c = sched.schedules[0];
+  const known = ["t", "m", "h", "D", "d", "M", "s"];
+  if (Object.keys(c).some((key) => !known.includes(key))) return undefined;
+  if (c.s !== undefined && !(c.s.length === 1 && c.s[0] === 0))
+    return undefined;
+
+  let minute: string;
+  let hour: string;
+  if (c.t !== undefined) {
+    if (c.t.length !== 1) return undefined;
+    const t = c.t[0];
+    if (!Number.isFinite(t) || t < 0 || t % 60 !== 0) return undefined;
+    if (c.m !== undefined || c.h !== undefined) return undefined;
+    hour = String(Math.floor(t / 3600));
+    minute = String((t % 3600) / 60);
+  } else if (c.m !== undefined && c.h !== undefined) {
+    minute = compressField(c.m, 60);
+    hour = compressField(c.h, 24);
+  } else if (c.m !== undefined) {
+    minute = compressField(c.m, 60);
+    hour = "*";
+  } else if (c.h !== undefined) {
+    minute = "0";
+    hour = compressField(c.h, 24);
+  } else {
+    // No time anchor at all ("every weekday") — refuse rather than
+    // inventing one.
+    return undefined;
+  }
+
+  let dom = "*";
+  if (c.D !== undefined) {
+    if (c.D.includes(0))
+      return c.D.length === 1 ? `${minute} ${hour} L * *` : undefined;
+    dom = compressField(c.D, undefined);
+  }
+  const month = c.M === undefined ? "*" : compressField(c.M, undefined);
+  const dow =
+    c.d === undefined
+      ? "*"
+      : compressField(
+          c.d.map((v) => (v === 0 ? 0 : (v + 6) % 7)),
+          7,
+        );
+  return `${minute} ${hour} ${dom} ${month} ${dow}`;
+};
+
+// English in, cron out. The gap guard still runs first so sub-minute
+// phrasings ("after 9:00am") get the specific message; everything else
+// must translate.
+const parseTextSchedule = (
+  schedule: string,
+  timezone: string | undefined,
+): ScheduleParse => {
   const parsed = later.parse.text(schedule);
   if (parsed.error !== -1 || parsed.schedules.length === 0)
     return {
@@ -164,13 +267,30 @@ const parseTextSchedule = (schedule: string): ScheduleParse => {
         "That fires more often than once a minute — give it a time, " +
         `like “every weekday at 9:00”.`,
     };
+  const cron = translateToCron(parsed);
+  if (cron === undefined) {
+    // Distinguish the common miss (no time at all, e.g. "every
+    // weekday") from genuinely untranslatable shapes.
+    const c = parsed.schedules[0];
+    const hasTime = c.t !== undefined || c.m !== undefined || c.h !== undefined;
+    return hasTime
+      ? { ok: false, error: TOO_INTRICATE }
+      : {
+          ok: false,
+          error:
+            "Give the schedule a time, like “every weekday at 9:00” — " +
+            "bare “every weekday” has no moment to fire at.",
+        };
+  }
+  const built = buildCron(cron, timezone);
+  if (!built.ok) return { ok: false, error: TOO_INTRICATE };
   return {
     ok: true,
     info: {
       kind: "text",
       human: schedule,
-      next: later.schedule(parsed).next(3),
-      sched: parsed,
+      cron,
+      next: built.cron.nextRuns(3),
     },
   };
 };
@@ -217,7 +337,7 @@ const parseSchedule = (
     };
   }
 
-  return parseTextSchedule(schedule);
+  return parseTextSchedule(schedule, opts.timezone);
 };
 
 // Cron rendered plainly when it matches the shapes people mean
