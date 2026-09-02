@@ -51,6 +51,7 @@
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
+    "croner": "^10.0.1",
     "dompurify": "^3.4.14",
     "execa": "^10.0.1",
     "hono": "github:SynthLuvr/hono#dist/fix/sse-lifecycle-3765",

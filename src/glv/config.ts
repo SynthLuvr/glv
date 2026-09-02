@@ -11,13 +11,27 @@ const configRoot = (): string => {
   return join(homedir(), ".config");
 };
 
+// One scheduled run: a croner schedule, the prompt to send, and the
+// working directory to run it in. Jobs are hand-edited for now (no UI);
+// the scheduler in glv/cron.ts validates and runs them when serve starts.
+const CronJob = type({
+  "name?": "string",
+  schedule: "string>0",
+  prompt: "string>0",
+  workingDir: "string>0",
+  "timezone?": "string",
+  "enabled?": "boolean",
+});
+
 const Config = type({
   "forwardHost?": "string",
+  "cronJobs?": type([CronJob, "[]"]),
 });
 
 type GlvConfig = typeof Config.infer;
+type CronJobConfig = typeof CronJob.infer;
 
-const CONFIG_KEYS: readonly string[] = ["forwardHost"];
+const CONFIG_KEYS: readonly string[] = ["forwardHost", "cronJobs"];
 
 // Lives outside the repo so per-machine secrets (e.g. a forward host) stay
 // uncommitted. Precedence mirrors the DB-path helpers: env override → default.
@@ -53,4 +67,5 @@ const writeConfig = (
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };
 
+export type { CronJobConfig };
 export { CONFIG_KEYS, readConfig, readRawConfig, writeConfig };

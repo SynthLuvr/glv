@@ -149,6 +149,25 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       expect(stdout).toContain("forwardHost=10.0.0.1");
     });
 
+    it("lists cron jobs from the config file", () => {
+      writeFileSync(
+        cfgPath,
+        JSON.stringify({
+          cronJobs: [
+            {
+              name: "nightly",
+              schedule: "0 3 * * *",
+              prompt: "Review the day",
+              workingDir: "/tmp/project",
+            },
+          ],
+        }),
+      );
+      const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
+      expect(stdout).toContain("cronJobs=");
+      expect(stdout).toContain("nightly");
+    });
+
     it("exits non-zero with a parse error for invalid config JSON", () => {
       writeFileSync(cfgPath, "{ not valid json");
       const { status, stderr } = run(["config", "list"], {

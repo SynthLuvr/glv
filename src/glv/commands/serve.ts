@@ -3,6 +3,8 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
+import { readConfig } from "../config.js";
+import { startCronScheduler } from "../cron.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
@@ -69,6 +71,7 @@ const trackConnections = (server: ConnectionEmitter): (() => void) => {
 type ShutdownDeps = {
   server: CloseableServer;
   destroyConnections: () => void;
+  stopCron: () => void;
   stopProcesses: () => void;
   stopTunnel: () => void;
   closeDbs: () => void;
@@ -89,6 +92,7 @@ const createShutdown = (
     // Destroy sockets before draining; close() hangs on open SSE streams.
     deps.destroyConnections();
     await closeServer(deps.server);
+    deps.stopCron();
     deps.stopProcesses();
     deps.stopTunnel();
     deps.closeDbs();
@@ -126,6 +130,13 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
+  // Scheduled runs from the local config file, read once at boot — edits
+  // apply on the next serve start, and an invalid job fails startup loudly.
+  const cron = startCronScheduler({
+    launcher,
+    runner,
+    jobs: readConfig(opts.profile.dataDirName).cronJobs ?? [],
+  });
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
@@ -172,6 +183,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const shutdown = createShutdown({
     server,
     destroyConnections,
+    stopCron: () => cron?.stop(),
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
     closeDbs,
