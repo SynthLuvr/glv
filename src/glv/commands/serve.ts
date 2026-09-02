@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { readConfig } from "../config.js";
+import { readConfig, resolveConfigPath } from "../config.js";
 import { startCronScheduler } from "../cron.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
@@ -130,12 +130,15 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
-  // Scheduled runs from the config file, read once at boot — an invalid
-  // job fails startup loudly rather than running a partial schedule.
+  // Scheduled runs from the config file: an invalid job set fails
+  // startup loudly rather than running a partial schedule, while later
+  // file edits reload the live schedule (an invalid edit is logged and
+  // the running jobs kept).
   const cron = startCronScheduler({
     launcher,
     runner,
-    jobs: readConfig(opts.profile.dataDirName).cronJobs ?? [],
+    readJobs: () => readConfig(opts.profile.dataDirName).cronJobs ?? [],
+    configPath: resolveConfigPath(opts.profile.dataDirName),
   });
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
@@ -183,7 +186,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const shutdown = createShutdown({
     server,
     destroyConnections,
-    stopCron: () => cron?.stop(),
+    stopCron: () => cron.stop(),
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
     closeDbs,

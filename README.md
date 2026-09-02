@@ -235,10 +235,19 @@ Add a `cronJobs` array to the config file to run prompts on a schedule
 - `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
   defaults to system-local time; `enabled: false` pauses a job without
   deleting it.
-- Jobs are read once at `serve` startup. An invalid job — bad schedule,
-  unknown timezone, duplicate name, or (for an enabled job) a missing
-  working directory — stops the server from starting, naming the job.
-  Edits apply on the next restart.
+- Jobs are validated at `serve` startup — an invalid job (bad schedule,
+  unknown timezone, duplicate name, or a missing working directory on an
+  enabled job) stops the server from starting, naming the job. Edits
+  apply on the next restart.
+- `serve` also **watches the config file and reloads the schedule
+  live**: added, changed, and removed jobs take effect without a
+  restart, typically within a second. A reload only swaps the schedule
+  once the whole new job set validates — an invalid edit (bad JSON, bad
+  schedule, …) is logged to stderr and the previous schedule keeps
+  running until the file is valid again. Runs already in flight when
+  their job is removed or changed are left to finish. A content poll
+  backs the watcher up on filesystems without reliable change events
+  (`GLV_CONFIG_WATCH_POLL_MS`, default 5000).
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
 

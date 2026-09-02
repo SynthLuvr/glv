@@ -237,6 +237,141 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("live config reload", () => {
+    let env: IntegrationEnv;
+    let homeDir: string;
+    let workingDir: string;
+    let stdinCapture: string;
+
+    beforeAll(async () => {
+      homeDir = mkdtempSync(join(tmpdir(), "glv-cron-live-"));
+      workingDir = mkdtempSync(join(tmpdir(), "glv-cron-livework-"));
+      stdinCapture = join(homeDir, "stdin-live.txt");
+      writeConfig(homeDir, [
+        {
+          name: "live",
+          schedule: "* * * * * *",
+          prompt: "Boot prompt",
+          workingDir,
+        },
+      ]);
+      env = await fx.startEnv(
+        "glv-cron-live-",
+        { sessionName: "Live Session", captureStdin: stdinCapture },
+        homeDir,
+        // Shrinks the reload poll so every rewrite below is picked up
+        // quickly even where directory change events never arrive.
+        { GLV_CONFIG_WATCH_POLL_MS: "250" },
+      );
+    }, 120000);
+
+    afterAll(async () => {
+      await env?.cleanup();
+      rmSync(homeDir, { recursive: true, force: true });
+      rmSync(workingDir, { recursive: true, force: true });
+    });
+
+    // The sidebar renders each session's name exactly once, so counting
+    // marker occurrences counts that name's sessions.
+    const countSessions = async (): Promise<number> => {
+      const res = await authedFetch(env, "/");
+      const html = await res.text();
+      return html.split('class="session-name">Live Session<').length - 1;
+    };
+
+    const waitForSessions = async (atLeast: number): Promise<number> => {
+      const deadline = Date.now() + 30_000;
+      let count = 0;
+      while (Date.now() < deadline) {
+        count = await countSessions();
+        if (count >= atLeast) return count;
+        await sleep(500);
+      }
+      return count;
+    };
+
+    // Each fire overwrites the mock agent's stdin capture, so poll it
+    // until a run shows the given prompt.
+    const waitForPrompt = async (prompt: string): Promise<void> => {
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        if (
+          existsSync(stdinCapture) &&
+          readFileSync(stdinCapture, "utf-8").includes(prompt)
+        )
+          return;
+        await sleep(500);
+      }
+      throw new Error(`prompt "${prompt}" never reached the agent`);
+    };
+
+    const waitForStderr = async (fragment: string): Promise<void> => {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if (env.serverStderr().includes(fragment)) return;
+        await sleep(250);
+      }
+    };
+
+    it("fires the boot job before any edit", async () => {
+      const count = await waitForSessions(1);
+      expect(count).toBeGreaterThanOrEqual(1);
+    });
+
+    it("keeps the running schedule when an edit is invalid", async () => {
+      const before = await countSessions();
+
+      // Unparseable JSON: logged, schedule untouched.
+      writeFileSync(defaultConfigFile(homeDir, fx.binName), "{ not json");
+      await waitForStderr("config reload failed");
+      const stderr = env.serverStderr();
+      expect(stderr).toContain("config reload failed");
+      expect(stderr).toContain("keeping the running schedule");
+
+      // The every-second job kept firing through the broken window.
+      const kept = await waitForSessions(before + 2);
+      expect(kept).toBeGreaterThanOrEqual(before + 2);
+
+      // Structurally valid file, invalid job: rejected the same way.
+      writeConfig(homeDir, [
+        {
+          name: "live",
+          schedule: "not a cron expression",
+          prompt: "Boot prompt",
+          workingDir,
+        },
+      ]);
+      await waitForStderr('cron job "live"');
+      const rejected = env.serverStderr();
+      expect(rejected).toContain("config reload rejected");
+      expect(rejected).toContain('cron job "live"');
+      expect(rejected).toContain("invalid schedule");
+    });
+
+    it("applies an edited job to the running schedule", async () => {
+      writeConfig(homeDir, [
+        {
+          name: "live",
+          schedule: "* * * * * *",
+          prompt: "Edited prompt",
+          workingDir,
+        },
+      ]);
+      await waitForPrompt("Edited prompt");
+    });
+
+    it("stops firing once the job is removed", async () => {
+      writeConfig(homeDir, []);
+      // Let the reload land, then confirm the count stays flat across
+      // several fire windows of the former every-second schedule.
+      await sleep(5000);
+      const first = await countSessions();
+      await sleep(5000);
+      const second = await countSessions();
+      expect(second).toBe(first);
+    });
+  });
+
   describe("config validation at serve start", () => {
     let restoreAgent: (() => void) | undefined;
 
