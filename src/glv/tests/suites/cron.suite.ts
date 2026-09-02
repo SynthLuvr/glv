@@ -23,6 +23,20 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+// Polls predicate every 500ms until it holds or the deadline passes;
+// resolves to whether it ever held.
+const pollUntil = async (
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await sleep(500);
+  }
+  return false;
+};
+
 // The mock agent writes its capture files asynchronously, trailing the
 // fire that caused them; poll until one exists with content.
 const waitForContent = async (
@@ -280,37 +294,28 @@ const runCronSuite = (fx: FlavorFixture): void => {
     };
 
     const waitForSessions = async (atLeast: number): Promise<number> => {
-      const deadline = Date.now() + 30_000;
       let count = 0;
-      while (Date.now() < deadline) {
+      await pollUntil(async () => {
         count = await countSessions();
-        if (count >= atLeast) return count;
-        await sleep(500);
-      }
+        return count >= atLeast;
+      }, 30_000);
       return count;
     };
 
     // Each fire overwrites the mock agent's stdin capture, so poll it
     // until a run shows the given prompt.
     const waitForPrompt = async (prompt: string): Promise<void> => {
-      const deadline = Date.now() + 30_000;
-      while (Date.now() < deadline) {
-        if (
+      const reached = await pollUntil(
+        () =>
           existsSync(stdinCapture) &&
-          readFileSync(stdinCapture, "utf-8").includes(prompt)
-        )
-          return;
-        await sleep(500);
-      }
-      throw new Error(`prompt "${prompt}" never reached the agent`);
+          readFileSync(stdinCapture, "utf-8").includes(prompt),
+        30_000,
+      );
+      expect(reached, `prompt "${prompt}" never reached the agent`).toBe(true);
     };
 
     const waitForStderr = async (fragment: string): Promise<void> => {
-      const deadline = Date.now() + 20_000;
-      while (Date.now() < deadline) {
-        if (env.serverStderr().includes(fragment)) return;
-        await sleep(250);
-      }
+      await pollUntil(() => env.serverStderr().includes(fragment), 20_000);
     };
 
     it("fires the boot job before any edit", async () => {
@@ -324,9 +329,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
       // Unparseable JSON: logged, schedule untouched.
       writeFileSync(defaultConfigFile(homeDir, fx.binName), "{ not json");
       await waitForStderr("config reload failed");
-      const stderr = env.serverStderr();
-      expect(stderr).toContain("config reload failed");
-      expect(stderr).toContain("keeping the running schedule");
+      expect(env.serverStderr()).toContain("keeping the running schedule");
 
       // The every-second job kept firing through the broken window.
       const kept = await waitForSessions(before + 2);
@@ -341,11 +344,10 @@ const runCronSuite = (fx: FlavorFixture): void => {
           workingDir,
         },
       ]);
-      await waitForStderr('cron job "live"');
-      const rejected = env.serverStderr();
-      expect(rejected).toContain("config reload rejected");
-      expect(rejected).toContain('cron job "live"');
-      expect(rejected).toContain("invalid schedule");
+      await waitForStderr("config reload rejected");
+      const stderr = env.serverStderr();
+      expect(stderr).toContain('cron job "live"');
+      expect(stderr).toContain("invalid schedule");
     });
 
     it("applies an edited job to the running schedule", async () => {

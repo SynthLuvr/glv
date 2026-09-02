@@ -6,7 +6,7 @@ import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { type Runner, stop } from "./runner/index.js";
 import { expandHome } from "./server/paths.js";
-import { errorMessage } from "./util.js";
+import { errorMessage, positiveEnvNumber } from "./util.js";
 
 type CronScheduler = {
   /**
@@ -41,19 +41,10 @@ type ResolvedJob = {
 
 // How long one fire waits for the agent to create its session before the
 // run is stopped — mirrors the HTTP create flow's poll timeout, but
-// generous because nothing is waiting on the answer.
+// generous because nothing is waiting on the answer. The
+// GLV_CRON_SESSION_TIMEOUT_MS override shrinks the window so tests can
+// observe the timeout path without a minute-long wait.
 const DEFAULT_SESSION_TIMEOUT_MS = 60_000;
-
-// Test-facing override: shrinks the establishment window so the timeout
-// path is observable without a minute-long wait.
-const sessionTimeoutMs = (): number => {
-  const raw = process.env.GLV_CRON_SESSION_TIMEOUT_MS;
-  if (raw === undefined || raw === "") return DEFAULT_SESSION_TIMEOUT_MS;
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0
-    ? value
-    : DEFAULT_SESSION_TIMEOUT_MS;
-};
 
 // croner accepts any string as a timezone and only misbehaves later, so
 // validity is checked here to fail startup with the job named.
@@ -87,6 +78,20 @@ const assertUniqueNames = (jobs: readonly ResolvedJob[]): void => {
   }
 };
 
+// Constructing a Cron parses the pattern. The probe is name-less and
+// callback-less — parsed, never scheduled, never registered — because
+// croner throws when a name is re-registered while a live job holds it;
+// names are only claimed once the old schedule has been stopped.
+const assertParsableSchedule = (job: ResolvedJob): void => {
+  try {
+    new Cron(job.schedule, { timezone: job.timezone });
+  } catch (err) {
+    throw new Error(
+      `cron job "${job.name}" has an invalid schedule "${job.schedule}": ${errorMessage(err)}`,
+    );
+  }
+};
+
 const validateJob = (job: ResolvedJob): void => {
   if (job.timezone !== undefined && !validTimezone(job.timezone))
     throw new Error(
@@ -98,37 +103,24 @@ const validateJob = (job: ResolvedJob): void => {
     throw new Error(
       `cron job "${job.name}" working directory does not exist: ${job.workingDir}`,
     );
+  assertParsableSchedule(job);
 };
 
-// Constructing a Cron parses the pattern; a disabled job is still
-// constructed — for validation — but with no callback, which croner
-// never schedules.
+// Whole-set validation, separate from the running schedule so an edit
+// can be checked fully before anything is swapped in.
+const validateJobs = (jobs: readonly ResolvedJob[]): void => {
+  assertUniqueNames(jobs);
+  for (const job of jobs) validateJob(job);
+};
+
+// A disabled job is still constructed — for validation — but with no
+// callback, which croner never schedules.
 const scheduleJob = (job: ResolvedJob, fire: () => void): Cron =>
   new Cron(
     job.schedule,
     { name: job.name, timezone: job.timezone },
     job.enabled ? fire : undefined,
   );
-
-// Validates a whole job set without touching the running schedule: names
-// must be unique, per-job checks must pass, and every pattern must parse.
-// The pattern probe is a name-less, callback-less Cron — parsed but never
-// scheduled, and never registered — because croner throws when a name is
-// re-registered while a live job still holds it, so names are only
-// claimed after the old set has been stopped.
-const validateJobs = (jobs: readonly ResolvedJob[]): void => {
-  assertUniqueNames(jobs);
-  for (const job of jobs) {
-    validateJob(job);
-    try {
-      new Cron(job.schedule, { timezone: job.timezone });
-    } catch (err) {
-      throw new Error(
-        `cron job "${job.name}" has an invalid schedule "${job.schedule}": ${errorMessage(err)}`,
-      );
-    }
-  }
-};
 
 // One fire of one job: the same establish flow as the HTTP create route —
 // pull, start, wait for the agent's session, rekey — minus the HTTP
@@ -180,6 +172,13 @@ const fireJob = (
     }
   });
 
+// An invalid reload is logged, not thrown: the previous schedule keeps
+// running until the file is valid again.
+const logKeptSchedule = (outcome: string, err: unknown): void =>
+  console.error(
+    `cron: config reload ${outcome} — keeping the running schedule (${errorMessage(err)})`,
+  );
+
 // Schedules one croner job per config entry, then watches the config file
 // so later edits apply without a restart. Throws (naming the job) on any
 // invalid entry at boot so serve fails fast; an invalid *reload* is
@@ -189,21 +188,21 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   // rebuilt schedule never doubles runs onto one the previous set started.
   const locks = new Map<string, Promise<void>>();
   const establishing = new Set<string>();
-  const timeoutMs = sessionTimeoutMs();
+  const timeoutMs = positiveEnvNumber(
+    "GLV_CRON_SESSION_TIMEOUT_MS",
+    DEFAULT_SESSION_TIMEOUT_MS,
+  );
   let scheduled: Cron[] = [];
   let current: readonly ResolvedJob[] = [];
 
   // A fire whose establishment (poll + rekey) is still in flight skips
   // the next tick rather than piling runs onto the same directory.
-  const makeFire = (job: ResolvedJob): (() => void) => {
-    const fire = (): void => {
-      if (establishing.has(job.name)) return;
-      establishing.add(job.name);
-      void fireJob(deps, locks, timeoutMs, job).finally(() => {
-        establishing.delete(job.name);
-      });
-    };
-    return fire;
+  const fire = (job: ResolvedJob): void => {
+    if (establishing.has(job.name)) return;
+    establishing.add(job.name);
+    void fireJob(deps, locks, timeoutMs, job).finally(() => {
+      establishing.delete(job.name);
+    });
   };
 
   // Swaps the running schedule for a validated job set. Everything that
@@ -214,7 +213,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   const applyJobs = (resolved: readonly ResolvedJob[]): void => {
     validateJobs(resolved);
     for (const cron of scheduled) cron.stop();
-    scheduled = resolved.map((job) => scheduleJob(job, makeFire(job)));
+    scheduled = resolved.map((job) => scheduleJob(job, () => fire(job)));
   };
 
   const reload = (): void => {
@@ -222,9 +221,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     try {
       resolved = resolveJobs(deps.readJobs());
     } catch (err) {
-      console.error(
-        `cron: config reload failed — keeping the running schedule (${errorMessage(err)})`,
-      );
+      logKeptSchedule("failed", err);
       return;
     }
     // An edit that leaves the jobs untouched (e.g. forwardHost) must not
@@ -232,15 +229,14 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     if (JSON.stringify(resolved) === JSON.stringify(current)) return;
     try {
       applyJobs(resolved);
-      current = resolved;
-      console.log(
-        `cron: ${resolved.length} job(s) scheduled after config reload`,
-      );
     } catch (err) {
-      console.error(
-        `cron: config reload rejected — keeping the running schedule (${errorMessage(err)})`,
-      );
+      logKeptSchedule("rejected", err);
+      return;
     }
+    current = resolved;
+    console.log(
+      `cron: ${resolved.length} job(s) scheduled after config reload`,
+    );
   };
 
   // Boot is fail-fast: an invalid job set throws out of serve startup.

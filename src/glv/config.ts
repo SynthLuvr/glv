@@ -10,6 +10,7 @@ import { homedir, platform } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { type } from "arktype";
 import { JsonObject, parseJson } from "./parse.js";
+import { positiveEnvNumber } from "./util.js";
 
 const configRoot = (): string => {
   if (platform() === "win32")
@@ -73,11 +74,6 @@ const writeConfig = (
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };
 
-type ConfigFileWatch = {
-  /** Stops watching; the callback never fires afterwards. */
-  readonly stop: () => void;
-};
-
 // Editors write configs in bursts (and often replace the file by atomic
 // rename), so events are debounced and the settled content is compared
 // against the last content seen — only real changes surface.
@@ -85,20 +81,12 @@ const WATCH_DEBOUNCE_MS = 250;
 
 // fs.watch directory events are unreliable on some filesystems (network
 // mounts) and impossible before the config directory exists, so a
-// content-comparing poll backs the watcher up.
+// content-comparing poll backs the watcher up. GLV_CONFIG_WATCH_POLL_MS
+// overrides the interval so tests can bound the reload latency.
 const DEFAULT_WATCH_POLL_MS = 5_000;
 
-// Test-facing override: bounds the worst-case reload latency so live
-// reload is observable without waiting out the default poll.
-const watchPollMs = (): number => {
-  const raw = process.env.GLV_CONFIG_WATCH_POLL_MS;
-  if (raw === undefined || raw === "") return DEFAULT_WATCH_POLL_MS;
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_WATCH_POLL_MS;
-};
-
-// The watcher's own view of the file: undefined while it is absent, so a
-// later (re)creation reads as a change just like an edit.
+// undefined while the file is absent, so a later (re)creation reads as a
+// change just like an edit.
 const readConfigText = (path: string): string | undefined => {
   try {
     return readFileSync(path, "utf-8");
@@ -107,13 +95,14 @@ const readConfigText = (path: string): string | undefined => {
   }
 };
 
-// Calls onChange once the file settles on content it has not shown
-// before. Watching the directory (not the file) survives editors that
-// replace the file by rename; a missing directory just leaves the poll.
+// Watches the config file and calls onChange once it settles on content
+// it has not shown before. The directory (not the file) is watched so
+// editors that replace the file by rename are still seen; if watching
+// fails, the poll alone still notices the file appearing.
 const watchConfigFile = (
   path: string,
   onChange: () => void,
-): ConfigFileWatch => {
+): { readonly stop: () => void } => {
   let last = readConfigText(path);
   let stopped = false;
   let pending: NodeJS.Timeout | undefined;
@@ -134,9 +123,8 @@ const watchConfigFile = (
 
   let watcher: FSWatcher | undefined;
   try {
-    watcher = watch(dirname(path), { persistent: true }, (_event, file) => {
-      if (file !== undefined && file !== basename(path)) return;
-      schedule();
+    watcher = watch(dirname(path), (_event, file) => {
+      if (file === undefined || file === basename(path)) schedule();
     });
     watcher.on("error", () => {
       watcher?.close();
@@ -146,9 +134,12 @@ const watchConfigFile = (
     // Nothing to watch yet — the poll still notices the file appearing.
   }
 
-  const poll = setInterval(() => {
-    if (pending === undefined) check();
-  }, watchPollMs());
+  const poll = setInterval(
+    () => {
+      if (pending === undefined) check();
+    },
+    positiveEnvNumber("GLV_CONFIG_WATCH_POLL_MS", DEFAULT_WATCH_POLL_MS),
+  );
 
   return {
     stop: () => {
@@ -160,7 +151,7 @@ const watchConfigFile = (
   };
 };
 
-export type { ConfigFileWatch, CronJobConfig };
+export type { CronJobConfig };
 export {
   CONFIG_KEYS,
   readConfig,

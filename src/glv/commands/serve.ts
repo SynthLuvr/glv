@@ -131,9 +131,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
   // Scheduled runs from the config file: an invalid job set fails
-  // startup loudly rather than running a partial schedule, while later
-  // file edits reload the live schedule (an invalid edit is logged and
-  // the running jobs kept).
+  // startup loudly; later file edits reload the schedule live.
   const cron = startCronScheduler({
     launcher,
     runner,
@@ -186,7 +184,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const shutdown = createShutdown({
     server,
     destroyConnections,
-    stopCron: () => cron.stop(),
+    stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
     closeDbs,
