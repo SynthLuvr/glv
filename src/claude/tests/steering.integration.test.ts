@@ -38,8 +38,8 @@ const waitForText = async (
 ): Promise<string> => {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (existsSync(path) && readFileSync(path, "utf-8").includes(needle))
-      return readFileSync(path, "utf-8");
+    const text = existsSync(path) ? readFileSync(path, "utf-8") : "";
+    if (text.includes(needle)) return text;
     if (Date.now() > deadline)
       throw new Error(
         `"${needle}" not in ${path} within ${timeoutMs}ms` +
@@ -68,6 +68,8 @@ describe("session steering (claude)", () => {
   let raceArgs: string;
   let raceLog: string;
   let slotLog: string;
+  let offArgs: string;
+  let offStdin: string;
   let envHold: IntegrationEnv;
   let envRace: IntegrationEnv;
   let envSlot: IntegrationEnv;
@@ -136,11 +138,13 @@ describe("session steering (claude)", () => {
     // The rollback lever: steering disabled restores the pre-steering
     // contract wholesale — queue-only semantics AND raw write-and-close
     // stdin (no --input-format stream-json argv).
+    offArgs = join(capDir, "args-off.json");
+    offStdin = join(capDir, "stdin-off.txt");
     envOff = await startIntegrationEnv("glv-steer-off-", {
       sleepMs: 20000,
       serverEnv: { GLV_DISABLE_STEERING: "1" },
-      captureArgs: join(capDir, "args-off.json"),
-      captureStdin: join(capDir, "stdin-off.txt"),
+      captureArgs: offArgs,
+      captureStdin: offStdin,
     });
     seedSessions(envOff, ["off-1"]);
   }, 240000);
@@ -174,12 +178,9 @@ describe("session steering (claude)", () => {
     expect(html).toContain("1 steered");
     expect(html).toContain('data-run-status="running"');
 
-    // The message was injected into the live process's stdin, exactly
-    // once, alongside the run's own first prompt.
+    // The message was injected into the live process's stdin, alongside
+    // the run's own first prompt.
     await waitForText(holdLog, encodedMessage("redirect now"));
-    const log = readFileSync(holdLog, "utf-8");
-    expect(occurrences(log, encodedMessage("first slow task"))).toBe(1);
-    expect(occurrences(log, encodedMessage("redirect now"))).toBe(1);
 
     const events = await stream;
     // The steered card streamed as a prompt event strictly before
@@ -201,18 +202,9 @@ describe("session steering (claude)", () => {
     // Completed means every spawn already happened. No chained resume ran:
     // each message reached the agent exactly once (a chained resume would
     // have re-sent its prompt as the new process's first stdin line).
-    expect(
-      occurrences(
-        readFileSync(holdLog, "utf-8"),
-        encodedMessage("first slow task"),
-      ),
-    ).toBe(1);
-    expect(
-      occurrences(
-        readFileSync(holdLog, "utf-8"),
-        encodedMessage("redirect now"),
-      ),
-    ).toBe(1);
+    const finalLog = readFileSync(holdLog, "utf-8");
+    expect(occurrences(finalLog, encodedMessage("first slow task"))).toBe(1);
+    expect(occurrences(finalLog, encodedMessage("redirect now"))).toBe(1);
   }, 45000);
 
   it("keeps steering while a turn is held open and completes via stdin EOF", async () => {
@@ -400,8 +392,6 @@ describe("session steering (claude)", () => {
   }, 45000);
 
   it("GLV_DISABLE_STEERING restores pure queue semantics", async () => {
-    const offArgs = join(capDir, "args-off.json");
-    const offStdin = join(capDir, "stdin-off.txt");
     await postSessionPrompt(envOff, "off-1", "first hatch task");
     const args = await waitForArgs(offArgs);
     // No streaming-input mode: the pre-steering argv.

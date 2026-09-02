@@ -237,9 +237,15 @@ const PromptBar = ({
   pendingTool?: ToolRun;
 }) => {
   const busy = isRunActive(run);
-  const steerable = busy && run?.steerable === true;
+  const steerable = run?.steerable === true;
   const pendingCount = run?.pendingPrompts.length ?? 0;
   const steeredCount = run?.steeredCount ?? 0;
+  const busyPlaceholder = steerable
+    ? "Steer or queue a follow-up…"
+    : "Queue a follow-up prompt…";
+  const busyLabel = steerable
+    ? "Steer or queue a follow-up prompt"
+    : "Queue a follow-up prompt";
   return (
     <form
       class="prompt-bar"
@@ -280,35 +286,25 @@ const PromptBar = ({
         <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
           name="prompt"
-          placeholder={
-            busy
-              ? steerable
-                ? "Steer or queue a follow-up…"
-                : "Queue a follow-up prompt…"
-              : `Ask ${agentName}…`
-          }
+          placeholder={busy ? busyPlaceholder : `Ask ${agentName}…`}
           class="prompt-input"
           rows={2}
-          aria-label={
-            busy
-              ? steerable
-                ? "Steer or queue a follow-up prompt"
-                : "Queue a follow-up prompt"
-              : "Follow-up prompt"
-          }
+          aria-label={busy ? busyLabel : "Follow-up prompt"}
         />
         <PaperclipButton compact />
-        {busy && steerable ? (
+        {busy ? (
           <>
-            <button
-              type="submit"
-              class="steer-btn"
-              name="mode"
-              value="steer"
-              title="Inject into the running agent now — delivered steers cannot be undone"
-            >
-              Steer
-            </button>
+            {steerable && (
+              <button
+                type="submit"
+                class="steer-btn"
+                name="mode"
+                value="steer"
+                title="Inject into the running agent now — delivered steers cannot be undone"
+              >
+                Steer
+              </button>
+            )}
             <button
               type="submit"
               class="queue-btn"
@@ -316,21 +312,6 @@ const PromptBar = ({
               value="queue"
               title="Run after the current run finishes"
             >
-              Queue
-            </button>
-            <button
-              type="button"
-              class="stop-btn"
-              hx-post={`/sessions/${sessionId}/stop`}
-              hx-target="#detail-pane"
-              hx-swap="innerHTML"
-            >
-              Stop
-            </button>
-          </>
-        ) : busy ? (
-          <>
-            <button type="submit" class="queue-btn">
               Queue
             </button>
             <button

@@ -108,15 +108,13 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
 
 // The terminal record claude emits once per turn in stream-json mode; glv's
 // runner counts these to know when every written message has been answered
-// and it can close stdin. Never committed to the transcript — the real
-// result record is a stdout artifact, not a session row.
+// and it can close stdin.
 const RESULT_LINE = JSON.stringify({ type: "result", subtype: "success" });
 
 // The capture mirrors "the prompt text the agent received": a user-message
 // line is captured decoded (its content string) rather than as the raw
 // NDJSON envelope, so prompt-body assertions hold for both delivery
-// dialects. Raw JSON would also escape Windows path backslashes, breaking
-// substring comparisons that the raw-stdin (goose) flavor satisfies.
+// dialects — raw JSON would also escape Windows path backslashes.
 const decodeUserMessage = (line: string): string => {
   let parsed: {
     type?: unknown;
@@ -128,28 +126,16 @@ const decodeUserMessage = (line: string): string => {
     return line;
   }
   if (parsed.type !== "user" || parsed.message?.role !== "user") return line;
-  const content = parsed.message.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content))
-    return content
-      .map((block) =>
-        typeof block === "object" &&
-        block !== null &&
-        "text" in block &&
-        typeof (block as { text?: unknown }).text === "string"
-          ? (block as { text: string }).text
-          : "",
-      )
-      .join("\n");
-  return line;
+  return typeof parsed.message.content === "string"
+    ? parsed.message.content
+    : line;
 };
 
-// Streaming-input mode (verified against claude 2.1.233): read stdin
-// line-by-line; every user message is one turn — committed to the
-// transcript, answered with the configured output lines, then closed with a
-// result record. Messages that arrive while a turn is still open are
-// queued here exactly the way claude queues them, so steering mid-turn
-// degrades to a turn boundary, never a lost prompt. On stdin EOF the work
+// Streaming-input mode (verified against claude 2.1.233): every stdin user
+// message is one turn — committed to the transcript, answered with the
+// configured output lines, then closed with a result record. A message
+// that arrives mid-turn is queued here the way claude queues it, so
+// steering mid-turn degrades to a turn boundary. On stdin EOF the work
 // finishes and the process exits.
 const runStreamMode = async (sessionId: string | undefined): Promise<void> => {
   const capturePath = process.env.CLAUDE_MOCK_CAPTURE_STDIN ?? "";

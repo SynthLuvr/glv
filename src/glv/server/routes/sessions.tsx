@@ -389,15 +389,14 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = firstString(body.prompt);
     const files = collectFiles(body.uploads);
 
-    // Follow-up delivery choice: "steer" injects the prompt into the live
-    // agent process, "queue" chains it after the current run (the
-    // pre-steering semantics). An absent, unknown, or unsupported mode
-    // falls back to the flavor default — steer when the flavor's agent
-    // accepts streaming input, queue otherwise — so a crafted POST can
-    // never steer a flavor that has no streaming-input mode.
+    // Delivery choice for a busy session: "steer" injects the prompt into
+    // the live agent process, "queue" chains it after the current run.
+    // Any other value — including absent — falls back to the flavor
+    // default, so a crafted POST cannot steer a flavor that has no
+    // streaming-input mode.
     const mode = firstString(body.mode);
-    const steerable = ctx.runner.config.agent.steer !== undefined;
-    const steerMode = mode !== "queue" && steerable;
+    const steerMode =
+      mode !== "queue" && ctx.runner.config.agent.steer !== undefined;
 
     // Session id is known, so tag the upload dir immediately for cleanup.
     let fullPrompt = prompt;
@@ -413,29 +412,16 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     // Render the submitted prompt only when it started (or joined) a run
     // right away; queued prompts surface as QueuedPrompt cards via the
-    // handle, so passing the text here too would double-display it. A
-    // delivered steer renders the prompt card immediately, exactly like a
-    // prompt that starts a run. Skip enqueuing entirely when an upload
-    // failed so the user can retry.
+    // handle, so passing the text here too would double-display it. Skip
+    // enqueuing entirely when an upload failed so the user can retry.
     let activePrompt: string | undefined;
-    if (prompt !== "" && uploadError === undefined)
-      if (steerMode) {
-        const { delivered } = steer(
-          ctx.runner,
-          id,
-          fullPrompt,
-          session.working_dir,
-        );
-        if (delivered) activePrompt = prompt;
-      } else {
-        const { queued } = enqueueOrQueue(
-          ctx.runner,
-          id,
-          fullPrompt,
-          session.working_dir,
-        );
-        if (!queued) activePrompt = prompt;
-      }
+    if (prompt !== "" && uploadError === undefined) {
+      const immediate = steerMode
+        ? steer(ctx.runner, id, fullPrompt, session.working_dir).delivered
+        : !enqueueOrQueue(ctx.runner, id, fullPrompt, session.working_dir)
+            .queued;
+      if (immediate) activePrompt = prompt;
+    }
 
     const run = getHandle(ctx.runner, id);
     activePrompt ??= activeRunPrompt(run);

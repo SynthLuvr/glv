@@ -33,8 +33,8 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
   ): Promise<Response> =>
     authedFetch(e, "/sessions/" + id + "/prompt", {
       method: "POST",
-      // Queue mode keeps this suite's busy-follow-up assertions identical
-      // for steerable flavors (whose default submit action is Steer).
+      // Steerable flavors default to Steer; pin queue mode so this
+      // suite's busy-follow-up assertions hold for them too.
       body: new URLSearchParams({ prompt, mode: "queue" }),
       headers: { "HX-Request": "true" },
     });

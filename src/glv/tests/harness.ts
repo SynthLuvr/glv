@@ -213,31 +213,20 @@ type MockConfig = {
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
   /**
-   * Streaming-input mode (claude mock only): pause (ms) between a turn's
-   * output lines and its result record, holding the turn open so a steer
-   * can land mid-turn.
+   * Claude mock, streaming-input mode: pause (ms) between a turn's output
+   * lines and its result record, holding the turn open for mid-turn steers.
    */
   turnDelayMs?: number;
-  /**
-   * Streaming-input mode (claude mock only): append every received stdin
-   * line (timestamped) to this path, so tests can prove what was injected.
-   */
+  /** Claude mock, streaming-input mode: log every stdin line here. */
   stdinLog?: string;
   /**
-   * Streaming-input mode (claude mock only): delay (ms) between stdin EOF
-   * and process exit, opening the race window between the final result and
-   * the process dying.
+   * Claude mock, streaming-input mode: delay (ms) between stdin EOF and
+   * exit, opening the steer-vs-exit race window.
    */
   exitDelayMs?: number;
-  /**
-   * Extra `serve` argv appended after the adapter's own (e.g.
-   * ["--max-concurrent", "1"] for pre-spawn queueing tests).
-   */
+  /** Extra `serve` argv appended after the adapter's own. */
   extraServeArgs?: string[];
-  /**
-   * Extra environment variables for the serve process itself (e.g.
-   * GLV_DISABLE_STEERING=1), layered over the mock config's env.
-   */
+  /** Extra env for the serve process itself, layered over the mock env. */
   serverEnv?: Record<string, string>;
   /**
    * Replaces the mock agent script with a scripted type-a-bin behaviour,
@@ -689,21 +678,15 @@ const postNewSession = (
     body: new URLSearchParams({ prompt, working_dir: workDir }),
   });
 
-// Queues a follow-up prompt on an existing session over HTTP. Follow-ups
-// default to queue mode so a suite's "queued behind the current run"
-// assertions hold for steerable flavors too (their UI default is steer —
-// steering has its own dedicated suite); pass "steer" to exercise that.
+// Queues a follow-up prompt on an existing session over HTTP. The mode is
+// explicit so a suite's "queued behind the current run" assertions hold
+// for steerable flavors too (their UI default is steer — steering has its
+// own dedicated suite).
 const postFollowUp = (
   env: IntegrationEnv,
   sessionId: string,
   prompt: string,
-  mode: "steer" | "queue" = "queue",
-): Promise<Response> =>
-  authedFetch(env, `/sessions/${sessionId}/prompt`, {
-    method: "POST",
-    body: new URLSearchParams({ prompt, mode }),
-    headers: { "HX-Request": "true" },
-  });
+): Promise<Response> => postSessionPrompt(env, sessionId, prompt, "queue");
 
 // Posts a prompt with full control over the delivery mode — omit `mode`
 // to exercise the flavor default (steer where the flavor can steer).

@@ -3,14 +3,11 @@ import type PQueue from "p-queue";
 import type { ModelSelection } from "../models.js";
 import type { LineBuffer } from "./ring-buffer.js";
 
-// Mid-run steering contract. A flavor whose agent binary accepts user
-// messages on a long-lived stdin (claude's --input-format stream-json)
-// declares how to speak that dialect; flavors without a streaming-input
-// mode (goose's `goose run`) leave steer undefined and every follow-up
-// queues, exactly as before.
+// Mid-run steering contract for flavors whose agent binary accepts user
+// messages as NDJSON lines on a long-lived stdin (claude's --input-format
+// stream-json). Flavors without a streaming-input mode leave `steer`
+// undefined and every follow-up queues.
 type SteerSpec = {
-  /** Extra argv that switches the agent to streaming-input mode. */
-  readonly inputFlags: readonly string[];
   /** Encode one prompt as a single NDJSON line for stdin. */
   readonly encode: (prompt: string) => string;
   /** True when an output line marks the end of one prompt's turn. */
@@ -102,17 +99,14 @@ type RunHandle = {
   readonly startedPrompts: readonly string[];
   /** True when this flavor can inject prompts into the live process. */
   readonly steerable: boolean;
-  /** Prompts already injected into the live process beyond the first. */
+  /** Follow-ups injected into the live process so far. */
   readonly steeredCount: number;
 };
 
-// A prompt held in the FIFO because its run is busy. `mode` records how it
-// should be delivered the moment its turn comes:
-// - "steer": written to the live process's stdin — at spawn time when the
-//   submit raced the spawn, or never (it chains like "queue") when the
-//   process's stdin already closed.
-// - "queue": chained as a brand-new resume invocation after the current
-//   process exits — the pre-steering semantics, unchanged.
+// A prompt held back while its run is busy. `mode` decides delivery:
+// "steer" goes to the live process's stdin (at spawn time when the submit
+// raced the spawn, or chained like "queue" once that stdin has closed);
+// "queue" chains as a fresh resume invocation once the process exits.
 type PendingPrompt = {
   readonly prompt: string;
   readonly mode: "steer" | "queue";
@@ -128,9 +122,9 @@ type SpawnedProcess = {
   kill: (signal?: NodeJS.Signals) => void;
   stdout: AsyncIterable<string>;
   exit: Promise<ProcessResult>;
-  /** Writes one NDJSON line (newline appended) to the live stdin; throws when the stream is gone. */
+  /** Writes one NDJSON line (newline appended) to stdin; throws when it's gone. */
   write: (line: string) => void;
-  /** Ends stdin so a streaming-input agent finishes its queue and exits; idempotent. */
+  /** Ends stdin so a streaming-input agent finishes its queue and exits. */
   closeStdin: () => void;
 };
 
@@ -166,9 +160,9 @@ type InternalHandle = Omit<
   readonly workingDir: string;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
-  // Per-process steering bookkeeping, reset when each process spawns:
-  // prompts written to this process's stdin, and whether that stdin has
-  // been closed after the last expected turn result.
+  // Per-process steering bookkeeping, reset at each spawn: prompts written
+  // to this process's stdin, and whether that stdin closed after the last
+  // expected turn result.
   turnsStarted: number;
   stdinClosed: boolean;
   // Retention timer that eventually deletes a terminal handle from the registry.

@@ -39,11 +39,8 @@ const toolRunText = (tool: ToolRun, now: number = Date.now()): string => {
   return `⟳ ${who} running for ${elapsed}${timeout}`;
 };
 
-// Combined follow-up suffix for the running status hint: steered prompts
-// (injected into the live agent) and queued prompts (chained after it)
-// share one suffix — "(1 steered, 2 queued next)", "(2 steered)", or the
-// queue-only "(2 prompts queued next)" unchanged. Pure and shared by the
-// server render and the client bundle.
+// Follow-up suffix for the running status hint, e.g. "(1 steered, 2
+// queued next)". Shared by the server render and the client bundle.
 const followUpSuffix = (steered: number, queued: number): string => {
   const parts: string[] = [];
   if (steered > 0) parts.push(`${steered} steered`);

@@ -79,14 +79,13 @@ const advanceChain = (
   }
   const next = handle.pendingPrompts.shift();
   if (next === undefined) return undefined;
-  const nextPrompt = next.prompt;
-  handle.startedPrompts.push(nextPrompt);
-  handle.prompt = nextPrompt;
+  handle.startedPrompts.push(next.prompt);
+  handle.prompt = next.prompt;
   handle.error = undefined;
   handle.status = "running";
   return {
-    args: runner.config.agent.resume(handle.sessionId, nextPrompt),
-    stdin: nextPrompt,
+    args: runner.config.agent.resume(handle.sessionId, next.prompt),
+    stdin: next.prompt,
   };
 };
 
@@ -192,18 +191,12 @@ const enqueueOrQueue = (
   };
 };
 
-// Steer-mode delivery: hand the prompt to the live agent process instead of
-// waiting for the current run to finish. Falls back to the pending queue —
-// never losing the prompt — whenever a live write is impossible:
-// - the session is idle → a brand-new run (identical to enqueueOrQueue);
-// - the run is still queued (no process yet) → steer-tagged pending,
-//   written to stdin the moment the process spawns;
-// - the process's stdin already closed after its final turn (the
-//   missed-window race) → steer-tagged pending that advanceChain chains
-//   via the familiar resume invocation;
-// - the flavor cannot steer at all → plain queue-mode pending.
-// A write that throws synchronously (the process died without closing its
-// stdin) fails the run outright — the same surface as a process crash.
+// Steer-mode delivery: hand the prompt to the live agent process instead
+// of queueing behind the current run. Whenever a live write is impossible
+// — idle session, still-queued run, stdin already closed after the final
+// turn, or a flavor that cannot steer — the prompt falls back to the
+// pending queue, never lost. A synchronous write failure (the process
+// died without closing stdin) fails the run like a crash.
 const steer = (
   runner: Runner,
   sessionId: string,
@@ -219,7 +212,6 @@ const steer = (
     };
   if (
     spec !== undefined &&
-    existing.steerable &&
     existing.status === "running" &&
     !existing.stdinClosed &&
     existing.process !== undefined
@@ -237,7 +229,7 @@ const steer = (
   }
   existing.pendingPrompts.push({
     prompt,
-    mode: spec !== undefined && existing.steerable ? "steer" : "queue",
+    mode: spec !== undefined ? "steer" : "queue",
   });
   return { handle: existing, delivered: false };
 };
