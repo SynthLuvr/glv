@@ -279,10 +279,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("button.send-btn")).toBeVisible();
         await expect(page.locator("button.schedule-send-btn")).toBeHidden();
 
-        // Opening the disclosure is schedule mode: relabel + dim.
+        // Opening the disclosure is schedule mode: "Schedule run" becomes
+        // the primary action while "Start session" stays visible as the
+        // way back to running now (stepped back to a secondary style).
         await page.locator(".schedule-summary").click();
         await expect(page.locator("button.schedule-send-btn")).toBeVisible();
-        await expect(page.locator("button.send-btn")).toBeHidden();
+        await expect(page.locator("button.send-btn")).toBeVisible();
+        await expect(page.locator("button.send-btn")).toHaveText(
+          "Start session",
+        );
 
         // No schedule typed: the schedule button is disabled.
         const scheduleBtn = page.locator("button.schedule-send-btn");

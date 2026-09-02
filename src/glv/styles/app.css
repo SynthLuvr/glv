@@ -2821,8 +2821,18 @@ select.form-input {
 .new-session-form:has(.schedule-disclosure[open]) .schedule-send-btn {
   display: inline-block;
 }
+/* In schedule mode "Start session" stays available — it just steps back
+   to a secondary style so "Schedule run" is the prominent action while
+   the way back to running now stays visible. */
 .new-session-form:has(.schedule-disclosure[open]) .send-btn {
-  display: none;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border-strong);
+}
+.new-session-form:has(.schedule-disclosure[open]) .send-btn:hover {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 .new-session-form:has(.schedule-disclosure[open]) .model-picker-slot,
 .new-session-form:has(.schedule-disclosure[open]) .paperclip-btn,
