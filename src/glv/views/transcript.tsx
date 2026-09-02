@@ -12,7 +12,7 @@ import { detectPrUrl } from "../../glv/pr.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
-import { PrChip } from "../../glv/views/chips.js";
+import { CronChip, PrChip } from "../../glv/views/chips.js";
 import { SessionTitleWrap } from "../../glv/views/Rename.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
@@ -87,9 +87,12 @@ const MetaChip = ({
 const TranscriptHeader = ({
   session,
   prUrl,
+  cronJob,
 }: {
   session: SessionRow;
   prUrl?: string;
+  /** Name of the scheduled job that started this session, if any. */
+  cronJob?: string;
 }) => (
   <header class="session-header">
     <div class="session-header-top">
@@ -107,6 +110,7 @@ const TranscriptHeader = ({
     </div>
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />
+      {cronJob !== undefined && <CronChip jobName={cronJob} />}
       {session.model !== null && (
         <MetaChip label="Model" value={session.model} mono />
       )}
@@ -317,6 +321,7 @@ const Transcript = ({
   prompt,
   prompts = [],
   uploadError,
+  cronJob,
 }: {
   agentName: string;
   session: SessionRow;
@@ -325,6 +330,8 @@ const Transcript = ({
   prompt?: string;
   prompts?: SavedPrompt[];
   uploadError?: string;
+  /** Name of the scheduled job that started this session, if any. */
+  cronJob?: string;
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
@@ -341,7 +348,7 @@ const Transcript = ({
       data-run-status={run?.status}
       data-cursor={String(messages.length)}
     >
-      <TranscriptHeader session={session} prUrl={prUrl} />
+      <TranscriptHeader session={session} prUrl={prUrl} cronJob={cronJob} />
       {/* Always present so the tail stream can append; the empty placeholder
         is a sibling the client clears once content arrives. */}
       <div id="messages">

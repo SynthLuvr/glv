@@ -2,7 +2,14 @@ import { shortenHome } from "../../glv/format/index.js";
 import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
+import type { NamedCronJob } from "../config.js";
+import { type ScheduleSelection, SELECTION_DEFAULTS } from "../schedule.js";
 import { PromptLibrarySection } from "./prompt-library.js";
+import {
+  ScheduleConfirmation,
+  ScheduleDisclosure,
+  ScheduledRunsSection,
+} from "./schedule.js";
 
 const WorkingDirBody = ({
   workingDir,
@@ -157,19 +164,34 @@ const NewSessionForm = ({
   workingDir,
   dirs,
   error,
+  prompt = "",
   prompts = [],
   categories = [],
   modelPicker,
+  scheduleValues = SELECTION_DEFAULTS,
+  scheduleName = "",
+  jobs = [],
+  confirmation,
 }: {
   agentName: string;
   workingDir: string;
   dirs: string[];
   error?: string;
+  /** Restores a rejected submit's prompt so nothing typed is lost. */
+  prompt?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
   /** When present, render the lazy picker slot; `submitted` restores a
    * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
+  /** Restores a rejected schedule submit's controls. */
+  scheduleValues?: Omit<ScheduleSelection, "name">;
+  /** Restores a rejected schedule submit's job name. */
+  scheduleName?: string;
+  /** Scheduled runs from the config file — drives the management section. */
+  jobs?: readonly NamedCronJob[];
+  /** Rendered above the library after a job is successfully saved. */
+  confirmation?: NamedCronJob;
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -204,18 +226,42 @@ const NewSessionForm = ({
           rows={5}
           placeholder={`What do you want ${agentName} to do?`}
           autofocus
-        />
+        >
+          {prompt}
+        </textarea>
       </label>
       <UploadFields />
       <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
+      <ScheduleDisclosure
+        agentName={agentName}
+        values={scheduleValues}
+        jobName={scheduleName}
+      />
       <div class="form-actions upload-actions">
         <PaperclipButton />
-        <button type="submit" class="send-btn">
-          Start session
-        </button>
+        <div class="submit-group">
+          <button
+            type="submit"
+            class="send-btn"
+            name="submit_action"
+            value="run"
+          >
+            Start session
+          </button>
+          <button
+            type="submit"
+            class="schedule-send-btn"
+            name="submit_action"
+            value="schedule"
+          >
+            Schedule run
+          </button>
+        </div>
       </div>
     </form>
+    {confirmation !== undefined && <ScheduleConfirmation job={confirmation} />}
     <PromptLibrarySection prompts={prompts} categories={categories} />
+    <ScheduledRunsSection jobs={jobs} />
   </div>
 );
 

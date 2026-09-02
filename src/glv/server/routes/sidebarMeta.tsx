@@ -1,10 +1,11 @@
 import { type Hono } from "hono";
 import { Fragment } from "hono/jsx";
+import { jobNamesFor } from "../../cron-sessions.js";
 import { parseMessage } from "../../format/index.js";
 import { type GitRunner, readGitInfo } from "../../git.js";
 import { detectPrUrl } from "../../pr.js";
 import type { SessionRow, SessionStore } from "../../sessions.js";
-import { BranchChip, PrChip } from "../../views/chips.js";
+import { BranchChip, CronChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { activeSessionIds } from "../status.js";
@@ -51,12 +52,14 @@ const renderMeta = (
   session: SessionRow,
   branch: string | undefined,
   prUrl: string | undefined,
+  cronJob: string | undefined,
 ) => (
   <span
     id={`sidebar-meta-${session.id}`}
     class="session-meta-tags"
     hx-swap-oob="true"
   >
+    {cronJob !== undefined && <CronChip jobName={cronJob} compact />}
     {branch !== undefined && <BranchChip branch={branch} compact />}
     {prUrl !== undefined && (
       <PrChip sessionId={session.id} url={prUrl} compact />
@@ -70,6 +73,16 @@ const renderMeta = (
 // while running since detection over a partial transcript can latch onto
 // the wrong URL.
 const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
+  // Job-started sessions carry their clock badge from the sidecar; one
+  // lookup covers the whole sidebar.
+  const cronTags = (sessions: readonly SessionRow[]): Map<string, string> =>
+    ctx.cronSessions === undefined
+      ? new Map()
+      : jobNamesFor(
+          ctx.cronSessions,
+          sessions.map((s) => s.id),
+        );
+
   app.get("/sessions/:id/sidebar-meta", async (c) => {
     const id = c.req.param("id");
     const session = ctx.sessions.getSession(id);
@@ -78,7 +91,9 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
     const prUrl = activeSessionIds(ctx.runner).has(id)
       ? undefined
       : resolvePrUrls(ctx.sessions, [session]).get(id);
-    return c.html(renderMeta(session, branches.get(id), prUrl));
+    return c.html(
+      renderMeta(session, branches.get(id), prUrl, cronTags([session]).get(id)),
+    );
   });
 
   app.get("/sessions/sidebar-meta", async (c) => {
@@ -86,6 +101,7 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
     const runningIds = activeSessionIds(ctx.runner);
     const branches = await resolveBranches(sessions, ctx.runGit);
     const prUrls = resolvePrUrls(ctx.sessions, sessions);
+    const tags = cronTags(sessions);
     return c.html(
       <Fragment>
         {sessions.map((session) => {
@@ -93,7 +109,7 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
           const prUrl = runningIds.has(session.id)
             ? undefined
             : prUrls.get(session.id);
-          return renderMeta(session, branch, prUrl);
+          return renderMeta(session, branch, prUrl, tags.get(session.id));
         })}
       </Fragment>,
     );

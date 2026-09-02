@@ -2754,3 +2754,397 @@ select.form-input {
 .browse-entry-parent .browse-entry-name {
   color: var(--color-muted);
 }
+
+/* ---------- scheduled runs ---------- */
+/* The disclosure lives inside the New Session form; schedule mode is an
+   alternate submit. While it is open the model picker and attachments
+   dim (unsupported on scheduled runs for now) and the submit button
+   relabels — all via :has(), so no client wiring is needed. */
+.schedule-disclosure {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-2);
+}
+.schedule-disclosure[open] {
+  padding-bottom: 0.85rem;
+}
+.schedule-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+  list-style: none;
+  border-radius: 10px;
+}
+.schedule-summary::-webkit-details-marker {
+  display: none;
+}
+.schedule-summary svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex: 0 0 auto;
+}
+.schedule-summary:hover {
+  color: var(--color-accent);
+}
+.schedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.25rem 0.85rem 0;
+}
+.submit-group {
+  display: inline-flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.schedule-send-btn {
+  display: none;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.schedule-send-btn:hover {
+  background: var(--color-accent-hover);
+}
+.new-session-form:has(.schedule-disclosure[open]) .schedule-send-btn {
+  display: inline-block;
+}
+.new-session-form:has(.schedule-disclosure[open]) .send-btn {
+  display: none;
+}
+.new-session-form:has(.schedule-disclosure[open]) .model-picker-slot,
+.new-session-form:has(.schedule-disclosure[open]) .paperclip-btn,
+.new-session-form:has(.schedule-disclosure[open]) .paste-hint,
+.new-session-form:has(.schedule-disclosure[open]) .upload-chips {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.schedule-mode-note,
+.schedule-restart-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.schedule-restart-note {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.schedule-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.schedule-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.schedule-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.schedule-option-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  width: fit-content;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.schedule-option-pill:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.schedule-option-pill input {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.schedule-option:has(.schedule-option-pill input:checked) {
+  color: var(--color-text);
+}
+.schedule-option:has(.schedule-option-pill input:checked)
+  .schedule-option-pill {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+/* Per-kind inputs appear only for the selected option (:has() again —
+   hidden inputs still submit, but the server reads only the active
+   kind's fields). */
+.schedule-option-body {
+  display: none;
+  padding-left: 0.25rem;
+}
+.schedule-option:has(.schedule-option-pill input:checked)
+  .schedule-option-body {
+  display: block;
+}
+.schedule-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.schedule-time {
+  width: 7rem;
+}
+.schedule-date {
+  width: 10.5rem;
+}
+.schedule-weekday {
+  width: 10.5rem;
+}
+.schedule-cron-input {
+  max-width: 16rem;
+}
+.next-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+.next-runs-body {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.next-runs-value {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.next-runs-schedule {
+  font-weight: 600;
+}
+.next-runs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.next-runs-list li::before {
+  content: "→ ";
+  color: var(--color-faint);
+}
+.next-runs-error {
+  color: var(--color-err);
+}
+.next-runs-hint {
+  color: var(--color-faint);
+}
+/* Confirmation card rendered above the library after a job is saved. */
+.schedule-confirmation {
+  margin-bottom: 1.25rem;
+  padding: 0.85rem;
+  border: 1px solid var(--color-prompt-border);
+  border-radius: 10px;
+  background: var(--color-prompt);
+}
+.schedule-confirmation-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.schedule-confirmation-head svg {
+  width: 1rem;
+  height: 1rem;
+  color: var(--color-accent);
+}
+.schedule-confirmation-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+.schedule-confirmation-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+}
+.schedule-confirmation-grid dt {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+.schedule-confirmation-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* Management section — Prompt Library placement and styling. */
+.scheduled-runs-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+.scheduled-runs-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.scheduled-runs-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.scheduled-runs-notice {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.cron-job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.7rem;
+}
+.cron-job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+.cron-job-card.editing {
+  grid-column: 1 / -1;
+}
+.cron-job-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.cron-job-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.cron-job-status {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-ok);
+  color: var(--color-ok);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cron-job-status.paused {
+  border-color: var(--color-border-strong);
+  color: var(--color-muted);
+}
+.cron-job-schedule {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.cron-job-next {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cron-job-next-label {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--color-faint);
+}
+.cron-job-prompt {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cron-job-dir {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+  overflow-wrap: anywhere;
+}
+.cron-job-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+.cron-job-kept-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+/* Clock badge for job-started sessions — same weight as the git chips. */
+.cron-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  align-self: flex-start;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-2);
+  color: var(--color-faint);
+  font-size: 0.8rem;
+  line-height: 1.2;
+  max-width: 100%;
+}
+.cron-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+.cron-chip-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cron-chip-sm {
+  padding: 0.18rem 0.4rem;
+  font-size: 0.74rem;
+}
