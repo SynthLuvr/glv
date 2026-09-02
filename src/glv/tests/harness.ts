@@ -104,11 +104,12 @@ const findFreePort = (): Promise<number> =>
   });
 
 // A capture file written by a mock agent can be read mid-write, so poll
-// until it parses into a value the caller recognises.
+// until it parses into a value the caller recognises. The 30s default
+// absorbs slow mock-agent spawns on loaded CI runners.
 const waitForJsonFile = async <T>(
   path: string,
   accept: (value: unknown) => value is T,
-  timeoutMs = 8000,
+  timeoutMs = 30000,
 ): Promise<T> => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -127,6 +128,35 @@ const isArgv = (value: unknown): value is string[] => Array.isArray(value);
 
 const waitForArgs = (path: string): Promise<string[]> =>
   waitForJsonFile(path, isArgv);
+
+// Waits for a capture file to settle before assertions see it: reads are
+// retried through transient failures (file not created yet, Windows
+// locking a fresh rename), and only content identical on two consecutive
+// polls is returned — a mid-write read must never leak into an expect.
+const waitForFile = async (
+  path: string,
+  timeoutMs = 30000,
+): Promise<string> => {
+  const deadline = Date.now() + timeoutMs;
+  let previous: string | undefined;
+  while (Date.now() < deadline) {
+    try {
+      const content = readFileSync(path, "utf-8");
+      if (content === previous) return content;
+      previous = content;
+    } catch {
+      // the writer may not have started yet — keep polling
+    }
+    await sleep(50);
+  }
+  const lastRead =
+    previous === undefined
+      ? "never readable"
+      : `last read ${previous.length} bytes`;
+  throw new Error(
+    `file ${path} not written within ${timeoutMs}ms (${lastRead})`,
+  );
+};
 
 const flagValue = (
   args: readonly string[],
@@ -212,6 +242,22 @@ type MockConfig = {
   acpDelayMs?: number;
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
+  /**
+   * Claude mock, streaming-input mode: pause (ms) between a turn's output
+   * lines and its result record, holding the turn open for mid-turn steers.
+   */
+  turnDelayMs?: number;
+  /** Claude mock, streaming-input mode: log every stdin line here. */
+  stdinLog?: string;
+  /**
+   * Claude mock, streaming-input mode: delay (ms) between stdin EOF and
+   * exit, opening the steer-vs-exit race window.
+   */
+  exitDelayMs?: number;
+  /** Extra `serve` argv appended after the adapter's own. */
+  extraServeArgs?: string[];
+  /** Extra env for the serve process itself, layered over the mock env. */
+  serverEnv?: Record<string, string>;
   /**
    * Replaces the mock agent script with a scripted type-a-bin behaviour,
    * for suites that need the agent as a process (silent, long-lived,
@@ -428,6 +474,15 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   ...(mock.acpDelayMs !== undefined
     ? { [`${prefix}_MOCK_ACP_DELAY_MS`]: String(mock.acpDelayMs) }
     : {}),
+  ...(mock.turnDelayMs !== undefined
+    ? { [`${prefix}_MOCK_TURN_DELAY_MS`]: String(mock.turnDelayMs) }
+    : {}),
+  ...(mock.stdinLog !== undefined
+    ? { [`${prefix}_MOCK_STDIN_LOG`]: mock.stdinLog }
+    : {}),
+  ...(mock.exitDelayMs !== undefined
+    ? { [`${prefix}_MOCK_EXIT_DELAY_MS`]: String(mock.exitDelayMs) }
+    : {}),
 });
 
 // Subprocess coverage is injected only when the caller pins an env
@@ -513,11 +568,12 @@ const startServer = (
   dbs: Databases,
   port: number,
   extraEnv: Record<string, string> = {},
+  extraServeArgs: readonly string[] = [],
 ): { proc: ChildProcess; readStderr: () => string } => {
   let stderr = "";
   const proc = spawnLauncher(
     adapter.binPath,
-    ["serve", "-p", String(port), ...adapter.serveArgs(dbs)],
+    ["serve", "-p", String(port), ...adapter.serveArgs(dbs), ...extraServeArgs],
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
@@ -554,14 +610,21 @@ const startEnv = async (
 
   const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(adapter, dbs, port, {
-    ...adapter.serverEnv(dbs),
-    GLV_UPLOADS_DIR: uploadsDir,
-    GLV_TEMP_DIR: tempDir,
-    ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
-    ...mockEnv(adapter.mockEnvPrefix, mock),
-    ...extraEnv,
-  });
+  const { proc, readStderr } = startServer(
+    adapter,
+    dbs,
+    port,
+    {
+      ...adapter.serverEnv(dbs),
+      GLV_UPLOADS_DIR: uploadsDir,
+      GLV_TEMP_DIR: tempDir,
+      ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
+      ...mockEnv(adapter.mockEnvPrefix, mock),
+      ...mock.serverEnv,
+      ...extraEnv,
+    },
+    mock.extraServeArgs ?? [],
+  );
 
   const abortBoot = async (err: unknown): Promise<never> => {
     await stopProcess(proc);
@@ -655,17 +718,52 @@ const postNewSession = (
     body: new URLSearchParams({ prompt, working_dir: workDir }),
   });
 
-// Queues a follow-up prompt on an existing session over HTTP.
+// Queues a follow-up prompt on an existing session over HTTP. The mode is
+// explicit so a suite's "queued behind the current run" assertions hold
+// for steerable flavors too (their UI default is steer — steering has its
+// own dedicated suite).
 const postFollowUp = (
   env: IntegrationEnv,
   sessionId: string,
   prompt: string,
+): Promise<Response> => postSessionPrompt(env, sessionId, prompt, "queue");
+
+// Posts a prompt with full control over the delivery mode — omit `mode`
+// to exercise the flavor default (steer where the flavor can steer).
+const postSessionPrompt = (
+  env: IntegrationEnv,
+  sessionId: string,
+  prompt: string,
+  mode?: string,
 ): Promise<Response> =>
   authedFetch(env, `/sessions/${sessionId}/prompt`, {
     method: "POST",
-    body: new URLSearchParams({ prompt }),
+    body: new URLSearchParams(
+      mode === undefined ? { prompt } : { prompt, mode },
+    ),
     headers: { "HX-Request": "true" },
   });
+
+// Stops a run over HTTP the way the prompt bar's Stop button does.
+const postStop = (env: IntegrationEnv, sessionId: string): Promise<Response> =>
+  authedFetch(env, `/sessions/${sessionId}/stop`, {
+    method: "POST",
+    headers: { "HX-Request": "true" },
+  });
+
+// True when the collected stream saw a status event with the given value.
+const hasStatusEvent = (events: SseEvent[], value: string): boolean =>
+  events.some(
+    (e) => e.event === "status" && parseSseData(e.data).status === value,
+  );
+
+// True when the collected stream saw any status event whose parsed
+// payload satisfies the predicate.
+const hasStatusWhere = (
+  events: SseEvent[],
+  predicate: (data: Record<string, unknown>) => boolean,
+): boolean =>
+  events.some((e) => e.event === "status" && predicate(parseSseData(e.data)));
 
 const withPage = async (
   context: BrowserContext,
@@ -831,14 +929,19 @@ export {
   fakeHomeEnv,
   findFreePort,
   flagValue,
+  hasStatusEvent,
+  hasStatusWhere,
   IS_WIN,
   makeStartEnv,
   parseSseData,
   postFollowUp,
   postNewSession,
+  postSessionPrompt,
+  postStop,
   ROOT,
   readStoreField,
   rmScratch,
+  sleep,
   spawnLauncher,
   spawnLauncherSync,
   startEnv,
@@ -846,6 +949,7 @@ export {
   subdirCount,
   waitForAgentRun,
   waitForArgs,
+  waitForFile,
   waitForHttp,
   waitForJsonFile,
   withPage,

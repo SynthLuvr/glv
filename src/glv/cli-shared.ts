@@ -149,6 +149,13 @@ const serveTail = (
   debug: opts.debug === true,
 });
 
+// GLV_DISABLE_STEERING=1 rebuilds the agent invocation without its steer
+// spec and streaming-input flags — they must drop together, or the agent
+// would speak stream-json to a raw-stdin pipe — restoring pure queue
+// semantics. Read when the flavor CLIs build their agent, before serve.
+const steeringDisabled = (): boolean =>
+  process.env.GLV_DISABLE_STEERING === "1";
+
 // Raw argv can't decide "is there a subcommand" by sign alone: a global
 // option's *value* (`glv-goose --db /path/sessions.db`) is also a non-dash
 // token, which used to suppress the `sessions` default and fail with an
@@ -209,4 +216,5 @@ export {
   runServe,
   runView,
   serveTail,
+  steeringDisabled,
 };

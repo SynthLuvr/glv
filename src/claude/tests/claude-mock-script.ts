@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import {
   captureStdinTo,
   captureTo,
@@ -68,6 +69,12 @@ const argValue = (args: string[], flag: string): string | undefined => {
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
+// True when glv launched us in streaming-input mode (--input-format
+// stream-json): user messages arrive as NDJSON lines on a long-lived stdin
+// instead of one raw prompt, and each message gets its own turn.
+const streamInputMode = (args: string[]): boolean =>
+  argValue(args, "--input-format") === "stream-json";
+
 // Persists a streamed NDJSON event as a transcript line, the way claude
 // appends to the session file as it runs.
 const commitLine = (sessionId: string, line: string, ts: number): void => {
@@ -99,6 +106,103 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
   );
 };
 
+// The terminal record claude emits once per turn in stream-json mode; glv's
+// runner counts these to know when every written message has been answered
+// and it can close stdin.
+const RESULT_LINE = JSON.stringify({ type: "result", subtype: "success" });
+
+// The capture mirrors "the prompt text the agent received": a user-message
+// line is captured decoded (its content string) rather than as the raw
+// NDJSON envelope, so prompt-body assertions hold for both delivery
+// dialects — raw JSON would also escape Windows path backslashes.
+const decodeUserMessage = (line: string): string => {
+  let parsed: {
+    type?: unknown;
+    message?: { role?: unknown; content?: unknown };
+  };
+  try {
+    parsed = JSON.parse(line) as typeof parsed;
+  } catch {
+    return line;
+  }
+  if (parsed.type !== "user" || parsed.message?.role !== "user") return line;
+  return typeof parsed.message.content === "string"
+    ? parsed.message.content
+    : line;
+};
+
+// Streaming-input mode (verified against claude 2.1.233): every stdin user
+// message is one turn — committed to the transcript, answered with the
+// configured output lines, then closed with a result record. A message
+// that arrives mid-turn is queued here the way claude queues it, so
+// steering mid-turn degrades to a turn boundary. On stdin EOF the work
+// finishes and the process exits.
+const runStreamMode = async (sessionId: string | undefined): Promise<void> => {
+  const capturePath = process.env.CLAUDE_MOCK_CAPTURE_STDIN ?? "";
+  const logPath = process.env.CLAUDE_MOCK_STDIN_LOG ?? "";
+  if (logPath !== "") writeFileSync(logPath, "");
+  if (capturePath !== "") writeFileSync(capturePath, "");
+
+  const lines = linesFromEnv("CLAUDE", DEFAULT_LINE);
+  const lineDelay = Number(process.env.CLAUDE_MOCK_LINE_DELAY_MS ?? 0);
+  const turnDelay = Number(process.env.CLAUDE_MOCK_TURN_DELAY_MS ?? 0);
+  const initialDelay = Number(process.env.CLAUDE_MOCK_SLEEP_MS ?? 0);
+  const writeDb = process.env.CLAUDE_MOCK_WRITE_DB === "1";
+
+  const logLine = (line: string): void => {
+    if (logPath !== "")
+      appendFileSync(logPath, `${new Date().toISOString()} ${line}\n`);
+  };
+
+  const pending: string[] = [];
+  let eof = false;
+  let wake: (() => void) | undefined;
+  const reader = createInterface({ input: process.stdin });
+  reader.on("line", (raw: string) => {
+    const line = raw.trim();
+    if (line === "") return;
+    logLine(line);
+    if (capturePath !== "")
+      appendFileSync(capturePath, decodeUserMessage(line) + "\n");
+    pending.push(line);
+    wake?.();
+  });
+  reader.on("close", () => {
+    eof = true;
+    wake?.();
+  });
+
+  const nextMessage = async (): Promise<string | undefined> => {
+    while (pending.length === 0 && !eof)
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+    return pending.shift();
+  };
+
+  let firstTurn = true;
+  for (;;) {
+    const message = await nextMessage();
+    if (message === undefined) break;
+    if (writeDb && sessionId !== undefined)
+      commitLine(sessionId, message, Date.now());
+    if (firstTurn && initialDelay > 0) await sleep(initialDelay);
+    firstTurn = false;
+    let ts = Date.now();
+    for (const line of lines) {
+      console.log(line);
+      if (writeDb && sessionId !== undefined) commitLine(sessionId, line, ts);
+      ts += 1000;
+      if (lineDelay > 0) await sleep(lineDelay);
+    }
+    if (turnDelay > 0) await sleep(turnDelay);
+    console.log(RESULT_LINE);
+  }
+
+  const exitDelay = Number(process.env.CLAUDE_MOCK_EXIT_DELAY_MS ?? 0);
+  if (exitDelay > 0) await sleep(exitDelay);
+};
+
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
@@ -113,6 +217,17 @@ const main = async (): Promise<void> => {
     : neverCreate
       ? argValue(args, "--session-id")
       : createSession(argValue(args, "--session-id"));
+
+  if (streamInputMode(args)) {
+    // Captures happen before the line loop because stdin stays open for the
+    // whole process — reading it to EOF first (the raw-prompt path) would
+    // deadlock until glv closes the pipe.
+    captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());
+    captureTo("CLAUDE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
+    captureTo("CLAUDE_MOCK_CAPTURE_ENV", JSON.stringify(claudeCodeEnv()));
+    await runStreamMode(sessionId);
+    process.exit(Number(process.env.CLAUDE_MOCK_EXIT_CODE ?? 0));
+  }
 
   await captureStdinTo("CLAUDE_MOCK_CAPTURE_STDIN");
   captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());
