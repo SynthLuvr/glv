@@ -11,9 +11,8 @@ const configRoot = (): string => {
   return join(homedir(), ".config");
 };
 
-// One scheduled run: a croner schedule, the prompt to send, and the
-// working directory to run it in. Jobs are hand-edited for now (no UI);
-// the scheduler in glv/cron.ts validates and runs them when serve starts.
+// One scheduled run. Hand-edited for now — the file is the interface;
+// glv/cron.ts validates and runs them when serve starts.
 const CronJob = type({
   "name?": "string",
   schedule: "string>0",

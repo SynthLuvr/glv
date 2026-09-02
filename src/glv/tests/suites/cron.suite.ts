@@ -23,8 +23,8 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// Waits until the mock agent's capture file exists with content; the file
-// is written by the spawned agent, which trails the fire that caused it.
+// The mock agent writes its capture files asynchronously, trailing the
+// fire that caused them; poll until one exists with content.
 const waitForContent = async (
   path: string,
   timeoutMs = 10_000,
@@ -41,17 +41,18 @@ const waitForContent = async (
 };
 
 const runCronSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, jobs: unknown[]): string => {
+  const writeConfig = (homeDir: string, cronJobs: unknown): string => {
     const path = defaultConfigFile(homeDir, fx.binName);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ cronJobs: jobs }, null, 2));
+    writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
     return path;
   };
 
-  // Boots serve with the config at cfgPath and resolves once the process
-  // exits (or is killed at the deadline — a serve that *boots* despite an
-  // invalid config is itself the failure, so the null status fails the
-  // non-zero assertion). The fake HOME keeps the real stores untouched.
+  // Boots serve with the config at cfgPath and resolves on exit. A serve
+  // still alive at the deadline is killed and yields status null — which
+  // fails the callers' non-zero assertion, because a serve that boots
+  // despite an invalid config is itself the bug. The fake HOME keeps the
+  // real stores untouched.
   const serveUntilExit = async (
     cfgPath: string,
     homeDir: string,
@@ -82,6 +83,22 @@ const runCronSuite = (fx: FlavorFixture): void => {
       });
     });
     return { status, stderr };
+  };
+
+  // Asserts serve refuses to start for the given cronJobs value, naming
+  // every expected stderr fragment.
+  const expectServeRefuses = async (
+    cronJobs: unknown,
+    ...stderrContains: string[]
+  ): Promise<void> => {
+    const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
+    const { status, stderr } = await serveUntilExit(
+      writeConfig(homeDir, cronJobs),
+      homeDir,
+    );
+    expect(status ?? 0).not.toBe(0);
+    for (const fragment of stderrContains) expect(stderr).toContain(fragment);
+    rmSync(homeDir, { recursive: true, force: true });
   };
 
   describe("scheduled sessions from the config file", () => {
@@ -169,8 +186,8 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
 
     it("never fires a disabled job", async () => {
-      // The schedule fires every second; several fire windows pass with no
-      // run ever appearing in the sidebar.
+      // The schedule fires every second; four seconds of fire windows pass
+      // with no run ever appearing in the sidebar.
       await sleep(4000);
       const res = await authedFetch(env, "/");
       const html = await res.text();
@@ -224,9 +241,8 @@ const runCronSuite = (fx: FlavorFixture): void => {
     let restoreAgent: (() => void) | undefined;
 
     beforeAll(async () => {
-      // serve resolves the agent binary against PATH, and CI runners have
-      // no real agent installed; the mock only needs to exist on PATH — it
-      // is never invoked, because serve exits at config validation.
+      // serve resolves the agent binary against PATH, which CI runners
+      // lack; the mock is never invoked — validation exits serve first.
       restoreAgent = await fx.mockAgent();
     });
 
@@ -234,73 +250,56 @@ const runCronSuite = (fx: FlavorFixture): void => {
       restoreAgent?.();
     });
 
-    it("exits non-zero naming a job with an invalid schedule", async () => {
-      const home = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-      const cfgPath = writeConfig(home, [
-        {
-          name: "broken",
-          schedule: "not a cron expression",
-          prompt: "x",
-          workingDir: home,
-        },
-      ]);
-      const { status, stderr } = await serveUntilExit(cfgPath, home);
-      expect(status ?? 0).not.toBe(0);
-      expect(stderr).toContain("broken");
-      expect(stderr).toContain("invalid schedule");
-      rmSync(home, { recursive: true, force: true });
-    });
+    it("exits non-zero naming a job with an invalid schedule", () =>
+      expectServeRefuses(
+        [
+          {
+            name: "broken",
+            schedule: "not a cron expression",
+            prompt: "x",
+            workingDir: tmpdir(),
+          },
+        ],
+        "broken",
+        "invalid schedule",
+      ));
 
-    it("exits non-zero naming a job with an invalid timezone", async () => {
-      const home = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-      const cfgPath = writeConfig(home, [
-        {
-          name: "tz-broken",
-          schedule: "0 3 * * *",
-          prompt: "x",
-          workingDir: home,
-          timezone: "Bogus/Zone",
-        },
-      ]);
-      const { status, stderr } = await serveUntilExit(cfgPath, home);
-      expect(status ?? 0).not.toBe(0);
-      expect(stderr).toContain("tz-broken");
-      expect(stderr).toContain("invalid timezone");
-      rmSync(home, { recursive: true, force: true });
-    });
+    it("exits non-zero naming a job with an invalid timezone", () =>
+      expectServeRefuses(
+        [
+          {
+            name: "tz-broken",
+            schedule: "0 3 * * *",
+            prompt: "x",
+            workingDir: tmpdir(),
+            timezone: "Bogus/Zone",
+          },
+        ],
+        "tz-broken",
+        "invalid timezone",
+      ));
 
-    it("exits non-zero for duplicate job names", async () => {
-      const home = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-      const cfgPath = writeConfig(home, [
-        {
-          name: "twin",
-          schedule: "0 3 * * *",
-          prompt: "x",
-          workingDir: home,
-        },
-        {
-          name: "twin",
-          schedule: "0 4 * * *",
-          prompt: "y",
-          workingDir: home,
-        },
-      ]);
-      const { status, stderr } = await serveUntilExit(cfgPath, home);
-      expect(status ?? 0).not.toBe(0);
-      expect(stderr).toContain('duplicate cron job name "twin"');
-      rmSync(home, { recursive: true, force: true });
-    });
+    it("exits non-zero for duplicate job names", () =>
+      expectServeRefuses(
+        [
+          {
+            name: "twin",
+            schedule: "0 3 * * *",
+            prompt: "x",
+            workingDir: tmpdir(),
+          },
+          {
+            name: "twin",
+            schedule: "0 4 * * *",
+            prompt: "y",
+            workingDir: tmpdir(),
+          },
+        ],
+        'duplicate cron job name "twin"',
+      ));
 
-    it("exits non-zero for a structurally invalid cronJobs value", async () => {
-      const home = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-      const cfgPath = join(home, "config.json");
-      mkdirSync(dirname(cfgPath), { recursive: true });
-      writeFileSync(cfgPath, JSON.stringify({ cronJobs: "nope" }));
-      const { status, stderr } = await serveUntilExit(cfgPath, home);
-      expect(status ?? 0).not.toBe(0);
-      expect(stderr).toContain("cronJobs must be an array");
-      rmSync(home, { recursive: true, force: true });
-    });
+    it("exits non-zero for a structurally invalid cronJobs value", () =>
+      expectServeRefuses("nope", "cronJobs must be an array"));
   });
 };
 

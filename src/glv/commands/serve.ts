@@ -130,8 +130,8 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
-  // Scheduled runs from the local config file, read once at boot — edits
-  // apply on the next serve start, and an invalid job fails startup loudly.
+  // Scheduled runs from the config file, read once at boot — an invalid
+  // job fails startup loudly rather than running a partial schedule.
   const cron = startCronScheduler({
     launcher,
     runner,

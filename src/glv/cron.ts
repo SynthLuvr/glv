@@ -6,6 +6,7 @@ import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { type Runner, stop } from "./runner/index.js";
 import { expandHome } from "./server/paths.js";
+import { errorMessage } from "./util.js";
 
 type CronScheduler = {
   /** Stops every scheduled job. In-flight agent runs keep running. */
@@ -91,19 +92,14 @@ const validateJob = (job: ResolvedJob): void => {
 };
 
 // Constructing a Cron parses the pattern, so an invalid schedule fails
-// startup with the job's name. `kill` keeps a disabled — but still
-// validated — job from ever firing.
+// startup with the job's name. A disabled job is still constructed — for
+// validation — but with no callback, which croner never schedules.
 const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
+  const options = { name: job.name, timezone: job.timezone };
   try {
-    return job.enabled
-      ? new Cron(job.schedule, { name: job.name, timezone: job.timezone }, fire)
-      : new Cron(job.schedule, {
-          name: job.name,
-          timezone: job.timezone,
-          kill: true,
-        });
+    return new Cron(job.schedule, options, job.enabled ? fire : undefined);
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = errorMessage(err);
     throw new Error(
       `cron job "${job.name}" has an invalid schedule "${job.schedule}": ${detail}`,
     );
@@ -112,8 +108,40 @@ const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
 
 // One fire of one job: the same establish flow as the HTTP create route —
 // pull, start, wait for the agent's session, rekey — minus the HTTP
-// concerns (uploads, temp dirs). Serialized per working directory and
-// fully defensive: a scheduled callback must never reject.
+// concerns (uploads, temp dirs).
+const runFire = async (
+  deps: SchedulerDeps,
+  timeoutMs: number,
+  job: ResolvedJob,
+): Promise<void> => {
+  await pullRepo(job.workingDir);
+  const handle = deps.launcher.startNew(job.workingDir, job.prompt);
+  const sessionId = await deps.launcher.awaitNew(
+    handle,
+    job.workingDir,
+    timeoutMs,
+  );
+  if (sessionId === undefined) {
+    stop(deps.runner, handle);
+    console.error(
+      `cron job "${job.name}": no session was created within ${timeoutMs}ms — run stopped`,
+    );
+    return;
+  }
+  const outcome = deps.launcher.establish(
+    handle,
+    sessionId,
+    `another session was starting in ${job.workingDir} — cron run stopped`,
+  );
+  if (!outcome.ok) {
+    console.error(`cron job "${job.name}": ${outcome.error}`);
+    return;
+  }
+  console.log(`cron job "${job.name}" started session ${outcome.sessionId}`);
+};
+
+// Serialized per working directory and fully defensive: a scheduled
+// callback must never reject.
 const fireJob = (
   deps: SchedulerDeps,
   locks: Map<string, Promise<void>>,
@@ -122,41 +150,15 @@ const fireJob = (
 ): Promise<void> =>
   withCreateLock(locks, job.workingDir, async (): Promise<void> => {
     try {
-      await pullRepo(job.workingDir);
-      const handle = deps.launcher.startNew(job.workingDir, job.prompt);
-      const sessionId = await deps.launcher.awaitNew(
-        handle,
-        job.workingDir,
-        timeoutMs,
-      );
-      if (sessionId === undefined) {
-        stop(deps.runner, handle);
-        console.error(
-          `cron job "${job.name}": no session was created within ${timeoutMs}ms — run stopped`,
-        );
-        return;
-      }
-      const outcome = deps.launcher.establish(
-        handle,
-        sessionId,
-        `another session was starting in ${job.workingDir} — cron run stopped`,
-      );
-      if (!outcome.ok) {
-        console.error(`cron job "${job.name}": ${outcome.error}`);
-        return;
-      }
-      console.log(
-        `cron job "${job.name}" started session ${outcome.sessionId}`,
-      );
+      await runFire(deps, timeoutMs, job);
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      console.error(`cron job "${job.name}": ${detail}`);
+      console.error(`cron job "${job.name}": ${errorMessage(err)}`);
     }
   });
 
-// Reads the config's cron jobs and schedules one croner job per entry.
-// Returns undefined when no jobs are configured; throws (naming the job)
-// on any invalid entry so serve fails fast instead of skipping silently.
+// Schedules one croner job per config entry. Returns undefined when no
+// jobs are configured; throws (naming the job) on any invalid entry so
+// serve fails fast instead of skipping silently.
 const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
   const jobs = resolveJobs(deps.jobs);
   if (jobs.length === 0) return undefined;
