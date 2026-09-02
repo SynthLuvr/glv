@@ -221,6 +221,19 @@ const runCronSuite = (fx: FlavorFixture): void => {
   });
 
   describe("config validation at serve start", () => {
+    let restoreAgent: (() => void) | undefined;
+
+    beforeAll(async () => {
+      // serve resolves the agent binary against PATH, and CI runners have
+      // no real agent installed; the mock only needs to exist on PATH — it
+      // is never invoked, because serve exits at config validation.
+      restoreAgent = await fx.mockAgent();
+    });
+
+    afterAll(() => {
+      restoreAgent?.();
+    });
+
     it("exits non-zero naming a job with an invalid schedule", async () => {
       const home = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
       const cfgPath = writeConfig(home, [
