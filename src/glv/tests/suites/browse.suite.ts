@@ -44,8 +44,7 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     mkdirSync(join(home, "Documents"), { recursive: true });
     mkdirSync(join(home, "Projects"), { recursive: true });
     // URI-reserved characters in names ("#" would truncate an unencoded
-    // href at the fragment boundary). Sorted last so the "first folder"
-    // click in the htmx navigation test still lands on Documents.
+    // href at the fragment boundary).
     const hashDir = join(home, "Z# notes");
     mkdirSync(hashDir, { recursive: true });
     writeFileSync(join(hashDir, "inside.txt"), "inner content\n");
@@ -153,7 +152,12 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     it("navigates between folders in a real browser via htmx", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/browse`);
-        await page.locator(".browse-entry-folder a").first().click();
+        // Target Documents by name rather than "the first folder": on
+        // Windows the server's Known-Folders data dir (AppData/Roaming/…)
+        // is created inside the fake home at boot and sorts first.
+        await page
+          .locator(".browse-entry-folder a", { hasText: "Documents" })
+          .click();
         await expect(page.locator(".browse-list")).toBeVisible();
         await expect(
           page.locator(".browse-entry-name", { hasText: "notes.txt" }),
