@@ -13,7 +13,9 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
+
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -538,6 +540,71 @@ const defaultConfigFile = (home: string, dataDirName: string): string =>
     ? join(home, "AppData", "Local", dataDirName, "config.json")
     : join(home, ".config", dataDirName, "config.json");
 
+// Cron config-file helpers shared by the cron suites and the flavor
+// tests: the config file is the source of truth, so tests assert on what
+// the UI claims to write. One shape, read and written the same way
+// everywhere.
+type CronConfigFile = { cronJobs?: Record<string, unknown>[] };
+
+// Writes a config file holding exactly these jobs at the flavor's default
+// config path, and returns the path (what serve both reads and watches).
+// `cronJobs` is `unknown` on purpose: the invalid-shape suites write
+// values serve must reject.
+const writeCronConfig = (
+  home: string,
+  dataDirName: string,
+  cronJobs: unknown,
+): string => {
+  const path = defaultConfigFile(home, dataDirName);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
+  return path;
+};
+
+const readCronConfig = (path: string): CronConfigFile =>
+  (existsSync(path)
+    ? JSON.parse(readFileSync(path, "utf-8"))
+    : {}) as CronConfigFile;
+
+// The job entry with this name, if the file holds one.
+const cronJobIn = (
+  path: string,
+  name: string,
+): Record<string, unknown> | undefined =>
+  (readCronConfig(path).cronJobs ?? []).find(
+    (job) => (job as { name?: string }).name === name,
+  );
+
+// Boots serve with the given argv/env and resolves on exit; a serve still
+// alive at the deadline is killed and yields status null — which fails a
+// non-zero assertion, because a serve that boots despite an invalid
+// config is itself the bug.
+const waitForServeExit = async (
+  binPath: string,
+  args: readonly string[],
+  extraEnv: Record<string, string> = {},
+  timeoutMs = 20_000,
+): Promise<{ status: number | null; stderr: string }> => {
+  const proc = spawnLauncher(binPath, args, {
+    env: { ...process.env, ...extraEnv },
+  });
+  let stderr = "";
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const status = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => {
+      void stopProcess(proc);
+      resolve(null);
+    }, timeoutMs);
+    proc.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+  return { status, stderr };
+};
+
 const startServer = (
   adapter: FlavorAdapter,
   dbs: Databases,
@@ -855,6 +922,7 @@ export {
   authedFetch,
   baseDatabases,
   collectSse,
+  cronJobIn,
   dbOverrideArgs,
   defaultConfigFile,
   defaultDataDir,
@@ -867,6 +935,7 @@ export {
   postFollowUp,
   postNewSession,
   ROOT,
+  readCronConfig,
   readStoreField,
   rmScratch,
   spawnLauncher,
@@ -879,5 +948,7 @@ export {
   waitForFile,
   waitForHttp,
   waitForJsonFile,
+  waitForServeExit,
   withPage,
+  writeCronConfig,
 };

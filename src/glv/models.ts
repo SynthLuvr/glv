@@ -39,4 +39,27 @@ type ModelSource = {
   readonly resolve: (value: string) => ModelSelection | undefined;
 };
 
+// The form-value spelling of a picker choice: "provider:model", split at
+// the first colon because model ids may contain colons while provider ids
+// never do. Shared by the New Session picker and the scheduled-run forms.
+const encodeModelValue = (provider: string, model: string): string =>
+  `${provider}:${model}`;
+
+const decodeModelValue = (value: string): ModelSelection | undefined => {
+  const sep = value.indexOf(":");
+  if (sep <= 0 || sep === value.length - 1) return undefined;
+  return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
+};
+
+// The picker's submitted value for a stored model pin (CronJobConfig's
+// modelProvider/model pair): "" when the job runs the agent default.
+const jobModelValue = (job: {
+  readonly modelProvider?: string;
+  readonly model?: string;
+}): string =>
+  job.modelProvider !== undefined && job.model !== undefined
+    ? encodeModelValue(job.modelProvider, job.model)
+    : "";
+
 export type { ModelChoice, ModelSelection, ModelSource };
+export { decodeModelValue, encodeModelValue, jobModelValue };

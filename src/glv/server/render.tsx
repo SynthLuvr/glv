@@ -253,6 +253,7 @@ const newSessionDetail = (
 };
 
 export {
+  hasModelPicker,
   modelPicker,
   newSessionDetail,
   render,

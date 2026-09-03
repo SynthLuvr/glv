@@ -31,6 +31,11 @@ const CronJob = type({
   workingDir: "string>0",
   "timezone?": "string",
   "enabled?": "boolean",
+  // A model pin for the sessions this job starts: both keys together, or
+  // neither for the agent's own default. Validated as a pair at serve
+  // boot and on every live reload (cron.ts).
+  "modelProvider?": "string>0",
+  "model?": "string>0",
 });
 
 const Config = type({

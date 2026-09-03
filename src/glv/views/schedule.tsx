@@ -1,3 +1,4 @@
+import { Fragment } from "hono/jsx";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
 import {
   fmtDateTime,
@@ -6,6 +7,7 @@ import {
   parseSchedule,
 } from "../schedule.js";
 import { CLOCK_ICON } from "./chips.js";
+import { ModelPickerSlot } from "./new-session.js";
 
 // Views for scheduling: the inline form with its typed schedule field
 // and live preview, the confirmation banner after a job is saved, and
@@ -99,11 +101,14 @@ const ScheduleControls = ({
 // prompt and working directory composed in the New Session form above —
 // hx-include pulls those fields at submit time, so the latest typing is
 // what gets scheduled, and the composed prompt is never duplicated or
-// lost.
+// lost. The model picker is this form's own (same lazy catalogue
+// fragment as the New Session form), so a job's model is chosen where
+// the job is, independently of whatever the form above would run now.
 const ScheduleSaveForm = ({
   agentName,
   jobName = "",
   schedule = "",
+  modelPicker,
   error,
 }: {
   agentName: string;
@@ -111,6 +116,9 @@ const ScheduleSaveForm = ({
   jobName?: string;
   /** Restores a rejected submit's schedule. */
   schedule?: string;
+  /** Renders the model picker slot when the flavor supports models;
+   * `submitted` restores a rejected submit's selection. */
+  modelPicker?: { submitted?: string };
   error?: string;
 }) => (
   <form
@@ -119,12 +127,14 @@ const ScheduleSaveForm = ({
     hx-post="/cron"
     hx-target="#cron-save-slot"
     hx-swap="innerHTML"
-    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form input[name=session_mode], .new-session-form select[name=model_provider]"
+    hx-include="find input, find select, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form input[name=session_mode]"
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
       Schedules the prompt and working directory composed in the form above —{" "}
-      {agentName} runs them with its default model.
+      {modelPicker === undefined
+        ? `${agentName} runs them with its default model.`
+        : `pick a model below, or leave it at ${agentName}’s default.`}
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -139,6 +149,9 @@ const ScheduleSaveForm = ({
       />
     </label>
     <ScheduleControls schedule={schedule} />
+    {modelPicker !== undefined && (
+      <ModelPickerSlot submitted={modelPicker.submitted} />
+    )}
     <div class="prompt-form-actions">
       <button
         type="submit"
@@ -182,6 +195,14 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         </dd>
         <dt>Next run</dt>
         <dd>{nextRunText(job)}</dd>
+        {job.modelProvider !== undefined && job.model !== undefined && (
+          <Fragment>
+            <dt>Model</dt>
+            <dd>
+              {job.modelProvider} / {job.model}
+            </dd>
+          </Fragment>
+        )}
         <dt>Prompt</dt>
         <dd>{truncate(job.prompt, 140)}</dd>
       </dl>
@@ -213,6 +234,14 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
         <span class="cron-job-next-label">Next run</span>{" "}
         <span class="cron-job-next-value">{nextRunText(job)}</span>
       </p>
+      {job.modelProvider !== undefined && job.model !== undefined && (
+        <p
+          class="cron-job-model mono"
+          title={`${job.modelProvider} / ${job.model}`}
+        >
+          {job.modelProvider} / {job.model}
+        </p>
+      )}
       <p class="cron-job-prompt" title={job.prompt}>
         {truncate(job.prompt.replace(/\s+/g, " "), 140)}
       </p>
@@ -260,11 +289,16 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
 const ScheduleJobEditForm = ({
   job,
   schedule,
+  modelPicker,
   error,
 }: {
   job: NamedCronJob;
   /** Restores a rejected edit's schedule. */
   schedule?: string;
+  /** Renders the model picker slot when the flavor supports models;
+   * `submitted` preselects the job's stored model (or a rejected edit's
+   * pick). Without it, a stored model pin is preserved untouched. */
+  modelPicker?: { submitted?: string };
   error?: string;
 }) => {
   const name = encodeURIComponent(job.name);
@@ -289,6 +323,9 @@ const ScheduleJobEditForm = ({
           />
         </label>
         <ScheduleControls schedule={schedule ?? job.schedule} />
+        {modelPicker !== undefined && (
+          <ModelPickerSlot submitted={modelPicker.submitted} />
+        )}
         <label class="form-field">
           <span class="form-label">Prompt</span>
           <textarea name="prompt" class="form-input" rows={4}>

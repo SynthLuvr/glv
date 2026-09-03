@@ -2980,6 +2980,13 @@ select.form-input {
   letter-spacing: 0.04em;
   color: var(--color-faint);
 }
+/* A pinned model, rendered provider / model — same weight as the dir. */
+.cron-job-model {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+  overflow-wrap: anywhere;
+}
 .cron-job-prompt {
   margin: 0;
   font-size: 0.82rem;

@@ -60,6 +60,7 @@ the browser.
   equivalent cron pattern on save, with upcoming runs previewed. Pause,
   edit, and delete from the same section, or hand-edit the jobs in the
   config file. Sessions a job starts carry a clock badge naming the job.
+  Each job can pin the model its runs use (goose).
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -233,7 +234,9 @@ To define jobs by hand, add a `cronJobs` array to the config file:
       "prompt": "Summarize today's commits and flag risks",
       "workingDir": "/home/you/project",
       "timezone": "Europe/Oslo",
-      "enabled": true
+      "enabled": true,
+      "modelProvider": "zai",
+      "model": "glm-5.3"
     }
   ]
 }
@@ -265,6 +268,13 @@ that would fire more often than once a minute are rejected.
   clock chip naming the job, in the sidebar and the transcript header. A
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
+
+- `modelProvider`/`model` (goose only, both keys together) pin every
+  fire of the job to that model — the web form’s schedule dialog has its
+  own model picker with the same options as the New Session form; omit
+  both keys to run the agent’s default. The pin is validated when you
+  save, and serve refuses to start when a hand-edited job pins a model
+  the flavor can’t take (claude) or sets only one of the two keys.
 
 - `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
   defaults to system-local time; `enabled: false` pauses a job without

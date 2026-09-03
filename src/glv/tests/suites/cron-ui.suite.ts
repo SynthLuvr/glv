@@ -1,28 +1,20 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
 import {
   authedFetch,
-  defaultConfigFile,
   type FlavorFixture,
   type IntegrationEnv,
+  readCronConfig,
   withPage,
+  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
-
-type ConfigFile = { cronJobs?: unknown[] };
 
 // The scheduled-runs UI: creating from the New Session form, managing
 // from the section, recognizing job-started sessions, and the one-shot
@@ -30,25 +22,18 @@ type ConfigFile = { cronJobs?: unknown[] };
 // assertion about state reads the file the UI claims to write.
 
 const runCronUiSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, cronJobs: unknown[]): string => {
-    const path = defaultConfigFile(homeDir, fx.binName);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
-    return path;
-  };
+  const writeConfig = (homeDir: string, cronJobs: unknown[]): string =>
+    writeCronConfig(homeDir, fx.binName, cronJobs);
 
-  const readConfig = (path: string): ConfigFile =>
-    (existsSync(path)
-      ? JSON.parse(readFileSync(path, "utf-8"))
-      : {}) as ConfigFile;
+  const readConfig = readCronConfig;
 
   // Polls the file until it satisfies the predicate (the server's writes
   // trail the HTTP response by design — retirement happens after a fire).
   const waitForConfig = async (
     path: string,
-    accept: (config: ConfigFile) => boolean,
+    accept: (config: ReturnType<typeof readCronConfig>) => boolean,
     timeoutMs = 15_000,
-  ): Promise<ConfigFile> => {
+  ): Promise<ReturnType<typeof readCronConfig>> => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const config = readConfig(path);
@@ -299,7 +284,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
-    it("rejects a non-default model with a pointer back to the picker", async () => {
+    it("rejects a model the agent cannot resolve, with a pointer to the picker", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
@@ -308,11 +293,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Model pick",
           working_dir: workingDir,
           session_mode: "working_dir",
-          model_provider: "anthropic/claude",
+          model_provider: "ghost/nowhere",
         }),
       });
       expect(res.status).toBe(422);
-      expect(await res.text()).toContain("default model");
+      expect(await res.text()).toContain("no longer available");
+      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
