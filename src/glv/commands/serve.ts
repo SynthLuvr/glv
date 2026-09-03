@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { deleteCronJob, readConfig } from "../config.js";
+import { deleteCronJob, readConfig, resolveConfigPath } from "../config.js";
 import { startCronScheduler } from "../cron.js";
 import {
   openCronSessionsDb,
@@ -141,12 +141,13 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const cronSessions = openCronSessionsDb(
     resolveCronDbPath(opts.profile.dataDirName),
   );
-  // Scheduled runs from the config file, read once at boot — an invalid
-  // job fails startup loudly rather than running a partial schedule.
+  // Scheduled runs from the config file: an invalid job set fails
+  // startup loudly; later file edits reload the schedule live.
   const cron = startCronScheduler({
     launcher,
     runner,
-    jobs: readConfig(opts.profile.dataDirName).cronJobs ?? [],
+    readJobs: () => readConfig(opts.profile.dataDirName).cronJobs ?? [],
+    configPath: resolveConfigPath(opts.profile.dataDirName),
     tagSession: (sessionId, jobName) =>
       tagCronSession(cronSessions, sessionId, jobName),
     // One-shots retire themselves from the config once their moment
@@ -202,7 +203,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const shutdown = createShutdown({
     server,
     destroyConnections,
-    stopCron: () => cron?.stop(),
+    stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),
     stopTunnel: () => tunnel?.kill(),
     closeDbs,

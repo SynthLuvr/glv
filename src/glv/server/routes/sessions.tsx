@@ -13,6 +13,7 @@ import {
   clearPending,
   enqueueOrQueue,
   getHandle,
+  steer,
   stop,
 } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
@@ -398,6 +399,15 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = firstString(body.prompt);
     const files = collectFiles(body.uploads);
 
+    // Delivery choice for a busy session: "steer" injects the prompt into
+    // the live agent process, "queue" chains it after the current run.
+    // Any other value — including absent — falls back to the flavor
+    // default, so a crafted POST cannot steer a flavor that has no
+    // streaming-input mode.
+    const mode = firstString(body.mode);
+    const steerMode =
+      mode !== "queue" && ctx.runner.config.agent.steer !== undefined;
+
     // Session id is known, so tag the upload dir immediately for cleanup.
     let fullPrompt = prompt;
     let uploadError: string | undefined;
@@ -410,19 +420,17 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         uploadError = uploadErrorMessage(err);
       }
 
-    // Render the submitted prompt only when it started right away; queued
-    // prompts surface as QueuedPrompt cards via the handle, so passing the
-    // text here too would double-display it. Skip enqueuing entirely when an
-    // upload failed so the user can retry.
+    // Render the submitted prompt only when it started (or joined) a run
+    // right away; queued prompts surface as QueuedPrompt cards via the
+    // handle, so passing the text here too would double-display it. Skip
+    // enqueuing entirely when an upload failed so the user can retry.
     let activePrompt: string | undefined;
     if (prompt !== "" && uploadError === undefined) {
-      const { queued } = enqueueOrQueue(
-        ctx.runner,
-        id,
-        fullPrompt,
-        session.working_dir,
-      );
-      if (!queued) activePrompt = prompt;
+      const immediate = steerMode
+        ? steer(ctx.runner, id, fullPrompt, session.working_dir).delivered
+        : !enqueueOrQueue(ctx.runner, id, fullPrompt, session.working_dir)
+            .queued;
+      if (immediate) activePrompt = prompt;
     }
 
     const run = getHandle(ctx.runner, id);

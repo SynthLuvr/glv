@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Cron } from "croner";
-import type { CronJobConfig } from "./config.js";
+import { type CronJobConfig, watchConfigFile } from "./config.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { type Runner, stop } from "./runner/index.js";
@@ -11,22 +11,32 @@ import {
   parseSchedule,
 } from "./schedule.js";
 import { expandHome } from "./server/paths.js";
-import { errorMessage } from "./util.js";
+import { errorMessage, positiveEnvNumber } from "./util.js";
 
 type CronScheduler = {
-  /** Stops every scheduled job. In-flight agent runs keep running. */
+  /**
+   * Stops every scheduled job and the config watcher. In-flight agent
+   * runs keep running.
+   */
   readonly stop: () => void;
 };
 
 type SchedulerDeps = {
   readonly launcher: SessionLauncher;
   readonly runner: Runner;
-  readonly jobs: readonly CronJobConfig[];
+  /**
+   * Reads cron jobs from the config file; throws while the file is
+   * unreadable or invalid.
+   */
+  readonly readJobs: () => readonly CronJobConfig[];
+  /** Config file path, watched so edits apply without a restart. */
+  readonly configPath: string;
   /** Records which job started a session, for sidebar recognition. */
   readonly tagSession?: (sessionId: string, jobName: string) => void;
   /**
    * Retires a one-shot job (removes it from the config) once its moment
-   * has passed — after it fired, or at boot when it expired unfired.
+   * has passed — after it fired, or at boot/reload when it expired
+   * unfired.
    */
   readonly retireOneShot?: (jobName: string) => void;
 };
@@ -44,19 +54,10 @@ type ResolvedJob = {
 
 // How long one fire waits for the agent to create its session before the
 // run is stopped — mirrors the HTTP create flow's poll timeout, but
-// generous because nothing is waiting on the answer.
+// generous because nothing is waiting on the answer. The
+// GLV_CRON_SESSION_TIMEOUT_MS override shrinks the window so tests can
+// observe the timeout path without a minute-long wait.
 const DEFAULT_SESSION_TIMEOUT_MS = 60_000;
-
-// Test-facing override: shrinks the establishment window so the timeout
-// path is observable without a minute-long wait.
-const sessionTimeoutMs = (): number => {
-  const raw = process.env.GLV_CRON_SESSION_TIMEOUT_MS;
-  if (raw === undefined || raw === "") return DEFAULT_SESSION_TIMEOUT_MS;
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0
-    ? value
-    : DEFAULT_SESSION_TIMEOUT_MS;
-};
 
 // croner accepts any string as a timezone and only misbehaves later, so
 // validity is checked here to fail startup with the job named.
@@ -90,6 +91,24 @@ const assertUniqueNames = (jobs: readonly ResolvedJob[]): void => {
   }
 };
 
+// Validating (parseSchedule) fails with the job named for any invalid
+// schedule — bad cron, translatable-but-rejected English, or a one-shot
+// that is not a real datetime. An expired one-shot is *not* invalid: it
+// is retired without running (applyJobs), so validation lets it pass.
+// The probe is name-less and never registers anything — croner throws
+// when a name is re-registered while a live job holds it; names are only
+// claimed once the old schedule has been stopped.
+const assertParsableSchedule = (job: ResolvedJob): void => {
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  if (parsed.ok) return;
+  const once = parseOneShotSchedule(job.schedule);
+  if (once !== undefined && once.getTime() <= Date.now()) return;
+  throw new Error(
+    `cron job "${job.name}" has an invalid schedule ` +
+      `"${job.schedule}": ${parsed.error}`,
+  );
+};
+
 const validateJob = (job: ResolvedJob): void => {
   if (job.timezone !== undefined && !validTimezone(job.timezone))
     throw new Error(
@@ -101,12 +120,21 @@ const validateJob = (job: ResolvedJob): void => {
     throw new Error(
       `cron job "${job.name}" working directory does not exist: ${job.workingDir}`,
     );
+  assertParsableSchedule(job);
 };
 
-// Validating (parseSchedule) fails startup with the job named for any
-// invalid schedule; an English schedule arrives here already translated
-// to its cron pattern, so every job is croner-driven. A disabled job is
-// parsed for validation but never given a callback, so it stays dormant.
+// Whole-set validation, separate from the running schedule so an edit
+// can be checked fully before anything is swapped in.
+const validateJobs = (jobs: readonly ResolvedJob[]): void => {
+  assertUniqueNames(jobs);
+  for (const job of jobs) validateJob(job);
+};
+
+// Scheduling translates the schedule to what croner drives: an English
+// schedule fires as the cron pattern it translates to (every job is
+// croner-driven), a one-shot as the ISO date croner runs once. A
+// disabled job is still constructed — for validation — but with no
+// callback, which croner never schedules.
 const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
   if (!parsed.ok)
@@ -129,7 +157,7 @@ const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
 // pull, start, wait for the agent's session, rekey — minus the HTTP
 // concerns (uploads, temp dirs).
 const runFire = async (
-  deps: SchedulerDeps,
+  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
   timeoutMs: number,
   job: ResolvedJob,
 ): Promise<void> => {
@@ -163,7 +191,7 @@ const runFire = async (
 // Serialized per working directory and fully defensive: a scheduled
 // callback must never reject.
 const fireJob = (
-  deps: SchedulerDeps,
+  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
   locks: Map<string, Promise<void>>,
   timeoutMs: number,
   job: ResolvedJob,
@@ -176,18 +204,28 @@ const fireJob = (
     }
   });
 
-// Schedules one croner job per config entry. Returns undefined when no
-// jobs are configured; throws (naming the job) on any invalid entry so
-// serve fails fast instead of skipping silently.
-const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
-  const jobs = resolveJobs(deps.jobs);
-  if (jobs.length === 0) return undefined;
-  assertUniqueNames(jobs);
+// An invalid reload is logged, not thrown: the previous schedule keeps
+// running until the file is valid again.
+const logKeptSchedule = (outcome: string, err: unknown): void =>
+  console.error(
+    `cron: config reload ${outcome} — keeping the running schedule (${errorMessage(err)})`,
+  );
 
+// Schedules one croner job per config entry, then watches the config file
+// so later edits apply without a restart. Throws (naming the job) on any
+// invalid entry at boot so serve fails fast; an invalid *reload* is
+// logged instead and the running schedule kept.
+const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
+  // The per-directory locks and in-flight markers outlive reloads, so a
+  // rebuilt schedule never doubles runs onto one the previous set started.
   const locks = new Map<string, Promise<void>>();
   const establishing = new Set<string>();
-  const timeoutMs = sessionTimeoutMs();
+  const timeoutMs = positiveEnvNumber(
+    "GLV_CRON_SESSION_TIMEOUT_MS",
+    DEFAULT_SESSION_TIMEOUT_MS,
+  );
   const scheduled: Cron[] = [];
+  let current: readonly ResolvedJob[] = [];
 
   const retire = (job: ResolvedJob): void => {
     try {
@@ -200,40 +238,83 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler | undefined => {
     }
   };
 
-  for (const job of jobs) {
-    validateJob(job);
-    // A fire whose establishment (poll + rekey) is still in flight skips
-    // the next tick rather than piling runs onto the same directory.
-    const fire = (): void => {
-      if (establishing.has(job.name)) return;
-      establishing.add(job.name);
-      const done = fireJob(deps, locks, timeoutMs, job).finally(() => {
-        establishing.delete(job.name);
-      });
-      // A one-shot's moment has passed whatever the outcome; retire it so
-      // the config (and the UI reading it) tells the truth.
-      if (parseOneShotSchedule(job.schedule) !== undefined)
-        void done.then(() => retire(job));
-    };
-    // One-shot whose time already passed: never fires late — retire it so
-    // the config (and the UI reading it) tells the truth. A missed moment
-    // stays missed, whether the job was enabled or paused.
-    const once = parseOneShotSchedule(job.schedule);
-    if (once !== undefined && once.getTime() <= Date.now()) {
-      if (job.enabled)
-        console.log(
-          `cron job "${job.name}": one-shot time ` +
-            `${fmtDateTime(once)} is in the past — removed without running`,
-        );
-      retire(job);
-      continue;
-    }
-    scheduled.push(scheduleJob(job, fire));
-  }
+  // A fire whose establishment (poll + rekey) is still in flight skips
+  // the next tick rather than piling runs onto the same directory.
+  const fire = (job: ResolvedJob): void => {
+    if (establishing.has(job.name)) return;
+    establishing.add(job.name);
+    const done = fireJob(deps, locks, timeoutMs, job).finally(() => {
+      establishing.delete(job.name);
+    });
+    // A one-shot's moment has passed whatever the outcome; retire it so
+    // the config (and the UI reading it) tells the truth.
+    if (parseOneShotSchedule(job.schedule) !== undefined)
+      void done.then(() => retire(job));
+  };
 
-  console.log(`cron: ${scheduled.length} job(s) scheduled from the config`);
+  // Swaps the running schedule for a validated job set. Everything that
+  // can fail is checked before the old jobs are stopped, so an invalid
+  // set never disturbs the running schedule; stopping first also frees
+  // each croner name for re-registration by the new set. In-flight runs
+  // keep running — same semantics as shutdown. One-shots whose moment
+  // already passed are retired instead of scheduled, so the set returned
+  // (the one now running) can be smaller than the set given.
+  const applyJobs = (
+    resolved: readonly ResolvedJob[],
+  ): readonly ResolvedJob[] => {
+    validateJobs(resolved);
+    for (const cron of scheduled) cron.stop();
+    const effective: ResolvedJob[] = [];
+    for (const job of resolved) {
+      // A one-shot whose time already passed: never fires late — retire
+      // it so the config (and the UI reading it) tells the truth. A
+      // missed moment stays missed, whether the job was enabled or
+      // paused.
+      const once = parseOneShotSchedule(job.schedule);
+      if (once !== undefined && once.getTime() <= Date.now()) {
+        if (job.enabled)
+          console.log(
+            `cron job "${job.name}": one-shot time ` +
+              `${fmtDateTime(once)} is in the past — removed without running`,
+          );
+        retire(job);
+        continue;
+      }
+      effective.push(job);
+      scheduled.push(scheduleJob(job, () => fire(job)));
+    }
+    return effective;
+  };
+
+  const reload = (): void => {
+    let resolved: readonly ResolvedJob[];
+    try {
+      resolved = resolveJobs(deps.readJobs());
+    } catch (err) {
+      logKeptSchedule("failed", err);
+      return;
+    }
+    // An edit that leaves the jobs untouched (e.g. forwardHost) must not
+    // reschedule anything.
+    if (JSON.stringify(resolved) === JSON.stringify(current)) return;
+    try {
+      current = applyJobs(resolved);
+    } catch (err) {
+      logKeptSchedule("rejected", err);
+      return;
+    }
+    console.log(`cron: ${current.length} job(s) scheduled after config reload`);
+  };
+
+  // Boot is fail-fast: an invalid job set throws out of serve startup.
+  current = applyJobs(resolveJobs(deps.readJobs()));
+  if (current.length > 0)
+    console.log(`cron: ${current.length} job(s) scheduled from the config`);
+  const watcher = watchConfigFile(deps.configPath, reload);
+
   return {
     stop: () => {
+      watcher.stop();
       for (const cron of scheduled) cron.stop();
     },
   };

@@ -47,6 +47,11 @@ the browser.
 - **Queued follow-ups.** While a session is running you can queue
   follow-up prompts that chain together once the current run finishes.
   Runs are governed by a concurrency-limited queue (six by default).
+- **Steering (claude).** Steer or queue follow-ups on a running claude
+  session: **Steer** injects the prompt into the live agent process
+  (`--input-format stream-json`) so it takes effect mid-run, while
+  **Queue** keeps the chain-after semantics. goose sessions are
+  queue-only. `GLV_DISABLE_STEERING=1` restores pure queue semantics.
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
   database and streams only the deltas, so you can keep an eye on a run
@@ -269,10 +274,21 @@ that would fire more often than once a minute are rejected.
   defaults to system-local time; `enabled: false` pauses a job without
   deleting it.
 
-- Jobs are read once at `serve` startup. An invalid job — bad schedule,
-  unknown timezone, duplicate name, or (for an enabled job) a missing
-  working directory — stops the server from starting, naming the job.
-  Edits apply on the next restart.
+- Jobs are validated at `serve` startup — an invalid job (bad schedule,
+  unknown timezone, duplicate name, or a missing working directory on an
+  enabled job) stops the server from starting, naming the job.
+
+- `serve` also **watches the config file and reloads the schedule
+  live**: added, changed, and removed jobs take effect without a
+  restart, typically within a second. A reload only swaps the schedule
+  once the whole new job set validates — an invalid edit (bad JSON, bad
+  schedule, …) is logged to stderr and the previous schedule keeps
+  running until the file is valid again. Runs already in flight when
+  their job is removed or changed are left to finish. A one-shot whose
+  moment already passed — at boot or in a reload — is retired without
+  running: a missed moment stays missed. A content poll backs the
+  watcher up on filesystems without reliable change events
+  (`GLV_CONFIG_WATCH_POLL_MS`, default 5000).
 
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
@@ -344,11 +360,17 @@ pnpm test     # run tests
 pnpm lint     # lint all files
 ```
 
-The integration suite runs on Linux and Windows; CI exercises both on
-every pull request. One caveat on Windows: the claude-flavored suites
-that spawn the mocked agent binary are excluded (see `vitest.config.ts`
-for why); they still run there through the goose flavor, which drives
-the same core.
+Build and lint are fast — run both locally before every push. The test
+suite is slow (every file boots a real `glv serve` process plus a
+headless Chromium), so testing is split by pull-request state: run
+`pnpm test` locally **before opening a pull request**, and once a PR is
+open let CI do the testing — it exercises the suite on Linux and Windows
+on every push (`.github/workflows/ci.yml`), so don’t re-run it locally
+per iteration; watch the PR checks instead. While no PR is open, testing
+stays local. One caveat on Windows: the claude-flavored suites that
+spawn the mocked agent binary are excluded (see `vitest.config.ts` for
+why); they still run there through the goose flavor, which drives the
+same core.
 
 Every test file boots a real `glv serve` process plus a headless
 Chromium, so the suite runs at most two files at a time to keep peak

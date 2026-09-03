@@ -139,7 +139,11 @@ serveCmd.action((opts: ServeOpts) => {
     profile: claudeProfile,
     runner: cli.makeRunnerConfig(
       opts.maxConcurrent,
-      makeClaudeAgent(opts.claudeBinary, opts.permissionMode),
+      makeClaudeAgent(
+        opts.claudeBinary,
+        opts.permissionMode,
+        !cli.steeringDisabled(),
+      ),
     ),
     makeLauncher: (runner) =>
       makeClaudeLauncher(

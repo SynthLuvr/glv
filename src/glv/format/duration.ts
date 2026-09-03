@@ -39,8 +39,15 @@ const toolRunText = (tool: ToolRun, now: number = Date.now()): string => {
   return `⟳ ${who} running for ${elapsed}${timeout}`;
 };
 
-const queuedSuffix = (count: number): string =>
-  count > 0 ? ` (${count} prompt${count > 1 ? "s" : ""} queued next)` : "";
+// Follow-up suffix for the running status hint, e.g. "(1 steered, 2
+// queued next)". Shared by the server render and the client bundle.
+const followUpSuffix = (steered: number, queued: number): string => {
+  const parts: string[] = [];
+  if (steered > 0) parts.push(`${steered} steered`);
+  if (queued > 0)
+    parts.push(`${queued} prompt${queued > 1 ? "s" : ""} queued next`);
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+};
 
 export type { ToolRun };
-export { fmtDuration, queuedSuffix, toolRunText };
+export { fmtDuration, followUpSuffix, toolRunText };

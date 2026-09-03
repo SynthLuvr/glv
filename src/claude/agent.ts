@@ -1,4 +1,4 @@
-import type { AgentInvocation } from "../glv/runner/types.js";
+import type { AgentInvocation, SteerSpec } from "../glv/runner/types.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../glv/system.js";
 import { claudeProfile } from "./profile.js";
 
@@ -27,6 +27,35 @@ const PERMISSION_MODES: readonly string[] = [
 // for stream-json to emit the full event stream rather than just the final
 // result record.
 const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
+
+// DESIGN DECISION (verified empirically against claude 2.1.233,
+// 2026-09-02): `--input-format stream-json` makes claude accept user
+// messages as NDJSON lines on a long-lived stdin — the first line starts a
+// turn immediately, further lines become further turns in the same process
+// and session (each ending with its own result record), and stdin EOF lets
+// claude finish its queue and exit 0. A message arriving mid-turn is
+// queued by claude itself and starts a new turn, so steering degrades to
+// a turn boundary at worst, never a lost prompt. Steered messages are
+// persisted into the session transcript, so GLV's transcript reader picks
+// them up with zero changes (support is longstanding: changelog v0.2.108).
+const STEER_INPUT_FLAGS = ["--input-format", "stream-json"];
+
+// The steering dialect (see STEER_INPUT_FLAGS above): one user message
+// per NDJSON line, one result record per turn.
+const CLAUDE_STEER: SteerSpec = {
+  encode: (prompt) =>
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: prompt },
+    }),
+  isTurnEnd: (line) => {
+    try {
+      return (JSON.parse(line) as { type?: unknown }).type === "result";
+    } catch {
+      return false;
+    }
+  },
+};
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
@@ -61,28 +90,25 @@ const permissionFlags = (mode: string): string[] =>
 const makeClaudeAgent = (
   binary: string,
   permissionMode: string = DEFAULT_PERMISSION_MODE,
+  steering: boolean = true,
 ): AgentInvocation => {
   if (!PERMISSION_MODES.includes(permissionMode))
     throw new Error(
       `Invalid permission mode "${permissionMode}": must be one of ${PERMISSION_MODES.join(", ")}`,
     );
+  // The streaming-input flags and the steer spec go together — without
+  // them the prompt travels as raw write-and-close stdin.
+  const commonArgs = [
+    ...SYSTEM_FLAGS,
+    ...permissionFlags(permissionMode),
+    ...STREAM_FLAGS,
+    ...(steering ? STEER_INPUT_FLAGS : []),
+  ];
   return {
     name: claudeProfile.agentName,
     binary,
-    newSession: (_prompt, key) => [
-      "--session-id",
-      key,
-      ...SYSTEM_FLAGS,
-      ...permissionFlags(permissionMode),
-      ...STREAM_FLAGS,
-    ],
-    resume: (key) => [
-      "--resume",
-      key,
-      ...SYSTEM_FLAGS,
-      ...permissionFlags(permissionMode),
-      ...STREAM_FLAGS,
-    ],
+    newSession: (_prompt, key) => ["--session-id", key, ...commonArgs],
+    resume: (key) => ["--resume", key, ...commonArgs],
     // claude gates a directory it has never seen behind an interactive "do
     // you trust the files in this folder?" dialog that a headless --print run
     // can never answer, and drops project-scoped settings until it is
@@ -90,6 +116,7 @@ const makeClaudeAgent = (
     // marks the directory trusted — what claude may do there is still bounded
     // by the permission mode.
     env: () => ({ CLAUDE_CODE_SANDBOXED: "1" }),
+    steer: steering ? CLAUDE_STEER : undefined,
   };
 };
 
