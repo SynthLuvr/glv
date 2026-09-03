@@ -28,7 +28,7 @@ import { expandHome } from "../paths.js";
 
 // Management surface for scheduled runs. The config file stays the source
 // of truth: every mutation is a read-modify-write of its cronJobs array,
-// and mutations remind that serve must restart to pick them up.
+// and the scheduler picks each one up live — no restart needed.
 
 // Names must stay URL-safe (they name route params) and human-friendly.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
