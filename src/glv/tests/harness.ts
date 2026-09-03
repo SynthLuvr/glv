@@ -540,10 +540,8 @@ const defaultConfigFile = (home: string, dataDirName: string): string =>
     ? join(home, "AppData", "Local", dataDirName, "config.json")
     : join(home, ".config", dataDirName, "config.json");
 
-// Cron config-file helpers shared by the cron suites and the flavor
-// tests: the config file is the source of truth, so tests assert on what
-// the UI claims to write. One shape, read and written the same way
-// everywhere.
+// The config-file shape shared by the cron suites and flavor tests: the
+// file is the source of truth, so tests assert on what the UI writes.
 type CronConfigFile = { cronJobs?: Record<string, unknown>[] };
 
 // Writes a config file holding exactly these jobs at the flavor's default
@@ -566,7 +564,6 @@ const readCronConfig = (path: string): CronConfigFile =>
     ? JSON.parse(readFileSync(path, "utf-8"))
     : {}) as CronConfigFile;
 
-// The job entry with this name, if the file holds one.
 const cronJobIn = (
   path: string,
   name: string,
@@ -909,6 +906,7 @@ const collectSse = async (
   });
 
 export type {
+  CronConfigFile,
   Databases,
   FlavorAdapter,
   FlavorFixture,

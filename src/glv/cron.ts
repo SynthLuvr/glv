@@ -4,7 +4,7 @@ import { Cron } from "croner";
 import { type CronJobConfig, watchConfigFile } from "./config.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
-import type { ModelSelection } from "./models.js";
+import { jobModelSelection } from "./models.js";
 import { type Runner, stop } from "./runner/index.js";
 import {
   fmtDateTime,
@@ -43,9 +43,8 @@ type SchedulerDeps = {
   readonly retireOneShot?: (jobName: string) => void;
   /**
    * Whether the flavor can honor a model pin (a ModelSource is wired).
-   * A model-pinned job in an unsupported flavor fails validation, named,
-   * rather than silently running on the agent default. Capability, not
-   * config state: fixed for the life of the process.
+   * A pinned job in a flavor without one fails validation, named,
+   * instead of silently running on the agent default.
    */
   readonly supportsModels?: boolean;
 };
@@ -183,11 +182,6 @@ const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
 // concerns (uploads, temp dirs). A pinned model rides along exactly as a
 // picked one does for an interactive session; no pin means the agent's
 // own default (no model flags).
-const jobModel = (job: ResolvedJob): ModelSelection | undefined =>
-  job.modelProvider !== undefined && job.model !== undefined
-    ? { provider: job.modelProvider, model: job.model }
-    : undefined;
-
 const runFire = async (
   deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
   timeoutMs: number,
@@ -197,7 +191,7 @@ const runFire = async (
   const handle = deps.launcher.startNew(
     job.workingDir,
     job.prompt,
-    jobModel(job),
+    jobModelSelection(job),
   );
   const sessionId = await deps.launcher.awaitNew(
     handle,

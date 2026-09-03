@@ -57,17 +57,6 @@ const runCronSuite = (fx: FlavorFixture): void => {
   const writeConfig = (homeDir: string, cronJobs: unknown): string =>
     writeCronConfig(homeDir, fx.binName, cronJobs);
 
-  // Boots serve against the fake HOME and the config at cfgPath, and
-  // resolves on exit (see waitForServeExit for the timeout semantics).
-  const serveUntilExit = (
-    cfgPath: string,
-    homeDir: string,
-  ): Promise<{ status: number | null; stderr: string }> =>
-    waitForServeExit(fx.binPath, ["serve", ...fx.defaultServeArgs(homeDir)], {
-      ...fakeHomeEnv(homeDir),
-      GLV_CONFIG: cfgPath,
-    });
-
   // Asserts serve refuses to start for the given cronJobs value, naming
   // every expected stderr fragment.
   const expectServeRefuses = async (
@@ -75,9 +64,13 @@ const runCronSuite = (fx: FlavorFixture): void => {
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-    const { status, stderr } = await serveUntilExit(
-      writeConfig(homeDir, cronJobs),
-      homeDir,
+    const { status, stderr } = await waitForServeExit(
+      fx.binPath,
+      ["serve", ...fx.defaultServeArgs(homeDir)],
+      {
+        ...fakeHomeEnv(homeDir),
+        GLV_CONFIG: writeConfig(homeDir, cronJobs),
+      },
     );
     expect(status ?? 0).not.toBe(0);
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);

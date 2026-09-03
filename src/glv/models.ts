@@ -51,15 +51,46 @@ const decodeModelValue = (value: string): ModelSelection | undefined => {
   return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
 };
 
-// The picker's submitted value for a stored model pin (CronJobConfig's
-// modelProvider/model pair): "" when the job runs the agent default.
-const jobModelValue = (job: {
+// A cron job's stored model pin (the config file's modelProvider/model
+// pair): both keys together, or neither for the agent's own default.
+type ModelPin = {
   readonly modelProvider?: string;
   readonly model?: string;
-}): string =>
-  job.modelProvider !== undefined && job.model !== undefined
-    ? encodeModelValue(job.modelProvider, job.model)
-    : "";
+};
 
-export type { ModelChoice, ModelSelection, ModelSource };
-export { decodeModelValue, encodeModelValue, jobModelValue };
+// The selection a stored pin names, or undefined when the job runs the
+// agent's own default.
+const jobModelSelection = (pin: ModelPin): ModelSelection | undefined =>
+  pin.modelProvider !== undefined && pin.model !== undefined
+    ? { provider: pin.modelProvider, model: pin.model }
+    : undefined;
+
+// The config-file spelling of a selection: both keys, or neither.
+const modelPinFields = (selection: ModelSelection | undefined): ModelPin =>
+  selection === undefined
+    ? {}
+    : { modelProvider: selection.provider, model: selection.model };
+
+// The picker's submitted value for a stored pin: "" when the job runs
+// the agent default.
+const jobModelValue = (pin: ModelPin): string => {
+  const selection = jobModelSelection(pin);
+  return selection === undefined
+    ? ""
+    : encodeModelValue(selection.provider, selection.model);
+};
+
+// Rejection copy for a submitted pick that no longer resolves — shared
+// by the New Session and scheduled-run submits so the flows read alike.
+const modelUnavailableError = (agentName: string): string =>
+  `That model is no longer available in ${agentName}. Pick another from the list.`;
+
+export type { ModelChoice, ModelPin, ModelSelection, ModelSource };
+export {
+  decodeModelValue,
+  encodeModelValue,
+  jobModelSelection,
+  jobModelValue,
+  modelPinFields,
+  modelUnavailableError,
+};

@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
 import {
   authedFetch,
+  type CronConfigFile,
+  cronJobIn,
   type FlavorFixture,
   type IntegrationEnv,
   readCronConfig,
@@ -25,18 +27,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
   const writeConfig = (homeDir: string, cronJobs: unknown[]): string =>
     writeCronConfig(homeDir, fx.binName, cronJobs);
 
-  const readConfig = readCronConfig;
-
   // Polls the file until it satisfies the predicate (the server's writes
   // trail the HTTP response by design — retirement happens after a fire).
   const waitForConfig = async (
     path: string,
-    accept: (config: ReturnType<typeof readCronConfig>) => boolean,
+    accept: (config: CronConfigFile) => boolean,
     timeoutMs = 15_000,
-  ): Promise<ReturnType<typeof readCronConfig>> => {
+  ): Promise<CronConfigFile> => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const config = readConfig(path);
+      const config = readCronConfig(path);
       if (accept(config)) return config;
       if (Date.now() > deadline)
         throw new Error(
@@ -200,7 +200,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Run the nightly build");
 
       // English is CONVERTED to a cron pattern — the file stores cron.
-      const config = readConfig(cfgPath);
+      const config = readCronConfig(cfgPath);
       expect(config.cronJobs).toEqual([
         {
           name: "Weekly build",
@@ -234,7 +234,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // composed prompt lives in the untouched form above).
       expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
-      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("rejects an empty prompt with a pointer back to the form", async () => {
@@ -281,7 +281,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("already exists");
       expect(html).toContain("Weekly build");
-      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("rejects a model the agent cannot resolve, with a pointer to the picker", async () => {
@@ -298,7 +298,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(422);
       expect(await res.text()).toContain("no longer available");
-      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
@@ -408,12 +408,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
-    const jobByName = (name: string): Record<string, unknown> | undefined => {
-      const jobs = readConfig(cfgPath).cronJobs ?? [];
-      return jobs.find((job) => (job as { name?: string }).name === name) as
-        | Record<string, unknown>
-        | undefined;
-    };
+    const jobByName = (name: string): Record<string, unknown> | undefined =>
+      cronJobIn(cfgPath, name);
 
     it("lists every job with status, schedule, next run, and the notice", async () => {
       const res = await authedFetch(env, "/");
@@ -520,7 +516,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain('id="scheduled-runs"');
       expect(html).toContain("No scheduled runs yet");
       expect(html).not.toContain("cron-job-card");
-      expect(readConfig(cfgPath).cronJobs).toEqual([]);
+      expect(readCronConfig(cfgPath).cronJobs).toEqual([]);
     });
   });
 
@@ -687,7 +683,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         }
         expect(html).toContain("Typed Schedule Session");
         // A recurring job stays in the config (unlike a one-shot).
-        const jobs = readConfig(cfgPath).cronJobs ?? [];
+        const jobs = readCronConfig(cfgPath).cronJobs ?? [];
         expect(jobs).toHaveLength(1);
       } finally {
         await env.cleanup();

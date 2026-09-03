@@ -1,5 +1,6 @@
 import { Fragment } from "hono/jsx";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
+import { jobModelSelection } from "../models.js";
 import {
   fmtDateTime,
   humanizeSchedule,
@@ -101,9 +102,8 @@ const ScheduleControls = ({
 // prompt and working directory composed in the New Session form above —
 // hx-include pulls those fields at submit time, so the latest typing is
 // what gets scheduled, and the composed prompt is never duplicated or
-// lost. The model picker is this form's own (same lazy catalogue
-// fragment as the New Session form), so a job's model is chosen where
-// the job is, independently of whatever the form above would run now.
+// lost. The model picker is the form's own, so the job pins its model
+// independently of whatever the form above would run now.
 const ScheduleSaveForm = ({
   agentName,
   jobName = "",
@@ -177,6 +177,7 @@ const ScheduleSaveForm = ({
 // job's name, humanized schedule, next run, and the live-reload notice.
 const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
   const human = humanizeSchedule(job.schedule, job.timezone);
+  const model = jobModelSelection(job);
   return (
     <section class="schedule-confirmation" data-schedule-confirmation>
       <div class="schedule-confirmation-head">
@@ -195,11 +196,11 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         </dd>
         <dt>Next run</dt>
         <dd>{nextRunText(job)}</dd>
-        {job.modelProvider !== undefined && job.model !== undefined && (
+        {model !== undefined && (
           <Fragment>
             <dt>Model</dt>
             <dd>
-              {job.modelProvider} / {job.model}
+              {model.provider} / {model.model}
             </dd>
           </Fragment>
         )}
@@ -216,6 +217,7 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
 const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
   const name = encodeURIComponent(job.name);
   const enabled = job.enabled !== false;
+  const model = jobModelSelection(job);
   return (
     <article class="cron-job-card" data-cron-job={job.name}>
       <div class="cron-job-head">
@@ -234,12 +236,12 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
         <span class="cron-job-next-label">Next run</span>{" "}
         <span class="cron-job-next-value">{nextRunText(job)}</span>
       </p>
-      {job.modelProvider !== undefined && job.model !== undefined && (
+      {model !== undefined && (
         <p
           class="cron-job-model mono"
-          title={`${job.modelProvider} / ${job.model}`}
+          title={`${model.provider} / ${model.model}`}
         >
-          {job.modelProvider} / {job.model}
+          {model.provider} / {model.model}
         </p>
       )}
       <p class="cron-job-prompt" title={job.prompt}>

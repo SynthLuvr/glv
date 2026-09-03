@@ -154,8 +154,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     // passes, so the file (and the UI reading it) tell the truth.
     retireOneShot: (jobName) =>
       deleteCronJob(opts.profile.dataDirName, jobName),
-    // goose accepts model pins; a flavor without a ModelSource must fail
-    // a pinned job loudly instead of silently running the default.
+    // Without a ModelSource the flavor cannot honor a model pin.
     supportsModels: opts.models !== undefined,
   });
   const authDb = openAuthDb(opts.authDbPath);

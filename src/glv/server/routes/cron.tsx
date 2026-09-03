@@ -8,8 +8,12 @@ import {
   readCronJobs,
   writeCronJobs,
 } from "../../config.js";
-import type { ModelSelection } from "../../models.js";
-import { jobModelValue } from "../../models.js";
+import {
+  jobModelSelection,
+  jobModelValue,
+  modelPinFields,
+  modelUnavailableError,
+} from "../../models.js";
 import {
   fmtDateTime,
   type NamedCronJob,
@@ -70,28 +74,6 @@ const readJobsOr = (
   } catch (err) {
     return { jobs: [], error: errorMessage(err) };
   }
-};
-
-// Resolves a submitted model_provider form value exactly the way the New
-// Session flow does — a fresh config read, never a catalogue spawn. The
-// empty value (the "<agent> default" option) resolves to undefined and
-// means "no pin": it never trips the rejection, and a flavor without
-// model support rejects any other value outright.
-const resolveModelPin = (
-  ctx: ServerContext,
-  agentName: string,
-  value: string,
-):
-  | { readonly ok: true; readonly model: ModelSelection | undefined }
-  | { readonly ok: false; readonly error: string } => {
-  if (value === "") return { ok: true, model: undefined };
-  const model = ctx.models?.resolve(value);
-  if (model === undefined)
-    return {
-      ok: false,
-      error: `That model is no longer available in ${agentName}. Pick another from the list.`,
-    };
-  return { ok: true, model };
 };
 
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
@@ -179,8 +161,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served (same rule as the New Session flow).
-    const modelPin = resolveModelPin(ctx, agentName, modelProvider);
-    if (!modelPin.ok) return reject(modelPin.error);
+    const model = ctx.models?.resolve(modelProvider);
+    if (modelProvider !== "" && model === undefined)
+      return reject(modelUnavailableError(agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     const workingDir = resolve(expandHome(workingDirRaw));
     if (workingDirRaw === "" || !existsSync(workingDir))
@@ -193,21 +176,13 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
     // English becomes its cron pattern here — the file stores one
-    // canonical spelling. A resolved model pin is stored as its two
-    // halves so the file stays self-describing.
-    const pin =
-      modelPin.model === undefined
-        ? {}
-        : {
-            modelProvider: modelPin.model.provider,
-            model: modelPin.model.model,
-          };
+    // canonical spelling.
     const job: NamedCronJob = {
       name: jobName,
       schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
-      ...pin,
+      ...modelPinFields(model),
     };
     try {
       appendCronJob(ctx.profile.dataDirName, job);
@@ -274,6 +249,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     // unexposed field keeps whatever the file already pins.
     const pickerExposed = hasModelPicker(ctx);
     const submittedModel = trimmedField(body, "model_provider");
+    const model = pickerExposed
+      ? ctx.models?.resolve(submittedModel)
+      : undefined;
 
     const reject = (error: string) =>
       c.html(
@@ -294,36 +272,27 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       return reject("That working directory does not exist.");
     const parsed = parseSchedule(schedule);
     if (!parsed.ok) return reject(parsed.error);
-    const modelPin = pickerExposed
-      ? resolveModelPin(ctx, ctx.profile.agentName, submittedModel)
-      : undefined;
-    if (modelPin !== undefined && !modelPin.ok) return reject(modelPin.error);
+    if (pickerExposed && submittedModel !== "" && model === undefined)
+      return reject(modelUnavailableError(ctx.profile.agentName));
     // Renaming onto a different existing job collides.
     if (jobs.some((job) => job.name === name && job.name !== existing.name))
       return reject(`A scheduled run named "${name}" already exists.`);
 
     // Unexposed fields (timezone, enabled, …) survive the edit; only the
-    // form's own fields are overwritten. A resolved model pin overwrites
-    // the stored one — including clearing it back to the agent default.
-    const { modelProvider: keptProvider, model: keptModel, ...kept } = existing;
-    const pin =
-      modelPin === undefined
-        ? keptProvider !== undefined && keptModel !== undefined
-          ? { modelProvider: keptProvider, model: keptModel }
-          : {}
-        : modelPin.model === undefined
-          ? {}
-          : {
-              modelProvider: modelPin.model.provider,
-              model: modelPin.model.model,
-            };
+    // form's own fields are overwritten. Where the picker is exposed,
+    // the submitted value replaces the stored pin — empty clears it.
+    const { modelProvider, model: storedModel, ...kept } = existing;
     const updated: NamedCronJob = {
       ...kept,
+      ...modelPinFields(
+        pickerExposed
+          ? model
+          : jobModelSelection({ modelProvider, model: storedModel }),
+      ),
       name,
       schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
-      ...pin,
     };
     try {
       writeCronJobs(
