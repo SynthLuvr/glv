@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { jobNameFor } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
@@ -88,6 +89,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     } = {},
   ) => {
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
+    const cronJob =
+      ctx.cronSessions !== undefined
+        ? jobNameFor(ctx.cronSessions, id)
+        : undefined;
     return render(
       c,
       ctx,
@@ -101,6 +106,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         prompt={prompt}
         prompts={libraryPrompts()}
         uploadError={uploadError}
+        cronJob={cronJob}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -154,6 +160,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     const files = collectFiles(body.uploads);
 
+    // Every rejection re-renders the form with the submitted prompt and
+    // schedule values restored — scheduling is an alternate submit, and
+    // nothing typed may be lost either way.
     const rejectForm = async (
       error: string,
       status: ContentfulStatusCode,
@@ -166,6 +175,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         newSessionDetail(ctx, {
           error,
           workingDir: submittedWorkingDir,
+          prompt,
           modelProvider,
         }),
         { status, title: NEW_SESSION_TITLE },

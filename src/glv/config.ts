@@ -10,6 +10,7 @@ import { homedir, platform } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { type } from "arktype";
 import { JsonObject, parseJson } from "./parse.js";
+import { resolvedCronName } from "./schedule.js";
 import { positiveEnvNumber } from "./util.js";
 
 const configRoot = (): string => {
@@ -19,8 +20,10 @@ const configRoot = (): string => {
   return join(homedir(), ".config");
 };
 
-// One scheduled run. Hand-edited for now — the file is the interface;
-// glv/cron.ts validates and runs them when serve starts.
+// One scheduled run. `schedule` is a cron pattern ("0 9 * * 1-5") or an
+// ISO 8601 local datetime ("2026-09-03T09:00") for a fire-once run.
+// Hand-editable in the file; the web UI's Scheduled runs section reads
+// and writes the same entries.
 const CronJob = type({
   "name?": "string",
   schedule: "string>0",
@@ -72,6 +75,38 @@ const writeConfig = (
   const path = resolveConfigPath(dataDirName);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+};
+
+// Read-modify-write helpers for the cron jobs array specifically. They
+// preserve every other config key (and any unknown future ones), and the
+// final write validates the whole file so a bad job can never be written.
+
+const readCronJobs = (dataDirName: string): CronJobConfig[] =>
+  readConfig(dataDirName).cronJobs ?? [];
+
+const writeCronJobs = (
+  dataDirName: string,
+  jobs: readonly CronJobConfig[],
+): void => {
+  const config = readRawConfig(dataDirName);
+  config.cronJobs = [...jobs];
+  writeConfig(dataDirName, config);
+};
+
+// Appends a job. The caller owns duplicate-name detection so it can shape
+// the user-facing error; this stays mechanical.
+const appendCronJob = (dataDirName: string, job: CronJobConfig): void =>
+  writeCronJobs(dataDirName, [...readCronJobs(dataDirName), job]);
+
+// Removes a job by its resolved name; false when nothing matched.
+const deleteCronJob = (dataDirName: string, name: string): boolean => {
+  const jobs = readCronJobs(dataDirName);
+  const kept = jobs.filter(
+    (job, index) => resolvedCronName(job, index) !== name,
+  );
+  if (kept.length === jobs.length) return false;
+  writeCronJobs(dataDirName, kept);
+  return true;
 };
 
 // Editors write configs in bursts (and often replace the file by atomic
@@ -153,10 +188,14 @@ const watchConfigFile = (
 
 export type { CronJobConfig };
 export {
+  appendCronJob,
   CONFIG_KEYS,
+  deleteCronJob,
   readConfig,
+  readCronJobs,
   readRawConfig,
   resolveConfigPath,
   watchConfigFile,
   writeConfig,
+  writeCronJobs,
 };

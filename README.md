@@ -54,6 +54,12 @@ the browser.
 - **PR tracking.** When a session mentions a GitHub pull request, glv
   surfaces a link with a live open / merged / closed status badge (via
   `gh`).
+- **Scheduled runs.** Click “Schedule…” in the Scheduled runs section
+  and type a schedule in plain English (“every weekday at 9:00”) or cron
+  — validated live before you can click “Schedule run”, converted to the
+  equivalent cron pattern on save, with upcoming runs previewed. Pause,
+  edit, and delete from the same section, or hand-edit the jobs in the
+  config file. Sessions a job starts carry a clock badge naming the job.
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -207,8 +213,15 @@ the flag errors out if the key is missing or the file is malformed.
 
 ### Scheduled runs (cron)
 
-Add a `cronJobs` array to the config file to run prompts on a schedule
-(there is no UI for this yet — the file is the interface):
+Scheduled runs can be managed two ways: from the **web viewer** (the
+“Scheduled runs” section below the New Session form has a “Schedule…”
+button that opens an inline form — **type a schedule in plain English or
+cron**, validated live as you type with upcoming runs previewed; the
+section lists every job with pause, edit, and delete) or by hand in the
+config file. Both write the same entries — the config file is the source
+of truth, and the running server picks changes up on the next restart.
+
+To define jobs by hand, add a `cronJobs` array to the config file:
 
 ``` json
 {
@@ -225,29 +238,53 @@ Add a `cronJobs` array to the config file to run prompts on a schedule
 }
 ```
 
-- `schedule` is a [croner](https://github.com/hexagon/croner) pattern —
-  the usual 5-field cron, or 6 fields when you need a leading seconds
-  part.
+- `schedule` is one of two spellings:
+
+  - a [croner](https://github.com/hexagon/croner) pattern — the usual
+    5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
+    part, or a nickname like `"@daily"`. An optional `timezone` applies.
+  - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
+    run. A one-shot fires once and retires itself from the config; if
+    its moment is already past when `serve` starts, it is removed
+    without running (a missed run stays missed).
+
+In the web form you can also **type a schedule in English** —
+`every weekday at 9:00`, `at 9:00` (daily), `on sunday at 18:00`,
+`every 30 minutes`, `every 2 hours`,
+`on the last day of the month at 18:00`. It is translated by
+[@breejs/later](https://github.com/breejs/later) into the equivalent
+cron pattern, and the **cron pattern is what gets saved**
+(`every weekday at 9:00` → `"0 9 * * 1-5"`); the live preview shows the
+conversion before you save. English hand-written in the config file also
+still works — it is translated the same way at serve boot. Phrasings
+that would fire more often than once a minute are rejected.
+
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
-  it shows up in the sidebar like any other session. A fire whose
-  session is still being established skips the next tick rather than
-  piling runs onto the same directory.
+  it shows up in the sidebar like any other session — badged with a
+  clock chip naming the job, in the sidebar and the transcript header. A
+  fire whose session is still being established skips the next tick
+  rather than piling runs onto the same directory.
+
 - `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
   defaults to system-local time; `enabled: false` pauses a job without
   deleting it.
+
 - Jobs are validated at `serve` startup — an invalid job (bad schedule,
   unknown timezone, duplicate name, or a missing working directory on an
-  enabled job) stops the server from starting, naming the job. Edits
-  apply on the next restart.
+  enabled job) stops the server from starting, naming the job.
+
 - `serve` also **watches the config file and reloads the schedule
   live**: added, changed, and removed jobs take effect without a
   restart, typically within a second. A reload only swaps the schedule
   once the whole new job set validates — an invalid edit (bad JSON, bad
   schedule, …) is logged to stderr and the previous schedule keeps
   running until the file is valid again. Runs already in flight when
-  their job is removed or changed are left to finish. A content poll
-  backs the watcher up on filesystems without reliable change events
+  their job is removed or changed are left to finish. A one-shot whose
+  moment already passed — at boot or in a reload — is retired without
+  running: a missed moment stays missed. A content poll backs the
+  watcher up on filesystems without reliable change events
   (`GLV_CONFIG_WATCH_POLL_MS`, default 5000).
+
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
 

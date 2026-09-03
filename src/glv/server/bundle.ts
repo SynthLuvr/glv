@@ -12,6 +12,7 @@ type AssetBundle = {
   readonly groups: string;
   readonly passkey: string;
   readonly uploads: string;
+  readonly schedule: string;
 };
 
 // Resolved relative to this file (src/glv/server/) so dist/ is three
@@ -35,6 +36,7 @@ const buildAssetBundle = (flavor: string): AssetBundle => ({
   groups: readAsset(`../../../dist/${flavor}/groups.js`),
   passkey: readAsset(`../../../dist/${flavor}/passkey.js`),
   uploads: readAsset(`../../../dist/${flavor}/uploads.js`),
+  schedule: readAsset(`../../../dist/${flavor}/schedule.js`),
 });
 
 export type { AssetBundle };

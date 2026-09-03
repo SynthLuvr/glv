@@ -29,6 +29,7 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
       <script src="/assets/ui.js" defer></script>
       <script src="/assets/prompts.js" defer></script>
       <script src="/assets/uploads.js" defer></script>
+      <script src="/assets/schedule.js" defer></script>
     </head>
     <body>{children}</body>
   </html>

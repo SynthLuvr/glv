@@ -2,7 +2,9 @@ import { shortenHome } from "../../glv/format/index.js";
 import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
+import type { NamedCronJob } from "../schedule.js";
 import { PromptLibrarySection } from "./prompt-library.js";
+import { ScheduledRunsSection } from "./schedule.js";
 
 const WorkingDirBody = ({
   workingDir,
@@ -157,19 +159,25 @@ const NewSessionForm = ({
   workingDir,
   dirs,
   error,
+  prompt = "",
   prompts = [],
   categories = [],
   modelPicker,
+  jobs = [],
 }: {
   agentName: string;
   workingDir: string;
   dirs: string[];
   error?: string;
+  /** Restores a rejected submit's prompt so nothing typed is lost. */
+  prompt?: string;
   prompts?: SavedPrompt[];
   categories?: string[];
   /** When present, render the lazy picker slot; `submitted` restores a
    * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
+  /** Scheduled runs from the config file — drives the management section. */
+  jobs?: readonly NamedCronJob[];
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>
@@ -204,7 +212,9 @@ const NewSessionForm = ({
           rows={5}
           placeholder={`What do you want ${agentName} to do?`}
           autofocus
-        />
+        >
+          {prompt}
+        </textarea>
       </label>
       <UploadFields />
       <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
@@ -216,6 +226,7 @@ const NewSessionForm = ({
       </div>
     </form>
     <PromptLibrarySection prompts={prompts} categories={categories} />
+    <ScheduledRunsSection jobs={jobs} />
   </div>
 );
 

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@breejs/later':
+        specifier: ^4.2.0
+        version: 4.2.0
       '@hono/node-server':
         specifier: github:SynthLuvr/node-server#dist/open-prs
         version: https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)
@@ -249,6 +252,10 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@breejs/later@4.2.0':
+    resolution: {integrity: sha512-EVMD0SgJtOuFeg0lAVbCwa+qeTKILb87jqvLyUtQswGD9+ce2nB52Y5zbTF1Hc0MDFfbydcMcxb47jSdhikVHA==}
+    engines: {node: '>= 10'}
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -2268,6 +2275,8 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@breejs/later@4.2.0': {}
 
   '@csstools/color-helpers@6.1.0': {}
 

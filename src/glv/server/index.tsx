@@ -9,6 +9,7 @@ import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBrowseRoutes } from "./routes/browse.js";
+import { registerCronRoutes } from "./routes/cron.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerGroupRoutes } from "./routes/groups.js";
@@ -43,6 +44,7 @@ const createApp = (
     runPrState: opts.runPrState,
     runGit: opts.runGit,
     models: opts.models,
+    cronSessions: opts.cronSessions,
     createLocks: new Map(),
     assets: buildAssetBundle(opts.profile.id),
   };
@@ -61,6 +63,7 @@ const createApp = (
   registerPrRoutes(app, ctx);
   registerGitRoutes(app, ctx);
   registerPromptRoutes(app, ctx);
+  registerCronRoutes(app, ctx);
   registerStreamRoutes(app, ctx);
   registerEventsRoutes(app, ctx);
 

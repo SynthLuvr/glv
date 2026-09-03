@@ -1,11 +1,14 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { readCronJobs } from "../config.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
+import { type NamedCronJob, withResolvedNames } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
+import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
 import {
   type ModelPicker,
@@ -205,13 +208,29 @@ const modelPicker = async (
 const hasModelPicker = (ctx: ServerContext): boolean =>
   ctx.models?.defaultSelection() !== undefined;
 
+// Everything a rejected submit needs to re-render the form without
+// losing typed work.
+type NewSessionDetailOpts = {
+  error?: string;
+  workingDir?: string;
+  prompt?: string;
+  modelProvider?: string;
+};
+
+// Reads the config file's cron jobs for the Scheduled runs section. A
+// config broken by a hand edit must not take the page down.
+const safeCronJobs = (ctx: ServerContext): NamedCronJob[] => {
+  try {
+    return withResolvedNames(readCronJobs(ctx.profile.dataDirName));
+  } catch (err) {
+    console.error(`cron: could not read jobs for the UI: ${errorMessage(err)}`);
+    return [];
+  }
+};
+
 const newSessionDetail = (
   ctx: ServerContext,
-  {
-    error,
-    workingDir,
-    modelProvider,
-  }: { error?: string; workingDir?: string; modelProvider?: string } = {},
+  { error, workingDir, prompt = "", modelProvider }: NewSessionDetailOpts = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
@@ -222,11 +241,13 @@ const newSessionDetail = (
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
+      prompt={prompt}
       prompts={prompts}
       categories={categories}
       modelPicker={
         hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
       }
+      jobs={safeCronJobs(ctx)}
     />
   );
 };
