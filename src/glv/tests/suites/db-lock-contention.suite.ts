@@ -32,17 +32,19 @@ const runDbLockContentionSuite = (fx: FlavorFixture): void => {
   });
 
   it("serves an authenticated request through a lock on the auth database", async () => {
-    const lock = new DatabaseSync(join(env.scratchDir, "auth.db"));
+    const lockDb = new DatabaseSync(join(env.scratchDir, "auth.db"));
     try {
-      lock.exec("PRAGMA busy_timeout=5000");
-      lock.exec("BEGIN EXCLUSIVE");
+      lockDb.exec("PRAGMA busy_timeout=5000");
+      lockDb.exec("BEGIN EXCLUSIVE");
+      // Fire the request while the lock is up and let it park there; it
+      // can only complete once the commit below releases the lock.
       const pending = authedFetch(env, "/");
       await sleep(500);
-      lock.exec("COMMIT");
+      lockDb.exec("COMMIT");
       const res = await pending;
       expect(res.status).toBe(200);
     } finally {
-      lock.close();
+      lockDb.close();
     }
   });
 };

@@ -153,6 +153,8 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
             '.session-item[data-session-id="mobile-tall-2"] .session-name',
           )
           .click();
+        // A contended auth-db busy wait can stretch the navigation past
+        // Playwright's 5s default, so allow a full lock window.
         await expect(page).toHaveURL(`${env.baseUrl}/sessions/mobile-tall-2`, {
           timeout: 15_000,
         });

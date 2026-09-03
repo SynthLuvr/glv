@@ -26,22 +26,17 @@ const resolveDataPath = (
   return value;
 };
 
-// Only glv-owned databases need this; agent-owned session data is opened
-// read-only and managed externally.
-const ensureDbDir = (dbPath: string): void => {
-  mkdirSync(dirname(dbPath), { recursive: true });
-};
-
-// Opens a glv-owned database. node:sqlite's default busy timeout is 0
-// (fail at once), so without this any transient lock on the file — a
-// concurrent glv command, a scanner eyeing a fresh file — kills the open
-// or the first statement with "database is locked" instead of waiting
-// the lock out.
+// Opens a glv-owned database (agent-owned session data is opened
+// read-only and managed externally, so it does not go through here).
+// node:sqlite's default busy timeout is 0 (fail at once), so without
+// this any transient lock on the file — a concurrent glv command, a
+// scanner eyeing a fresh file — kills the open or the first statement
+// with "database is locked" instead of waiting the lock out.
 const openGlvDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
+  mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
   return db;
 };
 
-export { ensureDbDir, openGlvDb, resolveDataPath };
+export { openGlvDb, resolveDataPath };
