@@ -153,7 +153,9 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
             '.session-item[data-session-id="mobile-tall-2"] .session-name',
           )
           .click();
-        await expect(page).toHaveURL(`${env.baseUrl}/sessions/mobile-tall-2`);
+        await expect(page).toHaveURL(`${env.baseUrl}/sessions/mobile-tall-2`, {
+          timeout: 15_000,
+        });
 
         await expectTopBarWithinViewport(page);
       });

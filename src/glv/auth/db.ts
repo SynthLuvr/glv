@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { openGlvDb, resolveDataPath } from "../db-path.js";
 import { parseJson } from "../parse.js";
 import { placeholders, transaction, validate, validateAll } from "../query.js";
 
@@ -45,8 +45,7 @@ CREATE TABLE IF NOT EXISTS enrollment_tokens (
 `;
 
 const openAuthDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
-  const db = new DatabaseSync(dbPath);
+  const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   return db;
 };

@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const dataRoot = (): string => {
   if (platform() === "win32")
@@ -31,4 +32,16 @@ const ensureDbDir = (dbPath: string): void => {
   mkdirSync(dirname(dbPath), { recursive: true });
 };
 
-export { ensureDbDir, resolveDataPath };
+// Opens a glv-owned database. node:sqlite's default busy timeout is 0
+// (fail at once), so without this any transient lock on the file — a
+// concurrent glv command, a scanner eyeing a fresh file — kills the open
+// or the first statement with "database is locked" instead of waiting
+// the lock out.
+const openGlvDb = (dbPath: string): DatabaseSync => {
+  ensureDbDir(dbPath);
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA busy_timeout=5000");
+  return db;
+};
+
+export { ensureDbDir, openGlvDb, resolveDataPath };
