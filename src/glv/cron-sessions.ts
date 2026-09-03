@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "./db-path.js";
+import { openGlvDb, resolveDataPath } from "./db-path.js";
 
 // Viewer-owned sidecar remembering which scheduled job started which
 // session, so the sidebar and transcript header can badge job-started
@@ -30,8 +30,7 @@ const resolveCronDbPath = (dataDirName: string, override?: string): string =>
 // Writable by design: glv owns the whole file and always creates the
 // schema on open, exactly like the meta sidecar.
 const openCronSessionsDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
-  const db = new DatabaseSync(dbPath);
+  const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   return db;
 };

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { openGlvDb, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // A reusable prompt the user can fill the textarea with or run directly. Lives
@@ -47,8 +47,7 @@ CREATE TABLE IF NOT EXISTS saved_prompts (
 `;
 
 const openPromptsDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
-  const db = new DatabaseSync(dbPath);
+  const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   return db;
 };
