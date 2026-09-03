@@ -2,8 +2,8 @@ import { renderToString } from "hono/jsx/dom/server";
 import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
 import {
   fmtRelative,
-  followUpSuffix,
   pendingTool,
+  queuedSuffix,
   shortenHome,
   toolRunText,
   truncateMiddle,
@@ -241,15 +241,7 @@ const PromptBar = ({
   pendingTool?: ToolRun;
 }) => {
   const busy = isRunActive(run);
-  const steerable = run?.steerable === true;
   const pendingCount = run?.pendingPrompts.length ?? 0;
-  const steeredCount = run?.steeredCount ?? 0;
-  const busyPlaceholder = steerable
-    ? "Steer or queue a follow-up…"
-    : "Queue a follow-up prompt…";
-  const busyLabel = steerable
-    ? "Steer or queue a follow-up prompt"
-    : "Queue a follow-up prompt";
   return (
     <form
       class="prompt-bar"
@@ -272,7 +264,7 @@ const PromptBar = ({
           data-tool-running={tool !== undefined ? "" : undefined}
         >
           {tool !== undefined ? toolRunText(tool) : "Running…"}
-          {followUpSuffix(steeredCount, pendingCount)}
+          {queuedSuffix(pendingCount)}
         </p>
       )}
       {run?.status === "error" && run.error !== undefined && (
@@ -290,32 +282,15 @@ const PromptBar = ({
         <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
           name="prompt"
-          placeholder={busy ? busyPlaceholder : `Ask ${agentName}…`}
+          placeholder={busy ? "Queue a follow-up prompt…" : `Ask ${agentName}…`}
           class="prompt-input"
           rows={2}
-          aria-label={busy ? busyLabel : "Follow-up prompt"}
+          aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
         />
         <PaperclipButton compact />
         {busy ? (
           <>
-            {steerable && (
-              <button
-                type="submit"
-                class="steer-btn"
-                name="mode"
-                value="steer"
-                title="Inject into the running agent now — delivered steers cannot be undone"
-              >
-                Steer
-              </button>
-            )}
-            <button
-              type="submit"
-              class="queue-btn"
-              name="mode"
-              value="queue"
-              title="Run after the current run finishes"
-            >
+            <button type="submit" class="queue-btn">
               Queue
             </button>
             <button
@@ -390,8 +365,8 @@ const Transcript = ({
       {isRunActive(run) && <div id="live-tail" class="live-tail"></div>}
       {run !== undefined && run.pendingPrompts.length > 0 && (
         <div id="queued-prompts" class="queued-prompts">
-          {run.pendingPrompts.map((entry) => (
-            <QueuedPrompt prompt={entry.prompt} />
+          {run.pendingPrompts.map((p) => (
+            <QueuedPrompt prompt={p} />
           ))}
           <button
             type="button"

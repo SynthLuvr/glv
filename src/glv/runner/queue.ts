@@ -77,15 +77,15 @@ const advanceChain = (
     handle.pendingPrompts = [];
     return undefined;
   }
-  const next = handle.pendingPrompts.shift();
-  if (next === undefined) return undefined;
-  handle.startedPrompts.push(next.prompt);
-  handle.prompt = next.prompt;
+  const nextPrompt = handle.pendingPrompts.shift();
+  if (nextPrompt === undefined) return undefined;
+  handle.startedPrompts.push(nextPrompt);
+  handle.prompt = nextPrompt;
   handle.error = undefined;
   handle.status = "running";
   return {
-    args: runner.config.agent.resume(handle.sessionId, next.prompt),
-    stdin: next.prompt,
+    args: runner.config.agent.resume(handle.sessionId, nextPrompt),
+    stdin: nextPrompt,
   };
 };
 
@@ -104,10 +104,6 @@ const enqueueInvocation = (
     prompt: invocation.stdin,
     pendingPrompts: [],
     startedPrompts: [],
-    steerable: runner.config.agent.steer !== undefined,
-    steeredCount: 0,
-    turnsStarted: 0,
-    stdinClosed: false,
     workingDir,
     status: "queued",
     queuePosition: undefined,
@@ -182,56 +178,13 @@ const enqueueOrQueue = (
 ): { handle: RunHandle; queued: boolean } => {
   const existing = runner.registry.get(sessionId);
   if (existing !== undefined && isActiveStatus(existing.status)) {
-    existing.pendingPrompts.push({ prompt, mode: "queue" });
+    existing.pendingPrompts.push(prompt);
     return { handle: existing, queued: true };
   }
   return {
     handle: enqueueRun(runner, sessionId, prompt, workingDir),
     queued: false,
   };
-};
-
-// Steer-mode delivery: hand the prompt to the live agent process instead
-// of queueing behind the current run. Whenever a live write is impossible
-// — idle session, still-queued run, stdin already closed after the final
-// turn, or a flavor that cannot steer — the prompt falls back to the
-// pending queue, never lost. A synchronous write failure (the process
-// died without closing stdin) fails the run like a crash.
-const steer = (
-  runner: Runner,
-  sessionId: string,
-  prompt: string,
-  workingDir: string,
-): { handle: RunHandle; delivered: boolean } => {
-  const spec = runner.config.agent.steer;
-  const existing = runner.registry.get(sessionId);
-  if (existing === undefined || !isActiveStatus(existing.status))
-    return {
-      handle: enqueueRun(runner, sessionId, prompt, workingDir),
-      delivered: false,
-    };
-  if (
-    spec !== undefined &&
-    existing.status === "running" &&
-    !existing.stdinClosed &&
-    existing.process !== undefined
-  ) {
-    try {
-      existing.process.write(spec.encode(prompt));
-    } catch (err) {
-      failRun(existing, err);
-      return { handle: existing, delivered: false };
-    }
-    existing.startedPrompts.push(prompt);
-    existing.steeredCount++;
-    existing.turnsStarted++;
-    return { handle: existing, delivered: true };
-  }
-  existing.pendingPrompts.push({
-    prompt,
-    mode: spec !== undefined ? "steer" : "queue",
-  });
-  return { handle: existing, delivered: false };
 };
 
 const clearPending = (runner: Runner, sessionId: string): number => {
@@ -299,7 +252,6 @@ export {
   enqueueRun,
   generateTempKey,
   rekey,
-  steer,
   stop,
   stopAll,
 };

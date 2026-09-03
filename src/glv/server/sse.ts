@@ -49,8 +49,6 @@ const emitStatus = (
       queuePosition: handle.queuePosition,
       pendingCount: handle.pendingPrompts.length,
       startedCount: handle.startedPrompts.length,
-      steerable: handle.steerable,
-      steeredCount: handle.steeredCount,
       error: handle.error ?? null,
       tool:
         handle.status === "running" && tool !== undefined

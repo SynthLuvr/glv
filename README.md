@@ -47,11 +47,6 @@ the browser.
 - **Queued follow-ups.** While a session is running you can queue
   follow-up prompts that chain together once the current run finishes.
   Runs are governed by a concurrency-limited queue (six by default).
-- **Steering (claude).** Steer or queue follow-ups on a running claude
-  session: **Steer** injects the prompt into the live agent process
-  (`--input-format stream-json`) so it takes effect mid-run, while
-  **Queue** keeps the chain-after semantics. goose sessions are
-  queue-only. `GLV_DISABLE_STEERING=1` restores pure queue semantics.
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
   database and streams only the deltas, so you can keep an eye on a run

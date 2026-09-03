@@ -1592,23 +1592,6 @@ pre::-webkit-scrollbar-thumb {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
-/* Steer is the primary action while a steerable run is busy (the accent
-   button Send uses when idle); Queue stays the quiet secondary. */
-.steer-btn {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 8px;
-  font: inherit;
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-.steer-btn:hover {
-  background: var(--color-accent-hover);
-}
 
 /* ---------- new session form ---------- */
 .new-session {
