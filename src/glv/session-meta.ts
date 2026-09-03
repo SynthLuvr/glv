@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "./db-path.js";
+import { openGlvDb, resolveDataPath } from "./db-path.js";
 
 // Viewer-owned sidecar for rename/archive metadata. Agents that only
 // expose append-only session data (transcripts) have no writable sessions
@@ -31,8 +31,7 @@ const resolveMetaDbPath = (dataDirName: string, override?: string): string =>
 // the schema on open (safe to run before the agent has ever written
 // anything).
 const openMetaDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
-  const db = new DatabaseSync(dbPath);
+  const db = openGlvDb(dbPath);
   db.exec(META_SCHEMA);
   return db;
 };

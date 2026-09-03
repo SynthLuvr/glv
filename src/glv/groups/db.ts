@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { ensureDbDir, resolveDataPath } from "../db-path.js";
+import { openGlvDb, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // Viewer-owned sidecar, kept separate from agent-owned session data so
@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS group_members (
 `;
 
 const openGroupsDb = (dbPath: string): DatabaseSync => {
-  ensureDbDir(dbPath);
-  const db = new DatabaseSync(dbPath);
+  const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   return db;
 };
