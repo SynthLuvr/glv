@@ -64,9 +64,6 @@ const makeGooseAgent = (binary: string): AgentInvocation => ({
     ...STREAM_FLAGS,
   ],
   env: () => ({}),
-  // `goose run` has no streaming-input mode (steering exists only at the
-  // ACP layer upstream), so every follow-up on a busy session queues.
-  steer: undefined,
 });
 
 export { makeGooseAgent };

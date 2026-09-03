@@ -7,7 +7,6 @@ import type {
   Runner,
   SpawnedProcess,
   SpawnFn,
-  SteerSpec,
 } from "./types.js";
 
 const describeFailure = (result: ProcessResult, name: string): string => {
@@ -24,9 +23,7 @@ const ExecaError = type({
 
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
-    // Steering runs keep stdin open (runProcess writes the initial message
-    // itself); everything else writes-and-closes exactly as before.
-    ...(opts.keepStdinOpen === true ? {} : { input: opts.stdin }),
+    input: opts.stdin,
     cwd: opts.cwd,
     // execa extends process.env with this, so the rest of the environment
     // is still inherited.
@@ -60,23 +57,9 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     if (!exited) proc.kill(signal);
   };
 
-  // Mid-run steering channel. A synchronous throw (write-after-end) lets
-  // the caller fail the run deterministically; an EPIPE surfaces
-  // asynchronously through execa's rejection, which maps to the same
-  // "process exited unexpectedly" error as any abnormal exit.
-  const write = (line: string): void => {
-    if (!proc.stdin.writable)
-      throw new Error("agent stdin is no longer writable");
-    proc.stdin.write(line.endsWith("\n") ? line : line + "\n");
-  };
-
-  const closeStdin = (): void => {
-    if (proc.stdin.writable) proc.stdin.end();
-  };
-
   // execa v9+ async iteration already yields one newline-stripped line
   // per iteration, so stdout needs no raw-chunk buffering/splitting here.
-  return { pid, kill, stdout: proc, exit, write, closeStdin };
+  return { pid, kill, stdout: proc, exit };
 };
 
 // A self-rearming interval polls handle.status in grace-sized windows so a
@@ -112,52 +95,15 @@ const startStopEscalation = (
   return () => clearInterval(poll);
 };
 
-// Delivers the initial prompt of a steerable run plus any steer-mode
-// prompts queued while the run waited for a concurrency slot: all go to
-// the fresh process's stdin, in order, before the stdout drain starts
-// (each written message is one turn, answered by one turn-end record).
-// Queue-mode pendings stay queued — they chain via advanceChain once this
-// process exits, which is what preserves queue semantics. Everything here
-// is synchronous, so a concurrent steer() can only land before the spawn
-// (steer-tagged pending, picked up here) or after stdin is armed (written
-// live) — never in between.
-const startSteerableRun = (
-  spec: SteerSpec,
-  handle: InternalHandle,
-  proc: SpawnedProcess,
-  invocation: Invocation,
-): void => {
-  handle.turnsStarted = 0;
-  handle.stdinClosed = false;
-  const writeTurn = (prompt: string): void => {
-    proc.write(spec.encode(prompt));
-    handle.startedPrompts.push(prompt);
-    handle.turnsStarted++;
-  };
-  writeTurn(invocation.stdin);
-  const queued: InternalHandle["pendingPrompts"] = [];
-  for (const entry of handle.pendingPrompts) {
-    if (entry.mode !== "steer") {
-      queued.push(entry);
-      continue;
-    }
-    writeTurn(entry.prompt);
-    handle.steeredCount++;
-  }
-  handle.pendingPrompts = queued;
-};
-
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
   invocation: Invocation,
 ): Promise<void> => {
-  const spec = runner.config.agent.steer;
   const proc = runner.spawn(runner.config.agent.binary, invocation.args, {
     stdin: invocation.stdin,
     cwd: handle.workingDir,
     env: runner.config.agent.env(),
-    keepStdinOpen: spec !== undefined,
   });
   handle.process = proc;
 
@@ -173,31 +119,13 @@ const runProcess = async (
     runner.config.stopGraceMs,
   );
   try {
-    if (spec !== undefined) startSteerableRun(spec, handle, proc, invocation);
-
-    // Turn-end bookkeeping for steerable runs: once the agent has answered
-    // every turn written to its stdin, close stdin so it can finish its
-    // queue and exit through the normal exit-code path below. A steer that
-    // arrives after this point sees stdinClosed and falls back to
-    // pendingPrompts.
-    let turnResults = 0;
-
     for await (const line of proc.stdout) {
       if (handle.status === "stopped") break;
       handle.output.push(line);
-      if (spec === undefined || !spec.isTurnEnd(line)) continue;
-      turnResults++;
-      if (turnResults >= handle.turnsStarted && !handle.stdinClosed) {
-        handle.stdinClosed = true;
-        proc.closeStdin();
-      }
     }
 
     const result = await proc.exit;
-    // Not just "stopped": a failed steer write can mark the run errored
-    // while the drain is still attached, and that verdict must not be
-    // overwritten by the process's own exit code.
-    if (handle.status !== "running") return;
+    if (handle.status === "stopped") return;
     handle.status = result.exitCode === 0 ? "completed" : "error";
     if (result.exitCode !== 0)
       handle.error = describeFailure(result, runner.config.agent.name);

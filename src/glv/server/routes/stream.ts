@@ -29,7 +29,6 @@ type PollState = {
   lastStatus: string | undefined;
   lastQueuePosition: number | undefined;
   lastPendingCount: number | undefined;
-  lastSteeredCount: number | undefined;
   lastStartedCount: number;
   sentLineOffset: number;
   flushedTerminal: boolean;
@@ -78,7 +77,6 @@ const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
   state.lastStatus = h.status;
   state.lastQueuePosition = h.queuePosition;
   state.lastPendingCount = h.pendingPrompts.length;
-  state.lastSteeredCount = h.steeredCount;
   state.lastToolKey = statusToolKey(state, h);
 };
 
@@ -178,7 +176,6 @@ const pollRunner = async (
     h.status !== state.lastStatus ||
     h.queuePosition !== state.lastQueuePosition ||
     h.pendingPrompts.length !== state.lastPendingCount ||
-    h.steeredCount !== state.lastSteeredCount ||
     statusToolKey(state, h) !== state.lastToolKey
   ) {
     await emitStatus(stream, h, state.pendingTool, state.msgCursor);
@@ -232,7 +229,6 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         lastStatus: undefined,
         lastQueuePosition: undefined,
         lastPendingCount: undefined,
-        lastSteeredCount: undefined,
         lastStartedCount: 0,
         sentLineOffset: 0,
         flushedTerminal: false,

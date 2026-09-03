@@ -5,7 +5,7 @@ export {
   renderTable,
 } from "./cli.js";
 export type { ToolRun } from "./duration.js";
-export { fmtDuration, followUpSuffix, toolRunText } from "./duration.js";
+export { fmtDuration, queuedSuffix, toolRunText } from "./duration.js";
 export { renderMarkdown } from "./markdown.js";
 export type {
   ContentItem,
