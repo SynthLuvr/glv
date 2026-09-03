@@ -5,12 +5,12 @@ import { Fragment } from "hono/jsx";
 import {
   appendCronJob,
   deleteCronJob,
-  type NamedCronJob,
   readCronJobs,
   writeCronJobs,
 } from "../../config.js";
 import {
   fmtDateTime,
+  type NamedCronJob,
   parseSchedule,
   withResolvedNames,
 } from "../../schedule.js";
@@ -28,7 +28,7 @@ import { expandHome } from "../paths.js";
 
 // Management surface for scheduled runs. The config file stays the source
 // of truth: every mutation is a read-modify-write of its cronJobs array,
-// and every response reminds that serve must restart to pick it up.
+// and mutations remind that serve must restart to pick them up.
 
 // Names must stay URL-safe (they name route params) and human-friendly.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
@@ -41,6 +41,15 @@ const findJob = (
   jobs: readonly NamedCronJob[],
   name: string,
 ): NamedCronJob | undefined => jobs.find((job) => job.name === name);
+
+// First string value of a form field, trimmed (parseBody with all:true
+// yields arrays for repeated fields).
+const trimmedField = (body: Record<string, unknown>, key: string): string => {
+  const value = body[key];
+  if (Array.isArray(value))
+    return typeof value[0] === "string" ? value[0].trim() : "";
+  return typeof value === "string" ? value.trim() : "";
+};
 
 // A read can only throw when the config file is invalid (it was valid at
 // boot, so someone hand-edited it since); surface that instead of a 500.
@@ -107,17 +116,13 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       string,
       unknown
     >;
-    const str = (key: string): string => {
-      const value = body[key];
-      if (Array.isArray(value))
-        return typeof value[0] === "string" ? value[0].trim() : "";
-      return typeof value === "string" ? value.trim() : "";
-    };
     const agentName = ctx.profile.agentName;
-    const jobName = str("job_name");
-    const schedule = str("schedule");
-    const prompt = str("prompt");
-    const workingDirRaw = str("working_dir");
+    const jobName = trimmedField(body, "job_name");
+    const schedule = trimmedField(body, "schedule");
+    const prompt = trimmedField(body, "prompt");
+    const workingDirRaw = trimmedField(body, "working_dir");
+    const sessionMode = trimmedField(body, "session_mode");
+    const modelProvider = trimmedField(body, "model_provider");
 
     const reject = (error: string) =>
       c.html(
@@ -132,12 +137,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
     if (prompt === "")
       return reject("A prompt is required — type one in the form above.");
-    if (str("session_mode") === "temp")
+    if (sessionMode === "temp")
       return reject(
         "Scheduled runs need a working directory — switch the form " +
           "above off temporary directories.",
       );
-    if (str("model_provider") !== "")
+    if (modelProvider !== "")
       return reject(
         `Scheduled runs always use ${agentName}’s default model — set ` +
           "the model picker above back to default.",
@@ -149,12 +154,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const parsed = parseSchedule(schedule);
     if (!parsed.ok) return reject(parsed.error);
 
-    let existing: readonly NamedCronJob[] = [];
-    try {
-      existing = readJobsOr(ctx).jobs;
-    } catch (err) {
-      return reject(`Could not read the config file: ${errorMessage(err)}`);
-    }
+    const existing = readJobsOr(ctx).jobs;
     if (existing.some((job) => job.name === jobName))
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
@@ -213,28 +213,17 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       string,
       unknown
     >;
-    const str = (key: string): string => {
-      const value = body[key];
-      if (Array.isArray(value))
-        return typeof value[0] === "string" ? value[0].trim() : "";
-      return typeof value === "string" ? value.trim() : "";
-    };
 
-    const name = str("job_name");
-    const schedule = str("schedule");
-    const prompt = str("prompt");
-    const workingDir = resolve(expandHome(str("working_dir")));
+    const name = trimmedField(body, "job_name");
+    const schedule = trimmedField(body, "schedule");
+    const prompt = trimmedField(body, "prompt");
+    const workingDirRaw = trimmedField(body, "working_dir");
+    const workingDir = resolve(expandHome(workingDirRaw));
 
     const reject = (error: string) =>
       c.html(
         <ScheduleJobEditForm
-          job={{
-            ...existing,
-            name,
-            prompt,
-            workingDir,
-            timezone: existing.timezone,
-          }}
+          job={{ ...existing, name, prompt, workingDir }}
           schedule={schedule}
           error={error}
         />,
@@ -242,8 +231,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
     if (prompt === "") return reject("A prompt is required.");
     if (!NAME_RE.test(name)) return reject(NAME_ERROR);
-    if (str("working_dir") === "")
-      return reject("A working directory is required.");
+    if (workingDirRaw === "") return reject("A working directory is required.");
     if (!existsSync(workingDir))
       return reject("That working directory does not exist.");
     const parsed = parseSchedule(schedule);
@@ -321,4 +309,4 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 };
 
-export { NAME_ERROR, NAME_RE, registerCronRoutes };
+export { registerCronRoutes };

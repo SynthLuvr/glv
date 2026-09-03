@@ -1,13 +1,12 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { NamedCronJob } from "../config.js";
 import { readCronJobs } from "../config.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
-import { withResolvedNames } from "../schedule.js";
+import { type NamedCronJob, withResolvedNames } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";

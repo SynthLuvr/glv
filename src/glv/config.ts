@@ -10,6 +10,7 @@ import { homedir, platform } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { type } from "arktype";
 import { JsonObject, parseJson } from "./parse.js";
+import { resolvedCronName } from "./schedule.js";
 import { positiveEnvNumber } from "./util.js";
 
 const configRoot = (): string => {
@@ -97,21 +98,16 @@ const writeCronJobs = (
 const appendCronJob = (dataDirName: string, job: CronJobConfig): void =>
   writeCronJobs(dataDirName, [...readCronJobs(dataDirName), job]);
 
-// Removes a job by its resolved name (unnamed entries resolve to
-// cron-<index+1>, matching the scheduler); false when nothing matched.
+// Removes a job by its resolved name; false when nothing matched.
 const deleteCronJob = (dataDirName: string, name: string): boolean => {
   const jobs = readCronJobs(dataDirName);
   const kept = jobs.filter(
-    (job, index) => (job.name?.trim() || `cron-${index + 1}`) !== name,
+    (job, index) => resolvedCronName(job, index) !== name,
   );
   if (kept.length === jobs.length) return false;
   writeCronJobs(dataDirName, kept);
   return true;
 };
-
-// A job whose display name has been resolved (unnamed config entries
-// default to cron-<index+1>); what the UI renders and mutates.
-type NamedCronJob = CronJobConfig & { readonly name: string };
 
 // Editors write configs in bursts (and often replace the file by atomic
 // rename), so events are debounced and the settled content is compared
@@ -190,7 +186,7 @@ const watchConfigFile = (
   };
 };
 
-export type { CronJobConfig, NamedCronJob };
+export type { CronJobConfig };
 export {
   appendCronJob,
   CONFIG_KEYS,

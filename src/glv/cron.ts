@@ -9,6 +9,7 @@ import {
   fmtDateTime,
   parseOneShotSchedule,
   parseSchedule,
+  resolvedCronName,
 } from "./schedule.js";
 import { expandHome } from "./server/paths.js";
 import { errorMessage, positiveEnvNumber } from "./util.js";
@@ -75,7 +76,7 @@ const validTimezone = (timezone: string): boolean => {
 const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
   jobs.map((job, index) => ({
     ...job,
-    name: job.name?.trim() || `cron-${index + 1}`,
+    name: resolvedCronName(job, index),
     workingDir: resolve(expandHome(job.workingDir)),
     enabled: job.enabled !== false,
   }));
@@ -91,6 +92,12 @@ const assertUniqueNames = (jobs: readonly ResolvedJob[]): void => {
   }
 };
 
+const invalidSchedule = (job: ResolvedJob, error: string): Error =>
+  new Error(
+    `cron job "${job.name}" has an invalid schedule ` +
+      `"${job.schedule}": ${error}`,
+  );
+
 // Validating (parseSchedule) fails with the job named for any invalid
 // schedule — bad cron, translatable-but-rejected English, or a one-shot
 // that is not a real datetime. An expired one-shot is *not* invalid: it
@@ -103,10 +110,7 @@ const assertParsableSchedule = (job: ResolvedJob): void => {
   if (parsed.ok) return;
   const once = parseOneShotSchedule(job.schedule);
   if (once !== undefined && once.getTime() <= Date.now()) return;
-  throw new Error(
-    `cron job "${job.name}" has an invalid schedule ` +
-      `"${job.schedule}": ${parsed.error}`,
-  );
+  throw invalidSchedule(job, parsed.error);
 };
 
 const validateJob = (job: ResolvedJob): void => {
@@ -137,11 +141,7 @@ const validateJobs = (jobs: readonly ResolvedJob[]): void => {
 // callback, which croner never schedules.
 const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
-  if (!parsed.ok)
-    throw new Error(
-      `cron job "${job.name}" has an invalid schedule ` +
-        `"${job.schedule}": ${parsed.error}`,
-    );
+  if (!parsed.ok) throw invalidSchedule(job, parsed.error);
   const pattern =
     parsed.info.kind === "text"
       ? (parsed.info.cron ?? job.schedule)

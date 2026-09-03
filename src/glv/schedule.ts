@@ -1,6 +1,6 @@
 import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
-import type { CronJobConfig, NamedCronJob } from "./config.js";
+import type { CronJobConfig } from "./config.js";
 import { errorMessage } from "./util.js";
 
 // Everything a schedule can be, parsed once and shared by every consumer
@@ -15,18 +15,6 @@ import { errorMessage } from "./util.js";
 // patterns keep a job's timezone override); later is switched to local
 // time here, once, before anything parses or enumerates.
 later.date.localTime();
-
-// The examples the form's datalist and the error copy suggest — every
-// string here must parse (see the suite).
-const SCHEDULE_EXAMPLES: readonly string[] = [
-  "every weekday at 9:00",
-  "at 9:00",
-  "on sunday at 18:00",
-  "every 30 minutes",
-  "on the 1st day of the month at 9:00",
-  "0 9 * * 1-5",
-  "2026-09-03T09:00",
-];
 
 type ScheduleKind = "once" | "cron" | "text";
 
@@ -77,8 +65,11 @@ const parseOneShotSchedule = (schedule: string): Date | undefined => {
     date.getTime() < 0
   )
     return undefined;
-  if (!/(Z|[+-]\d{2}:?\d{2})$/.test(schedule))
-    if (formatOneShotLocal(date) !== schedule) return undefined;
+  if (
+    !/(Z|[+-]\d{2}:?\d{2})$/.test(schedule) &&
+    formatOneShotLocal(date) !== schedule
+  )
+    return undefined;
 
   return date;
 };
@@ -145,7 +136,7 @@ const cronShaped = (schedule: string): boolean => {
 const MIN_FIRE_GAP_MS = 60_000;
 
 const TEXT_HELP =
-  `Try “${SCHEDULE_EXAMPLES[0]}”, “at 9:00”, ` +
+  `Try “every weekday at 9:00”, “at 9:00”, ` +
   `“on sunday at 18:00”, or a cron pattern like “0 9 * * 1-5”.`;
 
 const TOO_INTRICATE =
@@ -162,11 +153,7 @@ const compressField = (
 ): string => {
   const list = [...new Set(values)].sort((a, b) => a - b);
   if (list.length === 1) return String(list[0]);
-  if (
-    stepCycle !== undefined &&
-    list[0] === 0 &&
-    (list[1] - list[0]) * list.length + 0 === stepCycle
-  ) {
+  if (stepCycle !== undefined) {
     const step = list[1] - list[0];
     const spansCycle =
       list.every((value, index) => value === index * step) &&
@@ -191,33 +178,33 @@ const compressField = (
 // 0=Sunday), and day-of-month 0 means "the last day" (cron "L"). Only
 // the plain shapes the documented vocabulary produces are translated;
 // anything else is rejected as too intricate rather than mistranslated.
-const translateToCron = (sched: LaterSchedule): string | undefined => {
-  if (sched.schedules.length !== 1 || sched.exceptions.length > 0)
+const translateToCron = (parsed: LaterSchedule): string | undefined => {
+  if (parsed.schedules.length !== 1 || parsed.exceptions.length > 0)
     return undefined;
-  const c = sched.schedules[0];
+  const sched = parsed.schedules[0];
   const known = ["t", "m", "h", "D", "d", "M", "s"];
-  if (Object.keys(c).some((key) => !known.includes(key))) return undefined;
-  if (c.s !== undefined && !(c.s.length === 1 && c.s[0] === 0))
+  if (Object.keys(sched).some((key) => !known.includes(key))) return undefined;
+  if (sched.s !== undefined && !(sched.s.length === 1 && sched.s[0] === 0))
     return undefined;
 
   let minute: string;
   let hour: string;
-  if (c.t !== undefined) {
-    if (c.t.length !== 1) return undefined;
-    const t = c.t[0];
+  if (sched.t !== undefined) {
+    if (sched.t.length !== 1) return undefined;
+    const t = sched.t[0];
     if (!Number.isFinite(t) || t < 0 || t % 60 !== 0) return undefined;
-    if (c.m !== undefined || c.h !== undefined) return undefined;
+    if (sched.m !== undefined || sched.h !== undefined) return undefined;
     hour = String(Math.floor(t / 3600));
     minute = String((t % 3600) / 60);
-  } else if (c.m !== undefined && c.h !== undefined) {
-    minute = compressField(c.m, 60);
-    hour = compressField(c.h, 24);
-  } else if (c.m !== undefined) {
-    minute = compressField(c.m, 60);
+  } else if (sched.m !== undefined && sched.h !== undefined) {
+    minute = compressField(sched.m, 60);
+    hour = compressField(sched.h, 24);
+  } else if (sched.m !== undefined) {
+    minute = compressField(sched.m, 60);
     hour = "*";
-  } else if (c.h !== undefined) {
+  } else if (sched.h !== undefined) {
     minute = "0";
-    hour = compressField(c.h, 24);
+    hour = compressField(sched.h, 24);
   } else {
     // No time anchor at all ("every weekday") — refuse rather than
     // inventing one.
@@ -225,17 +212,17 @@ const translateToCron = (sched: LaterSchedule): string | undefined => {
   }
 
   let dom = "*";
-  if (c.D !== undefined) {
-    if (c.D.includes(0))
-      return c.D.length === 1 ? `${minute} ${hour} L * *` : undefined;
-    dom = compressField(c.D, undefined);
+  if (sched.D !== undefined) {
+    if (sched.D.includes(0))
+      return sched.D.length === 1 ? `${minute} ${hour} L * *` : undefined;
+    dom = compressField(sched.D, undefined);
   }
-  const month = c.M === undefined ? "*" : compressField(c.M, undefined);
+  const month = sched.M === undefined ? "*" : compressField(sched.M, undefined);
   const dow =
-    c.d === undefined
+    sched.d === undefined
       ? "*"
       : compressField(
-          c.d.map((v) => (v === 0 ? 0 : (v + 6) % 7)),
+          sched.d.map((v) => (v === 0 ? 0 : (v + 6) % 7)),
           7,
         );
   return `${minute} ${hour} ${dom} ${month} ${dow}`;
@@ -271,8 +258,9 @@ const parseTextSchedule = (
   if (cron === undefined) {
     // Distinguish the common miss (no time at all, e.g. "every
     // weekday") from genuinely untranslatable shapes.
-    const c = parsed.schedules[0];
-    const hasTime = c.t !== undefined || c.m !== undefined || c.h !== undefined;
+    const sched = parsed.schedules[0];
+    const hasTime =
+      sched.t !== undefined || sched.m !== undefined || sched.h !== undefined;
     return hasTime
       ? { ok: false, error: TOO_INTRICATE }
       : {
@@ -392,22 +380,28 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
   return parsed.ok ? parsed.info.human : schedule;
 };
 
-// The scheduler defaults unnamed config entries to cron-<index+1>; the UI
-// shows the same identity so a hand-edited entry is recognizable.
-const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
-  jobs.map((job, index) => ({
-    ...job,
-    name: job.name?.trim() || `cron-${index + 1}`,
-  }));
+// A job whose display name has been resolved (unnamed entries default
+// to cron-<n>); what the UI renders and mutates.
+type NamedCronJob = CronJobConfig & { readonly name: string };
 
-export type { LaterSchedule, ScheduleInfo, ScheduleParse };
+// Unnamed config entries are identified by their position. The
+// scheduler, the UI, and deletion all resolve names through this so a
+// hand-edited entry keeps one identity everywhere.
+const resolvedCronName = (job: CronJobConfig, index: number): string =>
+  job.name?.trim() || `cron-${index + 1}`;
+
+// The UI shows each config entry under the same resolved identity the
+// scheduler uses, so a hand-edited entry is recognizable.
+const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
+  jobs.map((job, index) => ({ ...job, name: resolvedCronName(job, index) }));
+
+export type { NamedCronJob };
 export {
-  buildCron,
   fmtDateTime,
   formatOneShotLocal,
   humanizeSchedule,
   parseOneShotSchedule,
   parseSchedule,
-  SCHEDULE_EXAMPLES,
+  resolvedCronName,
   withResolvedNames,
 };

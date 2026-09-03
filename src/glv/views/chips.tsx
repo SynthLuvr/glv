@@ -101,7 +101,7 @@ const WorktreeChip = ({ worktree }: { worktree: string }) => (
   />
 );
 
-// Octicon clock: badges sessions a scheduled job started.
+// Octicon clock path, shared by CronChip and the schedule confirmation.
 const CLOCK_ICON =
   "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM7.25 3.75a.75.75 0 0 1 1.5 0v3.5h3.5a.75.75 0 0 1 0 1.5h-4.25a.75.75 0 0 1-.75-.75v-4.25Z";
 
@@ -131,7 +131,6 @@ const CronChip = ({
     <span class="cron-chip-label">{jobName}</span>
   </span>
 );
-
 // URL renders instantly from offline detection; the colored state is swapped
 // in lazily via htmx, so any failure just leaves a plain link. `compact`
 // shrinks the chip for the sidebar and gives the state element a per-session
@@ -183,4 +182,4 @@ const PrChip = ({
   );
 };
 
-export { BranchChip, CronChip, PrChip, WorktreeChip };
+export { BranchChip, CLOCK_ICON, CronChip, PrChip, WorktreeChip };

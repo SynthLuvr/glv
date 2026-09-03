@@ -2,7 +2,7 @@ import { shortenHome } from "../../glv/format/index.js";
 import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
-import type { NamedCronJob } from "../config.js";
+import type { NamedCronJob } from "../schedule.js";
 import { PromptLibrarySection } from "./prompt-library.js";
 import { ScheduledRunsSection } from "./schedule.js";
 

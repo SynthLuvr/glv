@@ -7,7 +7,7 @@ import { parseSchedule } from "../schedule.js";
 
 const SYNC_INPUT = "input[data-schedule-input]";
 
-const idleHint = (): string => "Validated as you type — plain English or cron.";
+const IDLE_HINT = "Validated as you type — plain English or cron.";
 
 // The first upcoming run, formatted in the user's locale for instant
 // confirmation; the server-side preview stays authoritative.
@@ -38,7 +38,7 @@ const syncField = (field: HTMLInputElement): void => {
     setSlot(text, state);
     if (submit !== undefined) submit.disabled = true;
   };
-  if (value === "") return disable(idleHint(), "");
+  if (value === "") return disable(IDLE_HINT, "");
   const parsed = parseSchedule(value);
   if (!parsed.ok) return disable(parsed.error, "err");
   const first = parsed.info.next[0];

@@ -1,13 +1,18 @@
-import type { NamedCronJob } from "../config.js";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
-import { fmtDateTime, parseSchedule } from "../schedule.js";
+import {
+  fmtDateTime,
+  humanizeSchedule,
+  type NamedCronJob,
+  parseSchedule,
+} from "../schedule.js";
+import { CLOCK_ICON } from "./chips.js";
 
-// Views for scheduling: the disclosure with one typed schedule field
-// inside the New Session form, the confirmation banner after a job is
-// saved, and the "Scheduled runs" management section (Prompt Library
-// placement and styling). Everything is server-rendered; htmx swaps
-// fragments in place, and /assets/schedule.js validates the typed
-// schedule live before the user can click "Schedule run".
+// Views for scheduling: the inline form with its typed schedule field
+// and live preview, the confirmation banner after a job is saved, and
+// the "Scheduled runs" management section (Prompt Library placement and
+// styling). Everything is server-rendered; htmx swaps fragments in
+// place, and /assets/schedule.js validates the typed schedule live
+// before the user can click "Schedule run".
 
 const clockIcon = (
   <svg
@@ -16,7 +21,7 @@ const clockIcon = (
     fill="currentColor"
     aria-hidden="true"
   >
-    <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM7.25 3.75a.75.75 0 0 1 1.5 0v3.5h3.5a.75.75 0 0 1 0 1.5h-4.25a.75.75 0 0 1-.75-.75v-4.25Z" />
+    <path d={CLOCK_ICON} />
   </svg>
 );
 
@@ -26,14 +31,8 @@ const RESTART_NOTICE =
   "Changes apply when glv serve restarts — new and edited jobs start " +
   "firing after the next restart.";
 
-// Cards and the confirmation share these renderings; a job that can no
-// longer fire (an expired one-shot) or no longer parses (hand-edited)
-// shows a dash instead of pretending.
-const humanizeOf = (job: NamedCronJob): string => {
-  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
-  return parsed.ok ? parsed.info.human : job.schedule;
-};
-
+// A job that can no longer fire (an expired one-shot) or no longer
+// parses (hand-edited) shows a dash instead of pretending.
 const nextRunText = (job: NamedCronJob): string => {
   if (job.enabled === false) return "paused";
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
@@ -162,30 +161,33 @@ const ScheduleSaveForm = ({
 
 // Success state rendered into the detail pane after a job is saved: the
 // job's name, humanized schedule, next run, and the restart notice.
-const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => (
-  <section class="schedule-confirmation" data-schedule-confirmation>
-    <div class="schedule-confirmation-head">
-      {clockIcon}
-      <h3>Scheduled run saved</h3>
-    </div>
-    <dl class="schedule-confirmation-grid">
-      <dt>Job</dt>
-      <dd>{job.name}</dd>
-      <dt>Schedule</dt>
-      <dd>
-        {humanizeOf(job)}
-        {humanizeOf(job) !== job.schedule && (
-          <span class="cron-pattern mono"> ({job.schedule})</span>
-        )}
-      </dd>
-      <dt>Next run</dt>
-      <dd>{nextRunText(job)}</dd>
-      <dt>Prompt</dt>
-      <dd>{truncate(job.prompt, 140)}</dd>
-    </dl>
-    <p class="schedule-restart-note">{RESTART_NOTICE}</p>
-  </section>
-);
+const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
+  const human = humanizeSchedule(job.schedule, job.timezone);
+  return (
+    <section class="schedule-confirmation" data-schedule-confirmation>
+      <div class="schedule-confirmation-head">
+        {clockIcon}
+        <h3>Scheduled run saved</h3>
+      </div>
+      <dl class="schedule-confirmation-grid">
+        <dt>Job</dt>
+        <dd>{job.name}</dd>
+        <dt>Schedule</dt>
+        <dd>
+          {human}
+          {human !== job.schedule && (
+            <span class="cron-pattern mono"> ({job.schedule})</span>
+          )}
+        </dd>
+        <dt>Next run</dt>
+        <dd>{nextRunText(job)}</dd>
+        <dt>Prompt</dt>
+        <dd>{truncate(job.prompt, 140)}</dd>
+      </dl>
+      <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+    </section>
+  );
+};
 
 // One job card in the management section. Actions are htmx requests
 // scoped to the section so the list refreshes in place.
@@ -203,7 +205,9 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
           {enabled ? "Enabled" : "Paused"}
         </span>
       </div>
-      <p class="cron-job-schedule">{humanizeOf(job)}</p>
+      <p class="cron-job-schedule">
+        {humanizeSchedule(job.schedule, job.timezone)}
+      </p>
       <p class="cron-job-next">
         <span class="cron-job-next-label">Next run</span>{" "}
         <span class="cron-job-next-value">{nextRunText(job)}</span>
@@ -395,9 +399,7 @@ const ScheduledRunsSection = ({
 
 export {
   CronJobGrid,
-  RESTART_NOTICE,
   ScheduleConfirmation,
-  ScheduleControls,
   ScheduledRunsSection,
   ScheduleJobCard,
   ScheduleJobEditForm,
