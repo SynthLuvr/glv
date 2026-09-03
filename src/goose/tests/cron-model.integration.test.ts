@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
   cronJobIn,
+  fakeHomeEnv,
   flagValue,
   type IntegrationEnv,
   waitForArgs,
@@ -58,8 +59,10 @@ const ACP_PROVIDERS = JSON.stringify({
   ],
 });
 
+// goose resolves its config under APPDATA on Windows and ~/.config
+// elsewhere; fakeHomeEnv spells the fake home the same way for both.
 const writeGooseConfig = (home: string): void => {
-  const configYaml = gooseConfigPath({ HOME: home });
+  const configYaml = gooseConfigPath(fakeHomeEnv(home));
   mkdirSync(dirname(configYaml), { recursive: true });
   writeFileSync(configYaml, CONFIG_YAML);
 };
