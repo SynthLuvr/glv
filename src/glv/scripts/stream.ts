@@ -1,8 +1,4 @@
-import {
-  followUpSuffix,
-  type ToolRun,
-  toolRunText,
-} from "../format/duration.js";
+import { queuedSuffix, type ToolRun, toolRunText } from "../format/duration.js";
 import { fillPromptInput, parseJson } from "./shared.js";
 
 declare const htmx: {
@@ -26,11 +22,10 @@ let lastBusy: boolean | undefined;
 // moved on and the ticker retires itself.
 let activeTool: ToolRun | undefined;
 let activeQueued = 0;
-let activeSteered = 0;
 let toolTimer: ReturnType<typeof setInterval> | undefined;
 
-const toolHintText = (tool: ToolRun, steered: number, queued: number): string =>
-  `${toolRunText(tool)}${followUpSuffix(steered, queued)}`;
+const toolHintText = (tool: ToolRun, queued: number): string =>
+  `${toolRunText(tool)}${queuedSuffix(queued)}`;
 
 const stopToolTicker = (): void => {
   if (toolTimer !== undefined) clearInterval(toolTimer);
@@ -48,7 +43,7 @@ const tickToolHint = (): void => {
   // transitions (tool started / finished) still announce via the polite
   // region that updateStatusHint restores.
   hint.setAttribute("aria-live", "off");
-  hint.textContent = toolHintText(activeTool, activeSteered, activeQueued);
+  hint.textContent = toolHintText(activeTool, activeQueued);
 };
 
 const startToolTicker = (): void => {
@@ -251,8 +246,6 @@ type StreamStatus = {
   status: string;
   queuePosition?: number;
   pendingCount?: number;
-  /** Prompts injected into the live process; 0 when the flavor can't steer. */
-  steeredCount?: number;
   error?: string | null;
   /** Tool call the run is currently waiting on; null when none is pending. */
   tool?: ToolRun | null;
@@ -271,16 +264,14 @@ const updateStatusHint = (data: StreamStatus): void => {
     hint.textContent = `Queued, waiting… (position ${data.queuePosition})`;
   } else if (data.status === "running") {
     hint.className = "status-hint running";
-    const queued = data.pendingCount ?? 0;
-    const steered = data.steeredCount ?? 0;
+    const count = data.pendingCount ?? 0;
     if (data.tool != null) {
       hint.setAttribute("data-tool-running", "");
       activeTool = data.tool;
-      activeQueued = queued;
-      activeSteered = steered;
-      hint.textContent = toolHintText(data.tool, steered, queued);
+      activeQueued = count;
+      hint.textContent = toolHintText(data.tool, count);
       startToolTicker();
-    } else hint.textContent = `Running…${followUpSuffix(steered, queued)}`;
+    } else hint.textContent = `Running…${queuedSuffix(count)}`;
   } else if (data.status === "error" && data.error != null) {
     hint.className = "status-hint error";
     hint.textContent = data.error;
