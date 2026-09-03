@@ -219,7 +219,8 @@ button that opens an inline form — **type a schedule in plain English or
 cron**, validated live as you type with upcoming runs previewed; the
 section lists every job with pause, edit, and delete) or by hand in the
 config file. Both write the same entries — the config file is the source
-of truth, and the running server picks changes up on the next restart.
+of truth, and the running server picks changes up live, no restart
+needed.
 
 To define jobs by hand, add a `cronJobs` array to the config file:
 

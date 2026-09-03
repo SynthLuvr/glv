@@ -25,11 +25,12 @@ const clockIcon = (
   </svg>
 );
 
-// The restart notice is standing copy: the running serve snapshots jobs
-// at boot, so nothing scheduled or edited here is live until it restarts.
-const RESTART_NOTICE =
-  "Changes apply when glv serve restarts — new and edited jobs start " +
-  "firing after the next restart.";
+// The live-reload notice is standing copy: the running serve watches the
+// config file, so everything scheduled or edited here applies without a
+// restart.
+const LIVE_RELOAD_NOTICE =
+  "Changes apply live — the running server watches the config file, so " +
+  "new and edited jobs start firing without a restart.";
 
 // A job that can no longer fire (an expired one-shot) or no longer
 // parses (hand-edited) shows a dash instead of pretending.
@@ -155,12 +156,12 @@ const ScheduleSaveForm = ({
         Cancel
       </button>
     </div>
-    <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+    <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
   </form>
 );
 
 // Success state rendered into the detail pane after a job is saved: the
-// job's name, humanized schedule, next run, and the restart notice.
+// job's name, humanized schedule, next run, and the live-reload notice.
 const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
   const human = humanizeSchedule(job.schedule, job.timezone);
   return (
@@ -184,7 +185,7 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         <dt>Prompt</dt>
         <dd>{truncate(job.prompt, 140)}</dd>
       </dl>
-      <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+      <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
     </section>
   );
 };
@@ -325,7 +326,7 @@ const ScheduleJobEditForm = ({
             Cancel
           </button>
         </div>
-        <p class="schedule-restart-note">{RESTART_NOTICE}</p>
+        <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
       </form>
     </article>
   );
@@ -392,7 +393,7 @@ const ScheduledRunsSection = ({
     </div>
     {/* Swapped in by htmx on demand; empty until the user opens it. */}
     <div id="cron-save-slot" class="prompt-save-slot"></div>
-    <p class="scheduled-runs-notice">{RESTART_NOTICE}</p>
+    <p class="scheduled-runs-notice">{LIVE_RELOAD_NOTICE}</p>
     <CronJobGrid jobs={jobs} />
   </section>
 );

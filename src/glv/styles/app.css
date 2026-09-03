@@ -2760,13 +2760,13 @@ select.form-input {
    button loads an inline form into a slot. The New Session form above
    is untouched — one "Start session" submit, always. */
 .schedule-mode-note,
-.schedule-restart-note {
+.schedule-live-note {
   margin: 0;
   font-size: 0.8rem;
   line-height: 1.45;
   color: var(--color-muted);
 }
-.schedule-restart-note {
+.schedule-live-note {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
   background: var(--color-surface);

@@ -93,11 +93,11 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).not.toContain("data-schedule-input");
 
       // The Scheduled runs section is always present (Saved prompts
-      // pattern): header button, empty state, restart notice.
+      // pattern): header button, empty state, live-reload notice.
       expect(html).toContain('id="scheduled-runs"');
       expect(html).toContain("Schedule…");
       expect(html).toContain("No scheduled runs yet");
-      expect(html).toContain("Changes apply when glv serve restarts");
+      expect(html).toContain("Changes apply live");
       expect(html).not.toContain("cron-job-card");
     });
 
@@ -202,13 +202,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Confirmation lands in the slot: name, schedule, restart notice.
+      // Confirmation lands in the slot: name, schedule, live-reload notice.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       // The English was converted — humanized form and the pattern itself.
       expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
       expect(html).toContain("0 9 * * 1-5");
-      expect(html).toContain("Changes apply when glv serve restarts");
+      expect(html).toContain("Changes apply live");
       // The grid and count refresh out of band with the new card.
       expect(html).toContain('id="cron-job-grid"');
       expect(html).toContain("cron-job-card");
@@ -433,7 +433,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const res = await authedFetch(env, "/");
       const html = await res.text();
       expect(html).toContain("Scheduled runs");
-      expect(html).toContain("Changes apply when glv serve restarts");
+      expect(html).toContain("Changes apply live");
       expect(html).toContain("nightly");
       expect(html).toContain("Every day at 09:00");
       expect(html).toContain("Enabled");
