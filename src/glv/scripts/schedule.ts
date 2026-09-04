@@ -7,6 +7,36 @@ import { parseSchedule } from "../schedule.js";
 
 const SYNC_INPUT = "input[data-schedule-input]";
 
+// The save form's working directory starts as the New Session form's and
+// keeps following it until the schedule form's own field is edited (or a
+// rejected submit restores a typed one) — the form above stays a
+// default, never a constraint.
+const DIR_FIELD = "input[data-schedule-dir]";
+const SESSION_DIR_FIELD = "form.new-session-form input[name=working_dir]";
+
+let dirTouched = false;
+
+const sessionDirField = (): HTMLInputElement | null =>
+  document.querySelector<HTMLInputElement>(SESSION_DIR_FIELD);
+
+const syncDirFromSession = (): void => {
+  if (dirTouched) return;
+  const field = document.querySelector<HTMLInputElement>(DIR_FIELD);
+  const source = sessionDirField();
+  if (field === null || source === null) return;
+  field.value = source.value;
+};
+
+// Runs whenever the save form lands: a fresh form mirrors the form
+// above, while a rejected submit's restored value counts as an edit and
+// is left alone.
+const seedDirField = (root: HTMLElement): void => {
+  const field = root.querySelector<HTMLInputElement>(DIR_FIELD);
+  if (field === null) return;
+  dirTouched = field.value !== "";
+  syncDirFromSession();
+};
+
 const IDLE_HINT = "Validated as you type — plain English or cron.";
 
 // The first upcoming run, formatted in the user's locale for instant
@@ -63,8 +93,13 @@ const validateAll = (): void => {
 // Delegated, so htmx swaps (a rejected submit's re-render, an edit form)
 // need no wiring beyond a re-sync.
 document.addEventListener("input", (e) => {
+  if (!(e.target instanceof Element)) return;
   if (e.target instanceof HTMLInputElement && e.target.matches(SYNC_INPUT))
     syncField(e.target);
+  // Typing above re-syncs an untouched field; typing in the field itself
+  // detaches it from the form above for good.
+  if (e.target.matches(SESSION_DIR_FIELD)) syncDirFromSession();
+  if (e.target.matches(DIR_FIELD)) dirTouched = true;
 });
 
 document.addEventListener("DOMContentLoaded", validateAll);
@@ -91,5 +126,6 @@ const afterSwap = (e: Event): void => {
     target.querySelector?.(SYNC_INPUT) !== null
   )
     validateAll();
+  if (target.querySelector?.(DIR_FIELD) !== null) seedDirField(target);
 };
 document.body.addEventListener("htmx:afterSwap", afterSwap);
