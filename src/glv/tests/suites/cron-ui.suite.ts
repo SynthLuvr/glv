@@ -340,8 +340,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           .textContent();
 
         // "Schedule…" loads the inline form into the section's slot.
+        // The swap is the page's first XHR; on a loaded CI runner (four
+        // concurrent server+browser stacks) it can take well past the
+        // 5s default, so every htmx round-trip here waits explicitly.
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible({
+          timeout: 15_000,
+        });
         const scheduleBtn = page.locator(
           "#cron-save-slot button[data-schedule-submit]",
         );
@@ -403,12 +408,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await sessionDir.fill(workingDir);
 
         // "Schedule…" loads the inline form; its working directory field
-        // is seeded with the form above's value.
+        // is seeded with the form above's value. The swap is the page's
+        // first XHR — on a loaded CI runner it can outlast the 5s
+        // default, so the wait is explicit (same as the save POST's 15s).
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
         const dirField = page.locator(
           "#cron-save-slot input[data-schedule-dir]",
         );
-        await expect(dirField).toHaveValue(workingDir);
+        await expect(dirField).toHaveValue(workingDir, { timeout: 15_000 });
 
         // Untouched, the field follows the form above…
         await sessionDir.fill(otherDir);
