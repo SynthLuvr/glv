@@ -283,11 +283,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     // own fields are overwritten. Where the picker is exposed, the
     // submitted value replaces the stored pin — empty clears it.
     const { modelProvider, model, timezone: keptTimezone, ...kept } = existing;
-    const timezone = !timezonePresent
-      ? keptTimezone
-      : submittedTimezone === ""
-        ? undefined
-        : submittedTimezone;
+    const timezone = timezonePresent
+      ? submittedTimezone || undefined
+      : keptTimezone;
     const updated: NamedCronJob = {
       ...kept,
       ...modelPinFields(

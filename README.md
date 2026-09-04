@@ -219,15 +219,14 @@ the flag errors out if the key is missing or the file is malformed.
 Scheduled runs can be managed two ways: from the **web viewer** (the
 “Scheduled runs” section below the New Session form has a “Schedule…”
 button that opens an inline form — **type a schedule in plain English or
-cron**, validated live as you type with upcoming runs previewed; the
-form has its **own working directory field**, pre-filled from the New
-Session form and editable, with home-directory suggestions; an
-**optional timezone field** picks the IANA zone the schedule’s times
-apply in — suggested as you type, and left empty it means the server’s
-local time, the same clock the times used to always run on; the section
-lists every job with pause, edit, and delete) or by hand in the config
-file. Both write the same entries — the config file is the source of
-truth, and the running server picks changes up live, no restart needed.
+cron**, validated live as you type with upcoming runs previewed; the run
+uses the **working directory (and model, where the agent supports one)
+from the New Session form above**; an **optional timezone field** picks
+the IANA zone the schedule’s times apply in — suggested as you type, and
+left empty it means the server’s local time; the section lists every job
+with pause, edit, and delete) or by hand in the config file. Both write
+the same entries — the config file is the source of truth, and the
+running server picks changes up live, no restart needed.
 
 To define jobs by hand, add a `cronJobs` array to the config file:
 

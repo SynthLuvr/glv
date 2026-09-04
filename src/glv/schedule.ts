@@ -39,9 +39,10 @@ type ScheduleParse =
   | { readonly ok: false; readonly error: string };
 
 // ISO-local datetimes (what the form writes) plus full ISO with a zone
-// (what Date#toISOString writes) — both are fire-once inputs.
+// (what Date#toISOString writes) — both are fire-once inputs. The named
+// groups feed the zone-aware one-shot conversion.
 const ONE_SHOT_RE =
-  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?$/;
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})[T ](?<hour>\d{2}):(?<minute>\d{2})(?::(?<second>\d{2})(?:\.(?<ms>\d{1,3}))?)?(?<zone>Z|[+-]\d{2}:?\d{2})?$/;
 
 const twoDigits = (n: number): string => String(n).padStart(2, "0");
 
@@ -121,19 +122,15 @@ const formatOneShotInZone = (date: Date, timeZone: string): string => {
 // that doesn't exist there (the spring-forward gap) shifts like
 // croner's, and the caller's round-trip check rejects it.
 const zoneWallClockToInstant = (schedule: string, timeZone: string): Date => {
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(
-      schedule,
-    );
-  // ONE_SHOT_RE validated the shape beforehand.
+  const groups = ONE_SHOT_RE.exec(schedule)?.groups ?? {};
   const asUtc = Date.UTC(
-    Number(match?.[1]),
-    (Number(match?.[2]) || 1) - 1,
-    Number(match?.[3]) || 1,
-    Number(match?.[4]),
-    Number(match?.[5]),
-    Number(match?.[6] ?? 0),
-    Number((match?.[7] ?? "0").padEnd(3, "0")),
+    Number(groups.year),
+    Number(groups.month) - 1,
+    Number(groups.day),
+    Number(groups.hour),
+    Number(groups.minute),
+    Number(groups.second ?? 0),
+    Number((groups.ms ?? "0").padEnd(3, "0")),
   );
   const offsetAt = (instant: Date): number => {
     const wall = wallClockIn(instant, timeZone);
@@ -165,38 +162,37 @@ const parseOneShotSchedule = (
   schedule: string,
   timezone?: string,
 ): Date | undefined => {
-  if (!ONE_SHOT_RE.test(schedule)) return undefined;
-  if (!/(Z|[+-]\d{2}:?\d{2})$/.test(schedule) && timezone !== undefined)
+  const match = ONE_SHOT_RE.exec(schedule);
+  if (match === null) return undefined;
+  const zoneless = match.groups?.zone === undefined;
+  // A zone-less spelling is read as wall-clock time in the override's
+  // zone — the same conversion croner applies when firing it.
+  if (zoneless && timezone !== undefined)
     try {
       const zoned = zoneWallClockToInstant(schedule, timezone);
+      if (!saneOneShot(zoned)) return undefined;
       if (formatOneShotInZone(zoned, timezone) !== schedule.replace(" ", "T"))
         return undefined;
-      return saneOneShot(zoned);
+      return zoned;
     } catch {
-      // An unrecognizable zone: parseSchedule names the problem; direct
-      // callers (boot validation) check validity first.
+      // An unrecognizable zone: parseSchedule reports it as the error
+      // before ever getting here, so this only guards direct callers.
       return undefined;
     }
 
   const time = Date.parse(schedule.replace(" ", "T"));
   if (Number.isNaN(time)) return undefined;
   const date = new Date(time);
-  if (saneOneShot(date) === undefined) return undefined;
-  if (
-    !/(Z|[+-]\d{2}:?\d{2})$/.test(schedule) &&
-    formatOneShotLocal(date) !== schedule
-  )
-    return undefined;
+  if (!saneOneShot(date)) return undefined;
+  if (zoneless && formatOneShotLocal(date) !== schedule) return undefined;
   return date;
 };
 
 // One-shot dates far outside anything croner can schedule are refused.
-const saneOneShot = (date: Date): Date | undefined =>
-  date.getUTCFullYear() < 1990 ||
-  date.getUTCFullYear() > 9999 ||
-  date.getTime() < 0
-    ? undefined
-    : date;
+const saneOneShot = (date: Date): boolean =>
+  date.getUTCFullYear() >= 1990 &&
+  date.getUTCFullYear() <= 9999 &&
+  date.getTime() >= 0;
 
 const fmtDateTime = (date: Date, timezone?: string): string =>
   date.toLocaleString("en-US", {
@@ -531,6 +527,7 @@ const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
 export type { NamedCronJob };
 export {
   fmtDateTime,
+  formatOneShotInZone,
   formatOneShotLocal,
   humanizeSchedule,
   parseOneShotSchedule,

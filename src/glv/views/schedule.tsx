@@ -78,11 +78,11 @@ const ScheduleControls = ({
   <div
     class="schedule-options"
     data-schedule-options
-    // Preview fires on load and ~400ms after typing settles. The
-    // trigger listens on the fields wrapper — htmx's `find` matches a
-    // single element, so a wrapper is the way every input inside it
-    // (schedule, timezone) reaches this container, and hx-include/reach
-    // stay within it so a page never mixes up two forms' fields.
+    // Preview fires on load and ~400ms after typing settles. htmx's
+    // `find` matches a single element, so the trigger and include are
+    // scoped to the fields wrapper: every field inside (schedule,
+    // timezone) drives the preview, and two forms on one page never
+    // mix their fields.
     hx-get="/cron/preview"
     hx-trigger="load, input changed delay:400ms from:find .schedule-fields"
     hx-target="find .next-runs-body"
@@ -117,8 +117,6 @@ const ScheduleControls = ({
           autocomplete="off"
           spellcheck={false}
         />
-        {/* Suggestions are the runtime's own IANA list; live validation
-            names anything it doesn't recognize. */}
         <TimezoneDatalist id={timezoneDatalistId} />
         <span class="model-hint">
           IANA name like America/New_York — leave empty to run on the

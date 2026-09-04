@@ -26,11 +26,9 @@ const firstRunText = (date: Date, timezone?: string): string =>
 
 // The timezone override sitting beside a schedule field, when one is
 // filled in — empty means the server's own clock.
-const timezoneOf = (form: HTMLFormElement | null): string | undefined => {
-  const field = form?.querySelector<HTMLInputElement>(TIMEZONE_FIELD);
-  const value = field?.value.trim();
-  return value === undefined || value === "" ? undefined : value;
-};
+const timezoneOf = (form: HTMLFormElement | null): string | undefined =>
+  form?.querySelector<HTMLInputElement>(TIMEZONE_FIELD)?.value.trim() ||
+  undefined;
 
 const syncField = (field: HTMLInputElement): void => {
   const form = field.closest("form");
