@@ -57,7 +57,9 @@ the browser.
 - **Scheduled runs.** Click “Schedule…” in the Scheduled runs section
   and type a schedule in plain English (“every weekday at 9:00”) or cron
   — validated live before you can click “Schedule run”, converted to the
-  equivalent cron pattern on save, with upcoming runs previewed. Pause,
+  equivalent cron pattern on save, with upcoming runs previewed. The
+  form sets its own working directory (pre-filled from the New Session
+  form and freely editable), so a run can target any directory. Pause,
   edit, and delete from the same section, or hand-edit the jobs in the
   config file. Sessions a job starts carry a clock badge naming the job.
   Each job can pin the model its runs use (goose).
@@ -218,10 +220,11 @@ Scheduled runs can be managed two ways: from the **web viewer** (the
 “Scheduled runs” section below the New Session form has a “Schedule…”
 button that opens an inline form — **type a schedule in plain English or
 cron**, validated live as you type with upcoming runs previewed; the
-section lists every job with pause, edit, and delete) or by hand in the
-config file. Both write the same entries — the config file is the source
-of truth, and the running server picks changes up live, no restart
-needed.
+form has its **own working directory field**, pre-filled from the New
+Session form and editable, with home-directory suggestions; the section
+lists every job with pause, edit, and delete) or by hand in the config
+file. Both write the same entries — the config file is the source of
+truth, and the running server picks changes up live, no restart needed.
 
 To define jobs by hand, add a `cronJobs` array to the config file:
 

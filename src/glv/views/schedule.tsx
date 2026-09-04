@@ -97,17 +97,36 @@ const ScheduleControls = ({
   </div>
 );
 
+// Each form carries its own datalist id, so the save form and an edit
+// card can be on the page at once.
+const RecentDirsDatalist = ({
+  dirs,
+  id,
+}: {
+  dirs: readonly string[];
+  id: string;
+}) => (
+  <datalist id={id}>
+    {dirs.map((dir) => (
+      <option value={shortenHome(dir)} />
+    ))}
+  </datalist>
+);
+
 // The inline schedule form, loaded into the section's slot by
-// "Schedule…" (the Saved prompts save-form pattern). It schedules the
-// prompt and working directory composed in the New Session form above —
-// hx-include pulls those fields at submit time, so the latest typing is
-// what gets scheduled, and the composed prompt is never duplicated or
-// lost. The model picker is the form's own, so the job pins its model
-// independently of whatever the form above would run now.
+// "Schedule…" (the Saved prompts save-form pattern). The prompt comes
+// from the New Session form above — hx-include pulls that textarea at
+// submit time, so the latest typing is scheduled and never duplicated.
+// The working directory is this form's own field (seeded from above by
+// schedule.js), so a run can target any directory even while the form
+// above sits on a temporary one. The model picker is likewise the
+// form's own, pinning the job's model independently of the form above.
 const ScheduleSaveForm = ({
   agentName,
   jobName = "",
   schedule = "",
+  workingDir = "",
+  dirs = [],
   modelPicker,
   error,
 }: {
@@ -116,6 +135,10 @@ const ScheduleSaveForm = ({
   jobName?: string;
   /** Restores a rejected submit's schedule. */
   schedule?: string;
+  /** Restores a rejected submit's working directory. */
+  workingDir?: string;
+  /** Home directories offered as datalist suggestions. */
+  dirs?: readonly string[];
   /** Renders the model picker slot when the flavor supports models;
    * `submitted` restores a rejected submit's selection. */
   modelPicker?: { submitted?: string };
@@ -127,14 +150,16 @@ const ScheduleSaveForm = ({
     hx-post="/cron"
     hx-target="#cron-save-slot"
     hx-swap="innerHTML"
-    hx-include="find input, find select, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form input[name=session_mode]"
+    hx-include="find input, find select, .new-session-form textarea[name=prompt]"
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
-      Schedules the prompt and working directory composed in the form above —{" "}
+      Schedules the prompt composed in the form above. The working directory
+      below starts as that form&rsquo;s — change it here to schedule the run
+      somewhere else.{" "}
       {modelPicker === undefined
         ? `${agentName} runs them with its default model.`
-        : `pick a model below, or leave it at ${agentName}’s default.`}
+        : `Pick a model below, or leave it at ${agentName}’s default.`}
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -149,6 +174,21 @@ const ScheduleSaveForm = ({
       />
     </label>
     <ScheduleControls schedule={schedule} />
+    <label class="form-field">
+      <span class="form-label">Working directory</span>
+      <input
+        type="text"
+        name="working_dir"
+        data-schedule-dir=""
+        class="form-input mono"
+        list="schedule-recent-dirs"
+        value={workingDir}
+        placeholder="~/project"
+        autocomplete="off"
+        spellcheck={false}
+      />
+      <RecentDirsDatalist dirs={dirs} id="schedule-recent-dirs" />
+    </label>
     {modelPicker !== undefined && (
       <ModelPickerSlot submitted={modelPicker.submitted} />
     )}
@@ -196,6 +236,10 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         </dd>
         <dt>Next run</dt>
         <dd>{nextRunText(job)}</dd>
+        <dt>Working directory</dt>
+        <dd class="mono" title={job.workingDir}>
+          {truncateMiddle(shortenHome(job.workingDir), 48)}
+        </dd>
         {model !== undefined && (
           <Fragment>
             <dt>Model</dt>
@@ -286,12 +330,15 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
 const ScheduleJobEditForm = ({
   job,
   schedule,
+  dirs = [],
   modelPicker,
   error,
 }: {
   job: NamedCronJob;
   /** Restores a rejected edit's schedule. */
   schedule?: string;
+  /** Home directories offered as datalist suggestions. */
+  dirs?: readonly string[];
   /** Renders the model picker slot when the flavor supports models;
    * `submitted` preselects the job's stored model (or a rejected edit's
    * pick). Without it, a stored model pin is preserved untouched. */
@@ -335,9 +382,11 @@ const ScheduleJobEditForm = ({
             type="text"
             name="working_dir"
             class="form-input mono"
+            list="cron-edit-dirs"
             value={job.workingDir}
             spellcheck={false}
           />
+          <RecentDirsDatalist dirs={dirs} id="cron-edit-dirs" />
         </label>
         {job.timezone !== undefined && (
           <p class="cron-job-kept-note">

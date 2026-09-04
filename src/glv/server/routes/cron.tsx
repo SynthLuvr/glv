@@ -109,13 +109,15 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   // The inline schedule form for the section's slot (the Saved prompts
-  // "Save current prompt" pattern): the composed prompt and working
-  // directory ride along from the New Session form at submit time. The
+  // "Save current prompt" pattern): the composed prompt rides along
+  // from the New Session form at submit time, and the working directory
+  // is the form's own field (seeded from that form by schedule.js). The
   // model picker is the form's own (flavors without models get none).
   app.get("/cron/new", (c) =>
     c.html(
       <ScheduleSaveForm
         agentName={ctx.profile.agentName}
+        dirs={ctx.listDirs()}
         modelPicker={modelPickerOpts(ctx)}
       />,
     ),
@@ -134,7 +136,6 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const schedule = trimmedField(body, "schedule");
     const prompt = trimmedField(body, "prompt");
     const workingDirRaw = trimmedField(body, "working_dir");
-    const sessionMode = trimmedField(body, "session_mode");
     const modelProvider = trimmedField(body, "model_provider");
 
     const reject = (error: string) =>
@@ -143,6 +144,8 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
           agentName={agentName}
           jobName={jobName}
           schedule={schedule}
+          workingDir={workingDirRaw}
+          dirs={ctx.listDirs()}
           modelPicker={modelPickerOpts(ctx, modelProvider)}
           error={error}
         />,
@@ -151,11 +154,6 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
     if (prompt === "")
       return reject("A prompt is required — type one in the form above.");
-    if (sessionMode === "temp")
-      return reject(
-        "Scheduled runs need a working directory — switch the form " +
-          "above off temporary directories.",
-      );
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served (same rule as the New Session flow).
@@ -163,8 +161,10 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     if (modelProvider !== "" && picked === undefined)
       return reject(modelUnavailableError(agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
+    if (workingDirRaw === "")
+      return reject("A working directory is required — set one in this form.");
     const workingDir = resolve(expandHome(workingDirRaw));
-    if (workingDirRaw === "" || !existsSync(workingDir))
+    if (!existsSync(workingDir))
       return reject("That working directory does not exist.");
     const parsed = parseSchedule(schedule);
     if (!parsed.ok) return reject(parsed.error);
@@ -220,6 +220,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     return c.html(
       <ScheduleJobEditForm
         job={job}
+        dirs={ctx.listDirs()}
         modelPicker={modelPickerOpts(ctx, jobModelValue(job))}
       />,
     );
@@ -254,6 +255,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
         <ScheduleJobEditForm
           job={{ ...existing, name, prompt, workingDir }}
           schedule={schedule}
+          dirs={ctx.listDirs()}
           modelPicker={
             pickerExposed ? { submitted: submittedModel } : undefined
           }

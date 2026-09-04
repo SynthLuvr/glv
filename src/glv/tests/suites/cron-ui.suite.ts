@@ -94,8 +94,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain('name="job_name"');
       // A single-line textbox — no suggestion dropdown on it.
       expect(html).toContain("data-schedule-input");
-      expect(html).not.toContain("<datalist");
-      expect(html).not.toContain('list="');
+      const scheduleInput =
+        /<input[^>]*data-schedule-input[^>]*>/.exec(html)?.[0] ?? "";
+      expect(scheduleInput).not.toContain("list=");
+      // The form's own working directory field, with home-dir suggestions.
+      expect(html).toContain('name="working_dir"');
+      expect(html).toContain("data-schedule-dir");
+      expect(html).toContain('list="schedule-recent-dirs"');
+      expect(html).toContain("<datalist");
       expect(html).toContain("Schedule run");
     });
 
@@ -182,7 +188,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "every weekday at 9:00",
           prompt: "Run the nightly build",
           working_dir: workingDir,
-          session_mode: "working_dir",
         }),
       });
       const html = await res.text();
@@ -194,6 +199,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
       expect(html).toContain("0 9 * * 1-5");
       expect(html).toContain("Changes apply live");
+      // The confirmation names the working directory the runs will use.
+      expect(html).toContain("Working directory");
+      expect(html).toContain(workingDir);
       // The grid and count refresh out of band with the new card.
       expect(html).toContain('id="cron-job-grid"');
       expect(html).toContain("cron-job-card");
@@ -224,16 +232,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "definitely not a schedule",
           prompt: "Keep this exact text",
           working_dir: workingDir,
-          session_mode: "working_dir",
         }),
       });
       expect(res.status).toBe(422);
       const html = await res.text();
       expect(html).toContain("Couldn’t understand that schedule");
-      // The typed job name and schedule survive the rejection (the
-      // composed prompt lives in the untouched form above).
+      // The typed job name, schedule, and working directory survive the
+      // rejection (the composed prompt lives in the untouched form above).
       expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
+      expect(html).toContain(`value="${workingDir}"`);
       expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
@@ -245,25 +253,39 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "every weekday at 9:00",
           prompt: "",
           working_dir: workingDir,
-          session_mode: "working_dir",
         }),
       });
       expect(res.status).toBe(422);
       expect(await res.text()).toContain("type one in the form above");
     });
 
-    it("rejects temp-directory mode for a scheduled run", async () => {
+    it("rejects a missing working directory with a pointer to the field", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
-          job_name: "temp-job",
+          job_name: "no-dir",
           schedule: "every weekday at 9:00",
-          prompt: "Somewhere temporary",
-          session_mode: "temp",
+          prompt: "Somewhere to run",
         }),
       });
       expect(res.status).toBe(422);
-      expect(await res.text()).toContain("need a working directory");
+      expect(await res.text()).toContain("A working directory is required");
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+    });
+
+    it("rejects a working directory that does not exist", async () => {
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "ghost-dir",
+          schedule: "every weekday at 9:00",
+          prompt: "Run nowhere",
+          working_dir: "/definitely/not/a/real/dir",
+        }),
+      });
+      expect(res.status).toBe(422);
+      expect(await res.text()).toContain("does not exist");
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("rejects a name collision with an existing job", async () => {
@@ -274,7 +296,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "at 8:30",
           prompt: "Another sweep",
           working_dir: workingDir,
-          session_mode: "working_dir",
         }),
       });
       expect(res.status).toBe(422);
@@ -292,7 +313,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "every weekday at 9:00",
           prompt: "Model pick",
           working_dir: workingDir,
-          session_mode: "working_dir",
           model_provider: "ghost/nowhere",
         }),
       });
@@ -366,6 +386,53 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("#scheduled-runs-count")).toHaveText(
           String(Number(before) + 1),
         );
+      });
+    });
+
+    it("sets the working directory on the schedule form itself", async () => {
+      const otherDir = mkdtempSync(join(tmpdir(), "glv-cronui-od-"));
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/sessions/new`);
+        await expect(page.locator("form.new-session-form")).toBeVisible();
+
+        const sessionDir = page.locator(
+          'form.new-session-form input[name="working_dir"]',
+        );
+        await sessionDir.fill(workingDir);
+
+        // "Schedule…" loads the inline form; its working directory field
+        // is seeded with the form above's value.
+        await page.getByRole("button", { name: "🕒 Schedule…" }).click();
+        const dirField = page.locator(
+          "#cron-save-slot input[data-schedule-dir]",
+        );
+        await expect(dirField).toHaveValue(workingDir);
+
+        // Untouched, the field follows the form above…
+        await sessionDir.fill(otherDir);
+        await expect(dirField).toHaveValue(otherDir);
+        // …but once edited here it stays put, whatever happens above.
+        await dirField.fill(workingDir);
+        await sessionDir.fill(otherDir);
+        await expect(dirField).toHaveValue(workingDir);
+
+        // Even a temporary directory in the form above leaves the run's
+        // own directory alone.
+        await page.locator('input[data-source-radio="temp"]').check();
+        await expect(dirField).toHaveValue(workingDir);
+
+        // Submitting schedules the run in the field's directory.
+        await page.locator("input[data-schedule-input]").fill("at 5:05");
+        await page.locator('input[name="job_name"]').fill("Dir pick job");
+        await page.locator('textarea[name="prompt"]').fill("Dir sweep");
+        await page
+          .locator("#cron-save-slot button[data-schedule-submit]")
+          .click();
+        await expect(page.locator("#cron-save-slot")).toContainText(
+          "Scheduled run saved",
+          { timeout: 15_000 },
+        );
+        expect(cronJobIn(cfgPath, "Dir pick job")?.workingDir).toBe(workingDir);
       });
     });
   });

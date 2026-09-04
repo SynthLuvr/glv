@@ -118,7 +118,7 @@ describe("scheduled-run model picker (goose)", () => {
     // instantly and the select swaps in after.
     expect(html).toContain('class="form-field model-picker-slot"');
     expect(html).toContain('hx-get="/sessions/model-picker"');
-    expect(html).toContain("pick a model below");
+    expect(html).toContain("Pick a model below");
     expect(html).not.toContain("default model");
   });
 
@@ -128,7 +128,6 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "every weekday at 9:00",
       prompt: "Run the nightly build",
       working_dir: workDir,
-      session_mode: "working_dir",
       model_provider: "zai:glm-5.1",
     });
     expect(status).toBe(200);
@@ -150,7 +149,6 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "at 8:30",
       prompt: "Default model sweep",
       working_dir: workDir,
-      session_mode: "working_dir",
     });
     expect(status).toBe(200);
     const job = cronJobIn(cfgPath, "Default sweep");
@@ -165,7 +163,6 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "every weekday at 9:00",
       prompt: "Ghost provider",
       working_dir: workDir,
-      session_mode: "working_dir",
       model_provider: "ghost:whatever",
     });
     expect(status).toBe(422);
@@ -188,7 +185,6 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "every weekday at 9:00",
       prompt: "Not a real model",
       working_dir: workDir,
-      session_mode: "working_dir",
       model_provider: "zai:not-a-glm",
     });
     expect(status).toBe(422);
@@ -202,7 +198,6 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "* * * * * *",
       prompt: "Pinned sweep",
       working_dir: workDir,
-      session_mode: "working_dir",
       model_provider: "zai:glm-5.3",
     });
     expect(status).toBe(200);
