@@ -97,9 +97,8 @@ const ScheduleControls = ({
   </div>
 );
 
-// A datalist of home directories for a working-directory field. Each
-// form carries its own (distinct id) so two of them can be on the page
-// at once — the save slot and an edit card.
+// Each form carries its own datalist id, so the save form and an edit
+// card can be on the page at once.
 const RecentDirsDatalist = ({
   dirs,
   id,
@@ -115,15 +114,13 @@ const RecentDirsDatalist = ({
 );
 
 // The inline schedule form, loaded into the section's slot by
-// "Schedule…" (the Saved prompts save-form pattern). It schedules the
-// prompt composed in the New Session form above — hx-include pulls that
-// textarea at submit time, so the latest typing is what gets scheduled,
-// and the composed prompt is never duplicated or lost. The working
-// directory is the form's own field (schedule.js seeds it from the form
-// above and keeps following it until edited), so a run can be scheduled
-// for any directory — including while the form above sits on a
-// temporary one. The model picker is the form's own, so the job pins
-// its model independently of whatever the form above would run now.
+// "Schedule…" (the Saved prompts save-form pattern). The prompt comes
+// from the New Session form above — hx-include pulls that textarea at
+// submit time, so the latest typing is scheduled and never duplicated.
+// The working directory is this form's own field (seeded from above by
+// schedule.js), so a run can target any directory even while the form
+// above sits on a temporary one. The model picker is likewise the
+// form's own, pinning the job's model independently of the form above.
 const ScheduleSaveForm = ({
   agentName,
   jobName = "",

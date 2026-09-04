@@ -7,29 +7,24 @@ import { parseSchedule } from "../schedule.js";
 
 const SYNC_INPUT = "input[data-schedule-input]";
 
-// The save form's working directory starts as the New Session form's and
-// keeps following it until the schedule form's own field is edited (or a
-// rejected submit restores a typed one) — the form above stays a
-// default, never a constraint.
+// The save form's working directory field mirrors the New Session form's
+// until the user edits it — the form above stays a default, never a
+// constraint.
 const DIR_FIELD = "input[data-schedule-dir]";
 const SESSION_DIR_FIELD = "form.new-session-form input[name=working_dir]";
 
 let dirTouched = false;
 
-const sessionDirField = (): HTMLInputElement | null =>
-  document.querySelector<HTMLInputElement>(SESSION_DIR_FIELD);
-
 const syncDirFromSession = (): void => {
   if (dirTouched) return;
   const field = document.querySelector<HTMLInputElement>(DIR_FIELD);
-  const source = sessionDirField();
+  const source = document.querySelector<HTMLInputElement>(SESSION_DIR_FIELD);
   if (field === null || source === null) return;
   field.value = source.value;
 };
 
-// Runs whenever the save form lands: a fresh form mirrors the form
-// above, while a rejected submit's restored value counts as an edit and
-// is left alone.
+// A fresh form mirrors the form above; a rejected submit's restored
+// value already counts as an edit and is left alone.
 const seedDirField = (root: HTMLElement): void => {
   const field = root.querySelector<HTMLInputElement>(DIR_FIELD);
   if (field === null) return;
@@ -96,8 +91,6 @@ document.addEventListener("input", (e) => {
   if (!(e.target instanceof Element)) return;
   if (e.target instanceof HTMLInputElement && e.target.matches(SYNC_INPUT))
     syncField(e.target);
-  // Typing above re-syncs an untouched field; typing in the field itself
-  // detaches it from the form above for good.
   if (e.target.matches(SESSION_DIR_FIELD)) syncDirFromSession();
   if (e.target.matches(DIR_FIELD)) dirTouched = true;
 });
