@@ -671,9 +671,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         { GLV_CONFIG: cfgPath },
       );
       try {
-        // "every 2 minutes" fires at the next even-minute boundary, so
-        // the first session lands within ~2 minutes of boot.
-        const deadline = Date.now() + 150_000;
+        // "every 2 minutes" fires on even-minute boundaries, so the
+        // first fire lands within ~2 minutes of boot — but a boot just
+        // past a boundary waits a full cycle first, and a loaded CI
+        // runner can lag a fire by tens of seconds more. Measure the
+        // window from the first boundary, padded past the 60s session
+        // timeout, so a slow fire — or a missed one plus its retry —
+        // still lands inside the poll.
+        const firstFire = 120_000 - (Date.now() % 120_000);
+        const deadline = Date.now() + firstFire + 180_000;
         let html = "";
         while (Date.now() < deadline) {
           const res = await authedFetch(env, "/");
@@ -689,7 +695,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await env.cleanup();
         rmSync(homeDir, { recursive: true, force: true });
       }
-    }, 180000);
+    }, 360_000);
   });
 };
 
