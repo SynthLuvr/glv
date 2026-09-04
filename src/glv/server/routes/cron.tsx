@@ -9,6 +9,12 @@ import {
   writeCronJobs,
 } from "../../config.js";
 import {
+  jobModelSelection,
+  jobModelValue,
+  modelPinFields,
+  modelUnavailableError,
+} from "../../models.js";
+import {
   fmtDateTime,
   type NamedCronJob,
   parseSchedule,
@@ -25,6 +31,7 @@ import {
 } from "../../views/schedule.js";
 import type { ServerContext } from "../context.js";
 import { expandHome } from "../paths.js";
+import { hasModelPicker, modelPickerOpts } from "../render.js";
 
 // Management surface for scheduled runs. The config file stays the source
 // of truth: every mutation is a read-modify-write of its cronJobs array,
@@ -103,9 +110,15 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
   // The inline schedule form for the section's slot (the Saved prompts
   // "Save current prompt" pattern): the composed prompt and working
-  // directory ride along from the New Session form at submit time.
+  // directory ride along from the New Session form at submit time. The
+  // model picker is the form's own (flavors without models get none).
   app.get("/cron/new", (c) =>
-    c.html(<ScheduleSaveForm agentName={ctx.profile.agentName} />),
+    c.html(
+      <ScheduleSaveForm
+        agentName={ctx.profile.agentName}
+        modelPicker={modelPickerOpts(ctx)}
+      />,
+    ),
   );
 
   // Creates a job from the slot form. The New Session form itself stays
@@ -130,6 +143,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
           agentName={agentName}
           jobName={jobName}
           schedule={schedule}
+          modelPicker={modelPickerOpts(ctx, modelProvider)}
           error={error}
         />,
         422,
@@ -142,11 +156,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
         "Scheduled runs need a working directory — switch the form " +
           "above off temporary directories.",
       );
-    if (modelProvider !== "")
-      return reject(
-        `Scheduled runs always use ${agentName}’s default model — set ` +
-          "the model picker above back to default.",
-      );
+    // The picker listed render-time config; resolve the pick against a
+    // fresh read in case the agent's config changed since the form was
+    // served (same rule as the New Session flow).
+    const picked = ctx.models?.resolve(modelProvider);
+    if (modelProvider !== "" && picked === undefined)
+      return reject(modelUnavailableError(agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     const workingDir = resolve(expandHome(workingDirRaw));
     if (workingDirRaw === "" || !existsSync(workingDir))
@@ -165,6 +180,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
+      ...modelPinFields(picked),
     };
     try {
       appendCronJob(ctx.profile.dataDirName, job);
@@ -201,7 +217,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const { jobs } = readJobsOr(ctx);
     const job = findJob(jobs, c.req.param("name"));
     if (job === undefined) return c.notFound();
-    return c.html(<ScheduleJobEditForm job={job} />);
+    return c.html(
+      <ScheduleJobEditForm
+        job={job}
+        modelPicker={modelPickerOpts(ctx, jobModelValue(job))}
+      />,
+    );
   });
 
   app.put("/cron/:name", async (c) => {
@@ -220,11 +241,22 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const workingDirRaw = trimmedField(body, "working_dir");
     const workingDir = resolve(expandHome(workingDirRaw));
 
+    // The picker is exposed only where the flavor supports models; an
+    // unexposed field keeps whatever the file already pins.
+    const pickerExposed = hasModelPicker(ctx);
+    const submittedModel = trimmedField(body, "model_provider");
+    const picked = pickerExposed
+      ? ctx.models?.resolve(submittedModel)
+      : undefined;
+
     const reject = (error: string) =>
       c.html(
         <ScheduleJobEditForm
           job={{ ...existing, name, prompt, workingDir }}
           schedule={schedule}
+          modelPicker={
+            pickerExposed ? { submitted: submittedModel } : undefined
+          }
           error={error}
         />,
       );
@@ -236,14 +268,21 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       return reject("That working directory does not exist.");
     const parsed = parseSchedule(schedule);
     if (!parsed.ok) return reject(parsed.error);
+    if (pickerExposed && submittedModel !== "" && picked === undefined)
+      return reject(modelUnavailableError(ctx.profile.agentName));
     // Renaming onto a different existing job collides.
     if (jobs.some((job) => job.name === name && job.name !== existing.name))
       return reject(`A scheduled run named "${name}" already exists.`);
 
     // Unexposed fields (timezone, enabled, …) survive the edit; only the
-    // form's own fields are overwritten.
+    // form's own fields are overwritten. Where the picker is exposed,
+    // the submitted value replaces the stored pin — empty clears it.
+    const { modelProvider, model, ...kept } = existing;
     const updated: NamedCronJob = {
-      ...existing,
+      ...kept,
+      ...modelPinFields(
+        pickerExposed ? picked : jobModelSelection({ modelProvider, model }),
+      ),
       name,
       schedule: parsed.info.cron ?? schedule,
       prompt,

@@ -1,28 +1,22 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
 import {
   authedFetch,
-  defaultConfigFile,
+  type CronConfigFile,
+  cronJobIn,
   type FlavorFixture,
   type IntegrationEnv,
+  readCronConfig,
   withPage,
+  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
-
-type ConfigFile = { cronJobs?: unknown[] };
 
 // The scheduled-runs UI: creating from the New Session form, managing
 // from the section, recognizing job-started sessions, and the one-shot
@@ -30,28 +24,19 @@ type ConfigFile = { cronJobs?: unknown[] };
 // assertion about state reads the file the UI claims to write.
 
 const runCronUiSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, cronJobs: unknown[]): string => {
-    const path = defaultConfigFile(homeDir, fx.binName);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
-    return path;
-  };
-
-  const readConfig = (path: string): ConfigFile =>
-    (existsSync(path)
-      ? JSON.parse(readFileSync(path, "utf-8"))
-      : {}) as ConfigFile;
+  const writeConfig = (homeDir: string, cronJobs: unknown[]): string =>
+    writeCronConfig(homeDir, fx.binName, cronJobs);
 
   // Polls the file until it satisfies the predicate (the server's writes
   // trail the HTTP response by design — retirement happens after a fire).
   const waitForConfig = async (
     path: string,
-    accept: (config: ConfigFile) => boolean,
+    accept: (config: CronConfigFile) => boolean,
     timeoutMs = 15_000,
-  ): Promise<ConfigFile> => {
+  ): Promise<CronConfigFile> => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const config = readConfig(path);
+      const config = readCronConfig(path);
       if (accept(config)) return config;
       if (Date.now() > deadline)
         throw new Error(
@@ -215,7 +200,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Run the nightly build");
 
       // English is CONVERTED to a cron pattern — the file stores cron.
-      const config = readConfig(cfgPath);
+      const config = readCronConfig(cfgPath);
       expect(config.cronJobs).toEqual([
         {
           name: "Weekly build",
@@ -249,7 +234,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // composed prompt lives in the untouched form above).
       expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
-      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("rejects an empty prompt with a pointer back to the form", async () => {
@@ -296,10 +281,10 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("already exists");
       expect(html).toContain("Weekly build");
-      expect(readConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
-    it("rejects a non-default model with a pointer back to the picker", async () => {
+    it("rejects a model the agent cannot resolve, with a pointer to the picker", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
@@ -308,11 +293,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Model pick",
           working_dir: workingDir,
           session_mode: "working_dir",
-          model_provider: "anthropic/claude",
+          model_provider: "ghost/nowhere",
         }),
       });
       expect(res.status).toBe(422);
-      expect(await res.text()).toContain("default model");
+      expect(await res.text()).toContain("no longer available");
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
@@ -422,12 +408,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
-    const jobByName = (name: string): Record<string, unknown> | undefined => {
-      const jobs = readConfig(cfgPath).cronJobs ?? [];
-      return jobs.find((job) => (job as { name?: string }).name === name) as
-        | Record<string, unknown>
-        | undefined;
-    };
+    const jobByName = (name: string): Record<string, unknown> | undefined =>
+      cronJobIn(cfgPath, name);
 
     it("lists every job with status, schedule, next run, and the notice", async () => {
       const res = await authedFetch(env, "/");
@@ -534,7 +516,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain('id="scheduled-runs"');
       expect(html).toContain("No scheduled runs yet");
       expect(html).not.toContain("cron-job-card");
-      expect(readConfig(cfgPath).cronJobs).toEqual([]);
+      expect(readCronConfig(cfgPath).cronJobs).toEqual([]);
     });
   });
 
@@ -689,9 +671,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         { GLV_CONFIG: cfgPath },
       );
       try {
-        // "every 2 minutes" fires at the next even-minute boundary, so
-        // the first session lands within ~2 minutes of boot.
-        const deadline = Date.now() + 150_000;
+        // "every 2 minutes" fires on even-minute boundaries, so the
+        // first fire lands within ~2 minutes of boot — but a boot just
+        // past a boundary waits a full cycle first, and a loaded CI
+        // runner can lag a fire by tens of seconds more. Measure the
+        // window from the first boundary, padded past the 60s session
+        // timeout, so a slow fire — or a missed one plus its retry —
+        // still lands inside the poll.
+        const firstFire = 120_000 - (Date.now() % 120_000);
+        const deadline = Date.now() + firstFire + 180_000;
         let html = "";
         while (Date.now() < deadline) {
           const res = await authedFetch(env, "/");
@@ -701,13 +689,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         }
         expect(html).toContain("Typed Schedule Session");
         // A recurring job stays in the config (unlike a one-shot).
-        const jobs = readConfig(cfgPath).cronJobs ?? [];
+        const jobs = readCronConfig(cfgPath).cronJobs ?? [];
         expect(jobs).toHaveLength(1);
       } finally {
         await env.cleanup();
         rmSync(homeDir, { recursive: true, force: true });
       }
-    }, 180000);
+    }, 360_000);
   });
 };
 

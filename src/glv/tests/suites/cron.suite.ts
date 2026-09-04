@@ -1,13 +1,12 @@
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -16,8 +15,8 @@ import {
   type FlavorFixture,
   fakeHomeEnv,
   type IntegrationEnv,
-  spawnLauncher,
-  stopProcess,
+  waitForServeExit,
+  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -55,49 +54,8 @@ const waitForContent = async (
 };
 
 const runCronSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, cronJobs: unknown): string => {
-    const path = defaultConfigFile(homeDir, fx.binName);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
-    return path;
-  };
-
-  // Boots serve with the config at cfgPath and resolves on exit. A serve
-  // still alive at the deadline is killed and yields status null — which
-  // fails the callers' non-zero assertion, because a serve that boots
-  // despite an invalid config is itself the bug. The fake HOME keeps the
-  // real stores untouched.
-  const serveUntilExit = async (
-    cfgPath: string,
-    homeDir: string,
-  ): Promise<{ status: number | null; stderr: string }> => {
-    const proc = spawnLauncher(
-      fx.binPath,
-      ["serve", ...fx.defaultServeArgs(homeDir)],
-      {
-        env: {
-          ...process.env,
-          ...fakeHomeEnv(homeDir),
-          GLV_CONFIG: cfgPath,
-        },
-      },
-    );
-    let stderr = "";
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    const status = await new Promise<number | null>((resolve) => {
-      const timer = setTimeout(() => {
-        void stopProcess(proc);
-        resolve(null);
-      }, 20_000);
-      proc.once("exit", (code) => {
-        clearTimeout(timer);
-        resolve(code);
-      });
-    });
-    return { status, stderr };
-  };
+  const writeConfig = (homeDir: string, cronJobs: unknown): string =>
+    writeCronConfig(homeDir, fx.binName, cronJobs);
 
   // Asserts serve refuses to start for the given cronJobs value, naming
   // every expected stderr fragment.
@@ -106,9 +64,13 @@ const runCronSuite = (fx: FlavorFixture): void => {
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-    const { status, stderr } = await serveUntilExit(
-      writeConfig(homeDir, cronJobs),
-      homeDir,
+    const { status, stderr } = await waitForServeExit(
+      fx.binPath,
+      ["serve", ...fx.defaultServeArgs(homeDir)],
+      {
+        ...fakeHomeEnv(homeDir),
+        GLV_CONFIG: writeConfig(homeDir, cronJobs),
+      },
     );
     expect(status ?? 0).not.toBe(0);
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);
@@ -433,6 +395,21 @@ const runCronSuite = (fx: FlavorFixture): void => {
           },
         ],
         'duplicate cron job name "twin"',
+      ));
+
+    it("exits non-zero for a job with only half a model pin", () =>
+      expectServeRefuses(
+        [
+          {
+            name: "half-pin",
+            schedule: "0 3 * * *",
+            prompt: "x",
+            workingDir: tmpdir(),
+            model: "glm-5.3",
+          },
+        ],
+        "half-pin",
+        "must set modelProvider and model together",
       ));
 
     it("exits non-zero for a structurally invalid cronJobs value", () =>

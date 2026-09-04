@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { parse } from "yaml";
-import type {
-  ModelChoice,
-  ModelSelection,
-  ModelSource,
+import {
+  decodeModelValue,
+  encodeModelValue,
+  type ModelChoice,
+  type ModelSelection,
+  type ModelSource,
 } from "../glv/models.js";
 import { isRecord } from "../glv/parse.js";
 import { fetchProviderCatalog, type ProviderCatalog } from "./acp-catalog.js";
@@ -103,18 +105,6 @@ const orderedProviderNames = (
   return [active.provider, ...names.filter((name) => name !== active.provider)];
 };
 
-// The dropdown offers provider/model pairs, so the submitted form value
-// packs both as "provider:model" (split at the first colon: model ids may
-// contain colons, provider ids never do).
-const encodeChoiceValue = (provider: string, model: string): string =>
-  `${provider}:${model}`;
-
-const decodeChoiceValue = (value: string): ModelSelection | undefined => {
-  const sep = value.indexOf(":");
-  if (sep <= 0 || sep === value.length - 1) return undefined;
-  return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
-};
-
 const EMPTY_CATALOG: ProviderCatalog = new Map();
 const CATALOG_TTL_MS = 60_000;
 const CATALOG_RETRY_MS = 5_000;
@@ -165,14 +155,14 @@ const makeGooseModelSource = (binary: string): ModelSource => {
         out.push({
           provider,
           label: model.label,
-          value: encodeChoiceValue(provider, model.id),
+          value: encodeModelValue(provider, model.id),
         });
     }
     return out;
   };
 
   const resolve = (value: string): ModelSelection | undefined => {
-    const selection = decodeChoiceValue(value);
+    const selection = decodeModelValue(value);
     if (selection === undefined) return undefined;
     const configured = readModelConfig().providers.get(selection.provider);
     if (configured === undefined) return undefined;

@@ -154,6 +154,8 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     // passes, so the file (and the UI reading it) tell the truth.
     retireOneShot: (jobName) =>
       deleteCronJob(opts.profile.dataDirName, jobName),
+    // Without a ModelSource the flavor cannot honor a model pin.
+    supportsModels: opts.models !== undefined,
   });
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);

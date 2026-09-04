@@ -7,6 +7,7 @@ import { jobNameFor } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
+import { modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
@@ -188,10 +189,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     // fresh read in case goose's config changed since the form was served.
     const model = ctx.models?.resolve(modelProvider);
     if (modelProvider !== "" && model === undefined)
-      return rejectForm(
-        `That model is no longer available in ${ctx.profile.agentName}. Pick another from the list.`,
-        422,
-      );
+      return rejectForm(modelUnavailableError(ctx.profile.agentName), 422);
 
     if (
       sessionMode !== "temp" &&

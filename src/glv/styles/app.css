@@ -2990,7 +2990,9 @@ select.form-input {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.cron-job-dir {
+/* The dir line and a pinned model share the same faint small print. */
+.cron-job-dir,
+.cron-job-model {
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-faint);

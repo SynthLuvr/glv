@@ -239,4 +239,10 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export { ModelPicker, ModelSelect, NewSessionForm, NotFoundDetail };
+export {
+  ModelPicker,
+  ModelPickerSlot,
+  ModelSelect,
+  NewSessionForm,
+  NotFoundDetail,
+};

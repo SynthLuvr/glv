@@ -4,6 +4,7 @@ import { Cron } from "croner";
 import { type CronJobConfig, watchConfigFile } from "./config.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
+import { jobModelSelection } from "./models.js";
 import { type Runner, stop } from "./runner/index.js";
 import {
   fmtDateTime,
@@ -40,6 +41,12 @@ type SchedulerDeps = {
    * unfired.
    */
   readonly retireOneShot?: (jobName: string) => void;
+  /**
+   * Whether the flavor can honor a model pin (a ModelSource is wired).
+   * A pinned job in a flavor without one fails validation, named,
+   * instead of silently running on the agent default.
+   */
+  readonly supportsModels?: boolean;
 };
 
 // name/workingDir canonicalized and `enabled` defaulted so every later
@@ -51,6 +58,8 @@ type ResolvedJob = {
   readonly workingDir: string;
   readonly timezone?: string;
   readonly enabled: boolean;
+  readonly modelProvider?: string;
+  readonly model?: string;
 };
 
 // How long one fire waits for the agent to create its session before the
@@ -113,10 +122,22 @@ const assertParsableSchedule = (job: ResolvedJob): void => {
   throw invalidSchedule(job, parsed.error);
 };
 
-const validateJob = (job: ResolvedJob): void => {
+const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
   if (job.timezone !== undefined && !validTimezone(job.timezone))
     throw new Error(
       `cron job "${job.name}" has an invalid timezone "${job.timezone}"`,
+    );
+  // A model pin is both halves of the pair or neither — a lone key is a
+  // hand-edit slip, and half a pin cannot run.
+  if ((job.modelProvider === undefined) !== (job.model === undefined))
+    throw new Error(
+      `cron job "${job.name}" must set modelProvider and model together`,
+    );
+  if (job.modelProvider !== undefined && !supportsModels)
+    throw new Error(
+      `cron job "${job.name}" pins model ` +
+        `"${job.modelProvider} / ${job.model}", but this agent does not ` +
+        "support model selection",
     );
   // A disabled job may legitimately point at a directory that does not
   // exist yet; an enabled one would fail its very first fire.
@@ -129,9 +150,12 @@ const validateJob = (job: ResolvedJob): void => {
 
 // Whole-set validation, separate from the running schedule so an edit
 // can be checked fully before anything is swapped in.
-const validateJobs = (jobs: readonly ResolvedJob[]): void => {
+const validateJobs = (
+  jobs: readonly ResolvedJob[],
+  supportsModels: boolean,
+): void => {
   assertUniqueNames(jobs);
-  for (const job of jobs) validateJob(job);
+  for (const job of jobs) validateJob(job, supportsModels);
 };
 
 // Scheduling translates the schedule to what croner drives: an English
@@ -155,14 +179,20 @@ const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
 
 // One fire of one job: the same establish flow as the HTTP create route —
 // pull, start, wait for the agent's session, rekey — minus the HTTP
-// concerns (uploads, temp dirs).
+// concerns (uploads, temp dirs). A pinned model rides along exactly as a
+// picked one does for an interactive session; no pin means the agent's
+// own default (no model flags).
 const runFire = async (
   deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
   timeoutMs: number,
   job: ResolvedJob,
 ): Promise<void> => {
   await pullRepo(job.workingDir);
-  const handle = deps.launcher.startNew(job.workingDir, job.prompt);
+  const handle = deps.launcher.startNew(
+    job.workingDir,
+    job.prompt,
+    jobModelSelection(job),
+  );
   const sessionId = await deps.launcher.awaitNew(
     handle,
     job.workingDir,
@@ -262,7 +292,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   const applyJobs = (
     resolved: readonly ResolvedJob[],
   ): readonly ResolvedJob[] => {
-    validateJobs(resolved);
+    validateJobs(resolved, deps.supportsModels === true);
     for (const cron of scheduled) cron.stop();
     const effective: ResolvedJob[] = [];
     for (const job of resolved) {
