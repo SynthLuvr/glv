@@ -5,6 +5,7 @@ on:
 
 jobs:
   build:
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -54,6 +55,7 @@ jobs:
   # because the suite only ever ran on Linux — the win32 suite exclusion
   # in vitest.config.ts never even executed there.
   test:
+    timeout-minutes: 10
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
