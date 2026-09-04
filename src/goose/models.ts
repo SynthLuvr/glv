@@ -2,12 +2,13 @@ import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { parse } from "yaml";
-import type {
-  ModelChoice,
-  ModelSelection,
-  ModelSource,
+import {
+  decodeModelValue,
+  encodeModelValue,
+  type ModelChoice,
+  type ModelSelection,
+  type ModelSource,
 } from "../glv/models.js";
-import { decodeModelValue, encodeModelValue } from "../glv/models.js";
 import { isRecord } from "../glv/parse.js";
 import { fetchProviderCatalog, type ProviderCatalog } from "./acp-catalog.js";
 

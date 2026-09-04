@@ -1,6 +1,6 @@
 import { Fragment } from "hono/jsx";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
-import { jobModelSelection } from "../models.js";
+import { jobModelSelection, modelLabel } from "../models.js";
 import {
   fmtDateTime,
   humanizeSchedule,
@@ -199,9 +199,7 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         {model !== undefined && (
           <Fragment>
             <dt>Model</dt>
-            <dd>
-              {model.provider} / {model.model}
-            </dd>
+            <dd>{modelLabel(model)}</dd>
           </Fragment>
         )}
         <dt>Prompt</dt>
@@ -237,11 +235,8 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
         <span class="cron-job-next-value">{nextRunText(job)}</span>
       </p>
       {model !== undefined && (
-        <p
-          class="cron-job-model mono"
-          title={`${model.provider} / ${model.model}`}
-        >
-          {model.provider} / {model.model}
+        <p class="cron-job-model mono" title={modelLabel(model)}>
+          {modelLabel(model)}
         </p>
       )}
       <p class="cron-job-prompt" title={job.prompt}>

@@ -15,7 +15,6 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";

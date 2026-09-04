@@ -2980,13 +2980,6 @@ select.form-input {
   letter-spacing: 0.04em;
   color: var(--color-faint);
 }
-/* A pinned model, rendered provider / model — same weight as the dir. */
-.cron-job-model {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--color-faint);
-  overflow-wrap: anywhere;
-}
 .cron-job-prompt {
   margin: 0;
   font-size: 0.82rem;
@@ -2997,7 +2990,9 @@ select.form-input {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.cron-job-dir {
+/* The dir line and a pinned model share the same faint small print. */
+.cron-job-dir,
+.cron-job-model {
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-faint);

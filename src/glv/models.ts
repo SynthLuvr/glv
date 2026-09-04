@@ -85,12 +85,17 @@ const jobModelValue = (pin: ModelPin): string => {
 const modelUnavailableError = (agentName: string): string =>
   `That model is no longer available in ${agentName}. Pick another from the list.`;
 
+// The "provider / model" rendering used by confirmations and cards.
+const modelLabel = ({ provider, model }: ModelSelection): string =>
+  `${provider} / ${model}`;
+
 export type { ModelChoice, ModelPin, ModelSelection, ModelSource };
 export {
   decodeModelValue,
   encodeModelValue,
   jobModelSelection,
   jobModelValue,
+  modelLabel,
   modelPinFields,
   modelUnavailableError,
 };

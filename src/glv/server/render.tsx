@@ -5,6 +5,7 @@ import { readCronJobs } from "../config.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
+import { modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import { type NamedCronJob, withResolvedNames } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
@@ -197,7 +198,7 @@ const modelPicker = async (
   const value = submitted ?? "";
   return {
     choices,
-    defaultLabel: `${defaultSelection.provider} / ${defaultSelection.model}`,
+    defaultLabel: modelLabel(defaultSelection),
     selected: choices.some((choice) => choice.value === value) ? value : "",
   };
 };
@@ -207,6 +208,15 @@ const modelPicker = async (
 // provider-less configs get no field.
 const hasModelPicker = (ctx: ServerContext): boolean =>
   ctx.models?.defaultSelection() !== undefined;
+
+// The forms' `modelPicker` prop: slot options when the flavor can pick
+// models, absent (the form renders no picker) otherwise. `submitted`
+// restores a rejected submit's selection.
+const modelPickerOpts = (
+  ctx: ServerContext,
+  submitted?: string,
+): { submitted?: string } | undefined =>
+  hasModelPicker(ctx) ? { submitted } : undefined;
 
 // Everything a rejected submit needs to re-render the form without
 // losing typed work.
@@ -244,9 +254,7 @@ const newSessionDetail = (
       prompt={prompt}
       prompts={prompts}
       categories={categories}
-      modelPicker={
-        hasModelPicker(ctx) ? { submitted: modelProvider } : undefined
-      }
+      modelPicker={modelPickerOpts(ctx, modelProvider)}
       jobs={safeCronJobs(ctx)}
     />
   );
@@ -255,6 +263,7 @@ const newSessionDetail = (
 export {
   hasModelPicker,
   modelPicker,
+  modelPickerOpts,
   newSessionDetail,
   render,
   renderNotFound,
