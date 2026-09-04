@@ -37,9 +37,8 @@ const TIMEZONES: readonly string[] = Intl.supportedValuesOf("timeZone");
 const SERVER_TIMEZONE: string =
   Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-// The live-reload notice is standing copy: the running serve watches the
-// config file, so everything scheduled or edited here applies without a
-// restart.
+// Standing section-level copy: it renders once, and the fragments
+// that swap in beside it (form, confirmation, edit form) add no copy.
 const LIVE_RELOAD_NOTICE =
   "Changes apply live — the running server watches the config file, so " +
   "new and edited jobs start firing without a restart.";
@@ -145,8 +144,8 @@ const ScheduleControls = ({
   </div>
 );
 
-// Each form carries its own datalist id, so the save form and an edit
-// card can be on the page at once.
+// Home directories offered as datalist suggestions on the edit form's
+// working directory field.
 const RecentDirsDatalist = ({
   dirs,
   id,
@@ -165,34 +164,24 @@ const RecentDirsDatalist = ({
 // "Schedule…" (the Saved prompts save-form pattern). The prompt comes
 // from the New Session form above — hx-include pulls that textarea at
 // submit time, so the latest typing is scheduled and never duplicated.
-// The working directory is this form's own field (seeded from above by
-// schedule.js), so a run can target any directory even while the form
-// above sits on a temporary one. The model picker is likewise the
-// form's own, pinning the job's model independently of the form above.
+// The run's working directory and model are pulled the same way: the
+// form above is the page's single set of those fields, so whatever it
+// holds when "Schedule run" is clicked is exactly what the job gets.
 const ScheduleSaveForm = ({
-  agentName,
   jobName = "",
   schedule = "",
   timezone = "",
-  workingDir = "",
-  dirs = [],
-  modelPicker,
+  withModels,
   error,
 }: {
-  agentName: string;
   /** Restores a rejected submit's job name. */
   jobName?: string;
   /** Restores a rejected submit's schedule. */
   schedule?: string;
   /** Restores a rejected submit's timezone. */
   timezone?: string;
-  /** Restores a rejected submit's working directory. */
-  workingDir?: string;
-  /** Home directories offered as datalist suggestions. */
-  dirs?: readonly string[];
-  /** Renders the model picker slot when the flavor supports models;
-   * `submitted` restores a rejected submit's selection. */
-  modelPicker?: { submitted?: string };
+  /** Copy flag: the New Session form above carries a model picker. */
+  withModels: boolean;
   error?: string;
 }) => (
   <form
@@ -201,16 +190,12 @@ const ScheduleSaveForm = ({
     hx-post="/cron"
     hx-target="#cron-save-slot"
     hx-swap="innerHTML"
-    hx-include="find input, find select, .new-session-form textarea[name=prompt]"
+    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form select[name=model_provider]"
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
-      Schedules the prompt composed in the form above. The working directory
-      below starts as that form&rsquo;s — change it here to schedule the run
-      somewhere else.{" "}
-      {modelPicker === undefined
-        ? `${agentName} runs them with its default model.`
-        : `Pick a model below, or leave it at ${agentName}’s default.`}
+      Schedules the prompt composed in the form above. Runs use that
+      form&rsquo;s working directory{withModels ? " and model" : ""}.
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -229,24 +214,6 @@ const ScheduleSaveForm = ({
       timezone={timezone}
       timezoneDatalistId="schedule-timezones"
     />
-    <label class="form-field">
-      <span class="form-label">Working directory</span>
-      <input
-        type="text"
-        name="working_dir"
-        data-schedule-dir=""
-        class="form-input mono"
-        list="schedule-recent-dirs"
-        value={workingDir}
-        placeholder="~/project"
-        autocomplete="off"
-        spellcheck={false}
-      />
-      <RecentDirsDatalist dirs={dirs} id="schedule-recent-dirs" />
-    </label>
-    {modelPicker !== undefined && (
-      <ModelPickerSlot submitted={modelPicker.submitted} />
-    )}
     <div class="prompt-form-actions">
       <button
         type="submit"
@@ -264,12 +231,11 @@ const ScheduleSaveForm = ({
         Cancel
       </button>
     </div>
-    <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
   </form>
 );
 
 // Success state rendered into the detail pane after a job is saved: the
-// job's name, humanized schedule, next run, and the live-reload notice.
+// job's name, humanized schedule, and next run.
 const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
   const human = humanizeSchedule(job.schedule, job.timezone);
   const model = jobModelSelection(job);
@@ -310,7 +276,6 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         <dt>Prompt</dt>
         <dd>{truncate(job.prompt, 140)}</dd>
       </dl>
-      <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
     </section>
   );
 };
@@ -469,7 +434,6 @@ const ScheduleJobEditForm = ({
             Cancel
           </button>
         </div>
-        <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
       </form>
     </article>
   );

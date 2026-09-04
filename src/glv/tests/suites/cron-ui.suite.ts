@@ -115,11 +115,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const scheduleInput =
         /<input[^>]*data-schedule-input[^>]*>/.exec(html)?.[0] ?? "";
       expect(scheduleInput).not.toContain("list=");
-      // The form's own working directory field, with home-dir suggestions.
-      expect(html).toContain('name="working_dir"');
-      expect(html).toContain("data-schedule-dir");
-      expect(html).toContain('list="schedule-recent-dirs"');
-      expect(html).toContain("<datalist");
+      // No working directory or model fields of its own: the submit
+      // pulls both from the New Session form above, exactly like the
+      // composed prompt.
+      expect(html).not.toContain('name="working_dir"');
+      expect(html).not.toContain("data-schedule-dir");
+      expect(html).toContain(".new-session-form input[name=working_dir]");
+      expect(html).toContain(".new-session-form select[name=model_provider]");
       expect(html).toContain("Schedule run");
     });
 
@@ -271,13 +273,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Confirmation lands in the slot: name, schedule, live-reload notice.
+      // Confirmation lands in the slot: name, schedule, next run.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       // The English was converted — humanized form and the pattern itself.
       expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
       expect(html).toContain("0 9 * * 1-5");
-      expect(html).toContain("Changes apply live");
+      // The live-reload notice renders once, at the section level — the
+      // confirmation adds no second copy next to it.
+      expect(html).not.toContain("Changes apply live");
       // The confirmation names the working directory the runs will use.
       expect(html).toContain("Working directory");
       expect(html).toContain(workingDir);
@@ -316,11 +320,10 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(res.status).toBe(422);
       const html = await res.text();
       expect(html).toContain("Couldn’t understand that schedule");
-      // The typed job name, schedule, and working directory survive the
-      // rejection (the composed prompt lives in the untouched form above).
+      // The composed prompt and working directory live in the untouched
+      // form above, so only this form's two fields needed restoring.
       expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
-      expect(html).toContain(`value="${workingDir}"`);
       expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
@@ -338,7 +341,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(await res.text()).toContain("type one in the form above");
     });
 
-    it("rejects a missing working directory with a pointer to the field", async () => {
+    it("rejects a missing working directory with a pointer to the form", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
@@ -348,7 +351,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         }),
       });
       expect(res.status).toBe(422);
-      expect(await res.text()).toContain("A working directory is required");
+      expect(await res.text()).toContain(
+        "A working directory is required — set one in the form above",
+      );
       expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
@@ -461,8 +466,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           .textContent();
 
         // "Schedule…" loads the inline form into the section's slot.
+        // The swap is the page's first XHR; on a loaded CI runner (four
+        // concurrent server+browser stacks) it can take well past the
+        // 5s default, so every htmx round-trip here waits explicitly.
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible({
+          timeout: 15_000,
+        });
         const scheduleBtn = page.locator(
           "#cron-save-slot button[data-schedule-submit]",
         );
@@ -560,39 +570,30 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
     });
 
-    it("sets the working directory on the schedule form itself", async () => {
+    it("schedules with the New Session form's working directory", async () => {
       const otherDir = mkdtempSync(join(tmpdir(), "glv-cronui-od-"));
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
-        const sessionDir = page.locator(
-          'form.new-session-form input[name="working_dir"]',
-        );
-        await sessionDir.fill(workingDir);
-
-        // "Schedule…" loads the inline form; its working directory field
-        // is seeded with the form above's value.
+        // "Schedule…" loads the inline form; it renders no working
+        // directory field of its own — the form above's is the one.
+        // The swap is the page's first XHR — on a loaded CI runner it
+        // can outlast the 5s default, so the wait is explicit.
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-        const dirField = page.locator(
-          "#cron-save-slot input[data-schedule-dir]",
-        );
-        await expect(dirField).toHaveValue(workingDir);
+        await expect(page.locator("#cron-save-slot form")).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(
+          page.locator("#cron-save-slot input[name=working_dir]"),
+        ).toHaveCount(0);
 
-        // Untouched, the field follows the form above…
-        await sessionDir.fill(otherDir);
-        await expect(dirField).toHaveValue(otherDir);
-        // …but once edited here it stays put, whatever happens above.
-        await dirField.fill(workingDir);
-        await sessionDir.fill(otherDir);
-        await expect(dirField).toHaveValue(workingDir);
-
-        // Even a temporary directory in the form above leaves the run's
-        // own directory alone.
-        await page.locator('input[data-source-radio="temp"]').check();
-        await expect(dirField).toHaveValue(workingDir);
-
-        // Submitting schedules the run in the field's directory.
+        // The directory is read from the form above at submit time, so
+        // changing it there (even after the form opened) is what the
+        // scheduled run gets.
+        await page
+          .locator('form.new-session-form input[name="working_dir"]')
+          .fill(otherDir);
         await page.locator("input[data-schedule-input]").fill("at 5:05");
         await page.locator('input[name="job_name"]').fill("Dir pick job");
         await page.locator('textarea[name="prompt"]').fill("Dir sweep");
@@ -603,7 +604,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           "Scheduled run saved",
           { timeout: 15_000 },
         );
-        expect(cronJobIn(cfgPath, "Dir pick job")?.workingDir).toBe(workingDir);
+        // The confirmation names the directory the runs will use — the
+        // full path rides in the title attribute, since the visible
+        // text truncates the middle on long Windows temp paths.
+        await expect(
+          page.locator("[data-schedule-confirmation] dd.mono"),
+        ).toHaveAttribute("title", otherDir);
+        expect(cronJobIn(cfgPath, "Dir pick job")?.workingDir).toBe(otherDir);
       });
     });
   });

@@ -7,33 +7,8 @@ import { parseSchedule } from "../schedule.js";
 // is what the server will accept.
 
 const SYNC_INPUT = "input[data-schedule-input]";
-
-// The save form's working directory field mirrors the New Session form's
-// until the user edits it — the form above stays a default, never a
-// constraint.
-const DIR_FIELD = "input[data-schedule-dir]";
-const SESSION_DIR_FIELD = "form.new-session-form input[name=working_dir]";
 // The optional timezone override, sibling of the schedule field.
 const TIMEZONE_FIELD = "input[data-schedule-timezone]";
-
-let dirTouched = false;
-
-const syncDirFromSession = (): void => {
-  if (dirTouched) return;
-  const field = document.querySelector<HTMLInputElement>(DIR_FIELD);
-  const source = document.querySelector<HTMLInputElement>(SESSION_DIR_FIELD);
-  if (field === null || source === null) return;
-  field.value = source.value;
-};
-
-// A fresh form mirrors the form above; a rejected submit's restored
-// value already counts as an edit and is left alone.
-const seedDirField = (root: HTMLElement): void => {
-  const field = root.querySelector<HTMLInputElement>(DIR_FIELD);
-  if (field === null) return;
-  dirTouched = field.value !== "";
-  syncDirFromSession();
-};
 
 const IDLE_HINT = "Validated as you type — plain English or cron.";
 
@@ -110,8 +85,6 @@ document.addEventListener("input", (e) => {
       .closest("form")
       ?.querySelectorAll<HTMLInputElement>(SYNC_INPUT)
       .forEach(syncField);
-  if (e.target.matches(SESSION_DIR_FIELD)) syncDirFromSession();
-  if (e.target.matches(DIR_FIELD)) dirTouched = true;
 });
 
 document.addEventListener("DOMContentLoaded", validateAll);
@@ -138,6 +111,5 @@ const afterSwap = (e: Event): void => {
     target.querySelector?.(SYNC_INPUT) !== null
   )
     validateAll();
-  if (target.querySelector?.(DIR_FIELD) !== null) seedDirField(target);
 };
 document.body.addEventListener("htmx:afterSwap", afterSwap);

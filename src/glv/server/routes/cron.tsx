@@ -110,18 +110,11 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   });
 
   // The inline schedule form for the section's slot (the Saved prompts
-  // "Save current prompt" pattern): the composed prompt rides along
-  // from the New Session form at submit time, and the working directory
-  // is the form's own field (seeded from that form by schedule.js). The
-  // model picker is the form's own (flavors without models get none).
+  // "Save current prompt" pattern): the composed prompt, the working
+  // directory, and the model all ride along from the New Session form at
+  // submit time — the form renders no fields of its own for them.
   app.get("/cron/new", (c) =>
-    c.html(
-      <ScheduleSaveForm
-        agentName={ctx.profile.agentName}
-        dirs={ctx.listDirs()}
-        modelPicker={modelPickerOpts(ctx)}
-      />,
-    ),
+    c.html(<ScheduleSaveForm withModels={hasModelPicker(ctx)} />),
   );
 
   // Creates a job from the slot form. The New Session form itself stays
@@ -132,7 +125,6 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       string,
       unknown
     >;
-    const agentName = ctx.profile.agentName;
     const jobName = trimmedField(body, "job_name");
     const schedule = trimmedField(body, "schedule");
     const prompt = trimmedField(body, "prompt");
@@ -143,13 +135,10 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const reject = (error: string) =>
       c.html(
         <ScheduleSaveForm
-          agentName={agentName}
           jobName={jobName}
           schedule={schedule}
           timezone={timezone}
-          workingDir={workingDirRaw}
-          dirs={ctx.listDirs()}
-          modelPicker={modelPickerOpts(ctx, modelProvider)}
+          withModels={hasModelPicker(ctx)}
           error={error}
         />,
         422,
@@ -162,10 +151,12 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     // served (same rule as the New Session flow).
     const picked = ctx.models?.resolve(modelProvider);
     if (modelProvider !== "" && picked === undefined)
-      return reject(modelUnavailableError(agentName));
+      return reject(modelUnavailableError(ctx.profile.agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     if (workingDirRaw === "")
-      return reject("A working directory is required — set one in this form.");
+      return reject(
+        "A working directory is required — set one in the form above.",
+      );
     const workingDir = resolve(expandHome(workingDirRaw));
     if (!existsSync(workingDir))
       return reject("That working directory does not exist.");

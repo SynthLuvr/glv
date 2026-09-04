@@ -16,10 +16,11 @@ import {
 import { gooseConfigPath } from "../models.js";
 import { startIntegrationEnv } from "./integration-harness.js";
 
-// Scheduled-run model selection: the schedule form's own picker, the
-// config-file modelProvider/model pair, and the flags each fire actually
-// passes to the agent. goose-only, like the New Session picker it shares
-// the catalogue with (claude has no model surface).
+// Scheduled-run model selection: the New Session form's picker (which
+// scheduled runs inherit — the schedule form renders no picker of its
+// own), the config-file modelProvider/model pair, and the flags each
+// fire actually passes to the agent. goose-only, like the New Session
+// picker it shares the catalogue with (claude has no model surface).
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,17 +110,19 @@ describe("scheduled-run model picker (goose)", () => {
     return { status: res.status, html: await res.text() };
   };
 
-  it("serves the schedule form with its own lazy picker", async () => {
+  it("serves the schedule form without model fields of its own", async () => {
     const res = await authedFetch(env, "/cron/new");
     const html = await res.text();
     expect(res.status).toBe(200);
-    // The picker is a lazy slot, exactly like the New Session form's —
-    // the catalogue may spawn the agent binary, so the form renders
-    // instantly and the select swaps in after.
-    expect(html).toContain('class="form-field model-picker-slot"');
-    expect(html).toContain('hx-get="/sessions/model-picker"');
-    expect(html).toContain("Pick a model below");
-    expect(html).not.toContain("default model");
+    // No picker slot here: the New Session form above is the page's
+    // single model picker, and the submit pulls its select the same way
+    // it pulls the composed prompt (and the working directory).
+    expect(html).not.toContain("model-picker-slot");
+    expect(html).not.toContain('name="model_provider"');
+    expect(html).toContain(".new-session-form select[name=model_provider]");
+    expect(html).toContain(".new-session-form input[name=working_dir]");
+    // The copy says the run inherits the form above's picks.
+    expect(html).toContain("working directory and model");
   });
 
   it("saves a job with the picked model and shows it back", async () => {
@@ -167,11 +170,9 @@ describe("scheduled-run model picker (goose)", () => {
     });
     expect(status).toBe(422);
     expect(html).toContain("no longer available in goose");
-    // The re-rendered slot carries the submitted value so the picker
-    // restores the selection instead of silently resetting it.
-    expect(html).toContain(
-      'hx-get="/sessions/model-picker?submitted=ghost%3Awhatever"',
-    );
+    // The picker lives in the New Session form above, untouched by the
+    // slot swap — the re-rendered form carries no picker to restore.
+    expect(html).not.toContain("model-picker-slot");
     expect(cronJobIn(cfgPath, "ghost-job")).toBeUndefined();
   });
 
@@ -259,32 +260,36 @@ describe("scheduled-run model picker (goose)", () => {
     });
   });
 
-  it("schedules with a picked model from the browser", async () => {
+  it("schedules with a model picked in the form above", async () => {
     await withPage(env.context, async (page) => {
       await page.goto(`${env.baseUrl}/sessions/new`);
-      await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-      await expect(page.locator("#cron-save-slot form")).toBeVisible();
 
-      // The form's own picker swaps in lazily; pick a non-default model.
+      // The New Session form's picker swaps in lazily; pick a
+      // non-default model there.
       const picker = page.locator(
-        "#cron-save-slot select[name=model_provider]",
+        "form.new-session-form select[name=model_provider]",
       );
       await expect(picker).toBeVisible({ timeout: 15_000 });
       await picker.selectOption("zai:glm-5.1");
 
-      await page.locator("input[data-schedule-input]").fill("at 7:15");
-      await page.locator('input[name="job_name"]').fill("Browser model job");
-      await page.locator('textarea[name="prompt"]').fill("Browser sweep");
+      // The inline form renders no picker of its own.
+      await page.getByRole("button", { name: "🕒 Schedule…" }).click();
+      const slot = page.locator("#cron-save-slot");
+      await expect(slot.locator("form")).toBeVisible();
+      await expect(slot.locator("select[name=model_provider]")).toHaveCount(0);
+
+      // Compose in both forms, then submit from the slot: the model
+      // comes from the picker above, the rest from this form.
+      await slot.locator("input[data-schedule-input]").fill("at 7:15");
+      await slot.locator('input[name="job_name"]').fill("Browser model job");
       await page
-        .locator("#cron-save-slot button[data-schedule-submit]")
-        .click();
-      await expect(page.locator("#cron-save-slot")).toContainText(
-        "Scheduled run saved",
-        { timeout: 15_000 },
-      );
-      await expect(page.locator("#cron-save-slot")).toContainText(
-        "zai / glm-5.1",
-      );
+        .locator("form.new-session-form textarea[name=prompt]")
+        .fill("Browser sweep");
+      await slot.locator("button[data-schedule-submit]").click();
+      await expect(slot).toContainText("Scheduled run saved", {
+        timeout: 15_000,
+      });
+      await expect(slot).toContainText("zai / glm-5.1");
       await expect(page.locator("#cron-job-grid")).toContainText(
         "Browser model job",
       );
