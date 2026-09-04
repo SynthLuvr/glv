@@ -28,10 +28,8 @@ const clockIcon = (
   </svg>
 );
 
-// The live-reload notice is standing copy: the running serve watches the
-// config file, so everything scheduled or edited here applies without a
-// restart. It renders once, at the section level — the fragments that
-// swap into the slot and the job grid sit beside it and add no copy.
+// Standing section-level copy: it renders once, and the fragments
+// that swap in beside it (form, confirmation, edit form) add no copy.
 const LIVE_RELOAD_NOTICE =
   "Changes apply live — the running server watches the config file, so " +
   "new and edited jobs start firing without a restart.";
