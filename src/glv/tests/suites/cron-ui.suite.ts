@@ -194,13 +194,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Confirmation lands in the slot: name, schedule, live-reload notice.
+      // Confirmation lands in the slot: name, schedule, next run.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       // The English was converted — humanized form and the pattern itself.
       expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
       expect(html).toContain("0 9 * * 1-5");
-      expect(html).toContain("Changes apply live");
+      // The live-reload notice renders once, at the section level — the
+      // confirmation adds no second copy next to it.
+      expect(html).not.toContain("Changes apply live");
       // The confirmation names the working directory the runs will use.
       expect(html).toContain("Working directory");
       expect(html).toContain(workingDir);
@@ -343,8 +345,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           .textContent();
 
         // "Schedule…" loads the inline form into the section's slot.
+        // The swap is the page's first XHR; on a loaded CI runner (four
+        // concurrent server+browser stacks) it can take well past the
+        // 5s default, so every htmx round-trip here waits explicitly.
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible({
+          timeout: 15_000,
+        });
         const scheduleBtn = page.locator(
           "#cron-save-slot button[data-schedule-submit]",
         );
@@ -402,8 +409,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
         // "Schedule…" loads the inline form; it renders no working
         // directory field of its own — the form above's is the one.
+        // The swap is the page's first XHR — on a loaded CI runner it
+        // can outlast the 5s default, so the wait is explicit.
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
-        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible({
+          timeout: 15_000,
+        });
         await expect(
           page.locator("#cron-save-slot input[name=working_dir]"),
         ).toHaveCount(0);
