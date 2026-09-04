@@ -11,6 +11,7 @@ import {
   parseOneShotSchedule,
   parseSchedule,
   resolvedCronName,
+  validTimezone,
 } from "./schedule.js";
 import { expandHome } from "./server/paths.js";
 import { errorMessage, positiveEnvNumber } from "./util.js";
@@ -69,17 +70,6 @@ type ResolvedJob = {
 // observe the timeout path without a minute-long wait.
 const DEFAULT_SESSION_TIMEOUT_MS = 60_000;
 
-// croner accepts any string as a timezone and only misbehaves later, so
-// validity is checked here to fail startup with the job named.
-const validTimezone = (timezone: string): boolean => {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 // Expands ~ and canonicalizes so the spawn cwd, the per-directory create
 // lock, and the flavor's session-discovery poll all see one spelling.
 const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
@@ -117,7 +107,7 @@ const invalidSchedule = (job: ResolvedJob, error: string): Error =>
 const assertParsableSchedule = (job: ResolvedJob): void => {
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
   if (parsed.ok) return;
-  const once = parseOneShotSchedule(job.schedule);
+  const once = parseOneShotSchedule(job.schedule, job.timezone);
   if (once !== undefined && once.getTime() <= Date.now()) return;
   throw invalidSchedule(job, parsed.error);
 };
@@ -278,7 +268,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     });
     // A one-shot's moment has passed whatever the outcome; retire it so
     // the config (and the UI reading it) tells the truth.
-    if (parseOneShotSchedule(job.schedule) !== undefined)
+    if (parseOneShotSchedule(job.schedule, job.timezone) !== undefined)
       void done.then(() => retire(job));
   };
 
@@ -300,12 +290,13 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
       // it so the config (and the UI reading it) tells the truth. A
       // missed moment stays missed, whether the job was enabled or
       // paused.
-      const once = parseOneShotSchedule(job.schedule);
+      const once = parseOneShotSchedule(job.schedule, job.timezone);
       if (once !== undefined && once.getTime() <= Date.now()) {
         if (job.enabled)
           console.log(
             `cron job "${job.name}": one-shot time ` +
-              `${fmtDateTime(once)} is in the past — removed without running`,
+              `${fmtDateTime(once, job.timezone)} is in the past — ` +
+              "removed without running",
           );
         retire(job);
         continue;

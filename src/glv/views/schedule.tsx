@@ -28,6 +28,15 @@ const clockIcon = (
   </svg>
 );
 
+// The IANA names the runtime itself recognizes — exactly the set the
+// schedule parser accepts, offered as datalist suggestions.
+const TIMEZONES: readonly string[] = Intl.supportedValuesOf("timeZone");
+
+// The zone an empty timezone field falls back to, named in the field's
+// placeholder and hint so "leave it empty" is an informed choice.
+const SERVER_TIMEZONE: string =
+  Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 // The live-reload notice is standing copy: the running serve watches the
 // config file, so everything scheduled or edited here applies without a
 // restart.
@@ -41,24 +50,42 @@ const nextRunText = (job: NamedCronJob): string => {
   if (job.enabled === false) return "paused";
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
   if (!parsed.ok || parsed.info.next.length === 0) return "—";
-  return fmtDateTime(parsed.info.next[0]);
+  return fmtDateTime(parsed.info.next[0], job.timezone);
 };
+
+// Each form carries its own datalist id, so the save form and an edit
+// card can be on the page at once.
+const TimezoneDatalist = ({ id }: { id: string }) => (
+  <datalist id={id}>
+    {TIMEZONES.map((zone) => (
+      <option value={zone} />
+    ))}
+  </datalist>
+);
 
 // The typed schedule field plus its live server preview.
 const ScheduleControls = ({
   schedule = "",
+  timezone = "",
+  timezoneDatalistId,
 }: {
   /** Restores a rejected submit's (or existing job's) schedule. */
   schedule?: string;
+  /** Restores a rejected submit's (or existing job's) timezone. */
+  timezone?: string;
+  /** Datalist id for the IANA suggestions (unique per form). */
+  timezoneDatalistId: string;
 }) => (
   <div
     class="schedule-options"
     data-schedule-options
-    // Preview fires on load and ~400ms after typing settles; the input
-    // event bubbles to this container and hx-include/reach stay within
-    // it, so a page never mixes up two forms' fields.
+    // Preview fires on load and ~400ms after typing settles. The
+    // trigger listens on the fields wrapper — htmx's `find` matches a
+    // single element, so a wrapper is the way every input inside it
+    // (schedule, timezone) reaches this container, and hx-include/reach
+    // stay within it so a page never mixes up two forms' fields.
     hx-get="/cron/preview"
-    hx-trigger="load, input changed delay:400ms from:find input"
+    hx-trigger="load, input changed delay:400ms from:find .schedule-fields"
     hx-target="find .next-runs-body"
     hx-swap="innerHTML"
     hx-include="find .schedule-fields"
@@ -77,6 +104,27 @@ const ScheduleControls = ({
           autocomplete="off"
           spellcheck={false}
         />
+      </label>
+      <label class="form-field">
+        <span class="form-label">Timezone</span>
+        <input
+          type="text"
+          name="timezone"
+          data-schedule-timezone=""
+          class="form-input schedule-input schedule-timezone"
+          value={timezone}
+          list={timezoneDatalistId}
+          placeholder={`Server local (${SERVER_TIMEZONE})`}
+          autocomplete="off"
+          spellcheck={false}
+        />
+        {/* Suggestions are the runtime's own IANA list; live validation
+            names anything it doesn't recognize. */}
+        <TimezoneDatalist id={timezoneDatalistId} />
+        <span class="model-hint">
+          IANA name like America/New_York — leave empty to run on the
+          server&rsquo;s clock.
+        </span>
       </label>
       {/* Live as-you-type verdict from /assets/schedule.js; the server
           re-validates on submit regardless. */}
@@ -125,6 +173,7 @@ const ScheduleSaveForm = ({
   agentName,
   jobName = "",
   schedule = "",
+  timezone = "",
   workingDir = "",
   dirs = [],
   modelPicker,
@@ -135,6 +184,8 @@ const ScheduleSaveForm = ({
   jobName?: string;
   /** Restores a rejected submit's schedule. */
   schedule?: string;
+  /** Restores a rejected submit's timezone. */
+  timezone?: string;
   /** Restores a rejected submit's working directory. */
   workingDir?: string;
   /** Home directories offered as datalist suggestions. */
@@ -173,7 +224,11 @@ const ScheduleSaveForm = ({
         autocomplete="off"
       />
     </label>
-    <ScheduleControls schedule={schedule} />
+    <ScheduleControls
+      schedule={schedule}
+      timezone={timezone}
+      timezoneDatalistId="schedule-timezones"
+    />
     <label class="form-field">
       <span class="form-label">Working directory</span>
       <input
@@ -234,6 +289,12 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
             <span class="cron-pattern mono"> ({job.schedule})</span>
           )}
         </dd>
+        {job.timezone !== undefined && (
+          <Fragment>
+            <dt>Timezone</dt>
+            <dd>{job.timezone}</dd>
+          </Fragment>
+        )}
         <dt>Next run</dt>
         <dd>{nextRunText(job)}</dd>
         <dt>Working directory</dt>
@@ -324,12 +385,12 @@ const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
 };
 
 // Edit form reusing the typed-schedule controls, pre-filled from the
-// job. Fields the form doesn't expose (e.g. a timezone override) are
-// preserved by the PUT route, and called out here so editing is honest
-// about them.
+// job. Fields the form doesn't expose (e.g. a paused job's `enabled`)
+// are preserved by the PUT route.
 const ScheduleJobEditForm = ({
   job,
   schedule,
+  timezone,
   dirs = [],
   modelPicker,
   error,
@@ -337,6 +398,8 @@ const ScheduleJobEditForm = ({
   job: NamedCronJob;
   /** Restores a rejected edit's schedule. */
   schedule?: string;
+  /** Restores a rejected edit's timezone. */
+  timezone?: string;
   /** Home directories offered as datalist suggestions. */
   dirs?: readonly string[];
   /** Renders the model picker slot when the flavor supports models;
@@ -366,7 +429,11 @@ const ScheduleJobEditForm = ({
             autocomplete="off"
           />
         </label>
-        <ScheduleControls schedule={schedule ?? job.schedule} />
+        <ScheduleControls
+          schedule={schedule ?? job.schedule}
+          timezone={timezone ?? job.timezone ?? ""}
+          timezoneDatalistId="cron-edit-timezones"
+        />
         {modelPicker !== undefined && (
           <ModelPickerSlot submitted={modelPicker.submitted} />
         )}
@@ -388,13 +455,6 @@ const ScheduleJobEditForm = ({
           />
           <RecentDirsDatalist dirs={dirs} id="cron-edit-dirs" />
         </label>
-        {job.timezone !== undefined && (
-          <p class="cron-job-kept-note">
-            Timezone {job.timezone} is kept as configured in the file — it
-            applies to cron schedules; typed schedules always fire in the
-            server&rsquo;s timezone.
-          </p>
-        )}
         <div class="prompt-form-actions">
           <button type="submit" class="prompt-save-btn" data-schedule-submit="">
             Save

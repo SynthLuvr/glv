@@ -3003,11 +3003,6 @@ select.form-input {
   gap: 0.4rem;
   margin-top: 0.15rem;
 }
-.cron-job-kept-note {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--color-muted);
-}
 /* Clock badge for job-started sessions — same weight as the git chips. */
 .cron-chip {
   display: inline-flex;

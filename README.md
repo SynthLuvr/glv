@@ -221,7 +221,10 @@ Scheduled runs can be managed two ways: from the **web viewer** (the
 button that opens an inline form — **type a schedule in plain English or
 cron**, validated live as you type with upcoming runs previewed; the
 form has its **own working directory field**, pre-filled from the New
-Session form and editable, with home-directory suggestions; the section
+Session form and editable, with home-directory suggestions; an
+**optional timezone field** picks the IANA zone the schedule’s times
+apply in — suggested as you type, and left empty it means the server’s
+local time, the same clock the times used to always run on; the section
 lists every job with pause, edit, and delete) or by hand in the config
 file. Both write the same entries — the config file is the source of
 truth, and the running server picks changes up live, no restart needed.
@@ -249,11 +252,16 @@ To define jobs by hand, add a `cronJobs` array to the config file:
 
   - a [croner](https://github.com/hexagon/croner) pattern — the usual
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
-    part, or a nickname like `"@daily"`. An optional `timezone` applies.
+    part, or a nickname like `"@daily"`.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the config; if
     its moment is already past when `serve` starts, it is removed
     without running (a missed run stays missed).
+
+  An optional `timezone` (IANA name, e.g. `"America/New_York"`) applies
+  to every spelling — the pattern fires there, English times apply
+  there, and a zone-less one-shot datetime is read as wall-clock time
+  there.
 
 In the web form you can also **type a schedule in English** —
 `every weekday at 9:00`, `at 9:00` (daily), `on sunday at 18:00`,
