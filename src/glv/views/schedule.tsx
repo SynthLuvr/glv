@@ -28,9 +28,8 @@ const clockIcon = (
   </svg>
 );
 
-// The live-reload notice is standing copy: the running serve watches the
-// config file, so everything scheduled or edited here applies without a
-// restart.
+// Standing section-level copy: it renders once, and the fragments
+// that swap in beside it (form, confirmation, edit form) add no copy.
 const LIVE_RELOAD_NOTICE =
   "Changes apply live — the running server watches the config file, so " +
   "new and edited jobs start firing without a restart.";
@@ -209,12 +208,11 @@ const ScheduleSaveForm = ({
         Cancel
       </button>
     </div>
-    <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
   </form>
 );
 
 // Success state rendered into the detail pane after a job is saved: the
-// job's name, humanized schedule, next run, and the live-reload notice.
+// job's name, humanized schedule, and next run.
 const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
   const human = humanizeSchedule(job.schedule, job.timezone);
   const model = jobModelSelection(job);
@@ -249,7 +247,6 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
         <dt>Prompt</dt>
         <dd>{truncate(job.prompt, 140)}</dd>
       </dl>
-      <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
     </section>
   );
 };
@@ -409,7 +406,6 @@ const ScheduleJobEditForm = ({
             Cancel
           </button>
         </div>
-        <p class="schedule-live-note">{LIVE_RELOAD_NOTICE}</p>
       </form>
     </article>
   );

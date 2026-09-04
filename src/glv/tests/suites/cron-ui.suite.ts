@@ -192,13 +192,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Confirmation lands in the slot: name, schedule, live-reload notice.
+      // Confirmation lands in the slot: name, schedule, next run.
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       // The English was converted — humanized form and the pattern itself.
       expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
       expect(html).toContain("0 9 * * 1-5");
-      expect(html).toContain("Changes apply live");
+      // The live-reload notice renders once, at the section level — the
+      // confirmation adds no second copy next to it.
+      expect(html).not.toContain("Changes apply live");
       // The confirmation names the working directory the runs will use.
       expect(html).toContain("Working directory");
       expect(html).toContain(workingDir);
