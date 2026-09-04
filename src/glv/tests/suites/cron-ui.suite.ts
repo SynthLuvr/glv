@@ -424,8 +424,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           "Scheduled run saved",
           { timeout: 15_000 },
         );
-        // The confirmation names the directory the runs will use.
-        await expect(page.locator("#cron-save-slot")).toContainText(otherDir);
+        // The confirmation names the directory the runs will use — the
+        // full path rides in the title attribute, since the visible
+        // text truncates the middle on long Windows temp paths.
+        await expect(
+          page.locator("[data-schedule-confirmation] dd.mono"),
+        ).toHaveAttribute("title", otherDir);
         expect(cronJobIn(cfgPath, "Dir pick job")?.workingDir).toBe(otherDir);
       });
     });
