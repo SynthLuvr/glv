@@ -241,12 +241,10 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(res.status).toBe(422);
       const html = await res.text();
       expect(html).toContain("Couldn’t understand that schedule");
-      // The typed job name, schedule, and working directory survive the
-      // rejection (the composed prompt lives in the untouched form above).
-      expect(html).toContain('value="broken-job"');
-      expect(html).toContain("definitely not a schedule");
       // The composed prompt and working directory live in the untouched
       // form above, so only this form's two fields needed restoring.
+      expect(html).toContain('value="broken-job"');
+      expect(html).toContain("definitely not a schedule");
       expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 

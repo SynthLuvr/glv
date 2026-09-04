@@ -130,7 +130,7 @@ const ScheduleSaveForm = ({
   /** Restores a rejected submit's schedule. */
   schedule?: string;
   /** Copy flag: the New Session form above carries a model picker. */
-  withModels?: boolean;
+  withModels: boolean;
   error?: string;
 }) => (
   <form
