@@ -73,8 +73,7 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   for (const id of ids) stmt.run(id);
 };
 
-// Permanent removal drops the sidecar row outright, unlike archive's
-// timestamp-only update.
+// Archive only updates a timestamp; permanent removal drops the row.
 const deleteSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   db.prepare(

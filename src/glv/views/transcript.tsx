@@ -84,11 +84,10 @@ const MetaChip = ({
   </div>
 );
 
-// Small "⋯" trigger beside Archive opening the session action sheet. The
-// panel itself is server-rendered hidden; actions.js toggles `is-open`
-// (dropdown on desktop, bottom sheet on mobile). Delete is deliberately
-// three taps away — open the sheet, pick "Delete permanently", then
-// confirm — while Archive stays a direct two-tap action.
+// "⋯" trigger beside Archive opening the session action sheet: the panel
+// is server-rendered hidden and actions.js toggles `is-open` (dropdown on
+// desktop, bottom sheet on mobile). Delete is deliberately three taps —
+// open, "Delete permanently", confirm — while Archive stays two.
 const SessionActionMenu = ({ session }: { session: SessionRow }) => (
   <div class="session-menu">
     <button
@@ -136,8 +135,8 @@ const SessionActionMenu = ({ session }: { session: SessionRow }) => (
       >
         Delete permanently
       </button>
-      {/* Mobile-sheet dismiss row; hidden on desktop, where tapping outside
-          or pressing Escape closes the dropdown. */}
+      {/* Mobile-sheet dismiss row; hidden on the desktop dropdown, where
+          tapping outside or pressing Escape closes it. */}
       <button
         type="button"
         role="menuitem"

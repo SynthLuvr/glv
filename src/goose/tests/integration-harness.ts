@@ -185,15 +185,13 @@ const gooseFixture: harness.FlavorFixture = {
       readOnly: true,
     });
     try {
-      const session = db
-        .prepare("SELECT id FROM sessions WHERE id = ?")
+      const session = db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id);
+      const message = db
+        .prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1")
         .get(id);
       if (session !== undefined)
         throw new Error(`goose sessions row for ${id} still exists`);
-      const messages = db
-        .prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id = ?")
-        .get(id) as { n: number } | undefined;
-      if (messages !== undefined && messages.n > 0)
+      if (message !== undefined)
         throw new Error(`goose messages rows for ${id} still exist`);
     } finally {
       db.close();

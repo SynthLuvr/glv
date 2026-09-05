@@ -308,13 +308,10 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
-// Best-effort shred of one transcript before its permanent removal: the
-// bytes are overwritten in place (so unlinking does not merely forget the
-// content but destroys it — modern SSDs/CoW filesystems may still retain
-// copies, which no userspace writer can prevent), the parsed copy is
-// evicted from the in-memory cache, and only then is the file removed.
-// Failures at any step still unlink: the caller's contract is that the
-// transcript is gone, not that it was shredded perfectly.
+// Best-effort shred before permanent removal: zero the bytes in place
+// (unlinking alone only forgets content), evict the cached parse, then
+// remove the file. No userspace writer can defeat SSD wear-leveling or
+// CoW snapshots — every step may fail so long as the file ends up gone.
 const ZERO_CHUNK_BYTES = 64 * 1024;
 
 const overwriteWithZeros = (path: string): void => {
@@ -338,22 +335,16 @@ const overwriteWithZeros = (path: string): void => {
   }
 };
 
-// Returns whether a transcript existed; either way none remains afterwards.
-const deleteTranscript = (root: string, id: string): boolean => {
+const deleteTranscript = (root: string, id: string): void => {
   const path = findTranscript(root, id);
-  if (path === undefined) return false;
+  if (path === undefined) return;
   try {
     overwriteWithZeros(path);
   } catch {
-    // Vanished or unreadable — nothing left to shred; still try the unlink.
+    // Vanished or unreadable — nothing left to shred.
   }
   parseCache.delete(path);
-  try {
-    rmSync(path);
-  } catch {
-    // Already gone mid-race; findTranscript's next scan won't list it.
-  }
-  return true;
+  rmSync(path, { force: true });
 };
 
 export type { SessionFile, Transcript };

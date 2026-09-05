@@ -22,12 +22,10 @@ import {
   withPage,
 } from "../harness.js";
 
-// Archive hides a session; delete must destroy every record of it. This
-// suite drives the real /sessions/:id/delete route end-to-end: the
-// flavor's own store (rows for goose, transcript file + meta sidecar for
-// claude — asserted via assertSessionGone), glv's sidecars (group
-// membership, cron job tag), tagged temp working dirs, the sidebar, and
-// the three-tap UI (action sheet → Delete permanently → confirm OK).
+// Archive hides a session; delete must destroy every record of it. Drives
+// the real /sessions/:id/delete route end-to-end: the flavor's own store
+// (assertSessionGone), glv's sidecars (group membership, cron job tag),
+// tagged temp working dirs, the sidebar, and the three-tap UI.
 const runSessionDeleteSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let homeDir: string;
@@ -104,10 +102,8 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("new-session-form");
 
-      // The flavor's own store no longer knows the session.
       fx.assertSessionGone(env, "dl-a");
 
-      // The sidecar membership and job tag are gone.
       const groupsAfter = openGroupsDb(env.dbs.groupsDb);
       expect(groupIdOf(groupsAfter, "dl-a")).toBeUndefined();
       groupsAfter.close();
@@ -115,10 +111,8 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
       expect(jobNameFor(cronAfter, "dl-a")).toBeUndefined();
       cronAfter.close();
 
-      // The tagged temp working dir was swept.
       expect(existsSync(join(env.tempDir, "tagged-run"))).toBe(false);
 
-      // The session URL no longer resolves and the sidebar moved on.
       const gone = await authedFetch(env, "/sessions/dl-a");
       expect(gone.status).toBe(404);
       expect(await gone.text()).toContain("Session not found");
@@ -140,17 +134,15 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
     it("takes three taps: action sheet, Delete permanently, confirm OK", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/dl-ui`);
-        // The untouched Archive button sits beside the new action sheet.
         await expect(page.locator(".archive-btn")).toBeVisible();
         await expect(page.locator(".archive-btn")).toHaveText("Archive");
 
-        // Tap 1: open the action sheet.
         await page.click(".session-menu-toggle");
         const panel = page.locator(".session-menu-panel");
         await expect(panel).toBeVisible();
         await expect(panel).toContainText("Delete permanently");
 
-        // Tap 2 + 3: delete, then press OK in the confirmation dialog.
+        // Delete, then press OK in the confirmation dialog.
         const dialogs: string[] = [];
         page.on("dialog", (dialog) => {
           dialogs.push(dialog.message());

@@ -76,8 +76,6 @@ const jobNamesFor = (
   return result;
 };
 
-// Permanent session removal drops the job tag with it, so no trace of the
-// session survives in the sidecar.
 const untagCronSession = (db: DatabaseSync, sessionId: string): void => {
   db.prepare("DELETE FROM cron_sessions WHERE session_id = ?").run(sessionId);
 };

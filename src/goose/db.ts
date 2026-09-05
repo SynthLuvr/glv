@@ -195,11 +195,10 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   ).run(...ids);
 };
 
-// Permanent removal: unlike archive, the rows are deleted outright so the
-// session is neither listable nor recoverable from goose's database. The
-// secure_delete pragma zeroes the freed page content as the rows go, and
-// the truncating WAL checkpoint drains the -wal sidecar afterwards, so
-// committed copies of the rows do not linger on disk in either file.
+// Unlike archive, the rows are deleted outright so the session is neither
+// listable nor recoverable. secure_delete zeroes the freed pages as they
+// go, and the truncating checkpoint drains the -wal sidecar so committed
+// copies don't linger on disk.
 const deleteSessions = (db: DatabaseSync, ids: string[]): void => {
   if (ids.length === 0) return;
   db.exec("PRAGMA secure_delete = ON");

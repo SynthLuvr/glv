@@ -178,8 +178,7 @@ const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
     archiveSessions: (ids) => archiveMeta(store.meta, ids),
     renameSession: (id, rawName) => renameMeta(store.meta, id, rawName),
     deleteSessions: (ids) => {
-      // The transcript is shredded and unlinked first; the sidecar row (the
-      // viewer's own record that the session existed) goes with it.
+      // Shred the transcripts first, then drop the viewer's sidecar rows.
       for (const id of ids) deleteTranscript(store.root, id);
       deleteMeta(store.meta, ids);
     },

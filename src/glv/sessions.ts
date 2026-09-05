@@ -46,9 +46,7 @@ type SessionStore = {
   readonly listMessages: (sessionId: string) => MessageRow[];
   readonly archiveSessions: (ids: string[]) => void;
   readonly renameSession: (id: string, rawName: string) => void;
-  // Permanent removal: unlike archive, every recoverable record of the
-  // session is destroyed in the flavor's own store (goose: its database
-  // rows; claude: the transcript file plus the meta sidecar row).
+  // Unlike archive: every record of the session is destroyed, not hidden.
   readonly deleteSessions: (ids: string[]) => void;
   readonly firstPromptSessionName: (ids: string[]) => string | undefined;
   readonly prCandidateIds: (ids: string[]) => Set<string>;
