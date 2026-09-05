@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "./db-path.js";
+import { placeholders } from "./query.js";
 
 // Viewer-owned sidecar for rename/archive metadata. Agents that only
 // expose append-only session data (transcripts) have no writable sessions
@@ -72,6 +73,15 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   for (const id of ids) stmt.run(id);
 };
 
+// Permanent removal drops the sidecar row outright, unlike archive's
+// timestamp-only update.
+const deleteSessions = (db: DatabaseSync, ids: string[]): void => {
+  if (ids.length === 0) return;
+  db.prepare(
+    `DELETE FROM session_meta WHERE id IN (${placeholders(ids.length)})`,
+  ).run(...ids);
+};
+
 // A blank name clears the user-set flag so derived naming takes over again.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
@@ -85,6 +95,7 @@ const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
 export type { MetaRow };
 export {
   archiveSessions,
+  deleteSessions,
   getMeta,
   listMeta,
   openMetaDb,

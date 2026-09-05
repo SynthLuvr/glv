@@ -7,6 +7,7 @@ type AssetBundle = {
   readonly sidebar: string;
   readonly stream: string;
   readonly rename: string;
+  readonly actions: string;
   readonly ui: string;
   readonly prompts: string;
   readonly groups: string;
@@ -31,6 +32,7 @@ const buildAssetBundle = (flavor: string): AssetBundle => ({
   sidebar: readAsset(`../../../dist/${flavor}/sidebar.js`),
   stream: readAsset(`../../../dist/${flavor}/stream.js`),
   rename: readAsset(`../../../dist/${flavor}/rename.js`),
+  actions: readAsset(`../../../dist/${flavor}/actions.js`),
   ui: readAsset(`../../../dist/${flavor}/ui.js`),
   prompts: readAsset(`../../../dist/${flavor}/prompts.js`),
   groups: readAsset(`../../../dist/${flavor}/groups.js`),

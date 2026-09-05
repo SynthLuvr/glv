@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { jobNameFor } from "../../cron-sessions.js";
+import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
+import { removeMember } from "../../groups/db.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
 import { modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
@@ -334,6 +335,32 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     deleteTempDir(ctx.profile.dataDirName, id);
     // The response swaps the New Session form into #detail-pane; keep the
     // URL in step so a refresh doesn't land on the archived session (404).
+    c.header("HX-Push-Url", "/sessions/new");
+    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
+      refreshSidebar: true,
+      title: NEW_SESSION_TITLE,
+    });
+  });
+
+  // Permanent removal — the destructive counterpart to archive. Archive
+  // only hides a session; this destroys every record of it: the flavor's
+  // own store (goose: database rows; claude: transcript file plus the meta
+  // sidecar row) and glv's sidecars (group membership, cron job tag), plus
+  // the run's uploads and temp working dir. The run is stopped first,
+  // mirroring archive, so nothing recreates data mid-sweep. Unknown ids
+  // 404 rather than "succeeding" invisibly.
+  app.post("/sessions/:id/delete", (c) => {
+    const id = c.req.param("id");
+    if (ctx.sessions.getSession(id) === undefined)
+      return renderNotFound(c, ctx, id);
+    stop(ctx.runner, id);
+    ctx.sessions.deleteSessions([id]);
+    if (ctx.groups !== undefined) removeMember(ctx.groups, id);
+    if (ctx.cronSessions !== undefined) untagCronSession(ctx.cronSessions, id);
+    deleteUploads(ctx.profile.dataDirName, id);
+    deleteTempDir(ctx.profile.dataDirName, id);
+    // Same landing as archive: New Session in #detail-pane with the URL in
+    // step, so a refresh doesn't hit the (now nonexistent) session.
     c.header("HX-Push-Url", "/sessions/new");
     return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
       refreshSidebar: true,

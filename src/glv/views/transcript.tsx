@@ -84,6 +84,72 @@ const MetaChip = ({
   </div>
 );
 
+// Small "⋯" trigger beside Archive opening the session action sheet. The
+// panel itself is server-rendered hidden; actions.js toggles `is-open`
+// (dropdown on desktop, bottom sheet on mobile). Delete is deliberately
+// three taps away — open the sheet, pick "Delete permanently", then
+// confirm — while Archive stays a direct two-tap action.
+const SessionActionMenu = ({ session }: { session: SessionRow }) => (
+  <div class="session-menu">
+    <button
+      type="button"
+      class="session-menu-toggle"
+      data-action="toggle-session-menu"
+      aria-haspopup="menu"
+      aria-expanded="false"
+      aria-controls={`session-menu-${session.id}`}
+      aria-label="More session actions"
+      title="More session actions"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="5" r="1.7" />
+        <circle cx="12" cy="12" r="1.7" />
+        <circle cx="12" cy="19" r="1.7" />
+      </svg>
+    </button>
+    {/* Invisible on desktop (outside-click catcher); a scrim behind the
+        mobile bottom sheet. */}
+    <div
+      class="session-menu-backdrop"
+      data-action="close-session-menu"
+      aria-hidden="true"
+    ></div>
+    <div
+      class="session-menu-panel"
+      role="menu"
+      id={`session-menu-${session.id}`}
+      aria-label="Session actions"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        class="session-menu-item session-menu-delete"
+        hx-post={`/sessions/${session.id}/delete`}
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+        hx-confirm="Permanently delete this session? This cannot be undone — the transcript and every record of it will be erased."
+      >
+        Delete permanently
+      </button>
+      {/* Mobile-sheet dismiss row; hidden on desktop, where tapping outside
+          or pressing Escape closes the dropdown. */}
+      <button
+        type="button"
+        role="menuitem"
+        class="session-menu-item session-menu-cancel"
+        data-action="close-session-menu"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+);
+
 const TranscriptHeader = ({
   session,
   prUrl,
@@ -97,16 +163,19 @@ const TranscriptHeader = ({
   <header class="session-header">
     <div class="session-header-top">
       <SessionTitleWrap session={session} />
-      <button
-        type="button"
-        class="archive-btn"
-        hx-post={`/sessions/${session.id}/archive`}
-        hx-target="#detail-pane"
-        hx-swap="innerHTML"
-        hx-confirm="Archive this session? It will be hidden from the sidebar."
-      >
-        Archive
-      </button>
+      <div class="session-header-actions">
+        <button
+          type="button"
+          class="archive-btn"
+          hx-post={`/sessions/${session.id}/archive`}
+          hx-target="#detail-pane"
+          hx-swap="innerHTML"
+          hx-confirm="Archive this session? It will be hidden from the sidebar."
+        >
+          Archive
+        </button>
+        <SessionActionMenu session={session} />
+      </div>
     </div>
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />

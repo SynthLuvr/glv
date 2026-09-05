@@ -201,6 +201,19 @@ const claudeFixture: harness.FlavorFixture = {
     const path = findSessionFile(env.dbs.flavor.projectsDir, id);
     if (path !== undefined) rmSync(path);
   },
+  assertSessionGone: (env, id) => {
+    const path = findSessionFile(env.dbs.flavor.projectsDir, id);
+    if (path !== undefined)
+      throw new Error(`claude transcript for ${id} still exists at ${path}`);
+    const meta = harness.readStoreField(
+      env.dbs.flavor.metaDb,
+      "session_meta",
+      "name",
+      id,
+    );
+    if (meta !== undefined)
+      throw new Error(`claude meta sidecar row for ${id} still exists`);
+  },
   readSessionField: (env, field, id) =>
     harness.readStoreField(env.dbs.flavor.metaDb, "session_meta", field, id),
   systemFlag: "--append-system-prompt",

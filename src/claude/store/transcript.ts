@@ -1,4 +1,13 @@
-import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  type Dirent,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { mayFail } from "ts-handling";
 import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
@@ -299,8 +308,57 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
+// Best-effort shred of one transcript before its permanent removal: the
+// bytes are overwritten in place (so unlinking does not merely forget the
+// content but destroys it — modern SSDs/CoW filesystems may still retain
+// copies, which no userspace writer can prevent), the parsed copy is
+// evicted from the in-memory cache, and only then is the file removed.
+// Failures at any step still unlink: the caller's contract is that the
+// transcript is gone, not that it was shredded perfectly.
+const ZERO_CHUNK_BYTES = 64 * 1024;
+
+const overwriteWithZeros = (path: string): void => {
+  const size = statSync(path).size;
+  const fd = openSync(path, "r+");
+  try {
+    const chunk = Buffer.alloc(ZERO_CHUNK_BYTES);
+    let remaining = size;
+    while (remaining > 0) {
+      const written = writeSync(
+        fd,
+        chunk,
+        0,
+        Math.min(chunk.length, remaining),
+      );
+      if (written <= 0) break;
+      remaining -= written;
+    }
+  } finally {
+    closeSync(fd);
+  }
+};
+
+// Returns whether a transcript existed; either way none remains afterwards.
+const deleteTranscript = (root: string, id: string): boolean => {
+  const path = findTranscript(root, id);
+  if (path === undefined) return false;
+  try {
+    overwriteWithZeros(path);
+  } catch {
+    // Vanished or unreadable — nothing left to shred; still try the unlink.
+  }
+  parseCache.delete(path);
+  try {
+    rmSync(path);
+  } catch {
+    // Already gone mid-race; findTranscript's next scan won't list it.
+  }
+  return true;
+};
+
 export type { SessionFile, Transcript };
 export {
+  deleteTranscript,
   findTranscript,
   listSessionFiles,
   parseTranscriptFile,
