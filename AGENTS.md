@@ -83,6 +83,46 @@ type-a-bin’s `subprocess-coverage` companion). Thresholds in
 when adding product code, either cover it with a new integration test or
 expect the floors to catch the drop.
 
+## Screenshots on UI PRs (enforced)
+
+Every PR that changes anything a user can see — views, styles, client
+scripts, generated markup — ships screenshots **in its description**:
+before and after when reworking existing UI, one shot of the new surface
+when introducing UI. A UI PR without screenshots is incomplete;
+reviewers must not have to check the branch out to see what changed.
+
+- **Never commit image assets to the repo** — no screenshots, PNGs,
+  JPGs, GIFs, or video in the tree, in any PR. They live in the PR
+  description only.
+- **Upload to GitHub and embed the user-attachment URL** —
+  `https://github.com/user-attachments/assets/<uuid>`, exactly what
+  drag-and-drop into the description produces. Do **not** link release
+  assets or external hosts: this repo is private, and release-asset URLs
+  return 404 to anonymous fetchers (GitHub’s image proxy included), so
+  they render as broken images in the description.
+
+Uploading needs no browser — the single-request endpoint works with any
+token that can push to the repo (`gh auth token` supplies one):
+
+``` bash
+REPO_ID=$(gh api repos/SynthLuvr/glv --jq .id)
+URL="https://uploads.github.com/user-attachments/assets"
+URL="$URL?name=shot.png&content_type=image%2Fpng&repository_id=$REPO_ID"
+curl -sS -X POST "$URL" \
+  -H "Authorization: Bearer $(gh auth token)" \
+  -H "Accept: application/json" \
+  -H "Content-Type: image/png" \
+  --data-binary @shot.png
+# 201 → {"url":"https://github.com/user-attachments/assets/<uuid>"}
+# embed that URL in the PR description
+```
+
+URL-encode `name` and `content_type`, and send the file’s bytes as the
+body with a matching `Content-Type` header. The `github.com` upload
+endpoints (`/user-attachments`, `/upload/policies/assets`) are
+browser-only and answer 422 to tokens — use the `uploads.github.com`
+route above.
+
 ## Coding Conventions (Enforced)
 
 These are **not** preferences — the toolchain will fail if you violate
