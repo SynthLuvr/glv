@@ -7,6 +7,11 @@ import {
   type NamedCronJob,
   parseSchedule,
 } from "../schedule.js";
+import {
+  offsetLabel,
+  SERVER_TIMEZONE,
+  type TimezoneSuggestion,
+} from "../timezones.js";
 import { CLOCK_ICON } from "./chips.js";
 import { ModelPickerSlot } from "./new-session.js";
 
@@ -27,11 +32,6 @@ const clockIcon = (
     <path d={CLOCK_ICON} />
   </svg>
 );
-
-// The zone an empty timezone field falls back to, named in the field's
-// placeholder and hint so "leave it empty" is an informed choice.
-const SERVER_TIMEZONE: string =
-  Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Standing section-level copy: it renders once, and the fragments
 // that swap in beside it (form, confirmation, edit form) add no copy.
@@ -92,6 +92,35 @@ const TimezonePicker = ({
       empty to run on the server&rsquo;s clock.
     </span>
   </>
+);
+
+// The suggestion rows the combobox fetches from /cron/timezones. Only
+// the zone lands in the field (data-autocomplete-value) — the offset
+// label beside each name is there so an offset query confirms itself;
+// the "no result" row is what the element shows when the list is empty.
+const TimezoneSuggestions = ({
+  suggestions,
+}: {
+  suggestions: readonly TimezoneSuggestion[];
+}) => (
+  <Fragment>
+    {suggestions.map((suggestion) => (
+      <li role="option" data-autocomplete-value={suggestion.zone}>
+        <span class="timezone-option-name">{suggestion.zone}</span>
+        <span class="timezone-option-offset">
+          {offsetLabel(suggestion.offsetMinutes)}
+        </span>
+        {suggestion.server === true && (
+          <span class="timezone-option-note">server local</span>
+        )}
+      </li>
+    ))}
+    {suggestions.length === 0 && (
+      <li role="presentation" aria-hidden="true" data-no-result-found="true">
+        No matching timezone — keep typing, any IANA name is accepted.
+      </li>
+    )}
+  </Fragment>
 );
 
 // The typed schedule field plus its live server preview.
@@ -527,4 +556,5 @@ export {
   ScheduleJobCard,
   ScheduleJobEditForm,
   ScheduleSaveForm,
+  TimezoneSuggestions,
 };

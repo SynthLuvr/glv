@@ -153,6 +153,27 @@ const zoneWallClockToInstant = (schedule: string, timeZone: string): Date => {
     : new Date(asUtc - settledOffset);
 };
 
+// One-shot dates far outside anything croner can schedule are refused.
+const saneOneShot = (date: Date): boolean =>
+  date.getUTCFullYear() >= 1990 &&
+  date.getUTCFullYear() <= 9999 &&
+  date.getTime() >= 0;
+
+// A zone-less one-shot with a timezone override: the instant its
+// wall-clock names in that zone — the same conversion croner applies
+// when firing it — accepted only when it round-trips (wall clocks that
+// don't exist there, like the spring-forward gap, don't).
+const parseZonedOneShot = (
+  schedule: string,
+  timezone: string,
+): Date | undefined => {
+  const instant = zoneWallClockToInstant(schedule, timezone);
+  if (!saneOneShot(instant)) return undefined;
+  if (formatOneShotInZone(instant, timezone) !== schedule.replace(" ", "T"))
+    return undefined;
+  return instant;
+};
+
 // Returns the instant a fire-once schedule targets, or undefined for
 // cron patterns, human text (and malformed values). Zone-less spellings
 // roll impossible dates over silently (Feb 30 → Mar 2), so they must
@@ -165,18 +186,13 @@ const parseOneShotSchedule = (
   const match = ONE_SHOT_RE.exec(schedule);
   if (match === null) return undefined;
   const zoneless = match.groups?.zone === undefined;
-  // A zone-less spelling is read as wall-clock time in the override's
-  // zone — the same conversion croner applies when firing it.
+  // The conversion throws only on an unrecognizable zone, which
+  // parseSchedule reports as its error before ever getting here — this
+  // catch guards direct callers.
   if (zoneless && timezone !== undefined)
     try {
-      const zoned = zoneWallClockToInstant(schedule, timezone);
-      if (!saneOneShot(zoned)) return undefined;
-      if (formatOneShotInZone(zoned, timezone) !== schedule.replace(" ", "T"))
-        return undefined;
-      return zoned;
+      return parseZonedOneShot(schedule, timezone);
     } catch {
-      // An unrecognizable zone: parseSchedule reports it as the error
-      // before ever getting here, so this only guards direct callers.
       return undefined;
     }
 
@@ -187,12 +203,6 @@ const parseOneShotSchedule = (
   if (zoneless && formatOneShotLocal(date) !== schedule) return undefined;
   return date;
 };
-
-// One-shot dates far outside anything croner can schedule are refused.
-const saneOneShot = (date: Date): boolean =>
-  date.getUTCFullYear() >= 1990 &&
-  date.getUTCFullYear() <= 9999 &&
-  date.getTime() >= 0;
 
 const fmtDateTime = (date: Date, timezone?: string): string =>
   date.toLocaleString("en-US", {

@@ -67,8 +67,9 @@ const POPULAR_ZONES: readonly string[] = [
 ];
 
 // The abbreviations people type from habit, resolved to a canonical
-// zone (the suggestion's offset label disambiguates DST). Typed with
-// spaces or case ("new york") or not ("est") — both normalize here.
+// zone (the suggestion's offset label disambiguates DST). Looked up
+// after the same normalization as zone names — case and spaces don't
+// matter.
 const ABBREVIATIONS: Readonly<Record<string, string>> = {
   utc: "Etc/UTC",
   gmt: "Etc/GMT",
@@ -106,6 +107,17 @@ const ALL_ZONES: readonly string[] = Array.from(
 
 const POPULAR_RANK = new Map(POPULAR_ZONES.map((zone, i) => [zone, i]));
 
+// Popular zones lead within a ranking tier; every other zone shares the
+// rank just past the list.
+const popularRank = (zone: string): number =>
+  POPULAR_RANK.get(zone) ?? POPULAR_ZONES.length;
+
+// The server process's own IANA zone — what an empty timezone field
+// means (the field's placeholder names it) and what the starter list
+// leads with.
+const SERVER_TIMEZONE: string =
+  Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 type TimezoneSuggestion = {
   /** The IANA name the combobox commits. */
   readonly zone: string;
@@ -132,17 +144,15 @@ const starterSuggestions = (
   ),
 ];
 
-// Timezone search for the schedule form's combobox: the runtime's own
-// IANA list is the candidate set — exactly the names parseSchedule
-// accepts — ranked for humans by underscore-free city matching ("new
-// york"), UTC-offset queries ("utc+2", "-05:00"), the abbreviations
-// people actually type ("est", "jst"), and, on an empty field, a
-// starter list anchored on the server's own zone. Every zone matching
-// a typed query comes back best-first, capped so the popup stays a
-// pick list: an abbreviation's canonical zone, then the zone's city
-// (last segment) as a prefix, then a substring anywhere in the name,
-// then zones sitting on the queried UTC offset — popular zones first
-// within a tier, then alphabetical.
+// The suggestion cap, so the popup stays a pick list.
+const MAX_SUGGESTIONS = 12;
+
+// Timezone search for the schedule form's combobox. The candidates are
+// the runtime's own IANA list — exactly the names parseSchedule accepts.
+// Matches come back best-first: an abbreviation's canonical zone ("est"),
+// then the city segment as a prefix ("new york"), then a substring
+// anywhere in the name, then zones sitting on the queried UTC offset
+// ("utc+2") — popular zones lead within a tier, then alphabetical.
 const searchTimezones = (query: string): readonly TimezoneSuggestion[] => {
   const normalized = normalize(query);
   if (normalized === "") return [];
@@ -173,15 +183,13 @@ const searchTimezones = (query: string): readonly TimezoneSuggestion[] => {
   return scored
     .sort((a, b) => {
       if (a.score !== b.score) return a.score - b.score;
-      const popular = (zone: string): number =>
-        POPULAR_RANK.get(zone) ?? POPULAR_ZONES.length;
-      if (popular(a.zone) !== popular(b.zone))
-        return popular(a.zone) - popular(b.zone);
+      if (popularRank(a.zone) !== popularRank(b.zone))
+        return popularRank(a.zone) - popularRank(b.zone);
       return a.zone.localeCompare(b.zone);
     })
-    .slice(0, 12)
+    .slice(0, MAX_SUGGESTIONS)
     .map((match) => suggestion(match.zone));
 };
 
 export type { TimezoneSuggestion };
-export { offsetLabel, searchTimezones, starterSuggestions };
+export { offsetLabel, SERVER_TIMEZONE, searchTimezones, starterSuggestions };

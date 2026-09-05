@@ -1,3 +1,4 @@
+import "@github/auto-complete-element";
 import { parseSchedule } from "../schedule.js";
 
 // Live validation for the typed schedule (with its optional timezone
@@ -6,13 +7,11 @@ import { parseSchedule } from "../schedule.js";
 // (schedule.ts is bundled here), so what the user sees before clicking
 // is what the server will accept.
 
-// Registers <auto-complete>: the timezone field's type-to-search
-// combobox. The element upgrades itself whenever it connects (htmx
-// swaps included), so a bare import is all the wiring it needs.
-import "@github/auto-complete-element";
+// The bare import registers <auto-complete>, the timezone field's
+// type-to-search combobox; the element upgrades itself whenever it
+// connects (htmx swaps included), so it needs no further wiring.
 
 const SYNC_INPUT = "input[data-schedule-input]";
-// The optional timezone override, sibling of the schedule field.
 const TIMEZONE_FIELD = "input[data-schedule-timezone]";
 
 const IDLE_HINT = "Validated as you type — plain English or cron.";
@@ -76,18 +75,21 @@ const validateAll = (): void => {
     syncField(field);
 };
 
+// Every schedule field in a form re-syncs together — a timezone edit
+// re-validates the schedule beside it, since the two parse as one.
+const syncFormSchedule = (field: HTMLInputElement): void => {
+  field
+    .closest("form")
+    ?.querySelectorAll<HTMLInputElement>(SYNC_INPUT)
+    .forEach(syncField);
+};
+
 // Delegated, so htmx swaps (a rejected submit's re-render, an edit form)
-// need no wiring beyond a re-sync. The timezone field re-validates its
-// form's schedule — the two parse together.
+// need no wiring beyond a re-sync.
 document.addEventListener("input", (e) => {
-  if (!(e.target instanceof Element)) return;
-  if (e.target instanceof HTMLInputElement && e.target.matches(SYNC_INPUT))
-    syncField(e.target);
-  if (e.target instanceof HTMLInputElement && e.target.matches(TIMEZONE_FIELD))
-    e.target
-      .closest("form")
-      ?.querySelectorAll<HTMLInputElement>(SYNC_INPUT)
-      .forEach(syncField);
+  if (!(e.target instanceof HTMLInputElement)) return;
+  if (e.target.matches(SYNC_INPUT)) syncField(e.target);
+  if (e.target.matches(TIMEZONE_FIELD)) syncFormSchedule(e.target);
 });
 
 document.addEventListener("DOMContentLoaded", validateAll);
@@ -127,15 +129,14 @@ document.addEventListener("auto-complete-change", (e) => {
     .relatedTarget;
   if (!(input instanceof HTMLInputElement) || !input.matches(TIMEZONE_FIELD))
     return;
-  const form = input.closest("form");
-  form?.querySelectorAll<HTMLInputElement>(SYNC_INPUT).forEach(syncField);
+  syncFormSchedule(input);
   const api = globalHtmx();
   const body = input
     .closest("[data-schedule-options]")
     ?.querySelector(".next-runs-body");
   if (api === undefined || body === null || body === undefined) return;
   const schedule =
-    form?.querySelector<HTMLInputElement>(SYNC_INPUT)?.value ?? "";
+    input.form?.querySelector<HTMLInputElement>(SYNC_INPUT)?.value ?? "";
   api.ajax("GET", "/cron/preview", {
     target: body,
     swap: "innerHTML",

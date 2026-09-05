@@ -21,7 +21,7 @@ import {
   withResolvedNames,
 } from "../../schedule.js";
 import {
-  offsetLabel,
+  SERVER_TIMEZONE,
   searchTimezones,
   starterSuggestions,
 } from "../../timezones.js";
@@ -33,6 +33,7 @@ import {
   ScheduleJobCard,
   ScheduleJobEditForm,
   ScheduleSaveForm,
+  TimezoneSuggestions,
 } from "../../views/schedule.js";
 import type { ServerContext } from "../context.js";
 import { expandHome } from "../paths.js";
@@ -82,41 +83,17 @@ const readJobsOr = (
 };
 
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
-  // Suggestions for the timezone combobox (@github/auto-complete-element
-  // on the form fetches these as the user types; an empty query means
-  // the field was focused untouched, so the starter list leads with the
-  // server's own zone). data-autocomplete-value is what a pick commits
-  // — the label's offset never lands in the field.
+  // Suggestion fragments for the timezone combobox — <auto-complete> on
+  // the form fetches these as the user types; an empty query means the
+  // field was focused untouched, so the starter list leads with the
+  // server's own zone.
   app.get("/cron/timezones", (c) => {
     const query = c.req.query("q") ?? "";
     const suggestions =
       query.trim() === ""
-        ? starterSuggestions(Intl.DateTimeFormat().resolvedOptions().timeZone)
+        ? starterSuggestions(SERVER_TIMEZONE)
         : searchTimezones(query);
-    return c.html(
-      <Fragment>
-        {suggestions.map((suggestion) => (
-          <li role="option" data-autocomplete-value={suggestion.zone}>
-            <span class="timezone-option-name">{suggestion.zone}</span>
-            <span class="timezone-option-offset">
-              {offsetLabel(suggestion.offsetMinutes)}
-            </span>
-            {suggestion.server === true && (
-              <span class="timezone-option-note">server local</span>
-            )}
-          </li>
-        ))}
-        {suggestions.length === 0 && (
-          <li
-            role="presentation"
-            aria-hidden="true"
-            data-no-result-found="true"
-          >
-            No matching timezone — keep typing, any IANA name is accepted.
-          </li>
-        )}
-      </Fragment>,
-    );
+    return c.html(<TimezoneSuggestions suggestions={suggestions} />);
   });
 
   // Live "Next runs" preview for the typed schedule — the same parse the
