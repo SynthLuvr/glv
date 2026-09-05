@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { formatOneShotLocal } from "../../schedule.js";
+import {
+  formatOneShotInZone,
+  formatOneShotLocal,
+  parseSchedule,
+} from "../../schedule.js";
 import {
   authedFetch,
   type CronConfigFile,
@@ -107,6 +111,71 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Schedule run");
     });
 
+    it("serves the timezone field as a type-to-search combobox", async () => {
+      const res = await authedFetch(env, "/cron/new");
+      const html = await res.text();
+      expect(res.status).toBe(200);
+      // A free-typing text input whose suggestions come from the
+      // server: <auto-complete> fetches /cron/timezones as the user
+      // types, and commits a pick as the input's plain value.
+      expect(html).toContain('name="timezone"');
+      expect(html).toContain("data-schedule-timezone");
+      expect(html).toContain('src="/cron/timezones"');
+      expect(html).toContain('for="schedule-timezones-list"');
+      expect(html).toContain('fetch-on-empty=""');
+      expect(html).toContain('data-autoselect="true"');
+      expect(html).toContain('id="schedule-timezones-list"');
+      expect(html).toContain('id="schedule-timezones-list-feedback"');
+      expect(html).toContain("Server local (");
+      // No baked-in suggestion markup: the option list arrives over
+      // HTTP per keystroke, not rendered with the form.
+      expect(html).not.toContain("<datalist");
+      expect(html).not.toContain('role="option"');
+    });
+
+    it("suggests timezones by name, city, and UTC offset", async () => {
+      // Empty query (focus with nothing typed): the server's own zone
+      // leads, marked as itself, then the canonical tour.
+      const idle = await authedFetch(env, "/cron/timezones?q=");
+      const idleHtml = await idle.text();
+      expect(idle.status).toBe(200);
+      expect(idleHtml).toContain('role="option"');
+      expect(idleHtml).toContain("server local");
+      expect(idleHtml).toMatch(
+        /data-autocomplete-value="[^"]+"><span class="timezone-option-name">[^<]+<\/span><span class="timezone-option-offset">UTC[+-]\d{2}:\d{2}<\/span><span class="timezone-option-note">server local<\/span>/,
+      );
+
+      // City spelling — underscores are not required typing. The label
+      // carries the zone's current offset (DST decides the sign).
+      const city = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("new york"),
+      );
+      const cityHtml = await city.text();
+      expect(cityHtml).toContain('data-autocomplete-value="America/New_York"');
+      expect(cityHtml).toMatch(
+        /America\/New_York<\/span><span class="timezone-option-offset">UTC[+-]0[45]:00<\/span>/,
+      );
+
+      // Offset spelling — zones sitting on +2 now, offset in the label.
+      const offset = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("utc+2"),
+      );
+      const offsetHtml = await offset.text();
+      expect(offsetHtml).toContain('data-autocomplete-value="Europe/Berlin"');
+      expect(offsetHtml).toContain("UTC+02:00");
+
+      // Nothing matches: an honest empty list, no option rows.
+      const none = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("zzz-not-a-zone"),
+      );
+      const noneHtml = await none.text();
+      expect(noneHtml).not.toContain('role="option"');
+      expect(noneHtml).toContain("No matching timezone");
+    });
+
     it("previews upcoming runs and shows the English → cron conversion", async () => {
       const res = await authedFetch(
         env,
@@ -180,6 +249,52 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
       const html = await res.text();
       expect(html).toContain("already in the past");
+    });
+
+    it("previews a schedule with a timezone override", async () => {
+      const res = await authedFetch(
+        env,
+        "/cron/preview?schedule=0%209%20*%20*%20*&timezone=America%2FNew_York",
+      );
+      const html = await res.text();
+      // The human form names the zone the times apply in…
+      expect(html).toContain("Every day at 09:00 (America/New_York)");
+      // …and the upcoming runs read in that zone's clock.
+      const parsed = parseSchedule("0 9 * * *", {
+        timezone: "America/New_York",
+      });
+      if (!parsed.ok) throw new Error("cron + timezone should parse");
+      const expected = new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "America/New_York",
+      }).format(parsed.info.next[0]);
+      expect(html).toContain(expected);
+    });
+
+    it("reads a one-shot datetime in the chosen timezone", async () => {
+      // 09:00 on Kiritimati (UTC+14, no DST) is a fixed instant:
+      // 2030-05-31T19:00Z.
+      const res = await authedFetch(
+        env,
+        "/cron/preview?schedule=2030-06-01T09%3A00&timezone=Pacific%2FKiritimati",
+      );
+      const html = await res.text();
+      expect(html).toContain("(Pacific/Kiritimati)");
+      expect(html).toContain("Sat, Jun 1, 09:00");
+    });
+
+    it("rejects a timezone the runtime does not recognize", async () => {
+      const res = await authedFetch(
+        env,
+        "/cron/preview?schedule=every%20weekday%20at%209%3A00&timezone=Bogus%2FZone",
+      );
+      const html = await res.text();
+      expect(html).toContain("not recognized");
     });
 
     it("creates a job from the slot form, writes the config file, and starts nothing", async () => {
@@ -326,6 +441,50 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
     });
 
+    it("creates a job with a timezone override in the config file", async () => {
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "NY morning",
+          schedule: "every weekday at 9:00",
+          timezone: "America/New_York",
+          prompt: "Greet New York",
+          working_dir: workingDir,
+        }),
+      });
+      const html = await res.text();
+      expect(res.status).toBe(200);
+      // The confirmation carries the zone on the human form and its own
+      // row, so what was chosen is what was saved.
+      expect(html).toContain("Scheduled run saved");
+      expect(html).toContain("(America/New_York)");
+      expect(html).toContain("Timezone");
+      // The file stores the override next to the translated cron.
+      const job = cronJobIn(cfgPath, "NY morning");
+      expect(job?.schedule).toBe("0 9 * * 1-5");
+      expect(job?.timezone).toBe("America/New_York");
+    });
+
+    it("rejects an unrecognized timezone with the typed work kept", async () => {
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "tz-broken",
+          schedule: "every weekday at 9:00",
+          timezone: "Mars/Olympus",
+          prompt: "Nowhere to run",
+          working_dir: workingDir,
+        }),
+      });
+      expect(res.status).toBe(422);
+      const html = await res.text();
+      expect(html).toContain("not recognized");
+      // The typed timezone survives the rejection alongside the rest.
+      expect(html).toContain('value="Mars/Olympus"');
+      expect(html).toContain('value="tz-broken"');
+      expect(cronJobIn(cfgPath, "tz-broken")).toBeUndefined();
+    });
+
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/new`);
@@ -395,6 +554,68 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         );
         await expect(page.locator("#scheduled-runs-count")).toHaveText(
           String(Number(before) + 1),
+        );
+      });
+    });
+
+    it("validates the timezone live and schedules with it", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/sessions/new`);
+        await expect(page.locator("form.new-session-form")).toBeVisible();
+        await page.getByRole("button", { name: "🕒 Schedule…" }).click();
+        await expect(page.locator("#cron-save-slot form")).toBeVisible();
+
+        const tzField = page.locator(
+          "#cron-save-slot input[data-schedule-timezone]",
+        );
+        const scheduleBtn = page.locator(
+          "#cron-save-slot button[data-schedule-submit]",
+        );
+        await page.locator("input[data-schedule-input]").fill("at 9:00");
+        await expect(scheduleBtn).toBeEnabled();
+
+        // The combobox: typing searches server-side…
+        await tzField.fill("new y");
+        const option = page.locator(
+          "#cron-save-slot li[data-autocomplete-value='America/New_York']",
+        );
+        await expect(option).toBeVisible();
+        await expect(option).toContainText("UTC");
+        // …a click commits the zone into the field…
+        await option.click();
+        await expect(tzField).toHaveValue("America/New_York");
+        // …and the verdict and preview follow the pick without any
+        // further typing (the pick fires no native input event).
+        await expect(page.locator("[data-schedule-validation]")).toContainText(
+          "at 9:00 (America/New_York) → 0 9 * * *",
+        );
+        await expect(page.locator(".next-runs-body")).toContainText(
+          "(America/New_York)",
+          { timeout: 10_000 },
+        );
+        // …an unrecognized one is refused before any click…
+        await tzField.fill("Bogus/Zone");
+        await expect(page.locator("[data-schedule-validation]")).toContainText(
+          "not recognized",
+        );
+        await expect(scheduleBtn).toBeDisabled();
+        // …and the server preview follows the field.
+        await tzField.fill("America/New_York");
+        await expect(scheduleBtn).toBeEnabled();
+        await expect(page.locator(".next-runs-body")).toContainText(
+          "(America/New_York)",
+          { timeout: 10_000 },
+        );
+
+        await page.locator('textarea[name="prompt"]').fill("TZ sweep");
+        await page.locator('input[name="job_name"]').fill("Timezone job");
+        await scheduleBtn.click();
+        await expect(page.locator("#cron-save-slot")).toContainText(
+          "Scheduled run saved",
+          { timeout: 15_000 },
+        );
+        expect(cronJobIn(cfgPath, "Timezone job")?.timezone).toBe(
+          "America/New_York",
         );
       });
     });
@@ -548,7 +769,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // English input, converted on save.
       expect(job?.schedule).toBe("0 18 * * 0");
       expect(job?.prompt).toBe("Rewritten EU report");
-      // The form never exposes timezone or enabled; both survive.
+      // A PUT without the timezone field (a non-browser client) keeps
+      // the stored override; `enabled` is never form-exposed and
+      // survives too.
       expect(job?.timezone).toBe("Europe/Berlin");
       expect(job?.enabled).toBe(false);
       // The old name is gone.
@@ -570,6 +793,37 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("already exists");
       expect(jobByName("friday-eu")).toBeDefined();
+    });
+
+    it("edits a job's timezone through the form, and clears it", async () => {
+      // The edit form pre-fills the stored override.
+      const edit = await authedFetch(env, "/cron/friday-eu/edit");
+      const editHtml = await edit.text();
+      expect(edit.status).toBe(200);
+      expect(editHtml).toContain('value="Europe/Berlin"');
+
+      const put = async (timezone: string): Promise<number> => {
+        const res = await authedFetch(env, "/cron/friday-eu", {
+          method: "PUT",
+          body: new URLSearchParams({
+            job_name: "friday-eu",
+            schedule: "on sunday at 18:00",
+            timezone,
+            prompt: "Rewritten EU report",
+            working_dir: jobByName("friday-eu")?.workingDir as string,
+          }),
+          headers: { "HX-Request": "true" },
+        });
+        return res.status;
+      };
+
+      // A submitted value replaces the stored override…
+      expect(await put("America/New_York")).toBe(200);
+      expect(jobByName("friday-eu")?.timezone).toBe("America/New_York");
+      // …and an empty one clears it back to the server's clock.
+      expect(await put("")).toBe(200);
+      expect(jobByName("friday-eu")?.timezone).toBeUndefined();
+      expect(jobByName("friday-eu")?.schedule).toBe("0 18 * * 0");
     });
 
     it("deletes jobs and hides the section when the last one goes", async () => {
@@ -722,6 +976,85 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         const html = await res.text();
         expect(html).not.toContain("Missed Session");
         expect(html).not.toContain("cron-job-card");
+      } finally {
+        await env.cleanup();
+        rmSync(homeDir, { recursive: true, force: true });
+      }
+    }, 60000);
+
+    it("fires a one-shot at the wall-clock time of its timezone", async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtz-"));
+      // A zone with no DST so the wall clock maps cleanly; the schedule
+      // is the target instant spelled in that zone's clock.
+      const zone = "Pacific/Kiritimati";
+      const target = new Date(
+        Math.ceil((Date.now() + 40_000) / 60_000) * 60_000,
+      );
+      const cfgPath = writeConfig(homeDir, [
+        {
+          name: "zoned-one-shot",
+          schedule: formatOneShotInZone(target, zone),
+          timezone: zone,
+          prompt: "Zoned one time only",
+          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xw-")),
+        },
+      ]);
+      const env = await fx.startEnv(
+        "glv-cronui-xtz-",
+        { sessionName: "Zoned One Shot Session" },
+        homeDir,
+        { GLV_CONFIG: cfgPath },
+      );
+      try {
+        const deadline = Date.now() + 100_000;
+        let html = "";
+        while (Date.now() < deadline) {
+          const res = await authedFetch(env, "/");
+          html = await res.text();
+          if (html.includes("Zoned One Shot Session")) break;
+          await sleep(500);
+        }
+        expect(html).toContain("Zoned One Shot Session");
+        // …and the job retires itself from the config after firing.
+        const config = await waitForConfig(
+          cfgPath,
+          (c) => (c.cronJobs ?? []).length === 0,
+        );
+        expect(config.cronJobs).toEqual([]);
+      } finally {
+        await env.cleanup();
+        rmSync(homeDir, { recursive: true, force: true });
+      }
+    }, 150000);
+
+    it("prunes a zoned one-shot that expired in its timezone", async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtzexp-"));
+      const zone = "Pacific/Kiritimati";
+      const cfgPath = writeConfig(homeDir, [
+        {
+          name: "zoned-missed",
+          schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
+          timezone: zone,
+          prompt: "Should never run",
+          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xew-")),
+        },
+      ]);
+      const env = await fx.startEnv(
+        "glv-cronui-xtzexp-",
+        { sessionName: "Zoned Missed Session" },
+        homeDir,
+        { GLV_CONFIG: cfgPath },
+      );
+      try {
+        // Same instant semantics as the local prune, read in the zone.
+        const config = await waitForConfig(
+          cfgPath,
+          (c) => (c.cronJobs ?? []).length === 0,
+        );
+        expect(config.cronJobs).toEqual([]);
+        const res = await authedFetch(env, "/");
+        const html = await res.text();
+        expect(html).not.toContain("Zoned Missed Session");
       } finally {
         await env.cleanup();
         rmSync(homeDir, { recursive: true, force: true });

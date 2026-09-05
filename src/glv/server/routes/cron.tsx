@@ -20,6 +20,11 @@ import {
   parseSchedule,
   withResolvedNames,
 } from "../../schedule.js";
+import {
+  SERVER_TIMEZONE,
+  searchTimezones,
+  starterSuggestions,
+} from "../../timezones.js";
 import { errorMessage } from "../../util.js";
 import {
   CronJobGrid,
@@ -28,6 +33,7 @@ import {
   ScheduleJobCard,
   ScheduleJobEditForm,
   ScheduleSaveForm,
+  TimezoneSuggestions,
 } from "../../views/schedule.js";
 import type { ServerContext } from "../context.js";
 import { expandHome } from "../paths.js";
@@ -77,10 +83,24 @@ const readJobsOr = (
 };
 
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
+  // Suggestion fragments for the timezone combobox — <auto-complete> on
+  // the form fetches these as the user types; an empty query means the
+  // field was focused untouched, so the starter list leads with the
+  // server's own zone.
+  app.get("/cron/timezones", (c) => {
+    const query = c.req.query("q") ?? "";
+    const suggestions =
+      query.trim() === ""
+        ? starterSuggestions(SERVER_TIMEZONE)
+        : searchTimezones(query);
+    return c.html(<TimezoneSuggestions suggestions={suggestions} />);
+  });
+
   // Live "Next runs" preview for the typed schedule — the same parse the
   // client bundles and the submit route runs.
   app.get("/cron/preview", (c) => {
-    const parsed = parseSchedule(c.req.query("schedule") ?? "");
+    const timezone = c.req.query("timezone")?.trim() || undefined;
+    const parsed = parseSchedule(c.req.query("schedule") ?? "", { timezone });
     if (!parsed.ok)
       return c.html(<span class="next-runs-error">{parsed.error}</span>);
     if (parsed.info.next.length === 0)
@@ -100,7 +120,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
         <ul class="next-runs-list">
           {parsed.info.next.map((run) => (
             <li>
-              <time>{fmtDateTime(run)}</time>
+              <time>{fmtDateTime(run, timezone)}</time>
             </li>
           ))}
         </ul>
@@ -129,12 +149,14 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const prompt = trimmedField(body, "prompt");
     const workingDirRaw = trimmedField(body, "working_dir");
     const modelProvider = trimmedField(body, "model_provider");
+    const timezone = trimmedField(body, "timezone");
 
     const reject = (error: string) =>
       c.html(
         <ScheduleSaveForm
           jobName={jobName}
           schedule={schedule}
+          timezone={timezone}
           withModels={hasModelPicker(ctx)}
           error={error}
         />,
@@ -157,7 +179,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const workingDir = resolve(expandHome(workingDirRaw));
     if (!existsSync(workingDir))
       return reject("That working directory does not exist.");
-    const parsed = parseSchedule(schedule);
+    const parsed = parseSchedule(schedule, { timezone });
     if (!parsed.ok) return reject(parsed.error);
 
     const existing = readJobsOr(ctx).jobs;
@@ -171,6 +193,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
+      ...(timezone === "" ? {} : { timezone }),
       ...modelPinFields(picked),
     };
     try {
@@ -233,6 +256,13 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const workingDirRaw = trimmedField(body, "working_dir");
     const workingDir = resolve(expandHome(workingDirRaw));
 
+    // The timezone field is exposed on the edit form; a body without it
+    // (a non-browser client) keeps the stored override, while a
+    // submitted value replaces it — empty clears it back to the
+    // server's clock.
+    const timezonePresent = "timezone" in body;
+    const submittedTimezone = trimmedField(body, "timezone");
+
     // The picker is exposed only where the flavor supports models; an
     // unexposed field keeps whatever the file already pins.
     const pickerExposed = hasModelPicker(ctx);
@@ -246,6 +276,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
         <ScheduleJobEditForm
           job={{ ...existing, name, prompt, workingDir }}
           schedule={schedule}
+          timezone={submittedTimezone}
           dirs={ctx.listDirs()}
           modelPicker={
             pickerExposed ? { submitted: submittedModel } : undefined
@@ -259,7 +290,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     if (workingDirRaw === "") return reject("A working directory is required.");
     if (!existsSync(workingDir))
       return reject("That working directory does not exist.");
-    const parsed = parseSchedule(schedule);
+    const parsed = parseSchedule(schedule, { timezone: submittedTimezone });
     if (!parsed.ok) return reject(parsed.error);
     if (pickerExposed && submittedModel !== "" && picked === undefined)
       return reject(modelUnavailableError(ctx.profile.agentName));
@@ -267,10 +298,13 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     if (jobs.some((job) => job.name === name && job.name !== existing.name))
       return reject(`A scheduled run named "${name}" already exists.`);
 
-    // Unexposed fields (timezone, enabled, …) survive the edit; only the
-    // form's own fields are overwritten. Where the picker is exposed,
-    // the submitted value replaces the stored pin — empty clears it.
-    const { modelProvider, model, ...kept } = existing;
+    // Unexposed fields (enabled, …) survive the edit; only the form's
+    // own fields are overwritten. Where the picker is exposed, the
+    // submitted value replaces the stored pin — empty clears it.
+    const { modelProvider, model, timezone: keptTimezone, ...kept } = existing;
+    const timezone = timezonePresent
+      ? submittedTimezone || undefined
+      : keptTimezone;
     const updated: NamedCronJob = {
       ...kept,
       ...modelPinFields(
@@ -280,6 +314,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       schedule: parsed.info.cron ?? schedule,
       prompt,
       workingDir,
+      ...(timezone === undefined ? {} : { timezone }),
     };
     try {
       writeCronJobs(

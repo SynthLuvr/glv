@@ -11,9 +11,11 @@ import { errorMessage } from "./util.js";
 //   - a cron pattern ("0 9 * * 1-5") — croner, optional timezone
 //   - human text ("every weekday at 9:00") — parsed by @breejs/later
 //
-// Text schedules are always in the server's local timezone (cron
-// patterns keep a job's timezone override); later is switched to local
-// time here, once, before anything parses or enumerates.
+// An optional timezone override applies to every kind: the datetime is
+// read there, and the cron pattern (translated or typed) fires there.
+// Without one, everything runs on the server's clock — later is
+// switched to local time here, once, before anything parses or
+// enumerates.
 later.date.localTime();
 
 type ScheduleKind = "once" | "cron" | "text";
@@ -37,11 +39,65 @@ type ScheduleParse =
   | { readonly ok: false; readonly error: string };
 
 // ISO-local datetimes (what the form writes) plus full ISO with a zone
-// (what Date#toISOString writes) — both are fire-once inputs.
+// (what Date#toISOString writes) — both are fire-once inputs. The named
+// groups feed the zone-aware one-shot conversion.
 const ONE_SHOT_RE =
-  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?$/;
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})[T ](?<hour>\d{2}):(?<minute>\d{2})(?::(?<second>\d{2})(?:\.(?<ms>\d{1,3}))?)?(?<zone>Z|[+-]\d{2}:?\d{2})?$/;
 
 const twoDigits = (n: number): string => String(n).padStart(2, "0");
+
+// croner accepts any string as a timezone and only misbehaves later, so
+// validity is checked up front (here, so the live client validation can
+// run the same check the server does).
+const validTimezone = (timezone: string): boolean => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// The timezone suffix every human form appends when a schedule's times
+// apply somewhere other than the server's clock.
+const tzSuffix = (timezone: string | undefined): string =>
+  timezone === undefined ? "" : ` (${timezone})`;
+
+// A schedule's wall-clock in a named zone: the numeric parts an instant
+// reads as there (en-US hour12:false renders midnight as hour 24 on
+// some ICU versions, hence the modulo).
+type WallClock = {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+};
+
+const wallClockIn = (date: Date, timeZone: string): WallClock => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+  const byType: Record<string, number> = {};
+  for (const part of parts)
+    if (part.type !== "literal") byType[part.type] = Number(part.value);
+  return {
+    year: byType.year,
+    month: byType.month,
+    day: byType.day,
+    hour: byType.hour % 24,
+    minute: byType.minute,
+    second: byType.second,
+  };
+};
 
 // The one-shot spelling the form produces: local ISO to minute
 // precision.
@@ -50,31 +106,105 @@ const formatOneShotLocal = (date: Date): string =>
     date.getDate(),
   )}T${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 
+// The same spelling as read in a named zone (round-trip check for zoned
+// one-shots).
+const formatOneShotInZone = (date: Date, timeZone: string): string => {
+  const wall = wallClockIn(date, timeZone);
+  return (
+    `${wall.year}-${twoDigits(wall.month)}-${twoDigits(wall.day)}` +
+    `T${twoDigits(wall.hour)}:${twoDigits(wall.minute)}`
+  );
+};
+
+// The instant a zone-less wall clock names in a named zone — the same
+// interpretation croner gives a one-shot fired with a timezone override.
+// Two offset passes pin the instant across DST boundaries; a wall clock
+// that doesn't exist there (the spring-forward gap) shifts like
+// croner's, and the caller's round-trip check rejects it.
+const zoneWallClockToInstant = (schedule: string, timeZone: string): Date => {
+  const groups = ONE_SHOT_RE.exec(schedule)?.groups ?? {};
+  const asUtc = Date.UTC(
+    Number(groups.year),
+    Number(groups.month) - 1,
+    Number(groups.day),
+    Number(groups.hour),
+    Number(groups.minute),
+    Number(groups.second ?? 0),
+    Number((groups.ms ?? "0").padEnd(3, "0")),
+  );
+  const offsetAt = (instant: Date): number => {
+    const wall = wallClockIn(instant, timeZone);
+    return (
+      Date.UTC(
+        wall.year,
+        wall.month - 1,
+        wall.day,
+        wall.hour,
+        wall.minute,
+        wall.second,
+      ) - instant.getTime()
+    );
+  };
+  const firstOffset = offsetAt(new Date(asUtc));
+  const guess = new Date(asUtc - firstOffset);
+  const settledOffset = offsetAt(guess);
+  return settledOffset === firstOffset
+    ? guess
+    : new Date(asUtc - settledOffset);
+};
+
+// One-shot dates far outside anything croner can schedule are refused.
+const saneOneShot = (date: Date): boolean =>
+  date.getUTCFullYear() >= 1990 &&
+  date.getUTCFullYear() <= 9999 &&
+  date.getTime() >= 0;
+
+// A zone-less one-shot with a timezone override: the instant its
+// wall-clock names in that zone — the same conversion croner applies
+// when firing it — accepted only when it round-trips (wall clocks that
+// don't exist there, like the spring-forward gap, don't).
+const parseZonedOneShot = (
+  schedule: string,
+  timezone: string,
+): Date | undefined => {
+  const instant = zoneWallClockToInstant(schedule, timezone);
+  if (!saneOneShot(instant)) return undefined;
+  if (formatOneShotInZone(instant, timezone) !== schedule.replace(" ", "T"))
+    return undefined;
+  return instant;
+};
+
 // Returns the instant a fire-once schedule targets, or undefined for
 // cron patterns, human text (and malformed values). Zone-less spellings
 // roll impossible dates over silently (Feb 30 → Mar 2), so they must
-// round-trip to count as valid.
-const parseOneShotSchedule = (schedule: string): Date | undefined => {
-  if (!ONE_SHOT_RE.test(schedule)) return undefined;
+// round-trip to count as valid — in the server's zone, or the override's
+// when one is given.
+const parseOneShotSchedule = (
+  schedule: string,
+  timezone?: string,
+): Date | undefined => {
+  const match = ONE_SHOT_RE.exec(schedule);
+  if (match === null) return undefined;
+  const zoneless = match.groups?.zone === undefined;
+  // The conversion throws only on an unrecognizable zone, which
+  // parseSchedule reports as its error before ever getting here — this
+  // catch guards direct callers.
+  if (zoneless && timezone !== undefined)
+    try {
+      return parseZonedOneShot(schedule, timezone);
+    } catch {
+      return undefined;
+    }
+
   const time = Date.parse(schedule.replace(" ", "T"));
   if (Number.isNaN(time)) return undefined;
   const date = new Date(time);
-  if (
-    date.getUTCFullYear() < 1990 ||
-    date.getUTCFullYear() > 9999 ||
-    date.getTime() < 0
-  )
-    return undefined;
-  if (
-    !/(Z|[+-]\d{2}:?\d{2})$/.test(schedule) &&
-    formatOneShotLocal(date) !== schedule
-  )
-    return undefined;
-
+  if (!saneOneShot(date)) return undefined;
+  if (zoneless && formatOneShotLocal(date) !== schedule) return undefined;
   return date;
 };
 
-const fmtDateTime = (date: Date): string =>
+const fmtDateTime = (date: Date, timezone?: string): string =>
   date.toLocaleString("en-US", {
     weekday: "short",
     month: "short",
@@ -82,6 +212,7 @@ const fmtDateTime = (date: Date): string =>
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    ...(timezone === undefined ? {} : { timeZone: timezone }),
   });
 
 const friendlyCronError = (detail: string): string =>
@@ -276,12 +407,17 @@ const parseTextSchedule = (
     ok: true,
     info: {
       kind: "text",
-      human: schedule,
+      human: `${schedule}${tzSuffix(timezone)}`,
       cron,
       next: built.cron.nextRuns(3),
     },
   };
 };
+
+// A timezone the runtime doesn't recognize, said plainly.
+const badTimezone = (timezone: string): string =>
+  `Timezone "${timezone}" is not recognized — use an IANA name like ` +
+  "America/New_York (the field suggests them as you type).";
 
 // The one entry point: classifies and validates a raw schedule string,
 // returning its human form and next fire times, or a plain-language
@@ -294,8 +430,11 @@ const parseSchedule = (
   const schedule = raw.trim();
   if (schedule === "")
     return { ok: false, error: `Type a schedule — ${TEXT_HELP}` };
+  const timezone = opts.timezone?.trim() || undefined;
+  if (timezone !== undefined && !validTimezone(timezone))
+    return { ok: false, error: badTimezone(timezone) };
 
-  const once = parseOneShotSchedule(schedule);
+  const once = parseOneShotSchedule(schedule, timezone);
   if (once !== undefined) {
     if (once.getTime() <= Date.now())
       return {
@@ -306,32 +445,32 @@ const parseSchedule = (
       ok: true,
       info: {
         kind: "once",
-        human: `Once at ${fmtDateTime(once)}`,
+        human: `Once at ${fmtDateTime(once, timezone)}${tzSuffix(timezone)}`,
         next: [once],
       },
     };
   }
 
   if (cronShaped(schedule)) {
-    const built = buildCron(schedule, opts.timezone);
+    const built = buildCron(schedule, timezone);
     if (!built.ok) return built;
     return {
       ok: true,
       info: {
         kind: "cron",
-        human: humanizeCron(schedule, opts.timezone),
+        human: humanizeCron(schedule, timezone),
         next: built.cron.nextRuns(3),
       },
     };
   }
 
-  return parseTextSchedule(schedule, opts.timezone);
+  return parseTextSchedule(schedule, timezone);
 };
 
 // Cron rendered plainly when it matches the shapes people mean
 // ("0 9 * * *" → "Every day at 09:00"), the raw pattern otherwise.
 const humanizeCron = (schedule: string, timezone?: string): string => {
-  const tzSuffix = timezone === undefined ? "" : ` (${timezone})`;
+  const suffix = tzSuffix(timezone);
   const fields = schedule.split(/\s+/);
   const parts =
     fields.length === 6 && fields[0] === "0" ? fields.slice(1) : fields;
@@ -340,12 +479,12 @@ const humanizeCron = (schedule: string, timezone?: string): string => {
     const plainTime = /^\d{1,2}$/.test(minute) && /^\d{1,2}$/.test(hour);
     if (plainTime && dom === "*" && month === "*") {
       const time = `${twoDigits(Number(hour))}:${twoDigits(Number(minute))}`;
-      if (dow === "*") return `Every day at ${time}${tzSuffix}`;
+      if (dow === "*") return `Every day at ${time}${suffix}`;
       const days = expandWeekdays(dow);
-      if (days !== undefined) return `Every ${days} at ${time}${tzSuffix}`;
+      if (days !== undefined) return `Every ${days} at ${time}${suffix}`;
     }
   }
-  return `Cron ${schedule}${tzSuffix}`;
+  return `Cron ${schedule}${suffix}`;
 };
 
 // A cron day-of-week field of plain digits, ranges, and lists expanded
@@ -398,10 +537,12 @@ const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
 export type { NamedCronJob };
 export {
   fmtDateTime,
+  formatOneShotInZone,
   formatOneShotLocal,
   humanizeSchedule,
   parseOneShotSchedule,
   parseSchedule,
   resolvedCronName,
+  validTimezone,
   withResolvedNames,
 };
