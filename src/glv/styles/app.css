@@ -723,6 +723,119 @@ body {
   border-color: var(--color-err);
   background: var(--color-err-soft);
 }
+
+/* ---------- session action menu (⋯ beside Archive) ---------- */
+/* Desktop: a plain dropdown anchored under the header actions. Mobile
+   (bottom of this block) re-presents the same panel as a bottom sheet. */
+.session-header-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.session-menu {
+  position: relative;
+  display: inline-flex;
+}
+.session-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.45rem;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.session-menu-toggle:hover,
+.session-menu.is-open .session-menu-toggle {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+}
+.session-menu-toggle svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+/* Invisible outside-click catcher while open; becomes the sheet scrim on
+   mobile. Hidden (visibility, not display) so it never intercepts clicks
+   when the menu is closed. */
+.session-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+  visibility: hidden;
+}
+.session-menu.is-open .session-menu-backdrop {
+  visibility: visible;
+}
+.session-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 41;
+  min-width: 12rem;
+  padding: 0.3rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.55rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0.12s;
+}
+.session-menu.is-open .session-menu-panel {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+}
+.session-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: none;
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.session-menu-item:hover {
+  background: var(--color-surface-2);
+}
+.session-menu-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.session-menu-delete {
+  color: var(--color-err);
+}
+.session-menu-delete:hover {
+  color: var(--color-err);
+  background: var(--color-err-soft);
+}
+/* Desktop dropdown closes via outside click / Escape — no Cancel row. */
+.session-menu-cancel {
+  display: none;
+}
+
 .session-header h2 {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;
@@ -1977,6 +2090,50 @@ select.form-input {
   }
   .detail-inner {
     padding: 1.5rem 1.25rem 3rem;
+  }
+
+  /* The session action menu becomes a bottom sheet: the panel detaches to
+     the viewport bottom and slides up, the backdrop turns into a scrim, and
+     the rows grow to comfortable touch targets with a Cancel row to
+     dismiss. */
+  .session-menu-backdrop {
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .session-menu-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-width: 0;
+    max-width: 32rem;
+    margin: 0 auto;
+    padding: 0.55rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+    border-radius: 0.9rem 0.9rem 0 0;
+    opacity: 1;
+    transform: translateY(100%);
+    transition:
+      transform 0.22s ease-out,
+      visibility 0.22s;
+  }
+  .session-menu.is-open .session-menu-panel {
+    visibility: visible;
+    transform: translateY(0);
+  }
+  .session-menu-item {
+    padding: 1rem 0.9rem;
+    font-size: 1rem;
+    border-radius: 0.55rem;
+  }
+  .session-menu-delete {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .session-menu-cancel {
+    display: flex;
+    margin-top: 0.35rem;
+    color: var(--color-muted);
+    font-weight: 500;
   }
 }
 

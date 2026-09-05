@@ -383,6 +383,8 @@ type FlavorFixture = {
   ) => void;
   /** Deletes a session the way the flavor's agent would. */
   readonly deleteSession: (env: IntegrationEnv, id: string) => void;
+  /** Throws while any flavor-owned record of the session still exists. */
+  readonly assertSessionGone: (env: IntegrationEnv, id: string) => void;
   /** The flag that injects the built-in system prompt on every run. */
   readonly systemFlag: string;
   /** The flag that marks a follow-up (resume) invocation. */

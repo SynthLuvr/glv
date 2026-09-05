@@ -195,6 +195,19 @@ const archiveSessions = (db: DatabaseSync, ids: string[]): void => {
   ).run(...ids);
 };
 
+// Unlike archive, the rows are deleted outright so the session is neither
+// listable nor recoverable. secure_delete zeroes the freed pages as they
+// go, and the truncating checkpoint drains the -wal sidecar so committed
+// copies don't linger on disk.
+const deleteSessions = (db: DatabaseSync, ids: string[]): void => {
+  if (ids.length === 0) return;
+  db.exec("PRAGMA secure_delete = ON");
+  const marks = placeholders(ids.length);
+  db.prepare(`DELETE FROM messages WHERE session_id IN (${marks})`).run(...ids);
+  db.prepare(`DELETE FROM sessions WHERE id IN (${marks})`).run(...ids);
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+};
+
 // A blank name clears the user-set flag.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
@@ -259,6 +272,7 @@ const createSessionStore = (
   listMessages: (sessionId) => listMessages(db, sessionId),
   archiveSessions: (ids) => archiveSessions(dbWritable, ids),
   renameSession: (id, rawName) => renameSession(dbWritable, id, rawName),
+  deleteSessions: (ids) => deleteSessions(dbWritable, ids),
   firstPromptSessionName: (ids) => firstPromptSessionName(db, ids),
   prCandidateIds: (ids) => prCandidateIds(db, ids),
 });

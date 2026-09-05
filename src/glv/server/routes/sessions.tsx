@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { jobNameFor } from "../../cron-sessions.js";
+import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
+import { removeMember } from "../../groups/db.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
 import { modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
@@ -70,6 +71,17 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
   const NEW_SESSION_TITLE = "New Session — GLV";
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
+
+  // Shared archive/delete landing: the New Session form in #detail-pane,
+  // with the URL kept in step so a refresh doesn't hit the removed
+  // session (404).
+  const newSessionLanding = (c: Context) => {
+    c.header("HX-Push-Url", "/sessions/new");
+    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
+      refreshSidebar: true,
+      title: NEW_SESSION_TITLE,
+    });
+  };
 
   // Renders a full <Transcript> (messages + run handle) inside the standard
   // page shell.
@@ -332,13 +344,23 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     ctx.sessions.archiveSessions([id]);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
-    // The response swaps the New Session form into #detail-pane; keep the
-    // URL in step so a refresh doesn't land on the archived session (404).
-    c.header("HX-Push-Url", "/sessions/new");
-    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
-      refreshSidebar: true,
-      title: NEW_SESSION_TITLE,
-    });
+    return newSessionLanding(c);
+  });
+
+  // Archive only hides a session; delete destroys every record of it — the
+  // flavor's own store, glv's group and cron sidecars, the run's uploads
+  // and temp dir. Unknown ids 404 rather than "succeeding" invisibly.
+  app.post("/sessions/:id/delete", (c) => {
+    const id = c.req.param("id");
+    if (ctx.sessions.getSession(id) === undefined)
+      return renderNotFound(c, ctx, id);
+    stop(ctx.runner, id);
+    ctx.sessions.deleteSessions([id]);
+    if (ctx.groups !== undefined) removeMember(ctx.groups, id);
+    if (ctx.cronSessions !== undefined) untagCronSession(ctx.cronSessions, id);
+    deleteUploads(ctx.profile.dataDirName, id);
+    deleteTempDir(ctx.profile.dataDirName, id);
+    return newSessionLanding(c);
   });
 
   app.post("/sessions/:id/rename", async (c) => {

@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { truncate } from "../glv/format/text.js";
 import {
   archiveSessions as archiveMeta,
+  deleteSessions as deleteMeta,
   getMeta,
   listMeta,
   type MetaRow,
@@ -15,6 +16,7 @@ import type {
   SessionStore,
 } from "../glv/sessions.js";
 import {
+  deleteTranscript,
   findTranscript,
   listSessionFiles,
   parseTranscriptFile,
@@ -175,6 +177,11 @@ const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
     listMessages: (sessionId) => listMessages(store, sessionId),
     archiveSessions: (ids) => archiveMeta(store.meta, ids),
     renameSession: (id, rawName) => renameMeta(store.meta, id, rawName),
+    deleteSessions: (ids) => {
+      // Shred the transcripts first, then drop the viewer's sidecar rows.
+      for (const id of ids) deleteTranscript(store.root, id);
+      deleteMeta(store.meta, ids);
+    },
     firstPromptSessionName: (ids) => firstPromptSessionName(store, ids),
     prCandidateIds: (ids) => prCandidateIds(store, ids),
   };

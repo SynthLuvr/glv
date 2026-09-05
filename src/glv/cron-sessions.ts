@@ -76,10 +76,15 @@ const jobNamesFor = (
   return result;
 };
 
+const untagCronSession = (db: DatabaseSync, sessionId: string): void => {
+  db.prepare("DELETE FROM cron_sessions WHERE session_id = ?").run(sessionId);
+};
+
 export {
   jobNameFor,
   jobNamesFor,
   openCronSessionsDb,
   resolveCronDbPath,
   tagCronSession,
+  untagCronSession,
 };

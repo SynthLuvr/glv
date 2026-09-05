@@ -32,6 +32,7 @@ const CLIENT_ENTRY_NAMES = [
   "sidebar",
   "stream",
   "rename",
+  "actions",
   "ui",
   "groups",
   "prompts",

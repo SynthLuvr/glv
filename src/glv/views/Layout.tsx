@@ -26,6 +26,7 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
       <script src="/assets/rename.js" defer></script>
+      <script src="/assets/actions.js" defer></script>
       <script src="/assets/ui.js" defer></script>
       <script src="/assets/prompts.js" defer></script>
       <script src="/assets/uploads.js" defer></script>

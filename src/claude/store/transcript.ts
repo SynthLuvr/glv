@@ -1,4 +1,13 @@
-import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  type Dirent,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { mayFail } from "ts-handling";
 import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
@@ -299,8 +308,48 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
+// Best-effort shred before permanent removal: zero the bytes in place
+// (unlinking alone only forgets content), evict the cached parse, then
+// remove the file. No userspace writer can defeat SSD wear-leveling or
+// CoW snapshots — every step may fail so long as the file ends up gone.
+const ZERO_CHUNK_BYTES = 64 * 1024;
+
+const overwriteWithZeros = (path: string): void => {
+  const size = statSync(path).size;
+  const fd = openSync(path, "r+");
+  try {
+    const chunk = Buffer.alloc(ZERO_CHUNK_BYTES);
+    let remaining = size;
+    while (remaining > 0) {
+      const written = writeSync(
+        fd,
+        chunk,
+        0,
+        Math.min(chunk.length, remaining),
+      );
+      if (written <= 0) break;
+      remaining -= written;
+    }
+  } finally {
+    closeSync(fd);
+  }
+};
+
+const deleteTranscript = (root: string, id: string): void => {
+  const path = findTranscript(root, id);
+  if (path === undefined) return;
+  try {
+    overwriteWithZeros(path);
+  } catch {
+    // Vanished or unreadable — nothing left to shred.
+  }
+  parseCache.delete(path);
+  rmSync(path, { force: true });
+};
+
 export type { SessionFile, Transcript };
 export {
+  deleteTranscript,
   findTranscript,
   listSessionFiles,
   parseTranscriptFile,

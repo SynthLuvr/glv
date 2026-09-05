@@ -39,13 +39,15 @@ type SessionFilter = {
 // JSONL plus a viewer-owned meta sidecar); core code consumes this
 // interface only. Browsing is
 // read-only against agent-owned data; the only mutations are viewer-managed
-// (rename, archive) and route through the same interface.
+// (rename, archive, permanent delete) and route through the same interface.
 type SessionStore = {
   readonly listSessions: (filter: SessionFilter) => SessionRow[];
   readonly getSession: (id: string) => SessionRow | undefined;
   readonly listMessages: (sessionId: string) => MessageRow[];
   readonly archiveSessions: (ids: string[]) => void;
   readonly renameSession: (id: string, rawName: string) => void;
+  // Unlike archive: every record of the session is destroyed, not hidden.
+  readonly deleteSessions: (ids: string[]) => void;
   readonly firstPromptSessionName: (ids: string[]) => string | undefined;
   readonly prCandidateIds: (ids: string[]) => Set<string>;
 };

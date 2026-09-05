@@ -180,6 +180,23 @@ const gooseFixture: harness.FlavorFixture = {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
     db.close();
   },
+  assertSessionGone: (env, id) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
+      readOnly: true,
+    });
+    try {
+      const session = db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id);
+      const message = db
+        .prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1")
+        .get(id);
+      if (session !== undefined)
+        throw new Error(`goose sessions row for ${id} still exists`);
+      if (message !== undefined)
+        throw new Error(`goose messages rows for ${id} still exist`);
+    } finally {
+      db.close();
+    }
+  },
   readSessionField: (env, field, id) =>
     harness.readStoreField(env.dbs.flavor.sessionsDb, "sessions", field, id),
   systemFlag: "--system",
