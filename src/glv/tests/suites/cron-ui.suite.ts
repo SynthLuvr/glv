@@ -111,19 +111,69 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Schedule run");
     });
 
-    it("serves the timezone field with IANA suggestions", async () => {
+    it("serves the timezone field as a type-to-search combobox", async () => {
       const res = await authedFetch(env, "/cron/new");
       const html = await res.text();
       expect(res.status).toBe(200);
-      // An optional text field beside the schedule — empty means the
-      // server's own clock, which the placeholder names.
+      // A free-typing text input whose suggestions come from the
+      // server: <auto-complete> fetches /cron/timezones as the user
+      // types, and commits a pick as the input's plain value.
       expect(html).toContain('name="timezone"');
       expect(html).toContain("data-schedule-timezone");
-      expect(html).toContain('list="schedule-timezones"');
+      expect(html).toContain('src="/cron/timezones"');
+      expect(html).toContain('for="schedule-timezones-list"');
+      expect(html).toContain('fetch-on-empty=""');
+      expect(html).toContain('data-autoselect="true"');
+      expect(html).toContain('id="schedule-timezones-list"');
+      expect(html).toContain('id="schedule-timezones-list-feedback"');
       expect(html).toContain("Server local (");
-      // Suggestions are the runtime's IANA list.
-      expect(html).toContain('value="America/New_York"');
-      expect(html).toContain('value="Europe/Berlin"');
+      // No baked-in suggestion markup: the option list arrives over
+      // HTTP per keystroke, not rendered with the form.
+      expect(html).not.toContain("<datalist");
+      expect(html).not.toContain('role="option"');
+    });
+
+    it("suggests timezones by name, city, and UTC offset", async () => {
+      // Empty query (focus with nothing typed): the server's own zone
+      // leads, marked as itself, then the canonical tour.
+      const idle = await authedFetch(env, "/cron/timezones?q=");
+      const idleHtml = await idle.text();
+      expect(idle.status).toBe(200);
+      expect(idleHtml).toContain('role="option"');
+      expect(idleHtml).toContain("server local");
+      expect(idleHtml).toMatch(
+        /data-autocomplete-value="[^"]+"><span class="timezone-option-name">[^<]+<\/span><span class="timezone-option-offset">UTC[+-]\d{2}:\d{2}<\/span><span class="timezone-option-note">server local<\/span>/,
+      );
+
+      // City spelling — underscores are not required typing. The label
+      // carries the zone's current offset (DST decides the sign).
+      const city = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("new york"),
+      );
+      const cityHtml = await city.text();
+      expect(cityHtml).toContain('data-autocomplete-value="America/New_York"');
+      expect(cityHtml).toMatch(
+        /America\/New_York<\/span><span class="timezone-option-offset">UTC[+-]0[45]:00<\/span>/,
+      );
+
+      // Offset spelling — zones sitting on +2 now, offset in the label.
+      const offset = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("utc+2"),
+      );
+      const offsetHtml = await offset.text();
+      expect(offsetHtml).toContain('data-autocomplete-value="Europe/Berlin"');
+      expect(offsetHtml).toContain("UTC+02:00");
+
+      // Nothing matches: an honest empty list, no option rows.
+      const none = await authedFetch(
+        env,
+        "/cron/timezones?q=" + encodeURIComponent("zzz-not-a-zone"),
+      );
+      const noneHtml = await none.text();
+      expect(noneHtml).not.toContain('role="option"');
+      expect(noneHtml).toContain("No matching timezone");
     });
 
     it("previews upcoming runs and shows the English → cron conversion", async () => {
@@ -524,10 +574,24 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await page.locator("input[data-schedule-input]").fill("at 9:00");
         await expect(scheduleBtn).toBeEnabled();
 
-        // The verdict names the zone the schedule applies in…
-        await tzField.fill("America/New_York");
+        // The combobox: typing searches server-side…
+        await tzField.fill("new y");
+        const option = page.locator(
+          "#cron-save-slot li[data-autocomplete-value='America/New_York']",
+        );
+        await expect(option).toBeVisible();
+        await expect(option).toContainText("UTC");
+        // …a click commits the zone into the field…
+        await option.click();
+        await expect(tzField).toHaveValue("America/New_York");
+        // …and the verdict and preview follow the pick without any
+        // further typing (the pick fires no native input event).
         await expect(page.locator("[data-schedule-validation]")).toContainText(
           "at 9:00 (America/New_York) → 0 9 * * *",
+        );
+        await expect(page.locator(".next-runs-body")).toContainText(
+          "(America/New_York)",
+          { timeout: 10_000 },
         );
         // …an unrecognized one is refused before any click…
         await tzField.fill("Bogus/Zone");

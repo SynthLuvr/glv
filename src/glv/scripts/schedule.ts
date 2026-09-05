@@ -6,6 +6,11 @@ import { parseSchedule } from "../schedule.js";
 // (schedule.ts is bundled here), so what the user sees before clicking
 // is what the server will accept.
 
+// Registers <auto-complete>: the timezone field's type-to-search
+// combobox. The element upgrades itself whenever it connects (htmx
+// swaps included), so a bare import is all the wiring it needs.
+import "@github/auto-complete-element";
+
 const SYNC_INPUT = "input[data-schedule-input]";
 // The optional timezone override, sibling of the schedule field.
 const TIMEZONE_FIELD = "input[data-schedule-timezone]";
@@ -86,6 +91,57 @@ document.addEventListener("input", (e) => {
 });
 
 document.addEventListener("DOMContentLoaded", validateAll);
+
+// The htmx surface this file needs beyond attribute wiring: a direct
+// preview request after a combobox pick (below). groups.ts drives its
+// swaps the same way.
+type HtmxApi = {
+  ajax: (
+    verb: string,
+    path: string,
+    options: {
+      target: Element;
+      swap: string;
+      values: Record<string, string>;
+    },
+  ) => void;
+};
+
+const globalHtmx = (): HtmxApi | undefined => {
+  const { htmx } = globalThis as { htmx?: unknown };
+  if (typeof htmx !== "object" || htmx === null) return undefined;
+  return "ajax" in htmx && typeof htmx.ajax === "function"
+    ? (htmx as HtmxApi)
+    : undefined;
+};
+
+// A combobox pick lands in the input programmatically — no input event
+// fires, so the schedule's live verdict and the Next-runs preview would
+// both sit stale until the next keystroke. Re-validate directly and
+// request the preview exactly as the typing trigger would. (Not a
+// synthetic input event: htmx's `changed` gate swallows events whose
+// target's value didn't move, and one fired on the field would make
+// the combobox re-open its popup for the just-picked zone.)
+document.addEventListener("auto-complete-change", (e) => {
+  const input = (e as Event & { relatedTarget?: EventTarget | null })
+    .relatedTarget;
+  if (!(input instanceof HTMLInputElement) || !input.matches(TIMEZONE_FIELD))
+    return;
+  const form = input.closest("form");
+  form?.querySelectorAll<HTMLInputElement>(SYNC_INPUT).forEach(syncField);
+  const api = globalHtmx();
+  const body = input
+    .closest("[data-schedule-options]")
+    ?.querySelector(".next-runs-body");
+  if (api === undefined || body === null || body === undefined) return;
+  const schedule =
+    form?.querySelector<HTMLInputElement>(SYNC_INPUT)?.value ?? "";
+  api.ajax("GET", "/cron/preview", {
+    target: body,
+    swap: "innerHTML",
+    values: { schedule, timezone: input.value },
+  });
+});
 
 // Cancel closes the inline form the way the Saved prompts save form does:
 // client-side, no round trip.

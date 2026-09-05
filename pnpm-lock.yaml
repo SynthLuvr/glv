@@ -11,6 +11,9 @@ importers:
       '@breejs/later':
         specifier: ^4.2.0
         version: 4.2.0
+      '@github/auto-complete-element':
+        specifier: ^3.8.0
+        version: 3.8.0
       '@hono/node-server':
         specifier: github:SynthLuvr/node-server#dist/open-prs
         version: https://codeload.github.com/SynthLuvr/node-server/tar.gz/72cca46bd4b08babff20c7bfe2859a7ceb20f618(hono@https://codeload.github.com/SynthLuvr/hono/tar.gz/1e0e37aef8adaa324ba6848a4c56b42e11e5c59f)
@@ -622,6 +625,12 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@github/auto-complete-element@3.8.0':
+    resolution: {integrity: sha512-rS2Uj38V1BsenLvrIswV5IXfiYH2/KUhz6inot+JXho/fFOO+01tsW1HxqSdIXqh5EDuoY0f/GQsztZcH22AXQ==}
+
+  '@github/combobox-nav@2.3.1':
+    resolution: {integrity: sha512-gwxPzLw8XKecy1nP63i9lOBritS3bWmxl02UX6G0TwMQZbMem1BCS1tEZgYd3mkrkiDrUMWaX+DbFCuDFo3K+A==}
 
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
@@ -2475,6 +2484,12 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.1': {}
+
+  '@github/auto-complete-element@3.8.0':
+    dependencies:
+      '@github/combobox-nav': 2.3.1
+
+  '@github/combobox-nav@2.3.1': {}
 
   '@hexagon/base64@1.1.28': {}
 

@@ -28,10 +28,6 @@ const clockIcon = (
   </svg>
 );
 
-// The IANA names the runtime itself recognizes — exactly the set the
-// schedule parser accepts, offered as datalist suggestions.
-const TIMEZONES: readonly string[] = Intl.supportedValuesOf("timeZone");
-
 // The zone an empty timezone field falls back to, named in the field's
 // placeholder and hint so "leave it empty" is an informed choice.
 const SERVER_TIMEZONE: string =
@@ -52,28 +48,64 @@ const nextRunText = (job: NamedCronJob): string => {
   return fmtDateTime(parsed.info.next[0], job.timezone);
 };
 
-// Each form carries its own datalist id, so the save form and an edit
-// card can be on the page at once.
-const TimezoneDatalist = ({ id }: { id: string }) => (
-  <datalist id={id}>
-    {TIMEZONES.map((zone) => (
-      <option value={zone} />
-    ))}
-  </datalist>
+// The type-to-search timezone picker. <auto-complete> (from
+// @github/auto-complete-element, bundled into schedule.js) fetches
+// suggestion fragments from /cron/timezones as the user types and
+// commits a pick into the plain text input — so the field stays free
+// typing (any IANA name) with the popup as an accelerator. Each form
+// carries its own ids, so the save form and an edit card can be on the
+// page at once.
+const TimezonePicker = ({
+  id,
+  timezone,
+}: {
+  id: string;
+  timezone?: string;
+}) => (
+  <>
+    <auto-complete
+      class="timezone-autocomplete"
+      src="/cron/timezones"
+      for={`${id}-list`}
+      fetch-on-empty=""
+      data-autoselect="true"
+    >
+      <input
+        type="text"
+        name="timezone"
+        data-schedule-timezone=""
+        class="form-input schedule-input schedule-timezone"
+        value={timezone}
+        placeholder={`Server local (${SERVER_TIMEZONE})`}
+        autocomplete="off"
+        spellcheck={false}
+        aria-describedby={`${id}-hint`}
+      />
+      {/* The listbox the element owns; role and option ids are set by
+          the element as results arrive. */}
+      <ul id={`${id}-list`} class="timezone-options" hidden={true}></ul>
+      {/* Screen-reader result counts, announced by the element. */}
+      <div id={`${id}-list-feedback`} class="sr-only" aria-live="polite"></div>
+    </auto-complete>
+    <span class="model-hint" id={`${id}-hint`}>
+      Type an IANA zone, city, or UTC offset — new york, utc+2 — or leave it
+      empty to run on the server&rsquo;s clock.
+    </span>
+  </>
 );
 
 // The typed schedule field plus its live server preview.
 const ScheduleControls = ({
   schedule = "",
   timezone = "",
-  timezoneDatalistId,
+  timezoneId,
 }: {
   /** Restores a rejected submit's (or existing job's) schedule. */
   schedule?: string;
   /** Restores a rejected submit's (or existing job's) timezone. */
   timezone?: string;
-  /** Datalist id for the IANA suggestions (unique per form). */
-  timezoneDatalistId: string;
+  /** Id base for the timezone combobox (unique per form). */
+  timezoneId: string;
 }) => (
   <div
     class="schedule-options"
@@ -106,22 +138,7 @@ const ScheduleControls = ({
       </label>
       <label class="form-field">
         <span class="form-label">Timezone</span>
-        <input
-          type="text"
-          name="timezone"
-          data-schedule-timezone=""
-          class="form-input schedule-input schedule-timezone"
-          value={timezone}
-          list={timezoneDatalistId}
-          placeholder={`Server local (${SERVER_TIMEZONE})`}
-          autocomplete="off"
-          spellcheck={false}
-        />
-        <TimezoneDatalist id={timezoneDatalistId} />
-        <span class="model-hint">
-          IANA name like America/New_York — leave empty to run on the
-          server&rsquo;s clock.
-        </span>
+        <TimezonePicker id={timezoneId} timezone={timezone} />
       </label>
       {/* Live as-you-type verdict from /assets/schedule.js; the server
           re-validates on submit regardless. */}
@@ -210,7 +227,7 @@ const ScheduleSaveForm = ({
     <ScheduleControls
       schedule={schedule}
       timezone={timezone}
-      timezoneDatalistId="schedule-timezones"
+      timezoneId="schedule-timezones"
     />
     <div class="prompt-form-actions">
       <button
@@ -395,7 +412,7 @@ const ScheduleJobEditForm = ({
         <ScheduleControls
           schedule={schedule ?? job.schedule}
           timezone={timezone ?? job.timezone ?? ""}
-          timezoneDatalistId="cron-edit-timezones"
+          timezoneId="cron-edit-timezones"
         />
         {modelPicker !== undefined && (
           <ModelPickerSlot submitted={modelPicker.submitted} />

@@ -222,11 +222,14 @@ button that opens an inline form — **type a schedule in plain English or
 cron**, validated live as you type with upcoming runs previewed; the run
 uses the **working directory (and model, where the agent supports one)
 from the New Session form above**; an **optional timezone field** picks
-the IANA zone the schedule’s times apply in — suggested as you type, and
-left empty it means the server’s local time; the section lists every job
-with pause, edit, and delete) or by hand in the config file. Both write
-the same entries — the config file is the source of truth, and the
-running server picks changes up live, no restart needed.
+the IANA zone the schedule’s times apply in — searched as you type by
+zone name, city (“new york”), or UTC offset (“utc+2”), with each
+suggestion showing its current offset; the field stays free-typing (any
+IANA name is accepted), and left empty it means the server’s local time;
+the section lists every job with pause, edit, and delete) or by hand in
+the config file. Both write the same entries — the config file is the
+source of truth, and the running server picks changes up live, no
+restart needed.
 
 To define jobs by hand, add a `cronJobs` array to the config file:
 

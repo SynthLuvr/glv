@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@breejs/later": "^4.2.0",
+    "@github/auto-complete-element": "^3.8.0",
     "@hono/node-server": "github:SynthLuvr/node-server#dist/open-prs",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
