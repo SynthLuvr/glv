@@ -1,15 +1,24 @@
 import { DatabaseSync } from "node:sqlite";
-import { expect } from "@playwright/test";
+import { type BrowserContext, expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { type FlavorFixture, type IntegrationEnv } from "../harness.js";
 import {
-  makeSoftwareAuthenticator,
-  type SoftwareAuthenticator,
-} from "../webauthn-authenticator.js";
+  type FlavorFixture,
+  type IntegrationEnv,
+  withPage,
+} from "../harness.js";
 
-// The "client" is a software authenticator producing genuine ES256-signed
-// ceremonies — no function is mocked; the server verifies real cryptography
-// over real HTTP.
+// The "client" is a real headless Chromium: Playwright's virtual WebAuthn
+// authenticator (BrowserContext.credentials) answers the page's own
+// navigator.credentials.create()/get() ceremonies, so the real passkey.js
+// posts genuine ES256-signed responses and the server verifies real
+// cryptography over real HTTP — no function is mocked.
+//
+// Attacks a well-behaved authenticator cannot produce (unissued challenge,
+// unknown credential, foreign origin, replay) are driven over HTTP: the
+// server rejects each before it ever inspects a signature, so fabricated
+// bodies with garbage signatures reach exactly the checks under test. The
+// clone test tampers the *stored* counter instead of the authenticator's:
+// the next genuine assertion then fails the server's counter check.
 
 type OptionsJson = {
   challenge: string;
@@ -19,9 +28,12 @@ type OptionsJson = {
 
 const runAuthFlowsSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
-  const owner = makeSoftwareAuthenticator();
-  const phone = makeSoftwareAuthenticator();
-  const stranger = makeSoftwareAuthenticator();
+  // Credential ids the two browser "devices" register; the first context
+  // claims the app, the second enrolls through the single-use link.
+  let ownerCred = "";
+  let phoneCred = "";
+  let phoneContext: BrowserContext | undefined;
+  let claimToken = "";
 
   // The harness pre-seeds an owner session; these tests need a brand-new,
   // unclaimed app. The server created the full schema at boot and re-reads
@@ -41,6 +53,16 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
   ): Promise<Response> =>
     fetch(`${env.baseUrl}${path}`, { redirect: "manual", headers });
 
+  const post = (
+    path: string,
+    headers: Record<string, string> = {},
+  ): Promise<Response> =>
+    fetch(`${env.baseUrl}${path}`, {
+      method: "POST",
+      redirect: "manual",
+      headers,
+    });
+
   const postJson = (
     path: string,
     body: unknown,
@@ -53,51 +75,126 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
       body: typeof body === "string" ? body : JSON.stringify(body),
     });
 
-  // Every ceremony signs for the harness server's own rpId/origin; only the
-  // challenge varies (plus `count`, impersonating a cloned authenticator).
-  const ceremony = (challenge: string) => ({
-    challenge,
-    rpId: "localhost",
-    origin: env.baseUrl,
+  // base64url clientDataJSON naming a challenge this server issued — the
+  // realistic core of the forged bodies below.
+  const clientData = (
+    type: "webauthn.create" | "webauthn.get",
+    challenge: string,
+    origin: string,
+  ): string =>
+    Buffer.from(
+      JSON.stringify({ type, challenge, origin, crossOrigin: false }),
+      "utf8",
+    ).toString("base64url");
+
+  // Forged bodies for the attacks a well-behaved authenticator cannot
+  // produce: everything but clientDataJSON is garbage, since the server
+  // rejects each on challenge ownership, credential lookup, or origin
+  // before inspecting any signature.
+  const forgedLogin = (id: string, challenge: string, origin: string) => ({
+    id,
+    rawId: id,
+    type: "public-key",
+    response: {
+      clientDataJSON: clientData("webauthn.get", challenge, origin),
+      authenticatorData: "",
+      signature: "",
+    },
   });
 
-  const register = (
-    auth: SoftwareAuthenticator,
-    challenge: string,
-  ): Promise<Response> =>
-    postJson(
-      "/auth/register/verify",
-      auth.registrationResponse(ceremony(challenge)),
-    );
+  const forgedRegistration = (challenge: string) => ({
+    response: {
+      clientDataJSON: clientData("webauthn.create", challenge, env.baseUrl),
+    },
+  });
 
-  const login = (
-    auth: SoftwareAuthenticator,
-    challenge: string,
-    count?: number,
-  ): Promise<Response> =>
-    postJson(
-      "/auth/login/verify",
-      auth.authenticationResponse({ ...ceremony(challenge), count }),
-    );
+  // Clicks the passkey button on an auth page and waits for the success
+  // redirect to "/". The virtual authenticator installed on the context
+  // answers the ceremony; `onVerifyBody` observes the exact JSON the page
+  // posts (captured for the replay test).
+  const passkeyCeremony = (
+    context: BrowserContext,
+    path: string,
+    onVerifyBody?: (body: string) => void,
+  ): Promise<void> =>
+    withPage(context, async (page) => {
+      if (onVerifyBody !== undefined)
+        page.on("request", (req) => {
+          if (req.method() === "POST" && req.url().endsWith("/verify"))
+            onVerifyBody(req.postData() ?? "");
+        });
+      await page.goto(`${env.baseUrl}${path}`);
+      await page.click("#passkey-button");
+      await page.waitForURL(`${env.baseUrl}/`);
+    });
 
-  const enroll = (
-    token: string,
-    auth: SoftwareAuthenticator,
-    challenge: string,
-  ): Promise<Response> =>
-    postJson(
-      `/auth/enroll/${token}/verify`,
-      auth.registrationResponse(ceremony(challenge)),
-    );
-
-  const registerOptions = async (): Promise<OptionsJson> => {
-    const res = await get("/auth/register/options");
-    expect(res.status).toBe(200);
-    return (await res.json()) as OptionsJson;
+  // A rejected ceremony keeps the page on the auth screen with the
+  // server's error rendered in #auth-error.
+  const rejectedCeremonyError = async (
+    context: BrowserContext,
+    path: string,
+  ): Promise<string> => {
+    let error = "";
+    await withPage(context, async (page) => {
+      await page.goto(`${env.baseUrl}${path}`);
+      await page.click("#passkey-button");
+      await page.waitForSelector("#auth-error:not([hidden])");
+      error = (await page.textContent("#auth-error")) ?? "";
+    });
+    return error;
   };
 
-  const loginOptions = async (): Promise<OptionsJson> => {
-    const res = await get("/auth/login/options");
+  // The session cookie a successful ceremony left in a browser context.
+  const contextSessionToken = async (
+    context: BrowserContext,
+  ): Promise<string> => {
+    const row = (await context.cookies()).find(
+      (c) => c.name === env.cookieName,
+    );
+    if (row === undefined)
+      throw new Error("browser context holds no session cookie");
+    return row.value;
+  };
+
+  // The single passkey a context's virtual authenticator has created so far.
+  const soleCredentialOf = async (context: BrowserContext): Promise<string> => {
+    const creds = await context.credentials.get({ rpId: "localhost" });
+    if (creds.length !== 1)
+      throw new Error(`expected one credential, found ${creds.length}`);
+    return creds[0].id;
+  };
+
+  // A second browser context models the owner's other device: its own
+  // virtual authenticator, holding only the passkey it enrolls.
+  const secondDevice = async (): Promise<BrowserContext> => {
+    const browser = env.context.browser();
+    if (browser === null) throw new Error("browser handle unavailable");
+    const context = await browser.newContext();
+    await context.credentials.install();
+    return context;
+  };
+
+  const storedCounter = (credId: string): number => {
+    const db = new DatabaseSync(env.dbs.authDb, { readOnly: true });
+    const row = db
+      .prepare("SELECT counter AS c FROM credentials WHERE id = ?")
+      .get(credId) as { c: number } | undefined;
+    db.close();
+    if (row === undefined) throw new Error(`no stored credential ${credId}`);
+    return row.c;
+  };
+
+  const setStoredCounter = (credId: string, counter: number): void => {
+    const db = new DatabaseSync(env.dbs.authDb);
+    db.prepare("UPDATE credentials SET counter = ? WHERE id = ?").run(
+      counter,
+      credId,
+    );
+    db.close();
+  };
+
+  const optionsFrom = async (path: string): Promise<OptionsJson> => {
+    const res = await get(path);
     expect(res.status).toBe(200);
     return (await res.json()) as OptionsJson;
   };
@@ -107,21 +204,17 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
   ): Promise<{ verified: boolean; error: string }> =>
     (await res.json()) as { verified: boolean; error: string };
 
-  const sessionTokenOf = (res: Response): string => {
-    const setCookie = res.headers.getSetCookie();
-    const row = setCookie.find((c) => c.startsWith(`${env.cookieName}=`));
-    if (row === undefined) throw new Error("response set no session cookie");
-    return row.slice(env.cookieName.length + 1).split(";")[0];
-  };
-
   const cookie = (token: string): string => `${env.cookieName}=${token}`;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-authflows-");
     resetAuthDb(env.dbs.authDb);
+    // Install before any page touches navigator.credentials.
+    await env.context.credentials.install();
   }, 90000);
 
   afterAll(async () => {
+    await phoneContext?.close();
     await env?.cleanup();
   });
 
@@ -152,17 +245,18 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("issues a fresh challenge per options request", async () => {
-      const first = await registerOptions();
-      const second = await registerOptions();
+      const first = await optionsFrom("/auth/register/options");
+      const second = await optionsFrom("/auth/register/options");
       expect(first.challenge).not.toBe(second.challenge);
     });
   });
 
   describe("claiming the app", () => {
-    let claimToken = "";
-
     it("rejects a registration without an issued challenge", async () => {
-      const res = await register(owner, "never-issued-by-this-server");
+      const res = await postJson(
+        "/auth/register/verify",
+        forgedRegistration("never-issued-by-this-server"),
+      );
       expect(res.status).toBe(400);
       const body = await verificationBody(res);
       expect(body.verified).toBe(false);
@@ -177,12 +271,9 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("claims the app with a genuine passkey registration", async () => {
-      const options = await registerOptions();
-      const res = await register(owner, options.challenge);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { verified: boolean };
-      expect(body.verified).toBe(true);
-      claimToken = sessionTokenOf(res);
+      await passkeyCeremony(env.context, "/auth/register");
+      ownerCred = await soleCredentialOf(env.context);
+      claimToken = await contextSessionToken(env.context);
       expect(claimToken).not.toBe("");
     });
 
@@ -201,29 +292,15 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     it("lists the registered passkey on the devices page", async () => {
       const res = await get("/auth/devices", { cookie: cookie(claimToken) });
       expect(res.status).toBe(200);
-      expect(await res.text()).toContain(owner.credentialId.slice(0, 12));
+      expect(await res.text()).toContain(ownerCred.slice(0, 12));
     });
   });
 
   describe("device enrollment", () => {
-    let claimToken = "";
     let enrollToken = "";
 
-    // Any valid owner session unlocks device management; the claim cookie
-    // lives in another describe's scope, so mint a fresh one.
-    beforeAll(async () => {
-      const options = await loginOptions();
-      const res = await login(owner, options.challenge);
-      expect(res.status).toBe(200);
-      claimToken = sessionTokenOf(res);
-    });
-
     it("mints a single-use enrollment link", async () => {
-      const res = await fetch(`${env.baseUrl}/auth/devices`, {
-        method: "POST",
-        redirect: "manual",
-        headers: { cookie: cookie(claimToken) },
-      });
+      const res = await post("/auth/devices", { cookie: cookie(claimToken) });
       expect(res.status).toBe(200);
       const html = await res.text();
       const match = /id="enroll-token" value="([^"]+)"/.exec(html);
@@ -258,7 +335,10 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("keeps the link alive after a failed ceremony", async () => {
-      const res = await enroll(enrollToken, phone, "bogus-challenge");
+      const res = await postJson(
+        `/auth/enroll/${enrollToken}/verify`,
+        forgedRegistration("bogus-challenge"),
+      );
       expect(res.status).toBe(400);
       // A failed ceremony must not burn the token — retry stays possible.
       expect((await get(`/auth/enroll/${enrollToken}/options`)).status).toBe(
@@ -267,12 +347,11 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("enrolls a second passkey through the link", async () => {
-      const options = await get(`/auth/enroll/${enrollToken}/options`);
-      const body = (await options.json()) as OptionsJson;
-      const res = await enroll(enrollToken, phone, body.challenge);
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { verified: boolean }).verified).toBe(true);
-      expect(sessionTokenOf(res)).not.toBe("");
+      phoneContext = await secondDevice();
+      await passkeyCeremony(phoneContext, `/auth/enroll/${enrollToken}`);
+      phoneCred = await soleCredentialOf(phoneContext);
+      expect(phoneCred).not.toBe("");
+      expect(await contextSessionToken(phoneContext)).not.toBe("");
 
       // Only a successful enrollment burns the link.
       expect((await get(`/auth/enroll/${enrollToken}`)).status).toBe(302);
@@ -285,30 +364,30 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
       const res = await get("/auth/devices", { cookie: cookie(claimToken) });
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain(owner.credentialId.slice(0, 12));
-      expect(html).toContain(phone.credentialId.slice(0, 12));
+      expect(html).toContain(ownerCred.slice(0, 12));
+      expect(html).toContain(phoneCred.slice(0, 12));
     });
 
     it("degrades gracefully when stored transports are corrupt", async () => {
       const db = new DatabaseSync(env.dbs.authDb);
       db.prepare("UPDATE credentials SET transports = ? WHERE id = ?").run(
         "not-json",
-        owner.credentialId,
+        ownerCred,
       );
       db.close();
       const res = await get("/auth/devices", { cookie: cookie(claimToken) });
       expect(res.status).toBe(200);
-      expect(await res.text()).toContain(phone.credentialId.slice(0, 12));
+      expect(await res.text()).toContain(phoneCred.slice(0, 12));
       expect(env.serverStderr()).toContain("[glv:auth]");
     });
   });
 
   describe("login", () => {
     it("offers every registered credential as an allow-list entry", async () => {
-      const options = await loginOptions();
+      const options = await optionsFrom("/auth/login/options");
       const ids = (options.allowCredentials ?? []).map((c) => c.id);
-      expect(ids).toContain(owner.credentialId);
-      expect(ids).toContain(phone.credentialId);
+      expect(ids).toContain(ownerCred);
+      expect(ids).toContain(phoneCred);
     });
 
     it("rejects a malformed login body", async () => {
@@ -316,30 +395,36 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("rejects an unknown credential", async () => {
-      const options = await loginOptions();
-      const res = await login(stranger, options.challenge);
+      const options = await optionsFrom("/auth/login/options");
+      const res = await postJson(
+        "/auth/login/verify",
+        forgedLogin(
+          "definitely-not-a-registered-credential",
+          options.challenge,
+          env.baseUrl,
+        ),
+      );
       expect(res.status).toBe(400);
       const body = await verificationBody(res);
       expect(body.error).toContain("Unknown credential");
     });
 
-    it("rejects an assertion signed for a foreign origin", async () => {
-      const options = await loginOptions();
-      const assertion = owner.authenticationResponse({
-        ...ceremony(options.challenge),
-        origin: "https://evil.example",
-      });
-      const res = await postJson("/auth/login/verify", assertion);
+    it("rejects an assertion claiming a foreign origin", async () => {
+      const options = await optionsFrom("/auth/login/options");
+      const res = await postJson(
+        "/auth/login/verify",
+        forgedLogin(ownerCred, options.challenge, "https://evil.example"),
+      );
       expect(res.status).toBe(400);
       const body = await verificationBody(res);
       expect(body.error).toContain("origin");
     });
 
     it("logs in with a genuine assertion and admits the cookie", async () => {
-      const options = await loginOptions();
-      const res = await login(owner, options.challenge);
-      expect(res.status).toBe(200);
-      const token = sessionTokenOf(res);
+      // The owner context's authenticator holds only the owner passkey,
+      // so the assertion it signs is unambiguous.
+      await passkeyCeremony(env.context, "/auth/login");
+      const token = await contextSessionToken(env.context);
 
       const home = await get("/", { cookie: cookie(token) });
       expect(home.status).toBe(200);
@@ -347,45 +432,41 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     });
 
     it("rejects a replayed assertion (the challenge is single-use)", async () => {
-      const options = await loginOptions();
-      const assertion = owner.authenticationResponse(
-        ceremony(options.challenge),
-      );
-      expect((await postJson("/auth/login/verify", assertion)).status).toBe(
-        200,
-      );
-      const replay = await postJson("/auth/login/verify", assertion);
+      let assertionBody = "";
+      await passkeyCeremony(env.context, "/auth/login", (body) => {
+        assertionBody = body;
+      });
+      expect(assertionBody).not.toBe("");
+      const replay = await postJson("/auth/login/verify", assertionBody);
       expect(replay.status).toBe(400);
       const body = await verificationBody(replay);
       expect(body.error).toContain("No login in progress");
     });
 
     it("rejects a cloned authenticator (counter regression)", async () => {
-      const options = await loginOptions();
-      const res = await login(owner, options.challenge, 1);
-      expect(res.status).toBe(400);
-      const body = await verificationBody(res);
-      expect(body.error).toContain("counter");
+      // A clone using the credential elsewhere leaves the stored counter
+      // far ahead; the next genuine assertion then fails to advance past
+      // it, exactly as a counter regression does.
+      const genuine = storedCounter(ownerCred);
+      setStoredCounter(ownerCred, genuine + 5000);
+      const error = await rejectedCeremonyError(env.context, "/auth/login");
+      expect(error).toContain("counter");
+      setStoredCounter(ownerCred, genuine);
     });
 
     it("keeps the passkey usable after the rejected clones", async () => {
-      const options = await loginOptions();
-      const res = await login(owner, options.challenge, 9999);
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { verified: boolean }).verified).toBe(true);
+      await passkeyCeremony(env.context, "/auth/login");
     });
 
     it("logs out and invalidates the session", async () => {
-      const options = await loginOptions();
-      const res = await login(phone, options.challenge);
-      expect(res.status).toBe(200);
-      const token = sessionTokenOf(res);
+      // The second device holds only the phone passkey, so its browser
+      // login mints a phone session.
+      const context = phoneContext;
+      if (context === undefined) throw new Error("phone context missing");
+      await passkeyCeremony(context, "/auth/login");
+      const token = await contextSessionToken(context);
 
-      const logout = await fetch(`${env.baseUrl}/auth/logout`, {
-        method: "POST",
-        redirect: "manual",
-        headers: { cookie: cookie(token) },
-      });
+      const logout = await post("/auth/logout", { cookie: cookie(token) });
       expect(logout.status).toBe(302);
       expect(logout.headers.get("location")).toBe("/auth/login");
 
