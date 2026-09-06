@@ -172,6 +172,13 @@ const uiApplyPane = (pane: string): void => {
       "aria-pressed",
       btn.dataset.pane === pane ? "true" : "false",
     );
+  // Pane switches resize the detail pane (display:none while the sidebar
+  // is active) without scrolling it or touching its DOM, so neither a
+  // scroll event nor the mutation observer recomputes the scroll button —
+  // whatever reading landed while the pane was display:none (distance 0)
+  // would otherwise stick and leave the button hidden for good. Recompute
+  // next frame, once the pane is laid out with its new display state.
+  window.requestAnimationFrame(uiUpdateScrollButton);
 };
 
 const uiInitPaneToggle = (): void => {
