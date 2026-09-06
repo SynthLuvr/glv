@@ -176,7 +176,13 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
           .filter({ hasText: "Group by category" });
         await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
         await groupToggle.click();
-        await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+        // The pressed state arrives with the htmx outerHTML swap response,
+        // so the window has to cover a full server round trip; on a
+        // contended runner that can outlast the default 5s (observed: 14
+        // polls of the pre-swap button), hence the explicit budget.
+        await expect(groupToggle).toHaveAttribute("aria-pressed", "true", {
+          timeout: 20000,
+        });
 
         // Reveal the bulk bar by checking a session, then toggle select-all.
         await page.locator(".session-check-wrap").first().click();
