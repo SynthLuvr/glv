@@ -17,8 +17,9 @@ type SidebarProps = {
   runningIds: Set<string>;
 };
 
-// Rendered as `<div id="session-list">` so it can be swapped out-of-band by
-// htmx (re-rendered with the new selection) without reloading the page.
+// Rendered as `<div id="session-list">` so htmx can swap it back in after
+// mutations (directly, or out-of-band alongside a detail swap) without
+// reloading the page.
 const SessionList = ({
   entries,
   selectedId,
@@ -48,7 +49,6 @@ const SessionList = ({
       hx-swap="innerHTML"
       hx-push-url="true"
       hx-swap-oob={oob ? "true" : undefined}
-      aria-label="Sessions"
     >
       <BulkActionBar />
       <div

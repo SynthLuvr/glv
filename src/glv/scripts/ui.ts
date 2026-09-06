@@ -12,12 +12,12 @@ const uiCheckIcon =
 const uiDownIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>';
 
-// htmx 2 defaults to dropping 4xx/5xx responses (`responseHandling` swaps
-// 2xx only), but the server answers rejected submits with a 422 fragment
-// that re-renders the form with the typed work preserved plus an error
-// banner, and unknown sessions with a 404 detail. Those must swap, or every
-// form error fails silently: the user clicks and nothing happens. This file
-// loads after htmx.min.js (defer order) and before any user request fires.
+// htmx 2's default `responseHandling` discards 4xx/5xx responses, but the
+// server answers rejected submits with a 422 fragment (the form re-rendered
+// with the typed work preserved plus an error banner) and unknown sessions
+// with a 404 detail. Those must swap, or every form error fails silently:
+// the user clicks and nothing happens. This file loads after htmx.min.js
+// (defer order) and before any user request can fire.
 declare const htmx: {
   config: {
     responseHandling: Array<{ code: string; swap: boolean; error?: boolean }>;

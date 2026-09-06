@@ -8,19 +8,13 @@ import {
   withPage,
 } from "../harness.js";
 
-// Regression proofs for four UI bugs:
-//
-// 1. htmx 2 silently discards 4xx/5xx responses, so the server's carefully
-//    rendered validation errors (422 fragments) never reached the page —
-//    rejected submits looked like dead buttons. The client now reconfigures
-//    htmx's responseHandling to swap them.
-// 2. The sidebar's open-session highlight (a client-side concern) was
-//    wiped by every server re-render of the list (rename's OOB refresh,
-//    group operations).
-// 3. The sidebar's session-count badge only rendered on full page loads,
-//    so it went stale after archive/delete until a reload.
-// 4. Files staged in the prompt bar were silently dropped when the
-//    busy/idle transition swapped the bar's form node.
+// Regression proofs for four bugs where the UI silently lost state:
+// htmx 2's default responseHandling discarded 4xx/5xx responses, so the
+// server's 422 validation fragments never rendered (rejected submits looked
+// like dead buttons); server re-renders of the session list wiped the
+// client-side open-session highlight; the session-count badge only rendered
+// on full page loads; and the busy/idle prompt-bar swap dropped files
+// staged for a follow-up.
 const runUiFixesSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;
