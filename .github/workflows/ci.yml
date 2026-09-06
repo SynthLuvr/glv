@@ -78,8 +78,8 @@ jobs:
       - name: Build assets
         run: pnpm build:assets
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6.1.0
+      - name: Restore Playwright browsers
+        uses: actions/cache/restore@v6.1.0
         with:
           # One path per OS; only the matching one exists on each runner,
           # and actions/cache ignores the absent ones.
@@ -91,6 +91,18 @@ jobs:
             ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
+      # Saved inline (browsers are final once install succeeds) and from
+      # one shard per OS only: the cache action's post-job save made all
+      # four shards race for the same key and burned post-job time the
+      # 10-minute job budget cannot afford.
+      - name: Save Playwright browsers
+        if: matrix.shard == '4/4'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
 
       - name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
         run: pnpm exec vitest run --shard ${{ matrix.shard }}

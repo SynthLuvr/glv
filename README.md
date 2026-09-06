@@ -258,7 +258,9 @@ To define jobs by hand, add a `cronJobs` array to the config file:
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the config; if
     its moment is already past when `serve` starts, it is removed
-    without running (a missed run stays missed).
+    without running (a missed run stays missed). Seconds are optional
+    (`"2026-09-03T09:00:30"` fires at that second); the web form writes
+    minute precision.
 
   An optional `timezone` (IANA name, e.g. `"America/New_York"`) applies
   to every spelling — the pattern fires there, English times apply

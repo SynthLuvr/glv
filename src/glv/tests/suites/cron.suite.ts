@@ -162,9 +162,9 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
 
     it("never fires a disabled job", async () => {
-      // The schedule fires every second; four seconds of fire windows pass
-      // with no run ever appearing in the sidebar.
-      await sleep(4000);
+      // The schedule fires every second; three fire windows pass with
+      // no run ever appearing in the sidebar.
+      await sleep(3000);
       const res = await authedFetch(env, "/");
       const html = await res.text();
       expect(html).not.toContain("Disabled Session");
@@ -326,11 +326,12 @@ const runCronSuite = (fx: FlavorFixture): void => {
 
     it("stops firing once the job is removed", async () => {
       writeConfig(homeDir, []);
-      // Let the reload land, then confirm the count stays flat across
-      // several fire windows of the former every-second schedule.
-      await sleep(5000);
+      // Let the reload land (the 250ms poll override picks the rewrite up
+      // in well under a second), then confirm the count stays flat across
+      // three fire windows of the former every-second schedule.
+      await sleep(3000);
       const first = await countSessions();
-      await sleep(5000);
+      await sleep(3000);
       const second = await countSessions();
       expect(second).toBe(first);
     });
@@ -349,7 +350,11 @@ const runCronSuite = (fx: FlavorFixture): void => {
       restoreAgent?.();
     });
 
-    it("exits non-zero naming a job with an invalid schedule", () =>
+    // Each case boots its own serve process (fresh fake home and
+    // config) just to watch it exit non-zero and shares no state with
+    // the others, so concurrency overlaps the five boots instead of
+    // stacking tens of seconds of serial startups on a CI runner.
+    it.concurrent("exits non-zero naming a job with an invalid schedule", () =>
       expectServeRefuses(
         [
           {
@@ -363,7 +368,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
         "invalid schedule",
       ));
 
-    it("exits non-zero naming a job with an invalid timezone", () =>
+    it.concurrent("exits non-zero naming a job with an invalid timezone", () =>
       expectServeRefuses(
         [
           {
@@ -378,7 +383,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
         "invalid timezone",
       ));
 
-    it("exits non-zero for duplicate job names", () =>
+    it.concurrent("exits non-zero for duplicate job names", () =>
       expectServeRefuses(
         [
           {
@@ -397,7 +402,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
         'duplicate cron job name "twin"',
       ));
 
-    it("exits non-zero for a job with only half a model pin", () =>
+    it.concurrent("exits non-zero for a job with only half a model pin", () =>
       expectServeRefuses(
         [
           {
@@ -412,7 +417,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
         "must set modelProvider and model together",
       ));
 
-    it("exits non-zero for a structurally invalid cronJobs value", () =>
+    it.concurrent("exits non-zero for a structurally invalid cronJobs value", () =>
       expectServeRefuses("nope", "cronJobs must be an array"));
   });
 };

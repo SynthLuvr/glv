@@ -63,9 +63,9 @@ const validTimezone = (timezone: string): boolean => {
 const tzSuffix = (timezone: string | undefined): string =>
   timezone === undefined ? "" : ` (${timezone})`;
 
-// A schedule's wall-clock in a named zone: the numeric parts an instant
-// reads as there (en-US hour12:false renders midnight as hour 24 on
-// some ICU versions, hence the modulo).
+// The numeric wall-clock parts an instant reads as — in a named zone,
+// or the server's zone when none is given (en-US hour12:false renders
+// midnight as hour 24 on some ICU versions, hence the modulo).
 type WallClock = {
   readonly year: number;
   readonly month: number;
@@ -75,7 +75,7 @@ type WallClock = {
   readonly second: number;
 };
 
-const wallClockIn = (date: Date, timeZone: string): WallClock => {
+const wallClockIn = (date: Date, timeZone?: string): WallClock => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hour12: false,
@@ -159,6 +159,21 @@ const saneOneShot = (date: Date): boolean =>
   date.getUTCFullYear() <= 9999 &&
   date.getTime() >= 0;
 
+// A parsed instant must spell the same wall clock the schedule named —
+// impossible dates (Feb 30, the spring-forward gap) roll over on the
+// way back and fail here. Seconds, when the spelling carries them, must
+// survive the round-trip too.
+const roundTrips = (
+  wall: WallClock,
+  groups: Record<string, string | undefined>,
+): boolean =>
+  wall.year === Number(groups.year) &&
+  wall.month === Number(groups.month) &&
+  wall.day === Number(groups.day) &&
+  wall.hour === Number(groups.hour) &&
+  wall.minute === Number(groups.minute) &&
+  (groups.second === undefined || wall.second === Number(groups.second));
+
 // A zone-less one-shot with a timezone override: the instant its
 // wall-clock names in that zone — the same conversion croner applies
 // when firing it — accepted only when it round-trips (wall clocks that
@@ -166,11 +181,11 @@ const saneOneShot = (date: Date): boolean =>
 const parseZonedOneShot = (
   schedule: string,
   timezone: string,
+  groups: Record<string, string | undefined>,
 ): Date | undefined => {
   const instant = zoneWallClockToInstant(schedule, timezone);
   if (!saneOneShot(instant)) return undefined;
-  if (formatOneShotInZone(instant, timezone) !== schedule.replace(" ", "T"))
-    return undefined;
+  if (!roundTrips(wallClockIn(instant, timezone), groups)) return undefined;
   return instant;
 };
 
@@ -178,20 +193,22 @@ const parseZonedOneShot = (
 // cron patterns, human text (and malformed values). Zone-less spellings
 // roll impossible dates over silently (Feb 30 → Mar 2), so they must
 // round-trip to count as valid — in the server's zone, or the override's
-// when one is given.
+// when one is given. Second precision is welcome even though the form
+// writes minute precision: hand-edited configs may carry :ss.
 const parseOneShotSchedule = (
   schedule: string,
   timezone?: string,
 ): Date | undefined => {
   const match = ONE_SHOT_RE.exec(schedule);
   if (match === null) return undefined;
-  const zoneless = match.groups?.zone === undefined;
+  const groups = match.groups ?? {};
+  const zoneless = groups.zone === undefined;
   // The conversion throws only on an unrecognizable zone, which
   // parseSchedule reports as its error before ever getting here — this
   // catch guards direct callers.
   if (zoneless && timezone !== undefined)
     try {
-      return parseZonedOneShot(schedule, timezone);
+      return parseZonedOneShot(schedule, timezone, groups);
     } catch {
       return undefined;
     }
@@ -200,7 +217,7 @@ const parseOneShotSchedule = (
   if (Number.isNaN(time)) return undefined;
   const date = new Date(time);
   if (!saneOneShot(date)) return undefined;
-  if (zoneless && formatOneShotLocal(date) !== schedule) return undefined;
+  if (zoneless && !roundTrips(wallClockIn(date), groups)) return undefined;
   return date;
 };
 
