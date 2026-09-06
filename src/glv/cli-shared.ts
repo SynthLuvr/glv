@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
 import { type } from "arktype";
 import { type Command, InvalidArgumentError } from "commander";
+import which from "which";
 import { resolveAuthDbPath } from "./auth/db.js";
 import {
   runConfigGet,
@@ -31,24 +31,17 @@ const parsePositiveInt = (value: string): number => {
 };
 
 // Resolves the agent binary: an explicit path must exist on disk; a bare
-// name must be found on PATH. Windows executables carry extensions listed
-// in PATHEXT, so a bare name must match any of them there.
+// name must be found on PATH. which honors PATHEXT on Windows and checks
+// the executable bit, which existence checks alone miss. The flag keeps
+// the caller's spelling — bare names stay bare for execa to resolve.
 const resolveAgentBinary = (value: string): string => {
   if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))
       throw new InvalidArgumentError(`binary not found at "${value}"`);
     return value;
   }
-  const exts = (process.env.PATHEXT ?? "")
-    .split(delimiter)
-    .map((e) => e.trim())
-    .filter(Boolean);
-  const candidates = exts.length === 0 ? [value] : exts.map((e) => value + e);
-  const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const found = candidates.some((name) =>
-    dirs.some((dir) => existsSync(join(dir, name))),
-  );
-  if (!found)
+  const found = which.sync(value, { nothrow: true });
+  if (found === null)
     throw new InvalidArgumentError(`binary "${value}" not found on PATH`);
   return value;
 };

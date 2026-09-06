@@ -170,6 +170,13 @@ const gooseFixture: harness.FlavorFixture = {
     },
   }),
   rawBanner: "goose is ready",
+  backdateSession: (env, id, epochMs) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    db.prepare(
+      "UPDATE sessions SET updated_at = datetime(? / 1000, 'unixepoch') WHERE id = ?",
+    ).run(epochMs, id);
+    db.close();
+  },
   renameSession: (env, id, name) => {
     const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
     db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, id);

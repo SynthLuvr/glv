@@ -184,6 +184,16 @@ const claudeFixture: harness.FlavorFixture = {
     content: [{ type: "text", text: "foreign reply" }],
   }),
   rawBanner: "claude is ready",
+  backdateSession: (env, id, epochMs) => {
+    // claude derives updated_at from the transcript's last timestamp
+    // entry, so an old timestamp is appended as the final line.
+    const path = findSessionFile(env.dbs.flavor.projectsDir, id);
+    if (path === undefined) return;
+    appendFileSync(
+      path,
+      `${JSON.stringify({ timestamp: new Date(epochMs).toISOString() })}\n`,
+    );
+  },
   renameSession: (env, id, name) => {
     const path = findSessionFile(env.dbs.flavor.projectsDir, id);
     if (path === undefined) return;
