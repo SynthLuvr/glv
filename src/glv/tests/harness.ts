@@ -18,7 +18,7 @@ import {
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type DatabaseSyncOptions } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
 import {
@@ -800,6 +800,27 @@ const parseSseData = (data: string): Record<string, unknown> => {
   return parsed.ok ? parsed.data : {};
 };
 
+// Opens a flavor store handle that waits out transient locks instead of
+// failing at once: node:sqlite's default busy timeout is 0, and a harness
+// write (seeding, backdating, renaming, deleting) can collide with a write
+// the server or the mock agent's process still holds — the same window
+// db-lock-contention reproduces against the auth database. Store creation
+// paths don't go through here: they run before any server exists, so there
+// is nothing to contend with.
+const openStoreDb = (
+  path: string,
+  options?: DatabaseSyncOptions,
+): DatabaseSync => {
+  // node:sqlite rejects an explicit `undefined` options argument, so the
+  // option-less form has to omit the argument entirely.
+  const db =
+    options === undefined
+      ? new DatabaseSync(path)
+      : new DatabaseSync(path, options);
+  db.exec("PRAGMA busy_timeout=5000");
+  return db;
+};
+
 // Reads one metadata column from a flavor's SQLite store table ("sessions"
 // for goose's agent DB, "session_meta" for claude's sidecar).
 const readStoreField = (
@@ -936,6 +957,7 @@ export {
   flagValue,
   IS_WIN,
   makeStartEnv,
+  openStoreDb,
   parseSseData,
   postFollowUp,
   postNewSession,

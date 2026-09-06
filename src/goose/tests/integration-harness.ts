@@ -92,8 +92,7 @@ const insertSessions = (
   dbPath: string,
   sessions: harness.SessionSeed[],
 ): void => {
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
+  const db = harness.openStoreDb(dbPath);
   const stmt = db.prepare(INSERT_SESSION_SQL);
   for (const s of sessions)
     stmt.run(
@@ -113,8 +112,7 @@ const insertMessages = (
   sessionId: string,
   messages: harness.MessageSeed[],
 ): void => {
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
+  const db = harness.openStoreDb(dbPath);
   const stmt = db.prepare(INSERT_MESSAGE_SQL);
   let ts = Date.now();
   for (const m of messages) {
@@ -171,24 +169,24 @@ const gooseFixture: harness.FlavorFixture = {
   }),
   rawBanner: "goose is ready",
   backdateSession: (env, id, epochMs) => {
-    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    const db = harness.openStoreDb(env.dbs.flavor.sessionsDb);
     db.prepare(
       "UPDATE sessions SET updated_at = datetime(? / 1000, 'unixepoch') WHERE id = ?",
     ).run(epochMs, id);
     db.close();
   },
   renameSession: (env, id, name) => {
-    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    const db = harness.openStoreDb(env.dbs.flavor.sessionsDb);
     db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, id);
     db.close();
   },
   deleteSession: (env, id) => {
-    const db = new DatabaseSync(env.dbs.flavor.sessionsDb);
+    const db = harness.openStoreDb(env.dbs.flavor.sessionsDb);
     db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
     db.close();
   },
   assertSessionGone: (env, id) => {
-    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
+    const db = harness.openStoreDb(env.dbs.flavor.sessionsDb, {
       readOnly: true,
     });
     try {
