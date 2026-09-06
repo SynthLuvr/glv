@@ -63,9 +63,9 @@ const validTimezone = (timezone: string): boolean => {
 const tzSuffix = (timezone: string | undefined): string =>
   timezone === undefined ? "" : ` (${timezone})`;
 
-// A schedule's wall-clock in a named zone: the numeric parts an instant
-// reads as there (en-US hour12:false renders midnight as hour 24 on
-// some ICU versions, hence the modulo).
+// The numeric wall-clock parts an instant reads as — in a named zone,
+// or the server's zone when none is given (en-US hour12:false renders
+// midnight as hour 24 on some ICU versions, hence the modulo).
 type WallClock = {
   readonly year: number;
   readonly month: number;
@@ -75,7 +75,7 @@ type WallClock = {
   readonly second: number;
 };
 
-const wallClockIn = (date: Date, timeZone: string): WallClock => {
+const wallClockIn = (date: Date, timeZone?: string): WallClock => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hour12: false,
@@ -159,41 +159,12 @@ const saneOneShot = (date: Date): boolean =>
   date.getUTCFullYear() <= 9999 &&
   date.getTime() >= 0;
 
-// The named capture groups of a one-shot spelling, for the round-trip
-// checks (empty when the string is not one-shot-shaped at all).
-const oneShotGroups = (schedule: string): Record<string, string | undefined> =>
-  ONE_SHOT_RE.exec(schedule)?.groups ?? {};
-
-// The wall-clock fields a one-shot spelling may name. Seconds are
-// optional in the spelling (the form writes minute precision) but a
-// valid one regardless: a schedule may target any second, not only
-// minute boundaries.
-type WallFields = {
-  readonly year: number;
-  readonly month: number;
-  readonly day: number;
-  readonly hour: number;
-  readonly minute: number;
-  readonly second: number;
-};
-
-// The server-clock reading of a zone-less instant, matching
-// wallClockIn's shape so both round-trip checks share one comparison.
-const localWallFields = (date: Date): WallFields => ({
-  year: date.getFullYear(),
-  month: date.getMonth() + 1,
-  day: date.getDate(),
-  hour: date.getHours(),
-  minute: date.getMinutes(),
-  second: date.getSeconds(),
-});
-
 // A parsed instant must spell the same wall clock the schedule named —
 // impossible dates (Feb 30, the spring-forward gap) roll over on the
 // way back and fail here. Seconds, when the spelling carries them, must
 // survive the round-trip too.
-const roundTripsWallFields = (
-  wall: WallFields,
+const roundTrips = (
+  wall: WallClock,
   groups: Record<string, string | undefined>,
 ): boolean =>
   wall.year === Number(groups.year) &&
@@ -210,16 +181,11 @@ const roundTripsWallFields = (
 const parseZonedOneShot = (
   schedule: string,
   timezone: string,
+  groups: Record<string, string | undefined>,
 ): Date | undefined => {
   const instant = zoneWallClockToInstant(schedule, timezone);
   if (!saneOneShot(instant)) return undefined;
-  if (
-    !roundTripsWallFields(
-      wallClockIn(instant, timezone),
-      oneShotGroups(schedule),
-    )
-  )
-    return undefined;
+  if (!roundTrips(wallClockIn(instant, timezone), groups)) return undefined;
   return instant;
 };
 
@@ -227,9 +193,8 @@ const parseZonedOneShot = (
 // cron patterns, human text (and malformed values). Zone-less spellings
 // roll impossible dates over silently (Feb 30 → Mar 2), so they must
 // round-trip to count as valid — in the server's zone, or the override's
-// when one is given. Second precision is welcome: the spelling may
-// carry :ss (the form writes minute precision; hand-edited configs and
-// other writers may not).
+// when one is given. Second precision is welcome even though the form
+// writes minute precision: hand-edited configs may carry :ss.
 const parseOneShotSchedule = (
   schedule: string,
   timezone?: string,
@@ -243,7 +208,7 @@ const parseOneShotSchedule = (
   // catch guards direct callers.
   if (zoneless && timezone !== undefined)
     try {
-      return parseZonedOneShot(schedule, timezone);
+      return parseZonedOneShot(schedule, timezone, groups);
     } catch {
       return undefined;
     }
@@ -252,8 +217,7 @@ const parseOneShotSchedule = (
   if (Number.isNaN(time)) return undefined;
   const date = new Date(time);
   if (!saneOneShot(date)) return undefined;
-  if (zoneless && !roundTripsWallFields(localWallFields(date), groups))
-    return undefined;
+  if (zoneless && !roundTrips(wallClockIn(date), groups)) return undefined;
   return date;
 };
 

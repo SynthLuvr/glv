@@ -162,8 +162,8 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
 
     it("never fires a disabled job", async () => {
-      // The schedule fires every second; three seconds of fire windows pass
-      // with no run ever appearing in the sidebar.
+      // The schedule fires every second; three fire windows pass with
+      // no run ever appearing in the sidebar.
       await sleep(3000);
       const res = await authedFetch(env, "/");
       const html = await res.text();
@@ -350,11 +350,10 @@ const runCronSuite = (fx: FlavorFixture): void => {
       restoreAgent?.();
     });
 
-    // Each case boots its own serve process (a fresh fake home and
-    // config) just to watch it exit non-zero, and the cases share no
-    // state — so they run concurrently and their boots overlap instead
-    // of stacking five serial serve startups (tens of seconds on a CI
-    // runner) inside this describe.
+    // Each case boots its own serve process (fresh fake home and
+    // config) just to watch it exit non-zero and shares no state with
+    // the others, so concurrency overlaps the five boots instead of
+    // stacking tens of seconds of serial startups on a CI runner.
     it.concurrent("exits non-zero naming a job with an invalid schedule", () =>
       expectServeRefuses(
         [

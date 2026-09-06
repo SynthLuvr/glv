@@ -91,12 +91,10 @@ jobs:
             ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
-      # Saving happens inline (browsers are final the moment the install
-      # step succeeds) and only from one shard per OS: the composite
-      # action's post-job save made all four shards race to reserve the
-      # same key, each taring ~400MB for half a minute before three of
-      # them lost — post-job time the slowest shard cannot afford inside
-      # the 10-minute job budget.
+      # Saved inline (browsers are final once install succeeds) and from
+      # one shard per OS only: the cache action's post-job save made all
+      # four shards race for the same key and burned post-job time the
+      # 10-minute job budget cannot afford.
       - name: Save Playwright browsers
         if: matrix.shard == '4/4'
         uses: actions/cache/save@v6.1.0

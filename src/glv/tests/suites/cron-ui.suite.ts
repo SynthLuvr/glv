@@ -22,13 +22,11 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// One-shot spellings with second precision: the parser accepts :ss on
-// a fire-once datetime, so a test can target an instant a fixed
-// distance out instead of waiting for the next minute boundary (the
-// form itself still writes minute precision — the prune tests below
-// keep covering that spelling). Seconds are the same in every
-// minute-aligned zone, so the target's own seconds serve zoned
-// spellings too.
+// Appends :ss to a minute-precision one-shot spelling so a test can aim
+// a fixed distance out instead of waiting for a minute boundary (the
+// prune tests keep the minute spelling covered). Zone offsets are
+// minute-aligned, so an instant's seconds are its seconds in every
+// zone — the target's own seconds serve zoned spellings too.
 const withSeconds = (schedule: string, target: Date): string =>
   `${schedule}:${String(target.getSeconds()).padStart(2, "0")}`;
 
@@ -262,9 +260,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     });
 
     it("previews a one-shot that carries seconds", async () => {
-      // The form writes minute precision, but :ss is a legal spelling
-      // (croner fires it at that second) — the preview must agree
-      // instead of refusing it as text.
+      // :ss is a legal one-shot spelling even though the form writes
+      // minute precision — the preview must read it as a datetime,
+      // not refuse it as unparseable text.
       const target = new Date(Date.now() + 90_000);
       const schedule = withSeconds(formatOneShotLocal(target), target);
       const res = await authedFetch(
@@ -934,10 +932,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const cfgPath = writeConfig(homeDir, [
         {
           name: "one-shot",
-          // Second precision aims a fixed 45s out — more lead for the
-          // serve boot than the old boundary-anchored floor (40s) ever
-          // guaranteed, without the 0–59s of minute-boundary wait on
-          // top that made this test run 40–100s.
+          // Second precision aims a fixed 45s out: boot lead without
+          // the 0–59s minute-boundary wait minute precision would add.
           schedule: withSeconds(formatOneShotLocal(target), target),
           prompt: "One time only",
           workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ow-")),
