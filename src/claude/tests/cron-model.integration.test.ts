@@ -28,19 +28,25 @@ it("refuses to serve a cron job with a model pin", async () => {
   ]);
 
   // serve resolves the agent binary against PATH, which CI runners lack;
-  // the mock is never invoked — validation exits serve first.
+  // the mock is never invoked — validation exits serve first. The 90s
+  // exit deadline rides out runner contention that has pushed cold serve
+  // boots past the 20s default; vitest's 120s ceiling still bounds the
+  // test, so no explicit per-test timeout is needed.
   const restoreAgent = await claudeFixture.mockAgent();
   try {
     const { status, stderr } = await waitForServeExit(
       claudeFixture.binPath,
       ["serve", ...claudeFixture.defaultServeArgs(homeDir)],
       { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+      90_000,
     );
-    expect(status ?? 0).not.toBe(0);
+    if (status === null)
+      throw new Error("serve neither refused nor started within 90s");
+    expect(status).not.toBe(0);
     expect(stderr).toContain("pinned");
     expect(stderr).toContain("does not support model selection");
   } finally {
     restoreAgent();
     rmSync(homeDir, { recursive: true, force: true });
   }
-}, 60000);
+});
