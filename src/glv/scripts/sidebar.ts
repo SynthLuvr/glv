@@ -326,6 +326,24 @@ updateBulkBar();
 applyUnread();
 connectStatusFeed();
 
-// Any re-render of #session-list (archive's response, rename's out-of-band
-// swap) wipes the .unread classes; re-apply after the swap restores the list.
-onSessionListSwap(applyUnread);
+// The open-session highlight is client-side state (navigation doesn't
+// re-render the sidebar), so server re-renders of the list — rename's
+// out-of-band refresh, the group operations — arrive without it. Re-derive
+// it from the open transcript alongside unread after every list swap.
+const applySelected = (): void => {
+  const openId = openSessionId();
+  document.querySelectorAll(".session-item.selected").forEach((node) => {
+    node.classList.remove("selected");
+    node.querySelector(".session-link")?.removeAttribute("aria-current");
+  });
+  if (openId === null) return;
+  const item = findSessionItem(openId);
+  if (item === null) return;
+  item.classList.add("selected");
+  item.querySelector(".session-link")?.setAttribute("aria-current", "page");
+};
+
+onSessionListSwap(() => {
+  applyUnread();
+  applySelected();
+});

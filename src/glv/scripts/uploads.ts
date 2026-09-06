@@ -16,6 +16,21 @@ const fileIcon =
 let selectedFiles: File[] = [];
 let pastedImageCount = 0;
 
+// A busy/idle prompt-bar swap replaces the form node while the user is
+// composing a follow-up; chips staged for it must survive the swap, not
+// vanish with the old node. The bar's session id is captured just before
+// the swap (htmx:beforeSwap) and matched against the fresh node in
+// wireForm, so files never leak into another session's or the New Session
+// form instead.
+let swapCarrySession: string | undefined;
+
+const sessionOfBar = (bar: Element): string | undefined => {
+  const match = /^\/sessions\/([^/]+)\/prompt$/.exec(
+    bar.getAttribute("hx-post") ?? "",
+  );
+  return match === null ? undefined : match[1];
+};
+
 const imageExtByType: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/jpg": "jpg",
@@ -172,8 +187,21 @@ const wireForm = (form: HTMLFormElement): void => {
 
   if (input === null || button === null) return;
 
-  selectedFiles = [];
-  pastedImageCount = 0;
+  // A fresh form node starts empty — unless it is the same session's prompt
+  // bar re-rendered by a busy/idle swap, in which case the staged chips are
+  // carried over (see swapCarrySession).
+  const carried =
+    swapCarrySession !== undefined &&
+    swapCarrySession === sessionOfBar(form) &&
+    selectedFiles.length > 0;
+  swapCarrySession = undefined;
+  if (carried && chipsContainer !== null) {
+    renderChips(chipsContainer, input);
+    syncInput(input);
+  } else {
+    selectedFiles = [];
+    pastedImageCount = 0;
+  }
 
   // Reset on click, not in the change handler: clearing after the OS fills
   // the input discards the native File objects, which can't be rebuilt on
@@ -226,13 +254,29 @@ const initUploadForms = (): void => {
 
 document.addEventListener("DOMContentLoaded", initUploadForms);
 
+// Capture which session's prompt bar is about to be swapped so the fresh
+// node can inherit the staged chips (see wireForm).
+document.body.addEventListener("htmx:beforeSwap", (e) => {
+  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
+    .detail?.target;
+  if (target === null || target === undefined) return;
+  if (!target.hasAttribute("data-prompt-bar")) return;
+  swapCarrySession = sessionOfBar(target);
+});
+
 // A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
 // transition) both bring a fresh form node to wire.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   const target = (e as Event & { detail?: { target?: HTMLElement | null } })
     .detail?.target;
-  if (target?.id === "detail-pane" || target?.hasAttribute("data-prompt-bar"))
+  if (target?.id === "detail-pane") {
+    // Navigation replaced the whole pane; a captured carry must not leak
+    // into whatever form the new pane brings.
+    swapCarrySession = undefined;
     initUploadForms();
+    return;
+  }
+  if (target?.hasAttribute("data-prompt-bar") === true) initUploadForms();
 });
 
 export {};

@@ -24,46 +24,59 @@ const SessionList = ({
   selectedId,
   runningIds,
   oob = false,
+  count,
 }: {
   entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
   oob?: boolean;
+  /** Total session count, swapped out-of-band into #session-count. Every
+   * htmx-served list passes it; the initial full-page render does not (the
+   * sidebar head already carries the fresh value). */
+  count?: number;
 }) => (
-  <div
-    id="session-list"
-    class="session-list"
-    hx-target="#detail-pane"
-    hx-swap="innerHTML"
-    hx-push-url="true"
-    hx-swap-oob={oob ? "true" : undefined}
-  >
-    <BulkActionBar />
-    <div
-      class="sidebar-meta-loader"
-      hx-get="/sessions/sidebar-meta"
-      hx-trigger="load"
-      hx-target="#session-list"
-      hx-swap="none"
-      hx-push-url="false"
-      aria-hidden="true"
-    ></div>
-    {entries.map((entry) =>
-      entry.kind === "session" ? (
-        <SessionItem
-          session={entry.session}
-          selected={entry.session.id === selectedId}
-          running={runningIds.has(entry.session.id)}
-        />
-      ) : (
-        <GroupEntry
-          entry={entry}
-          selectedId={selectedId}
-          runningIds={runningIds}
-        />
-      ),
+  <>
+    {count !== undefined && (
+      <span id="session-count" class="session-count" hx-swap-oob="true">
+        {count}
+      </span>
     )}
-  </div>
+    <div
+      id="session-list"
+      class="session-list"
+      hx-target="#detail-pane"
+      hx-swap="innerHTML"
+      hx-push-url="true"
+      hx-swap-oob={oob ? "true" : undefined}
+      aria-label="Sessions"
+    >
+      <BulkActionBar />
+      <div
+        class="sidebar-meta-loader"
+        hx-get="/sessions/sidebar-meta"
+        hx-trigger="load"
+        hx-target="#session-list"
+        hx-swap="none"
+        hx-push-url="false"
+        aria-hidden="true"
+      ></div>
+      {entries.map((entry) =>
+        entry.kind === "session" ? (
+          <SessionItem
+            session={entry.session}
+            selected={entry.session.id === selectedId}
+            running={runningIds.has(entry.session.id)}
+          />
+        ) : (
+          <GroupEntry
+            entry={entry}
+            selectedId={selectedId}
+            runningIds={runningIds}
+          />
+        ),
+      )}
+    </div>
+  </>
 );
 
 const Sidebar = ({
@@ -76,7 +89,9 @@ const Sidebar = ({
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Sessions</h1>
-      <span class="session-count">{sessions.length}</span>
+      <span id="session-count" class="session-count">
+        {sessions.length}
+      </span>
       <NewSessionButton />
       <BrowseFilesButton />
       <ThemeToggle />

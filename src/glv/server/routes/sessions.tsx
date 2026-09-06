@@ -378,6 +378,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           entries={sidebarEntries(ctx, sessions)}
           selectedId={undefined}
           runningIds={activeSessionIds(ctx.runner)}
+          count={sessions.length}
         />,
       );
     if (!isHtmxRequest(c)) return renderSession(c, id, updated);
@@ -389,6 +390,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
           selectedId={undefined}
           runningIds={activeSessionIds(ctx.runner)}
           oob
+          count={sessions.length}
         />
       </Fragment>,
     );
@@ -403,6 +405,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
         entries={sidebarEntries(ctx, sessions)}
         selectedId={undefined}
         runningIds={activeSessionIds(ctx.runner)}
+        count={sessions.length}
       />,
     );
   });
