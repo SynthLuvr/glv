@@ -23,3 +23,9 @@ For any non-trivial request:
 - Correctness over speed or brevity. “I need to check” and “I’m not
   sure” beat a confident guess. More steps to the right answer beat
   fewer steps to a wrong one.
+
+## Git identity
+
+- Never pass `-c user.name`/`-c user.email` or set
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*`; always commit with the ambient git
+  identity.
