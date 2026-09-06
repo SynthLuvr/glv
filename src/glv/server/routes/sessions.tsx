@@ -83,6 +83,18 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     });
   };
 
+  // The sidebar-list fragment returned by the rename and archive routes;
+  // `oob` renders it as an out-of-band swap alongside another fragment.
+  const sessionList = (sessions: SessionRow[], oob = false) => (
+    <SessionList
+      entries={sidebarEntries(ctx, sessions)}
+      selectedId={undefined}
+      runningIds={activeSessionIds(ctx.runner)}
+      oob={oob}
+      count={sessions.length}
+    />
+  );
+
   // Renders a full <Transcript> (messages + run handle) inside the standard
   // page shell.
   const renderSession = (
@@ -372,24 +384,12 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     const updated = ctx.sessions.getSession(id);
     if (updated === undefined) return renderNotFound(c, ctx, id);
     const sessions = sessionsAll();
-    if (from === "sidebar")
-      return c.html(
-        <SessionList
-          entries={sidebarEntries(ctx, sessions)}
-          selectedId={undefined}
-          runningIds={activeSessionIds(ctx.runner)}
-        />,
-      );
+    if (from === "sidebar") return c.html(sessionList(sessions));
     if (!isHtmxRequest(c)) return renderSession(c, id, updated);
     return c.html(
       <Fragment>
         <SessionTitleWrap session={updated} />
-        <SessionList
-          entries={sidebarEntries(ctx, sessions)}
-          selectedId={undefined}
-          runningIds={activeSessionIds(ctx.runner)}
-          oob
-        />
+        {sessionList(sessions, true)}
       </Fragment>,
     );
   });
@@ -397,14 +397,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   app.post("/sessions/archive", async (c) => {
     const body = await c.req.parseBody({ all: true });
     ctx.sessions.archiveSessions(extractIds(body.id));
-    const sessions = sessionsAll();
-    return c.html(
-      <SessionList
-        entries={sidebarEntries(ctx, sessions)}
-        selectedId={undefined}
-        runningIds={activeSessionIds(ctx.runner)}
-      />,
-    );
+    return c.html(sessionList(sessionsAll()));
   });
 
   // Prompt runner endpoints

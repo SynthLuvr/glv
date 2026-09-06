@@ -149,6 +149,7 @@ const render = (
               selectedId={undefined}
               runningIds={runningIds}
               oob
+              count={sessions.length}
             />
           )}
         </Fragment>,

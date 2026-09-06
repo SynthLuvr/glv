@@ -28,6 +28,7 @@ const registerGroupRoutes = (app: Hono, ctx: ServerContext): void => {
         entries={sidebarEntries(ctx, sessions)}
         selectedId={undefined}
         runningIds={activeSessionIds(ctx.runner)}
+        count={sessions.length}
       />,
     );
   };

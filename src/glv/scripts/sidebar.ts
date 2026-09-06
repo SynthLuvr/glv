@@ -51,10 +51,7 @@ document.addEventListener("click", (e) => {
   // is maintained client-side.
   const item = el?.closest(".session-link")?.closest(".session-item");
   if (item) {
-    document
-      .querySelectorAll(".session-item.selected")
-      .forEach((node) => node.classList.remove("selected"));
-    item.classList.add("selected");
+    selectItem(item);
     const id = item.getAttribute("data-session-id");
     if (id !== null) {
       markRead(id);
@@ -65,6 +62,19 @@ document.addEventListener("click", (e) => {
 
 const findSessionItem = (sessionId: string): Element | null =>
   document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+
+// The open-session highlight is client-side state — the server renders it
+// only on full page loads — so navigation and sidebar re-renders maintain
+// it here. A null item clears the highlight.
+const selectItem = (item: Element | null): void => {
+  document.querySelectorAll(".session-item.selected").forEach((node) => {
+    node.classList.remove("selected");
+    node.querySelector(".session-link")?.removeAttribute("aria-current");
+  });
+  if (item === null) return;
+  item.classList.add("selected");
+  item.querySelector(".session-link")?.setAttribute("aria-current", "page");
+};
 
 // The sr-only "Running" label only exists in the initial render; keep it in
 // sync for sessions whose status changes mid-view via the status feed.
@@ -326,6 +336,16 @@ updateBulkBar();
 applyUnread();
 connectStatusFeed();
 
-// Any re-render of #session-list (archive's response, rename's out-of-band
-// swap) wipes the .unread classes; re-apply after the swap restores the list.
-onSessionListSwap(applyUnread);
+// Server re-renders of #session-list (archive's response, rename's
+// out-of-band swap, the group operations) arrive without the client-side
+// classes; re-apply unread and re-derive the open-session highlight from
+// the open transcript after every list swap.
+const applySelected = (): void => {
+  const openId = openSessionId();
+  selectItem(openId === null ? null : findSessionItem(openId));
+};
+
+onSessionListSwap(() => {
+  applyUnread();
+  applySelected();
+});
