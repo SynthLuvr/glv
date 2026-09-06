@@ -129,11 +129,19 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
 
         await page.locator('.session-link[href="/sessions/fix-beta"]').click();
         await page.locator(".archive-btn").click();
-        await expect(page.locator(".new-session-form")).toBeVisible();
+        // One archive response drives the detail-pane swap and the sidebar
+        // out-of-band swaps; on a contended runner the round trip can
+        // outlast the default 5s expect window, so grant each leg the same
+        // explicit 20s budget the staged-attachments test below uses.
+        await expect(page.locator(".new-session-form")).toBeVisible({
+          timeout: 20000,
+        });
         await expect(
           page.locator('.session-item[data-session-id="fix-beta"]'),
-        ).toHaveCount(0);
-        await expect(page.locator("#session-count")).toHaveText("1");
+        ).toHaveCount(0, { timeout: 20000 });
+        await expect(page.locator("#session-count")).toHaveText("1", {
+          timeout: 20000,
+        });
       });
     });
   });
