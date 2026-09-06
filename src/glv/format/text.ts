@@ -3,14 +3,18 @@ import humanizeDuration from "humanize-duration";
 
 const IS_WIN = platform() === "win32";
 
-// Relative timestamps stay compact by design ("3m ago", not "3 minutes
-// ago") — sidebar and transcript rows are dense — so the humanizer speaks
-// a one-letter language with the spacer dropped.
-const relativeDuration = humanizeDuration.humanizer({
+// Relative ages stay compact by design ("3m ago", not "3 minutes ago") —
+// sidebar and transcript rows are dense — so the humanizer speaks a
+// one-letter language, one rounded unit, with the spacer dropped.
+const relativeAge = humanizeDuration.humanizer({
   language: "compact",
   languages: {
     compact: { d: () => "d", h: () => "h", m: () => "m", w: () => "w" },
   },
+  spacer: "",
+  largest: 1,
+  round: true,
+  units: ["w", "d", "h", "m"],
 });
 
 // Windows home prefixes must match across separator style and drive-letter
@@ -73,20 +77,15 @@ const toIso = (timestamp: string): string => {
 const parseTimestamp = (timestamp: string): number =>
   Date.parse(toIso(timestamp));
 
+const JUST_NOW_MS = 45_000;
+const FIVE_WEEKS_MS = 5 * 7 * 86_400_000;
+
 const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   const then = parseTimestamp(timestamp);
   if (Number.isNaN(then)) return timestamp;
   const elapsedMs = now - then;
-  // Under a minute is "just now"; past five weeks the age reads better
-  // as a date.
-  if (elapsedMs < 45_000) return "just now";
-  if (elapsedMs < 5 * 7 * 86_400_000)
-    return `${relativeDuration(elapsedMs, {
-      largest: 1,
-      round: true,
-      spacer: "",
-      units: ["w", "d", "h", "m"],
-    })} ago`;
+  if (elapsedMs < JUST_NOW_MS) return "just now";
+  if (elapsedMs < FIVE_WEEKS_MS) return `${relativeAge(elapsedMs)} ago`;
   return formatDate(then, now);
 };
 

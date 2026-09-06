@@ -12,11 +12,11 @@ type ToolRun = {
 };
 
 // Status-hint text shared by server-side rendering and the client bundle
-// (esbuild, platform "browser"). pretty-ms is pure JavaScript, so the
+// (esbuild, platform "browser"): keep imports pure JavaScript so the
 // bundle stays Node-free.
 
-// Compact wall-clock durations: 45s, 12m, 1m 30s, 3h 5m, 2h — capped at
-// two units and never rolled up into days.
+// Compact wall-clock durations — "45s", "12m", "1m 30s" — capped at two
+// units and never rolled up into days.
 const fmtDuration = (seconds: number): string =>
   prettyMilliseconds(Math.max(0, Math.round(seconds)) * 1000, {
     hideYearAndDays: true,

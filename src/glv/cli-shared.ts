@@ -30,10 +30,10 @@ const parsePositiveInt = (value: string): number => {
   return result;
 };
 
-// Resolves the agent binary: an explicit path must exist on disk; a bare
-// name must be found on PATH. which honors PATHEXT on Windows and checks
-// the executable bit, which existence checks alone miss. The flag keeps
-// the caller's spelling — bare names stay bare for execa to resolve.
+// An explicit path must exist on disk; a bare name must be found on PATH
+// (which honors PATHEXT on Windows and checks the executable bit, which
+// existence checks alone miss). The caller's spelling is kept — bare
+// names stay bare for execa to resolve.
 const resolveAgentBinary = (value: string): string => {
   if (value.includes("/") || value.includes("\\")) {
     if (!existsSync(value))

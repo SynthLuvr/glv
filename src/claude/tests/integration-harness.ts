@@ -186,7 +186,7 @@ const claudeFixture: harness.FlavorFixture = {
   rawBanner: "claude is ready",
   backdateSession: (env, id, epochMs) => {
     // claude derives updated_at from the transcript's last timestamp
-    // entry, so an old timestamp is appended as the final line.
+    // entry, so an old one is appended as the final line.
     const path = findSessionFile(env.dbs.flavor.projectsDir, id);
     if (path === undefined) return;
     appendFileSync(

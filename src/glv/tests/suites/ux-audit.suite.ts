@@ -234,8 +234,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
 
   describe("A5b: relative update times stay compact", () => {
     it("humanizes a backdated session to '2h ago' in the sidebar", async () => {
-      // 1h 58m must round to the nearest hour — "2h ago", not the floored
-      // "1h ago" or a verbose "2 hours ago".
+      // 1h 58m must round to the nearest hour — "2h ago", not "1h ago".
       mkdirSync(join(env.scratchDir, "ux-old"), { recursive: true });
       fx.seedSessions(env, [
         {
@@ -244,7 +243,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
           workingDir: join(env.scratchDir, "ux-old"),
         },
       ]);
-      fx.backdateSession(env, "ux-old", Date.now() - 7100_000);
+      fx.backdateSession(env, "ux-old", Date.now() - 118 * 60_000);
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/ux-old`);
         const age = page.locator(
