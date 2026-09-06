@@ -22,6 +22,16 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+// One-shot spellings with second precision: the parser accepts :ss on
+// a fire-once datetime, so a test can target an instant a fixed
+// distance out instead of waiting for the next minute boundary (the
+// form itself still writes minute precision — the prune tests below
+// keep covering that spelling). Seconds are the same in every
+// minute-aligned zone, so the target's own seconds serve zoned
+// spellings too.
+const withSeconds = (schedule: string, target: Date): string =>
+  `${schedule}:${String(target.getSeconds()).padStart(2, "0")}`;
+
 // The scheduled-runs UI: creating from the New Session form, managing
 // from the section, recognizing job-started sessions, and the one-shot
 // lifecycle. The config file stays the source of truth throughout — every
@@ -249,6 +259,21 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
       const html = await res.text();
       expect(html).toContain("already in the past");
+    });
+
+    it("previews a one-shot that carries seconds", async () => {
+      // The form writes minute precision, but :ss is a legal spelling
+      // (croner fires it at that second) — the preview must agree
+      // instead of refusing it as text.
+      const target = new Date(Date.now() + 90_000);
+      const schedule = withSeconds(formatOneShotLocal(target), target);
+      const res = await authedFetch(
+        env,
+        `/cron/preview?schedule=${encodeURIComponent(schedule)}`,
+      );
+      const html = await res.text();
+      expect(html).toContain("Once at");
+      expect(html).not.toContain("Couldn’t understand");
     });
 
     it("previews a schedule with a timezone override", async () => {
@@ -905,16 +930,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
   describe("schedule lifecycle", () => {
     it("fires once at the chosen time and retires itself from the config", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-once-"));
+      const target = new Date(Date.now() + 45_000);
       const cfgPath = writeConfig(homeDir, [
         {
           name: "one-shot",
-          // One-shot schedules have minute precision, so aim at the first
-          // minute boundary comfortably in the future — enough lead for
-          // serve to boot without the scheduler rightly pruning the job
-          // as already past.
-          schedule: formatOneShotLocal(
-            new Date(Math.ceil((Date.now() + 40_000) / 60_000) * 60_000),
-          ),
+          // Second precision aims a fixed 45s out — more lead for the
+          // serve boot than the old boundary-anchored floor (40s) ever
+          // guaranteed, without the 0–59s of minute-boundary wait on
+          // top that made this test run 40–100s.
+          schedule: withSeconds(formatOneShotLocal(target), target),
           prompt: "One time only",
           workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ow-")),
         },
@@ -987,13 +1011,11 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // A zone with no DST so the wall clock maps cleanly; the schedule
       // is the target instant spelled in that zone's clock.
       const zone = "Pacific/Kiritimati";
-      const target = new Date(
-        Math.ceil((Date.now() + 40_000) / 60_000) * 60_000,
-      );
+      const target = new Date(Date.now() + 45_000);
       const cfgPath = writeConfig(homeDir, [
         {
           name: "zoned-one-shot",
-          schedule: formatOneShotInZone(target, zone),
+          schedule: withSeconds(formatOneShotInZone(target, zone), target),
           timezone: zone,
           prompt: "Zoned one time only",
           workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xw-")),
