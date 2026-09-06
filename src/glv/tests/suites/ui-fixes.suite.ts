@@ -86,7 +86,12 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await form.locator('input[name="job_name"]').fill("bad name!");
         await form
           .locator("input[data-schedule-input]")
-          .fill("every day at 9:00");
+          .fill("every weekday at 9:00");
+        // The schedule form pulls the prompt from the New Session form
+        // above at submit time; the server checks it before the job name.
+        await page
+          .locator('form.new-session-form textarea[name="prompt"]')
+          .fill("Prompt for the scheduled run");
         const submit = form.locator("[data-schedule-submit]");
         await expect(submit).toBeEnabled({ timeout: 10000 });
         await submit.click();
