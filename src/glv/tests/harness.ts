@@ -358,6 +358,12 @@ type FlavorFixture = {
     sessionId: string,
     messages: MessageSeed[],
   ) => void;
+  /** Backdates a session's update timestamp (epoch ms) in the flavor's store. */
+  readonly backdateSession: (
+    env: IntegrationEnv,
+    sessionId: string,
+    epochMs: number,
+  ) => void;
   /** A tool-call content block in the flavor's native format. */
   readonly toolRequest: (
     name: string,

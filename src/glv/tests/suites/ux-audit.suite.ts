@@ -238,6 +238,28 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
     }, 30000);
   });
 
+  describe("A5b: relative update times stay compact", () => {
+    it("humanizes a backdated session to '2h ago' in the sidebar", async () => {
+      // 1h 58m must round to the nearest hour — "2h ago", not "1h ago".
+      mkdirSync(join(env.scratchDir, "ux-old"), { recursive: true });
+      fx.seedSessions(env, [
+        {
+          id: "ux-old",
+          name: "Backdated",
+          workingDir: join(env.scratchDir, "ux-old"),
+        },
+      ]);
+      fx.backdateSession(env, "ux-old", Date.now() - 118 * 60_000);
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/sessions/ux-old`);
+        const age = page.locator(
+          '.session-item[data-session-id="ux-old"] time',
+        );
+        await expect(age).toHaveText("2h ago");
+      });
+    }, 30000);
+  });
+
   describe("A6: viewport meta covers notched displays", () => {
     it("includes viewport-fit=cover", async () => {
       await withPage(env.context, async (page) => {

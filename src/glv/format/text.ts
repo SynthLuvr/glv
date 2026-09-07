@@ -1,6 +1,21 @@
 import { homedir, platform } from "node:os";
+import humanizeDuration from "humanize-duration";
 
 const IS_WIN = platform() === "win32";
+
+// Relative ages stay compact by design ("3m ago", not "3 minutes ago") —
+// sidebar and transcript rows are dense — so the humanizer speaks a
+// one-letter language, one rounded unit, with the spacer dropped.
+const relativeAge = humanizeDuration.humanizer({
+  language: "compact",
+  languages: {
+    compact: { d: () => "d", h: () => "h", m: () => "m", w: () => "w" },
+  },
+  spacer: "",
+  largest: 1,
+  round: true,
+  units: ["w", "d", "h", "m"],
+});
 
 // Windows home prefixes must match across separator style and drive-letter
 // case (homedir() says C:\Users\u while git and the agents emit c:\users\u
@@ -62,19 +77,15 @@ const toIso = (timestamp: string): string => {
 const parseTimestamp = (timestamp: string): number =>
   Date.parse(toIso(timestamp));
 
+const JUST_NOW_MS = 45_000;
+const FIVE_WEEKS_MS = 5 * 7 * 86_400_000;
+
 const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   const then = parseTimestamp(timestamp);
   if (Number.isNaN(then)) return timestamp;
-  const seconds = Math.round((now - then) / 1000);
-  if (seconds < 45) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
+  const elapsedMs = now - then;
+  if (elapsedMs < JUST_NOW_MS) return "just now";
+  if (elapsedMs < FIVE_WEEKS_MS) return `${relativeAge(elapsedMs)} ago`;
   return formatDate(then, now);
 };
 
