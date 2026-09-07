@@ -485,11 +485,9 @@ const parseSchedule = (
   return parseTextSchedule(schedule, timezone);
 };
 
-// Cron rendered plainly by cronstrue — every shape, not just the few
-// the hand-rolled version recognized ("0 9 * * *" → "At 09:00, every
-// day", "0 9 * * 1#1" → "At 09:00, on the first Monday of the month").
-// croner validates the pattern first; the fallback keeps a pattern
-// croner takes but cronstrue can't render readable.
+// cronstrue renders any shape ("0 9 * * 1#1" → "At 09:00, on the first
+// Monday of the month"); it accepts a different dialect than croner, so
+// a pattern croner validated can still throw — fall back to the raw.
 const humanizeCron = (schedule: string, timezone?: string): string => {
   const suffix = tzSuffix(timezone);
   try {
