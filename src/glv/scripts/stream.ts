@@ -148,13 +148,21 @@ const restoreScroll = (): void => {
     pane.scrollTop = pane.scrollHeight;
 };
 
-// #detail-pane and <body> both survive innerHTML swaps, so the listeners only
-// need attaching once.
+// #detail-pane and <body> both survive innerHTML swaps, so the body-level
+// beforeSwap listener is wired once; the scroll listener, though, tracks the
+// pane element — a history restore replaces the pane (detaching the old
+// binding) and must be re-bound to the fresh node.
+let scrollMemoryPane: Element | null = null;
+
 const wireScrollMemory = (): void => {
-  if (scrollMemoryWired) return;
   const pane = document.getElementById("detail-pane");
   if (pane === null) return;
-  pane.addEventListener("scroll", scheduleSave, { passive: true });
+  if (scrollMemoryPane !== pane) {
+    scrollMemoryPane?.removeEventListener("scroll", scheduleSave);
+    scrollMemoryPane = pane;
+    pane.addEventListener("scroll", scheduleSave, { passive: true });
+  }
+  if (scrollMemoryWired) return;
   document.body.addEventListener("htmx:beforeSwap", (e) => {
     if (!(e instanceof CustomEvent)) return;
     if (e.detail?.target?.id === "detail-pane") saveScroll();
@@ -447,3 +455,8 @@ document.body.addEventListener("htmx:beforeSwap", (e) => {
   if (target instanceof Element && target.hasAttribute("data-prompt-bar"))
     captureBarDraft();
 });
+// History restore swaps the whole body, so the transcript it lands carries
+// no SSE connection and the scroll-memory binding points at the detached
+// pane. Re-init: teardown the old stream, reconnect for the restored
+// session, and re-bind the scroll saver.
+document.body.addEventListener("htmx:historyRestore", init);

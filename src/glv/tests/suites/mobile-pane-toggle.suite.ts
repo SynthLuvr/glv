@@ -84,6 +84,32 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         );
       });
     }, 30000);
+
+    // Regression: htmx history restoration (Back/Forward) swaps the whole
+    // body, so the pane toggle's DOMContentLoaded listener died with the old
+    // bar — the Sessions/Detail tabs stopped responding until a reload. The
+    // init now re-runs on restore, and the pane is re-derived from the
+    // restored URL: the snapshot froze "detail" (captured after the
+    // click-time switch), which buried the list after going Back.
+    it("keeps the pane tabs working after a history restore", async () => {
+      await withPage(env.context, async (page) => {
+        await openDetail(page, "mp-a");
+        await page.goBack();
+        // The restored snapshot froze pane="detail"; the fix re-derives
+        // "sidebar" from the restored URL (the session list).
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "sidebar",
+        );
+        await switchPane(page, "detail");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
+        await switchPane(page, "sidebar");
+        await expect(page.locator("#session-list")).toBeVisible();
+      });
+    }, 30000);
   });
 };
 
