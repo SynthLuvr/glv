@@ -93,13 +93,23 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
     // click-time switch), which buried the list after going Back.
     it("keeps the pane tabs working after a history restore", async () => {
       await withPage(env.context, async (page) => {
-        await openDetail(page, "mp-a");
+        await page.setViewportSize(VIEWPORT);
+        // Enter the session from the list, the way the report describes: a
+        // direct /sessions/<id> goto has no in-app history entry to restore.
+        await page.goto(`${env.baseUrl}/`);
+        await selectSession(page, "mp-a");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
         await page.goBack();
         // The restored snapshot froze pane="detail"; the fix re-derives
-        // "sidebar" from the restored URL (the session list).
+        // "sidebar" from the restored URL (the session list). The restore
+        // round-trips a cache-miss fetch, so allow more than the default.
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",
           "sidebar",
+          { timeout: 10000 },
         );
         await switchPane(page, "detail");
         await expect(page.locator(".app")).toHaveAttribute(
