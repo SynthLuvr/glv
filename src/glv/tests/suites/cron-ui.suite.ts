@@ -245,7 +245,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         "/cron/preview?schedule=0%209%20*%20*%20*",
       );
       const html = await res.text();
-      expect(html).toContain("Every day at 09:00");
+      expect(html).toContain("At 09:00, every day");
     });
 
     it("explains an unparseable schedule in plain language", async () => {
@@ -299,7 +299,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
       const html = await res.text();
       // The human form names the zone the times apply in…
-      expect(html).toContain("Every day at 09:00 (America/New_York)");
+      expect(html).toContain("At 09:00, every day (America/New_York)");
       // …and the upcoming runs read in that zone's clock.
       const parsed = parseSchedule("0 9 * * *", {
         timezone: "America/New_York",
@@ -354,7 +354,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("Weekly build");
       // The English was converted — humanized form and the pattern itself.
-      expect(html).toContain("Every Mon, Tue, Wed, Thu, Fri at 09:00");
+      expect(html).toContain("At 09:00, Monday through Friday");
       expect(html).toContain("0 9 * * 1-5");
       // The live-reload notice renders once, at the section level — the
       // confirmation adds no second copy next to it.
@@ -753,7 +753,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Scheduled runs");
       expect(html).toContain("Changes apply live");
       expect(html).toContain("nightly");
-      expect(html).toContain("Every day at 09:00");
+      expect(html).toContain("At 09:00, every day");
       expect(html).toContain("Enabled");
       expect(html).toContain("Nightly sweep of the logs");
       // friday-tz is paused and its schedule keeps the raw pattern shape
@@ -803,7 +803,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const putHtml = await put.text();
       expect(putHtml).toContain("friday-eu");
       // English input, converted and humanized on save.
-      expect(putHtml).toContain("Every Sun at 18:00");
+      expect(putHtml).toContain("At 18:00, only on Sunday");
 
       const job = jobByName("friday-eu");
       expect(job).toBeDefined();
