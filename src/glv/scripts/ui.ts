@@ -181,9 +181,14 @@ const uiApplyPane = (pane: string): void => {
   window.requestAnimationFrame(uiUpdateScrollButton);
 };
 
+// Wired-once guard lives in JS memory, not a DOM attribute: htmx snapshots
+// the live DOM for history restore, so a marker attribute would be replayed
+// onto the unwired replacement node and the guard would skip wiring it.
+const uiWiredElements = new WeakSet<Element>();
 const uiInitPaneToggle = (): void => {
   const bar = document.querySelector(".mobile-pane-toggle");
-  if (bar === null) return;
+  if (bar === null || uiWiredElements.has(bar)) return;
+  uiWiredElements.add(bar);
   const current =
     document.querySelector(".app")?.getAttribute("data-mobile-pane") ??
     "detail";
@@ -197,11 +202,18 @@ const uiInitPaneToggle = (): void => {
 };
 
 // Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
-// is position:fixed and lives outside the scroll container.
+// is position:fixed and lives outside the scroll container. The scroll
+// listener re-binds when a history restore replaces the pane.
+let uiScrollPane: Element | undefined;
 const uiEnsureScrollButton = (): void => {
-  if (document.getElementById("scroll-latest") !== null) return;
   const pane = document.getElementById("detail-pane");
   if (pane === null) return;
+  if (uiScrollPane !== pane) {
+    uiScrollPane?.removeEventListener("scroll", uiUpdateScrollButton);
+    uiScrollPane = pane;
+    pane.addEventListener("scroll", uiUpdateScrollButton, { passive: true });
+  }
+  if (document.getElementById("scroll-latest") !== null) return;
   const btn = document.createElement("button");
   btn.id = "scroll-latest";
   btn.type = "button";
@@ -215,7 +227,6 @@ const uiEnsureScrollButton = (): void => {
     target?.scrollTo({ top: target.scrollHeight, behavior: "smooth" });
   });
   document.body.appendChild(btn);
-  pane.addEventListener("scroll", uiUpdateScrollButton, { passive: true });
 };
 
 const uiUpdateScrollButton = (): void => {
@@ -227,7 +238,8 @@ const uiUpdateScrollButton = (): void => {
 };
 
 // One rAF-coalesced pass reacts to every DOM change in the detail pane — htmx
-// swaps, streamed lines, tail appends — without per-source wiring.
+// swaps, streamed lines, tail appends — without per-source wiring. The
+// previous observer is disconnected so a restore re-observes the fresh pane.
 let uiScheduled = false;
 const uiSchedule = (): void => {
   if (uiScheduled) return;
@@ -240,10 +252,13 @@ const uiSchedule = (): void => {
   });
 };
 
+let uiObserver: MutationObserver | undefined;
 const uiObserve = (): void => {
+  uiObserver?.disconnect();
   const pane = document.getElementById("detail-pane");
   if (pane === null) return;
-  new MutationObserver(() => uiSchedule()).observe(pane, {
+  uiObserver = new MutationObserver(() => uiSchedule());
+  uiObserver.observe(pane, {
     childList: true,
     subtree: true,
   });
@@ -277,6 +292,14 @@ const uiInitSourceToggle = (): void => {
   });
 };
 
+// Wired like the pane bar: history restore hands back a fresh, unwired node.
+const uiInitThemeToggle = (): void => {
+  const toggle = document.querySelector(".theme-toggle");
+  if (toggle === null || uiWiredElements.has(toggle)) return;
+  uiWiredElements.add(toggle);
+  toggle.addEventListener("click", uiToggleTheme);
+};
+
 const uiInit = (): void => {
   uiAutogrowAll();
   uiFocusAutofocus();
@@ -289,9 +312,7 @@ const uiInit = (): void => {
   // Reflect the pre-paint theme class (set by Layout's bootstrap script) on
   // the toggle for assistive tech.
   uiSyncThemeToggle(document.documentElement.classList.contains("dark"));
-  document
-    .querySelector(".theme-toggle")
-    ?.addEventListener("click", uiToggleTheme);
+  uiInitThemeToggle();
 };
 
 document.addEventListener("DOMContentLoaded", uiInit);
@@ -317,5 +338,26 @@ document.addEventListener("click", (e) => {
     uiApplyPane("detail");
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });
+
+// The pane a full load would show for this URL: only a session transcript
+// surfaces the detail pane. "new" is a route, not a session id.
+const UI_SESSION_PATH = /^\/sessions\/(?!new$)[^/]+$/;
+const uiPaneForPath = (path: string): string =>
+  UI_SESSION_PATH.test(path) ? "detail" : "sidebar";
+
+// History restore (Back/Forward) swaps the whole body, so every listener
+// wired onto page elements at DOMContentLoaded dies with the old nodes — the
+// tabs go dead until reload. The restored snapshot also replays the pane
+// frozen at push time (entering a session flips to "detail" before the
+// save), so going Back to the list can land buried in the detail pane.
+// Re-derive the pane from the restored URL, as a full load would, and re-run
+// init against the fresh DOM; every step is idempotent, and the swap is
+// synchronous (swapDelay 0), so the new nodes are in place here.
+const uiOnHistoryRestore = (): void => {
+  uiApplyPane(uiPaneForPath(window.location.pathname));
+  uiSyncTitle();
+  uiInit();
+};
+document.body.addEventListener("htmx:historyRestore", uiOnHistoryRestore);
 
 export {};

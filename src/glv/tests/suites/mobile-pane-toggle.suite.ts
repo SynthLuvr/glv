@@ -84,6 +84,39 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         );
       });
     }, 30000);
+
+    // Regression: history restore (Back/Forward) swaps the whole body, so
+    // the pane toggle's listener died with the old bar — the tabs stopped
+    // responding until reload — and the snapshot replayed the pane frozen at
+    // push time, burying the list after going Back.
+    it("keeps the pane tabs working after a history restore", async () => {
+      await withPage(env.context, async (page) => {
+        await page.setViewportSize(VIEWPORT);
+        // Enter the session via the list: a direct /sessions/<id> goto has
+        // no in-app history entry to restore.
+        await page.goto(`${env.baseUrl}/`);
+        await selectSession(page, "mp-a");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
+        await page.goBack();
+        // The restore round-trips a cache-miss fetch, so allow more than
+        // the default timeout.
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "sidebar",
+          { timeout: 10000 },
+        );
+        await switchPane(page, "detail");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
+        await switchPane(page, "sidebar");
+        await expect(page.locator("#session-list")).toBeVisible();
+      });
+    }, 30000);
   });
 };
 
