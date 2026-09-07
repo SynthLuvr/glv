@@ -673,8 +673,11 @@ const startEnv = async (
         ...extraEnv,
       });
       let settled = false;
+      // `close`, not `exit`: it fires once stderr has flushed too, so the
+      // EADDRINUSE line below is guaranteed captured when the decision
+      // reads it.
       const exited = new Promise<never>((_, reject) => {
-        proc.once("exit", (code) => {
+        proc.once("close", (code) => {
           if (!settled)
             reject(new Error(`server exited during boot (code ${code})`));
         });
