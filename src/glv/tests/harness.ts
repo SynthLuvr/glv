@@ -647,32 +647,58 @@ const startEnv = async (
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
   const restoreGhPath = await mockGh();
 
-  const port = await findFreePort();
-  const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(adapter, dbs, port, {
-    ...adapter.serverEnv(dbs),
-    GLV_UPLOADS_DIR: uploadsDir,
-    GLV_TEMP_DIR: tempDir,
-    ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
-    ...mockEnv(adapter.mockEnvPrefix, mock),
-    ...extraEnv,
-  });
-
-  const abortBoot = async (err: unknown): Promise<never> => {
-    await stopProcess(proc);
-    restoreAgentPath();
-    restoreGhPath();
-    rmScratch(scratchDir);
-    throw new Error(
-      `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
-    );
+  // findFreePort hands back a port it has already released, and it probes
+  // 127.0.0.1 while serve binds the IPv6 wildcard — so another
+  // concurrently booting environment (vitest runs whole files in
+  // parallel) can claim the port in between and serve dies with
+  // EADDRINUSE. Retrying on a fresh port wins that race outright. The
+  // same loop races boot against process exit, so a serve that dies
+  // immediately fails fast instead of burning waitForHttp's full
+  // deadline — and a retry costs milliseconds, not a minute.
+  const bootServer = async (): Promise<{
+    baseUrl: string;
+    proc: ChildProcess;
+    readStderr: () => string;
+  }> => {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const port = await findFreePort();
+      const baseUrl = `http://localhost:${port}`;
+      const { proc, readStderr } = startServer(adapter, dbs, port, {
+        ...adapter.serverEnv(dbs),
+        GLV_UPLOADS_DIR: uploadsDir,
+        GLV_TEMP_DIR: tempDir,
+        ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
+        ...mockEnv(adapter.mockEnvPrefix, mock),
+        ...extraEnv,
+      });
+      let settled = false;
+      const exited = new Promise<never>((_, reject) => {
+        proc.once("exit", (code) => {
+          if (!settled)
+            reject(new Error(`server exited during boot (code ${code})`));
+        });
+      });
+      try {
+        await Promise.race([waitForHttp(baseUrl), exited]);
+        settled = true;
+        return { baseUrl, proc, readStderr };
+      } catch (err) {
+        settled = true;
+        lastErr = err;
+        await stopProcess(proc);
+        if (attempt < 3 && readStderr().includes("EADDRINUSE")) continue;
+        restoreAgentPath();
+        restoreGhPath();
+        rmScratch(scratchDir);
+        throw new Error(
+          `server never started: ${String(lastErr)}; server stderr:\n${readStderr()}`,
+        );
+      }
+    }
+    throw new Error(`server never started: ${String(lastErr)}`);
   };
-
-  try {
-    await waitForHttp(baseUrl);
-  } catch (err) {
-    await abortBoot(err);
-  }
+  const { baseUrl, proc, readStderr } = await bootServer();
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
