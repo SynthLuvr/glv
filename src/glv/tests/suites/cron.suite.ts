@@ -12,10 +12,10 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
   defaultConfigFile,
+  expectServeRefusal,
   type FlavorFixture,
   fakeHomeEnv,
   type IntegrationEnv,
-  waitForServeExit,
   writeCronConfig,
 } from "../harness.js";
 
@@ -58,30 +58,20 @@ const runCronSuite = (fx: FlavorFixture): void => {
     writeCronConfig(homeDir, fx.binName, cronJobs);
 
   // Asserts serve refuses to start for the given cronJobs value, naming
-  // every expected stderr fragment. Refusal is near-instant normally, but
-  // the exit has to be awaited on a runner that may be heavily contended
-  // (a loaded shard has pushed cold serve boots past the 20s default), so
-  // the deadline is generous; vitest's 120s ceiling still bounds the test.
+  // every expected stderr fragment.
   const expectServeRefuses = async (
     cronJobs: unknown,
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-    const { status, stderr } = await waitForServeExit(
+    const stderr = await expectServeRefusal(
       fx.binPath,
       ["serve", ...fx.defaultServeArgs(homeDir)],
       {
         ...fakeHomeEnv(homeDir),
         GLV_CONFIG: writeConfig(homeDir, cronJobs),
       },
-      90_000,
     );
-    // A null status is the wait timing out — a serve that neither refused
-    // nor started, not a clean exit; name it as such instead of letting
-    // `?? 0` dress it up as a zero exit code.
-    if (status === null)
-      throw new Error("serve neither refused nor started within 90s");
-    expect(status).not.toBe(0);
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);
     rmSync(homeDir, { recursive: true, force: true });
   };

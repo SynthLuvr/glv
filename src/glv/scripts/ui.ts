@@ -174,10 +174,10 @@ const uiApplyPane = (pane: string): void => {
     );
   // Pane switches resize the detail pane (display:none while the sidebar
   // is active) without scrolling it or touching its DOM, so neither a
-  // scroll event nor the mutation observer recomputes the scroll button —
-  // whatever reading landed while the pane was display:none (distance 0)
-  // would otherwise stick and leave the button hidden for good. Recompute
-  // next frame, once the pane is laid out with its new display state.
+  // scroll event nor the mutation observer recomputes the scroll button:
+  // a distance-0 reading taken while the pane was hidden would stick and
+  // leave the button hidden for good. Recompute next frame, once the pane
+  // is laid out.
   window.requestAnimationFrame(uiUpdateScrollButton);
 };
 

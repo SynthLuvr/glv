@@ -177,9 +177,9 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
         await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
         await groupToggle.click();
         // The pressed state arrives with the htmx outerHTML swap response,
-        // so the window has to cover a full server round trip; on a
-        // contended runner that can outlast the default 5s (observed: 14
-        // polls of the pre-swap button), hence the explicit budget.
+        // so the window must cover a full server round trip — which on a
+        // contended runner can outlast the default 5s (observed: 14 polls
+        // of the pre-swap button).
         await expect(groupToggle).toHaveAttribute("aria-pressed", "true", {
           timeout: 20000,
         });

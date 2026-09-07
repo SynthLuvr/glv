@@ -131,8 +131,8 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await page.locator(".archive-btn").click();
         // One archive response drives the detail-pane swap and the sidebar
         // out-of-band swaps; on a contended runner the round trip can
-        // outlast the default 5s expect window, so grant each leg the same
-        // explicit 20s budget the staged-attachments test below uses.
+        // outlast the default 5s expect window, so grant each leg the 20s
+        // budget the staged-attachments test below uses.
         await expect(page.locator(".new-session-form")).toBeVisible({
           timeout: 20000,
         });
