@@ -1,5 +1,6 @@
 import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
+import cronstrue from "cronstrue";
 import type { CronJobConfig } from "./config.js";
 import { errorMessage } from "./util.js";
 
@@ -484,49 +485,21 @@ const parseSchedule = (
   return parseTextSchedule(schedule, timezone);
 };
 
-// Cron rendered plainly when it matches the shapes people mean
-// ("0 9 * * *" → "Every day at 09:00"), the raw pattern otherwise.
+// Cron rendered plainly by cronstrue — every shape, not just the few
+// the hand-rolled version recognized ("0 9 * * *" → "At 09:00, every
+// day", "0 9 * * 1#1" → "At 09:00, on the first Monday of the month").
+// croner validates the pattern first; the fallback keeps a pattern
+// croner takes but cronstrue can't render readable.
 const humanizeCron = (schedule: string, timezone?: string): string => {
   const suffix = tzSuffix(timezone);
-  const fields = schedule.split(/\s+/);
-  const parts =
-    fields.length === 6 && fields[0] === "0" ? fields.slice(1) : fields;
-  if (parts.length === 5) {
-    const [minute, hour, dom, month, dow] = parts;
-    const plainTime = /^\d{1,2}$/.test(minute) && /^\d{1,2}$/.test(hour);
-    if (plainTime && dom === "*" && month === "*") {
-      const time = `${twoDigits(Number(hour))}:${twoDigits(Number(minute))}`;
-      if (dow === "*") return `Every day at ${time}${suffix}`;
-      const days = expandWeekdays(dow);
-      if (days !== undefined) return `Every ${days} at ${time}${suffix}`;
-    }
+  try {
+    return `${cronstrue.toString(schedule, {
+      use24HourTimeFormat: true,
+      verbose: true,
+    })}${suffix}`;
+  } catch {
+    return `Cron ${schedule}${suffix}`;
   }
-  return `Cron ${schedule}${suffix}`;
-};
-
-// A cron day-of-week field of plain digits, ranges, and lists expanded
-// into day names ("1-5" → "Mon, Tue, Wed, Thu, Fri"); undefined when the
-// field uses anything fancier (steps, names, L/W/#).
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-const expandWeekdays = (dow: string): string | undefined => {
-  if (!/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(dow)) return undefined;
-  const days: string[] = [];
-  for (const part of dow.split(",")) {
-    const [first, last] = part.split("-").map(Number);
-    const end = last ?? first;
-    if (
-      !Number.isInteger(first) ||
-      first < 0 ||
-      first > 6 ||
-      !Number.isInteger(end) ||
-      end < first ||
-      end > 6
-    )
-      return undefined;
-    for (let day = first; day <= end; day++) days.push(DAY_NAMES[day]);
-  }
-  return days.join(", ");
 };
 
 // Plain-language rendering of any stored schedule (text schedules are
