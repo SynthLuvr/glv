@@ -58,6 +58,24 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     }
   };
 
+  // Boots serve against an empty config with the watcher polling at
+  // 250ms, so a one-shot can be written once serve is up and applied
+  // live. The lead must be measured from a booted server: a lead
+  // measured before startEnv let a slow boot outlast the target
+  // instant, leaving the job pruned as expired without ever firing.
+  const startEnvWithLiveConfig = async (
+    prefix: string,
+    sessionName: string,
+    homeDir: string,
+  ): Promise<{ cfgPath: string; env: IntegrationEnv }> => {
+    const cfgPath = writeConfig(homeDir, []);
+    const env = await fx.startEnv(prefix, { sessionName }, homeDir, {
+      GLV_CONFIG: cfgPath,
+      GLV_CONFIG_WATCH_POLL_MS: "250",
+    });
+    return { cfgPath, env };
+  };
+
   describe("schedule mode in the New Session form", () => {
     let env: IntegrationEnv;
     let homeDir: string;
@@ -913,8 +931,20 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       }
       expect(sessionId).toBeDefined();
 
-      const meta = await authedFetch(env, "/sessions/sidebar-meta");
-      const metaHtml = await meta.text();
+      // The scheduler tags the session in the sidecar moments after the
+      // session itself becomes visible in the store (the agent reports
+      // the id first, then establish + tag land), so the lazy meta
+      // render can briefly predate the badge. Poll until the tag is
+      // committed — the transcript header below reads the same sidecar,
+      // so the same wait covers it.
+      const badgeDeadline = Date.now() + 30_000;
+      let metaHtml = "";
+      while (Date.now() < badgeDeadline) {
+        const meta = await authedFetch(env, "/sessions/sidebar-meta");
+        metaHtml = await meta.text();
+        if (metaHtml.includes("cron-chip")) break;
+        await sleep(500);
+      }
       expect(metaHtml).toContain("cron-chip");
       expect(metaHtml).toContain("nightly-watch");
 
@@ -928,23 +958,22 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
   describe("schedule lifecycle", () => {
     it("fires once at the chosen time and retires itself from the config", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-once-"));
-      const target = new Date(Date.now() + 45_000);
-      const cfgPath = writeConfig(homeDir, [
+      const { cfgPath, env } = await startEnvWithLiveConfig(
+        "glv-cronui-once-",
+        "One Shot Session",
+        homeDir,
+      );
+      // Second precision aims a fixed 30s out: no minute-boundary wait,
+      // and no boot competing with the countdown.
+      const target = new Date(Date.now() + 30_000);
+      writeConfig(homeDir, [
         {
           name: "one-shot",
-          // Second precision aims a fixed 45s out: boot lead without
-          // the 0–59s minute-boundary wait minute precision would add.
           schedule: withSeconds(formatOneShotLocal(target), target),
           prompt: "One time only",
           workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ow-")),
         },
       ]);
-      const env = await fx.startEnv(
-        "glv-cronui-once-",
-        { sessionName: "One Shot Session" },
-        homeDir,
-        { GLV_CONFIG: cfgPath },
-      );
       try {
         // The session lands…
         const deadline = Date.now() + 100_000;
@@ -1007,8 +1036,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // A zone with no DST so the wall clock maps cleanly; the schedule
       // is the target instant spelled in that zone's clock.
       const zone = "Pacific/Kiritimati";
-      const target = new Date(Date.now() + 45_000);
-      const cfgPath = writeConfig(homeDir, [
+      const { cfgPath, env } = await startEnvWithLiveConfig(
+        "glv-cronui-xtz-",
+        "Zoned One Shot Session",
+        homeDir,
+      );
+      const target = new Date(Date.now() + 30_000);
+      writeConfig(homeDir, [
         {
           name: "zoned-one-shot",
           schedule: withSeconds(formatOneShotInZone(target, zone), target),
@@ -1017,12 +1051,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xw-")),
         },
       ]);
-      const env = await fx.startEnv(
-        "glv-cronui-xtz-",
-        { sessionName: "Zoned One Shot Session" },
-        homeDir,
-        { GLV_CONFIG: cfgPath },
-      );
       try {
         const deadline = Date.now() + 100_000;
         let html = "";
