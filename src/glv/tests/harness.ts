@@ -20,7 +20,12 @@ import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, chromium, type Page } from "@playwright/test";
+import {
+  type BrowserContext,
+  chromium,
+  expect,
+  type Page,
+} from "@playwright/test";
 import {
   type MockBinBehaviour,
   type MockBinCall,
@@ -603,6 +608,31 @@ const waitForServeExit = async (
   return { status, stderr };
 };
 
+// Awaits serve refusing to start and returns its stderr for fragment
+// checks. Refusal is near-instant normally, but the exit has to be
+// awaited on a runner that may be heavily contended (a loaded shard has
+// pushed cold serve boots past the 20s default), so the deadline is
+// generous — vitest's 120s test ceiling still bounds the wait. A null
+// status is the wait timing out — a serve that neither refused nor
+// started — named as such instead of `?? 0` dressing it up as a zero
+// exit code.
+const expectServeRefusal = async (
+  binPath: string,
+  args: readonly string[],
+  extraEnv: Record<string, string>,
+): Promise<string> => {
+  const { status, stderr } = await waitForServeExit(
+    binPath,
+    args,
+    extraEnv,
+    90_000,
+  );
+  if (status === null)
+    throw new Error("serve neither refused nor started within 90s");
+  expect(status).not.toBe(0);
+  return stderr;
+};
+
 const startServer = (
   adapter: FlavorAdapter,
   dbs: Databases,
@@ -647,32 +677,57 @@ const startEnv = async (
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
   const restoreGhPath = await mockGh();
 
-  const port = await findFreePort();
-  const baseUrl = `http://localhost:${port}`;
-  const { proc, readStderr } = startServer(adapter, dbs, port, {
+  const bootEnv = {
     ...adapter.serverEnv(dbs),
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
     ...mockEnv(adapter.mockEnvPrefix, mock),
     ...extraEnv,
-  });
-
-  const abortBoot = async (err: unknown): Promise<never> => {
-    await stopProcess(proc);
+  };
+  const abortBoot = (err: unknown, stderr: string): never => {
     restoreAgentPath();
     restoreGhPath();
     rmScratch(scratchDir);
     throw new Error(
-      `server never started: ${String(err)}; server stderr:\n${readStderr()}`,
+      `server never started: ${String(err)}; server stderr:\n${stderr}`,
     );
   };
-
-  try {
-    await waitForHttp(baseUrl);
-  } catch (err) {
-    await abortBoot(err);
-  }
+  // findFreePort hands back a port it has already released, and it probes
+  // 127.0.0.1 while serve binds the IPv6 wildcard — so a concurrently
+  // booting environment (vitest runs whole files in parallel) can claim
+  // the port in between and serve dies with EADDRINUSE. Retrying on a
+  // fresh port wins that race outright. The same loop races boot against
+  // process exit, so a serve that dies immediately fails fast instead of
+  // burning waitForHttp's full deadline.
+  const bootServer = async (): Promise<{
+    baseUrl: string;
+    proc: ChildProcess;
+    readStderr: () => string;
+  }> => {
+    for (let attempt = 1; ; attempt++) {
+      const port = await findFreePort();
+      const baseUrl = `http://localhost:${port}`;
+      const { proc, readStderr } = startServer(adapter, dbs, port, bootEnv);
+      // `close`, not `exit`: it fires once stderr has flushed too, so the
+      // EADDRINUSE check below is guaranteed to see why a dying serve
+      // exited.
+      const exited = new Promise<never>((_, reject) => {
+        proc.once("close", (code) => {
+          reject(new Error(`server exited during boot (code ${code})`));
+        });
+      });
+      try {
+        await Promise.race([waitForHttp(baseUrl), exited]);
+        return { baseUrl, proc, readStderr };
+      } catch (err) {
+        await stopProcess(proc);
+        if (attempt < 3 && readStderr().includes("EADDRINUSE")) continue;
+        abortBoot(err, readStderr());
+      }
+    }
+  };
+  const { baseUrl, proc, readStderr } = await bootServer();
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
@@ -925,6 +980,7 @@ export {
   dbOverrideArgs,
   defaultConfigFile,
   defaultDataDir,
+  expectServeRefusal,
   fakeHomeEnv,
   findFreePort,
   flagValue,

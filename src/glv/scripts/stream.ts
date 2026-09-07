@@ -16,6 +16,16 @@ let activeSource: EventSource | null = null;
 let pendingBarDraft: string | undefined;
 let lastBusy: boolean | undefined;
 
+// Reads the live draft out of the prompt bar. Called twice per swap:
+// when the busy/idle status event asks for the new bar, and again at
+// htmx:beforeSwap — the old bar is still in the document right before
+// its replacement, so text typed while the fragment was in flight (a
+// slow round trip leaves a real window) is caught instead of lost.
+const captureBarDraft = (): void => {
+  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null) pendingBarDraft = textarea.value;
+};
+
 // While a tool call is in flight, the status hint carries a live elapsed
 // clock. The element is re-queried on every tick because the prompt bar is
 // swapped wholesale on busy/idle transitions; a vanished hint means the run
@@ -303,9 +313,7 @@ const updatePromptBar = (sessionId: string, data: StreamStatus): void => {
   lastBusy = busy;
   const bar = document.querySelector("[data-prompt-bar]");
   if (bar === null) return;
-  const textarea = document.querySelector<HTMLTextAreaElement>(".prompt-input");
-  if (textarea !== null && textarea.value !== "")
-    pendingBarDraft = textarea.value;
+  captureBarDraft();
   if (typeof htmx !== "undefined")
     htmx.ajax(
       "GET",
@@ -430,4 +438,12 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   }
   // The prompt-bar swap landed — restore any captured draft.
   if (pendingBarDraft !== undefined) restoreBarDraft();
+});
+// The bar is still the old one here — one last draft read so nothing
+// typed since the status event is dropped by the replacement.
+document.body.addEventListener("htmx:beforeSwap", (e) => {
+  if (!(e instanceof CustomEvent)) return;
+  const target = e.detail?.target;
+  if (target instanceof Element && target.hasAttribute("data-prompt-bar"))
+    captureBarDraft();
 });

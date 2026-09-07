@@ -12,10 +12,10 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
   defaultConfigFile,
+  expectServeRefusal,
   type FlavorFixture,
   fakeHomeEnv,
   type IntegrationEnv,
-  waitForServeExit,
   writeCronConfig,
 } from "../harness.js";
 
@@ -64,7 +64,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-    const { status, stderr } = await waitForServeExit(
+    const stderr = await expectServeRefusal(
       fx.binPath,
       ["serve", ...fx.defaultServeArgs(homeDir)],
       {
@@ -72,7 +72,6 @@ const runCronSuite = (fx: FlavorFixture): void => {
         GLV_CONFIG: writeConfig(homeDir, cronJobs),
       },
     );
-    expect(status ?? 0).not.toBe(0);
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);
     rmSync(homeDir, { recursive: true, force: true });
   };
