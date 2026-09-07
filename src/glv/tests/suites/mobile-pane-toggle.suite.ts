@@ -85,17 +85,15 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
       });
     }, 30000);
 
-    // Regression: htmx history restoration (Back/Forward) swaps the whole
-    // body, so the pane toggle's DOMContentLoaded listener died with the old
-    // bar — the Sessions/Detail tabs stopped responding until a reload. The
-    // init now re-runs on restore, and the pane is re-derived from the
-    // restored URL: the snapshot froze "detail" (captured after the
-    // click-time switch), which buried the list after going Back.
+    // Regression: history restore (Back/Forward) swaps the whole body, so
+    // the pane toggle's listener died with the old bar — the tabs stopped
+    // responding until reload — and the snapshot replayed the pane frozen at
+    // push time, burying the list after going Back.
     it("keeps the pane tabs working after a history restore", async () => {
       await withPage(env.context, async (page) => {
         await page.setViewportSize(VIEWPORT);
-        // Enter the session from the list, the way the report describes: a
-        // direct /sessions/<id> goto has no in-app history entry to restore.
+        // Enter the session via the list: a direct /sessions/<id> goto has
+        // no in-app history entry to restore.
         await page.goto(`${env.baseUrl}/`);
         await selectSession(page, "mp-a");
         await expect(page.locator(".app")).toHaveAttribute(
@@ -103,9 +101,8 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
           "detail",
         );
         await page.goBack();
-        // The restored snapshot froze pane="detail"; the fix re-derives
-        // "sidebar" from the restored URL (the session list). The restore
-        // round-trips a cache-miss fetch, so allow more than the default.
+        // The restore round-trips a cache-miss fetch, so allow more than
+        // the default timeout.
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",
           "sidebar",

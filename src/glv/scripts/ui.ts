@@ -181,15 +181,14 @@ const uiApplyPane = (pane: string): void => {
   window.requestAnimationFrame(uiUpdateScrollButton);
 };
 
-// Bars already wired this page's lifetime. Tracked in JS memory, not a DOM
-// attribute: htmx snapshots the live DOM for history restore, so a marker
-// attribute would be replayed by the restore onto an unwired bar and the
-// guard would then skip wiring the one node that needs it.
-const uiWiredPaneBars = new WeakSet<Element>();
+// Wired-once guard lives in JS memory, not a DOM attribute: htmx snapshots
+// the live DOM for history restore, so a marker attribute would be replayed
+// onto the unwired replacement node and the guard would skip wiring it.
+const uiWiredElements = new WeakSet<Element>();
 const uiInitPaneToggle = (): void => {
   const bar = document.querySelector(".mobile-pane-toggle");
-  if (bar === null || uiWiredPaneBars.has(bar)) return;
-  uiWiredPaneBars.add(bar);
+  if (bar === null || uiWiredElements.has(bar)) return;
+  uiWiredElements.add(bar);
   const current =
     document.querySelector(".app")?.getAttribute("data-mobile-pane") ??
     "detail";
@@ -204,8 +203,7 @@ const uiInitPaneToggle = (): void => {
 
 // Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
 // is position:fixed and lives outside the scroll container. The scroll
-// listener follows the pane element: a history restore replaces the pane
-// (detaching the old binding) while the body-mounted button survives.
+// listener re-binds when a history restore replaces the pane.
 let uiScrollPane: Element | undefined;
 const uiEnsureScrollButton = (): void => {
   const pane = document.getElementById("detail-pane");
@@ -241,8 +239,7 @@ const uiUpdateScrollButton = (): void => {
 
 // One rAF-coalesced pass reacts to every DOM change in the detail pane — htmx
 // swaps, streamed lines, tail appends — without per-source wiring. The
-// observer is tracked so a history restore (which replaces the pane) can
-// re-observe the fresh node instead of stacking observers on dead ones.
+// previous observer is disconnected so a restore re-observes the fresh pane.
 let uiScheduled = false;
 const uiSchedule = (): void => {
   if (uiScheduled) return;
@@ -295,18 +292,12 @@ const uiInitSourceToggle = (): void => {
   });
 };
 
-// Toggles wired this page's lifetime (WeakSet, not a DOM marker — history
-// restore replays snapshot attributes onto unwired replacement nodes).
-const uiWiredThemeToggles = new WeakSet<Element>();
+// Wired like the pane bar: history restore hands back a fresh, unwired node.
 const uiInitThemeToggle = (): void => {
-  const themeToggle = document.querySelector(".theme-toggle");
-  if (
-    themeToggle instanceof HTMLElement &&
-    !uiWiredThemeToggles.has(themeToggle)
-  ) {
-    uiWiredThemeToggles.add(themeToggle);
-    themeToggle.addEventListener("click", uiToggleTheme);
-  }
+  const toggle = document.querySelector(".theme-toggle");
+  if (toggle === null || uiWiredElements.has(toggle)) return;
+  uiWiredElements.add(toggle);
+  toggle.addEventListener("click", uiToggleTheme);
 };
 
 const uiInit = (): void => {
@@ -348,34 +339,22 @@ document.addEventListener("click", (e) => {
 });
 window.addEventListener("resize", uiUpdateScrollButton, { passive: true });
 
-// Only transcript URLs render with the detail pane surfaced on mobile (the
-// server sets `data-mobile-pane` from the selected session); the new-session
-// form, model picker, and sidebar-meta endpoints all start on the sidebar.
-const UI_SESSION_PATH = /^\/sessions\/[^/]+$/;
-const UI_LIST_SESSION_PATHS = new Set([
-  "/sessions/new",
-  "/sessions/model-picker",
-  "/sessions/sidebar-meta",
-]);
-const uiPaneForPath = (path: string): string => {
-  if (UI_LIST_SESSION_PATHS.has(path)) return "sidebar";
-  return UI_SESSION_PATH.test(path) ? "detail" : "sidebar";
-};
+// The pane a full load would show for this URL: only a session transcript
+// surfaces the detail pane. "new" is a route, not a session id.
+const UI_SESSION_PATH = /^\/sessions\/(?!new$)[^/]+$/;
+const uiPaneForPath = (path: string): string =>
+  UI_SESSION_PATH.test(path) ? "detail" : "sidebar";
 
-// htmx history restoration (Back/Forward) swaps the whole body: every
-// listener wired onto page elements at DOMContentLoaded — the Sessions/
-// Detail pane toggle, the theme toggle, the detail-pane scroll and observer
-// bindings — dies with the old nodes, leaving the tabs dead until reload.
-// The restored snapshot also replays whatever pane was frozen at push time
-// (entering a session flips to "detail" before the save), so going Back to
-// the list can land buried in the detail pane. Re-derive the pane from the
-// restored URL — the same rule a full page load applies — and re-run the
-// init against the fresh DOM; every step is idempotent. The swap itself is
+// History restore (Back/Forward) swaps the whole body, so every listener
+// wired onto page elements at DOMContentLoaded dies with the old nodes — the
+// tabs go dead until reload. The restored snapshot also replays the pane
+// frozen at push time (entering a session flips to "detail" before the
+// save), so going Back to the list can land buried in the detail pane.
+// Re-derive the pane from the restored URL, as a full load would, and re-run
+// init against the fresh DOM; every step is idempotent, and the swap is
 // synchronous (swapDelay 0), so the new nodes are in place here.
 const uiOnHistoryRestore = (): void => {
-  document
-    .querySelector(".app")
-    ?.setAttribute("data-mobile-pane", uiPaneForPath(window.location.pathname));
+  uiApplyPane(uiPaneForPath(window.location.pathname));
   uiSyncTitle();
   uiInit();
 };
