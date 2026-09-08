@@ -3,11 +3,17 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
+import {
+  migrateConfigValues,
+  openConfigDb,
+  readLegacyConfigFile,
+  resolveForwardHost,
+} from "../config.js";
 import { startCronScheduler, validateCronJobSet } from "../cron.js";
 import {
   deleteCronJob,
+  importCronJobsFromLegacyConfig,
   listCronJobs,
-  migrateCronJobsFromConfig,
   openCronDb,
   watchCronJobs,
 } from "../cron-jobs.js";
@@ -42,9 +48,11 @@ type ServeOpts = {
   promptsDbPath: string;
   groupsDbPath: string;
   cronDbPath: string;
+  configDbPath: string;
   rpName: string;
   rpIdOverride?: string;
-  forwardHost?: string;
+  /** Opens the reverse tunnel when set (--forward). */
+  forward: boolean;
   debug: boolean;
 };
 
@@ -142,12 +150,27 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
   const cronDb = openCronDb(opts.cronDbPath);
-  // Jobs used to live in the config file's cronJobs array: import them
-  // once and strip the key. An invalid legacy file refuses startup with
-  // the file left hand-fixable.
-  migrateCronJobsFromConfig(opts.profile.dataDirName, cronDb, (jobs) =>
-    validateCronJobSet(jobs, opts.models !== undefined),
-  );
+  // The config database: boot-time scalars (forwardHost). Also the
+  // landing zone for the retired config file's keys.
+  const configDb = openConfigDb(opts.configDbPath);
+  // The config file is gone as a store: when a legacy file still
+  // exists, its cronJobs array is imported into the cron database and
+  // every other key into the config database, then the file is renamed
+  // away (config.json.bak). An invalid file refuses startup before
+  // anything is written, leaving the file hand-fixable.
+  const legacyConfig = readLegacyConfigFile(opts.profile.dataDirName);
+  if (legacyConfig !== undefined) {
+    importCronJobsFromLegacyConfig(legacyConfig, cronDb, (jobs) =>
+      validateCronJobSet(jobs, opts.models !== undefined),
+    );
+    migrateConfigValues(configDb, legacyConfig, opts.profile.dataDirName);
+  }
+  // Resolved after the import above, so a first boot whose host still
+  // lives in a legacy file finds it; every later boot reads the
+  // database only.
+  const forwardHost = opts.forward
+    ? resolveForwardHost(configDb, opts.profile)
+    : undefined;
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({
@@ -188,8 +211,8 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     // takes seconds; warm it now so the first New Session render is instant.
     // Best-effort only: a failure degrades the picker, never the server.
     void opts.models?.choices();
-    if (opts.forwardHost !== undefined)
-      tunnel = startForwardTunnel(info.port, opts.forwardHost);
+    if (forwardHost !== undefined)
+      tunnel = startForwardTunnel(info.port, forwardHost);
   });
   const destroyConnections = trackConnections(server);
 
@@ -199,6 +222,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     promptsDb.close();
     groupsDb.close();
     cronDb.close();
+    configDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

@@ -11,7 +11,7 @@ import {
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import { readConfig } from "./config.js";
+import { resolveConfigDbPath } from "./config.js";
 import { resolveCronDbPath } from "./cron-sessions.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import type { FlavorProfile } from "./profile.js";
@@ -47,24 +47,13 @@ const resolveAgentBinary = (value: string): string => {
   return value;
 };
 
-const resolveForwardHost = (
-  profile: FlavorProfile,
-  forward?: boolean,
-): string | undefined => {
-  if (!forward) return undefined;
-  const { forwardHost } = readConfig(profile.dataDirName);
-  if (forwardHost === undefined)
-    throw new Error('--forward needs "forwardHost" set in the glv config file');
-  return forwardHost;
-};
-
 const registerConfigCommands = (
   program: Command,
   profile: FlavorProfile,
 ): Command => {
   const configCmd = program
     .command("config")
-    .description("Read and set fields in the glv config file")
+    .description("Read and set fields in the glv config database")
     .action(() => runConfigList(profile.dataDirName));
 
   configCmd
@@ -106,8 +95,9 @@ const registerViewCommand = (
     .description("Show prompts and final outputs for a session")
     .action((sessionId: string) => run(sessionId));
 
-// The serve options every flavor shares, appended after the flavor-specific
-// binary/permission flags.
+// The serve options every flavor shares, appended after the
+// flavor-specific binary/permission flags. `forward` defers host
+// resolution to runServe (post-migration, from the config database).
 const addServeTailOptions = (cmd: Command): Command =>
   cmd
     .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
@@ -117,7 +107,7 @@ const addServeTailOptions = (cmd: Command): Command =>
     )
     .option(
       "--forward",
-      "open an ssh reverse tunnel (host from the glv config file)",
+      "open an ssh reverse tunnel (host: config set forwardHost)",
     )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
@@ -129,17 +119,16 @@ type ServeTailOpts = {
 };
 
 const serveTail = (
-  profile: FlavorProfile,
   opts: ServeTailOpts,
 ): {
   rpName: string;
   rpIdOverride?: string;
-  forwardHost?: string;
+  forward: boolean;
   debug: boolean;
 } => ({
   rpName: opts.rpName,
   rpIdOverride: opts.rpId,
-  forwardHost: resolveForwardHost(profile, opts.forward),
+  forward: opts.forward === true,
   debug: opts.debug === true,
 });
 
@@ -195,8 +184,8 @@ export {
   registerViewCommand,
   resolveAgentBinary,
   resolveAuthDbPath,
+  resolveConfigDbPath,
   resolveCronDbPath,
-  resolveForwardHost,
   resolveGroupsDbPath,
   resolvePromptsDbPath,
   runList,

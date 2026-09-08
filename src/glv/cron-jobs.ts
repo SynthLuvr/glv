@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { readRawConfig, writeConfig } from "./config.js";
 import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
 import { transaction, validateAll } from "./query.js";
@@ -9,8 +8,9 @@ import { positiveEnvNumber } from "./util.js";
 
 // The cron job store. Jobs used to live in the config file's cronJobs
 // array; they now live in the cron database (cron.db) beside the
-// session-tag sidecar, with the config file's entries migrated in at
-// boot (migrateCronJobsFromConfig). The web UI mutates rows here, the
+// session-tag sidecar. serve boots the one-time bridge: it reads the
+// legacy config file, hands its cronJobs value to this import, and
+// retires the file (see config.ts). The web UI mutates rows here, the
 // scheduler reads them, and a poll watches for external writers.
 
 // The job shape the config file used to spell (and the migration still
@@ -187,20 +187,18 @@ const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
 // serve always did.
 const CronJobsConfig = type({ "cronJobs?": type([CronJob, "[]"]) });
 
-// Imports the config file's cronJobs array into the database and strips
-// the key from the file — the one-time bridge from the old store. Runs
-// at every serve boot; a file without the key (the common case after
-// the first run) is a no-op. File entries win on a name collision, so
-// re-adding jobs to the file re-imports them once, never duplicated.
+// Imports a legacy config file's cronJobs array into the database —
+// the one-time bridge from the old store, run by serve when it still
+// finds a file. File entries win on a name collision, so re-adding
+// jobs to a file re-imports them once, never duplicated.
 // validateSet checks the whole merged set the way the scheduler will
 // (unique names, parseable schedules, …) — thrown errors refuse serve
 // before anything is written, leaving the file hand-fixable.
-const migrateCronJobsFromConfig = (
-  dataDirName: string,
+const importCronJobsFromLegacyConfig = (
+  raw: Record<string, unknown>,
   db: DatabaseSync,
   validateSet: (jobs: readonly CronJobConfig[]) => void,
 ): void => {
-  const raw = readRawConfig(dataDirName);
   if (raw.cronJobs === undefined) return;
   const parsed = CronJobsConfig(raw);
   if (parsed instanceof type.errors)
@@ -226,13 +224,10 @@ const migrateCronJobsFromConfig = (
   transaction(db, () => {
     for (const job of jobs) upsert(db, job);
   });
-  delete raw.cronJobs;
-  writeConfig(dataDirName, raw);
-  if (fromFile.length > 0)
-    console.log(
-      `cron: migrated ${fromFile.length} job(s) from the config file ` +
-        "into the cron database",
-    );
+  console.log(
+    `cron: migrated ${fromFile.length} job(s) from the config file ` +
+      "into the cron database",
+  );
 };
 
 // The scheduler's change signal for the database. There is no
@@ -254,9 +249,9 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 export type { CronJobConfig };
 export {
   deleteCronJob,
+  importCronJobsFromLegacyConfig,
   insertCronJob,
   listCronJobs,
-  migrateCronJobsFromConfig,
   openCronDb,
   setCronJobEnabled,
   updateCronJob,

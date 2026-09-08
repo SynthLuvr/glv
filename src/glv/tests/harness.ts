@@ -262,6 +262,7 @@ type Databases = {
   readonly promptsDb: string;
   readonly groupsDb: string;
   readonly cronDb: string;
+  readonly configDb: string;
   readonly token: string;
   /**
    * Flavor-specific store paths (goose: sessionsDb; claude: projectsDir,
@@ -306,6 +307,7 @@ const baseDatabases = (
     promptsDb: join(scratchDir, "prompts.db"),
     groupsDb: join(scratchDir, "groups.db"),
     cronDb: join(scratchDir, "cron.db"),
+    configDb: join(scratchDir, "config.db"),
     token: seedAuthDb(authDb),
     flavor,
   };
@@ -321,6 +323,8 @@ const dbOverrideArgs = (dbs: Databases): string[] => [
   dbs.groupsDb,
   "--cron-db",
   dbs.cronDb,
+  "--config-db",
+  dbs.configDb,
 ];
 
 type SseEvent = { event: string; data: string; id: string | undefined };
@@ -680,6 +684,24 @@ const removeCronJobRow = (dbPath: string, name: string): void => {
   const db = openServerCronDb(dbPath);
   try {
     db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name);
+  } finally {
+    db.close();
+  }
+};
+
+// The config database's rows, what `config list` prints and the legacy
+// migration writes.
+const readConfigRows = (dbPath: string): Record<string, string> => {
+  if (!existsSync(dbPath)) return {};
+  const db = openServerCronDb(dbPath);
+  try {
+    const rows = db.prepare("SELECT key, value FROM config").all() as Record<
+      string,
+      unknown
+    >[];
+    const config: Record<string, string> = {};
+    for (const row of rows) config[row.key as string] = row.value as string;
+    return config;
   } finally {
     db.close();
   }
@@ -1099,6 +1121,7 @@ export {
   postFollowUp,
   postNewSession,
   ROOT,
+  readConfigRows,
   readCronConfig,
   readCronJobRows,
   readStoreField,

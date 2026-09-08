@@ -237,7 +237,14 @@ const claudeFixture: harness.FlavorFixture = {
     "--claude-binary",
     "claude",
   ],
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db", "meta.db"],
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "config.db",
+    "meta.db",
+  ],
   assertNewRunArgs: (args) => {
     // The session id is pre-assigned, not discovered after the fact.
     const id = args[args.indexOf("--session-id") + 1];

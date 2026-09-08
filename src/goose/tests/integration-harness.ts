@@ -221,7 +221,13 @@ const gooseFixture: harness.FlavorFixture = {
     sdb.close();
     return ["--db", sessionsDb, "--goose-binary", "goose"];
   },
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db"],
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "config.db",
+  ],
 };
 
 export {

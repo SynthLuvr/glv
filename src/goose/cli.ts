@@ -37,7 +37,8 @@ program
   .option("--auth-db <path>", "auth database path")
   .option("--prompts-db <path>", "saved prompts database path")
   .option("--groups-db <path>", "session groups database path")
-  .option("--cron-db <path>", "scheduled runs database path");
+  .option("--cron-db <path>", "scheduled runs database path")
+  .option("--config-db <path>", "config database path");
 
 const GlobalOpts = type({
   "db?": "string",
@@ -45,6 +46,7 @@ const GlobalOpts = type({
   "promptsDb?": "string",
   "groupsDb?": "string",
   "cronDb?": "string",
+  "configDb?": "string",
 });
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);
@@ -63,6 +65,8 @@ const getGroupsDbPath = (): string =>
 const getCronDbPath = (): string =>
   cli.resolveCronDbPath(gooseProfile.dataDirName, globalOpts().cronDb);
 
+const getConfigDbPath = (): string =>
+  cli.resolveConfigDbPath(gooseProfile.dataDirName, globalOpts().configDb);
 // List/view only read; one read-only handle safely backs both store roles.
 const useSessions = (fn: (sessions: SessionStore) => void): void => {
   const db = openDb(getDbPath());
@@ -166,7 +170,8 @@ serveCmd.action((opts: ServeOpts) => {
     promptsDbPath: getPromptsDbPath(),
     groupsDbPath: getGroupsDbPath(),
     cronDbPath: getCronDbPath(),
-    ...cli.serveTail(gooseProfile, opts),
+    configDbPath: getConfigDbPath(),
+    ...cli.serveTail(opts),
   });
 });
 
