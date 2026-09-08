@@ -145,16 +145,16 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Jobs used to live in the config file's cronJobs array: import them
   // once and strip the key. An invalid legacy file refuses startup with
   // the file left hand-fixable.
-  migrateCronJobsFromConfig(opts.profile.dataDirName, cronDb, {
-    validateSet: (jobs) => validateCronJobSet(jobs, opts.models !== undefined),
-  });
+  migrateCronJobsFromConfig(opts.profile.dataDirName, cronDb, (jobs) =>
+    validateCronJobSet(jobs, opts.models !== undefined),
+  );
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({
     launcher,
     runner,
     readJobs: () => listCronJobs(cronDb),
-    watchJobs: (onChange) => watchCronJobs(onChange),
+    watchJobs: watchCronJobs,
     tagSession: (sessionId, jobName) =>
       tagCronSession(cronDb, sessionId, jobName),
     // One-shots retire themselves from the database once their moment

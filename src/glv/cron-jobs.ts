@@ -111,73 +111,38 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
     db.prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`).all(),
   ).map(mapRow);
 
-// The write shape every mutation shares: full row values (the UI never
-// patches single columns), enabled defaulted on.
-const jobValues = (
-  job: CronJobWrite,
-): {
-  readonly name: string;
-  readonly schedule: string;
-  readonly prompt: string;
-  readonly workingDir: string;
-  readonly timezone: string | null;
-  readonly enabled: number;
-  readonly modelProvider: string | null;
-  readonly model: string | null;
-} => ({
-  name: job.name,
-  schedule: job.schedule,
-  prompt: job.prompt,
-  workingDir: job.workingDir,
-  timezone: job.timezone ?? null,
-  enabled: job.enabled === false ? 0 : 1,
-  modelProvider: job.modelProvider ?? null,
-  model: job.model ?? null,
-});
+// The write shape every mutation shares: values in JOB_COLS order —
+// full row (the UI never patches single columns), optionals nulled,
+// enabled defaulted on.
+const jobParams = (job: CronJobWrite): (string | number | null)[] => [
+  job.name,
+  job.schedule,
+  job.prompt,
+  job.workingDir,
+  job.timezone ?? null,
+  job.enabled === false ? 0 : 1,
+  job.modelProvider ?? null,
+  job.model ?? null,
+];
 
-const INSERT_SQL =
-  "INSERT INTO cron_jobs " +
-  "(name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
-  "ON CONFLICT(name) DO UPDATE SET " +
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const UPSERT_SQL =
+  `${INSERT_SQL} ON CONFLICT(name) DO UPDATE SET ` +
   "schedule = excluded.schedule, prompt = excluded.prompt, " +
   "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
   "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
   "model = excluded.model, updated_at = datetime('now')";
 
-const upsert = (db: DatabaseSync, job: CronJobWrite): void => {
-  const v = jobValues(job);
-  db.prepare(INSERT_SQL).run(
-    v.name,
-    v.schedule,
-    v.prompt,
-    v.workingDir,
-    v.timezone,
-    v.enabled,
-    v.modelProvider,
-    v.model,
-  );
-};
-
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
 const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
-  const v = jobValues(job);
-  db.prepare(
-    "INSERT INTO cron_jobs " +
-      "(name, schedule, prompt, working_dir, timezone, enabled, " +
-      "model_provider, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    v.name,
-    v.schedule,
-    v.prompt,
-    v.workingDir,
-    v.timezone,
-    v.enabled,
-    v.modelProvider,
-    v.model,
-  );
+  db.prepare(INSERT_SQL).run(...jobParams(job));
+};
+
+const upsert = (db: DatabaseSync, job: CronJobWrite): void => {
+  db.prepare(UPSERT_SQL).run(...jobParams(job));
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -187,9 +152,8 @@ const updateCronJob = (
   db: DatabaseSync,
   currentName: string,
   job: CronJobWrite,
-): boolean => {
-  const v = jobValues(job);
-  const result = db
+): boolean =>
+  db
     .prepare(
       `UPDATE cron_jobs
          SET name = ?, schedule = ?, prompt = ?, working_dir = ?,
@@ -197,19 +161,7 @@ const updateCronJob = (
              updated_at = datetime('now')
          WHERE name = ?`,
     )
-    .run(
-      v.name,
-      v.schedule,
-      v.prompt,
-      v.workingDir,
-      v.timezone,
-      v.enabled,
-      v.modelProvider,
-      v.model,
-      currentName,
-    );
-  return result.changes > 0;
-};
+    .run(...jobParams(job), currentName).changes > 0;
 
 // Pause/resume without touching anything else the form never exposes.
 const setCronJobEnabled = (
@@ -235,24 +187,18 @@ const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
 // serve always did.
 const CronJobsConfig = type({ "cronJobs?": type([CronJob, "[]"]) });
 
-type MigrationDeps = {
-  /**
-   * Validates the whole merged set the way the scheduler will (unique
-   * names, parseable schedules, …) — thrown errors refuse serve before
-   * anything is written, leaving the file hand-fixable.
-   */
-  readonly validateSet: (jobs: readonly CronJobConfig[]) => void;
-};
-
 // Imports the config file's cronJobs array into the database and strips
 // the key from the file — the one-time bridge from the old store. Runs
 // at every serve boot; a file without the key (the common case after
 // the first run) is a no-op. File entries win on a name collision, so
 // re-adding jobs to the file re-imports them once, never duplicated.
+// validateSet checks the whole merged set the way the scheduler will
+// (unique names, parseable schedules, …) — thrown errors refuse serve
+// before anything is written, leaving the file hand-fixable.
 const migrateCronJobsFromConfig = (
   dataDirName: string,
   db: DatabaseSync,
-  deps: MigrationDeps,
+  validateSet: (jobs: readonly CronJobConfig[]) => void,
 ): void => {
   const raw = readRawConfig(dataDirName);
   if (raw.cronJobs === undefined) return;
@@ -265,22 +211,17 @@ const migrateCronJobsFromConfig = (
   // written: a duplicate name inside the file (invisible after the
   // name-keyed merge below) refuses serve here, with the file left
   // untouched, exactly as the config-reader used to refuse it.
-  deps.validateSet(fromFile);
+  validateSet(fromFile);
 
-  // File entries win on a name collision with a stored row, so
-  // re-adding jobs to the file re-imports them once, never duplicated.
   const merged = new Map(
     listCronJobs(db).map((job) => [job.name, job] as const),
   );
   fromFile.forEach((job, index) => {
-    merged.set(resolvedCronName(job, index), {
-      ...job,
-      name: resolvedCronName(job, index),
-      enabled: job.enabled !== false,
-    });
+    const name = resolvedCronName(job, index);
+    merged.set(name, { ...job, name, enabled: job.enabled !== false });
   });
   const jobs = [...merged.values()];
-  deps.validateSet(jobs);
+  validateSet(jobs);
 
   transaction(db, () => {
     for (const job of jobs) upsert(db, job);
@@ -310,7 +251,7 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
   return { stop: () => clearInterval(poll) };
 };
 
-export type { CronJobConfig, CronJobRecord, CronJobWrite };
+export type { CronJobConfig };
 export {
   deleteCronJob,
   insertCronJob,

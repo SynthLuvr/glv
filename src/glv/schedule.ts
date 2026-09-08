@@ -511,9 +511,9 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
 // to cron-<n>); what the UI renders and mutates.
 type NamedCronJob = CronJobConfig & { readonly name: string };
 
-// Unnamed config entries are identified by their position. The
-// migration from the config file assigns names through this, so a
-// hand-edited entry keeps one identity everywhere.
+// Unnamed entries are identified by their position (cron-1, cron-2, …):
+// the migration names a legacy config file's entries this way, and the
+// scheduler resolves every entry through the same rule.
 const resolvedCronName = (job: CronJobConfig, index: number): string =>
   job.name?.trim() || `cron-${index + 1}`;
 

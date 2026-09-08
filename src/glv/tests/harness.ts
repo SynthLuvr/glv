@@ -614,14 +614,17 @@ const openServerCronDb = (dbPath: string): DatabaseSync => {
   return db;
 };
 
+// The cron database's columns, in one spelling shared by the read and
+// seed statements below.
+const JOB_COLS =
+  "name, schedule, prompt, working_dir, timezone, enabled, " +
+  "model_provider, model";
+
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerCronDb(dbPath);
   try {
     const rows = db
-      .prepare(
-        "SELECT name, schedule, prompt, working_dir, timezone, enabled, " +
-          "model_provider, model FROM cron_jobs ORDER BY rowid",
-      )
+      .prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`)
       .all() as Record<string, unknown>[];
     return rows.map((row) => ({
       name: row.name as string,
@@ -652,9 +655,7 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   const db = openServerCronDb(dbPath);
   try {
     db.prepare(
-      "INSERT INTO cron_jobs " +
-        "(name, schedule, prompt, working_dir, timezone, enabled, " +
-        "model_provider, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+      `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ` +
         "ON CONFLICT(name) DO UPDATE SET " +
         "schedule = excluded.schedule, prompt = excluded.prompt, " +
         "working_dir = excluded.working_dir, timezone = excluded.timezone, " +

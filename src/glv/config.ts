@@ -64,7 +64,6 @@ const writeConfig = (
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 };
 
-export type { GlvConfig };
 export {
   CONFIG_KEYS,
   readConfig,

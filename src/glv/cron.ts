@@ -352,11 +352,11 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     if (signature === JSON.stringify(current)) return;
     try {
       current = applyJobs(resolved);
-      lastOutcome = signature;
     } catch (err) {
-      lastOutcome = signature;
       logKeptSchedule("rejected", err);
       return;
+    } finally {
+      lastOutcome = signature;
     }
     console.log(`cron: ${current.length} job(s) scheduled after reload`);
   };

@@ -98,6 +98,11 @@ const writeJobsOr = (
   return undefined;
 };
 
+// The 500 body shared by the mutations whose database write fails.
+const dbWriteError = (error: string) => (
+  <p class="status-hint error">Could not update the cron database: {error}</p>
+);
+
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   // Suggestion fragments for the timezone combobox — <auto-complete> on
   // the form fetches these as the user types; an empty query means the
@@ -349,13 +354,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const writeError = writeJobsOr(ctx, (db) =>
       setCronJobEnabled(db, name, enabled),
     );
-    if (writeError !== undefined)
-      return c.html(
-        <p class="status-hint error">
-          Could not update the cron database: {writeError}
-        </p>,
-        500,
-      );
+    if (writeError !== undefined) return c.html(dbWriteError(writeError), 500);
     const { jobs: fresh, error } = readJobsOr(ctx);
     if (error !== undefined)
       return c.html(<p class="status-hint error">{error}</p>, 500);
@@ -371,13 +370,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const writeError = writeJobsOr(ctx, (db) => {
       removed = deleteCronJob(db, name);
     });
-    if (writeError !== undefined)
-      return c.html(
-        <p class="status-hint error">
-          Could not update the cron database: {writeError}
-        </p>,
-        500,
-      );
+    if (writeError !== undefined) return c.html(dbWriteError(writeError), 500);
     if (!removed) return c.notFound();
     const { jobs } = readJobsOr(ctx);
     // The (possibly hidden) section swaps back in, so deleting the last
