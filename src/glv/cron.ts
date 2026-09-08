@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Cron } from "croner";
-import { type CronJobConfig, watchConfigFile } from "./config.js";
+import { type CronJobConfig } from "./cron-jobs.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { jobModelSelection } from "./models.js";
@@ -18,7 +18,13 @@ import { errorMessage, positiveEnvNumber } from "./util.js";
 
 type CronScheduler = {
   /**
-   * Stops every scheduled job and the config watcher. In-flight agent
+   * Re-reads the job set and swaps the schedule if it changed. The
+   * watch poll calls this on its interval; UI mutations call it
+   * directly so they apply instantly.
+   */
+  readonly reload: () => void;
+  /**
+   * Stops every scheduled job and the watch poll. In-flight agent
    * runs keep running.
    */
   readonly stop: () => void;
@@ -28,18 +34,21 @@ type SchedulerDeps = {
   readonly launcher: SessionLauncher;
   readonly runner: Runner;
   /**
-   * Reads cron jobs from the config file; throws while the file is
-   * unreadable or invalid.
+   * Reads cron jobs from the cron database; throws while the store is
+   * unreadable.
    */
   readonly readJobs: () => readonly CronJobConfig[];
-  /** Config file path, watched so edits apply without a restart. */
-  readonly configPath: string;
+  /**
+   * Registers the change signal: a poll over the cron database, so
+   * edits from other processes land within its interval.
+   */
+  readonly watchJobs: (onChange: () => void) => { readonly stop: () => void };
   /** Records which job started a session, for sidebar recognition. */
   readonly tagSession?: (sessionId: string, jobName: string) => void;
   /**
-   * Retires a one-shot job (removes it from the config) once its moment
-   * has passed — after it fired, or at boot/reload when it expired
-   * unfired.
+   * Retires a one-shot job (removes it from the database) once its
+   * moment has passed — after it fired, or at boot/reload when it
+   * expired unfired.
    */
   readonly retireOneShot?: (jobName: string) => void;
   /**
@@ -85,7 +94,7 @@ const assertUniqueNames = (jobs: readonly ResolvedJob[]): void => {
   for (const job of jobs) {
     if (seen.has(job.name))
       throw new Error(
-        `duplicate cron job name "${job.name}" in the glv config file`,
+        `duplicate cron job name "${job.name}" in the cron database`,
       );
     seen.add(job.name);
   }
@@ -139,13 +148,24 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
 };
 
 // Whole-set validation, separate from the running schedule so an edit
-// can be checked fully before anything is swapped in.
+// can be checked fully before anything is swapped in. The config
+// migration runs the same check before committing anything, so an
+// invalid legacy file refuses serve with the file left hand-fixable.
 const validateJobs = (
   jobs: readonly ResolvedJob[],
   supportsModels: boolean,
 ): void => {
   assertUniqueNames(jobs);
   for (const job of jobs) validateJob(job, supportsModels);
+};
+
+// The public whole-set check: resolves names/paths the way the
+// scheduler will, then validates. Throws naming the offending job.
+const validateCronJobSet = (
+  jobs: readonly CronJobConfig[],
+  supportsModels: boolean,
+): void => {
+  validateJobs(resolveJobs(jobs), supportsModels);
 };
 
 // Scheduling translates the schedule to what croner drives: an English
@@ -225,16 +245,16 @@ const fireJob = (
   });
 
 // An invalid reload is logged, not thrown: the previous schedule keeps
-// running until the file is valid again.
+// running until the store holds a valid set again.
 const logKeptSchedule = (outcome: string, err: unknown): void =>
   console.error(
-    `cron: config reload ${outcome} — keeping the running schedule (${errorMessage(err)})`,
+    `cron: reload ${outcome} — keeping the running schedule (${errorMessage(err)})`,
   );
 
-// Schedules one croner job per config entry, then watches the config file
-// so later edits apply without a restart. Throws (naming the job) on any
-// invalid entry at boot so serve fails fast; an invalid *reload* is
-// logged instead and the running schedule kept.
+// Schedules one croner job per stored entry, then watches the cron
+// database so later edits apply without a restart. Throws (naming the
+// job) on any invalid entry at boot so serve fails fast; an invalid
+// *reload* is logged instead and the running schedule kept.
 const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   // The per-directory locks and in-flight markers outlive reloads, so a
   // rebuilt schedule never doubles runs onto one the previous set started.
@@ -252,7 +272,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
       deps.retireOneShot?.(job.name);
     } catch (err) {
       console.error(
-        `cron job "${job.name}": could not retire it from the config — ` +
+        `cron job "${job.name}": could not retire it from the database — ` +
           errorMessage(err),
       );
     }
@@ -267,7 +287,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
       establishing.delete(job.name);
     });
     // A one-shot's moment has passed whatever the outcome; retire it so
-    // the config (and the UI reading it) tells the truth.
+    // the database (and the UI reading it) tells the truth.
     if (parseOneShotSchedule(job.schedule, job.timezone) !== undefined)
       void done.then(() => retire(job));
   };
@@ -287,7 +307,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     const effective: ResolvedJob[] = [];
     for (const job of resolved) {
       // A one-shot whose time already passed: never fires late — retire
-      // it so the config (and the UI reading it) tells the truth. A
+      // it so the database (and the UI reading it) tells the truth. A
       // missed moment stays missed, whether the job was enabled or
       // paused.
       const once = parseOneShotSchedule(job.schedule, job.timezone);
@@ -307,33 +327,50 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     return effective;
   };
 
+  // The watch poll fires on its interval whether or not anything
+  // changed, so the signature of the last set that was acted on (or
+  // rejected, named) suppresses repeat work and repeat log lines — one
+  // report per distinct job set, like the file watcher before it.
+  let lastOutcome: string | undefined;
+
   const reload = (): void => {
     let resolved: readonly ResolvedJob[];
     try {
       resolved = resolveJobs(deps.readJobs());
     } catch (err) {
-      logKeptSchedule("failed", err);
+      const failure = `failed: ${errorMessage(err)}`;
+      if (failure !== lastOutcome) {
+        lastOutcome = failure;
+        logKeptSchedule("failed", err);
+      }
       return;
     }
-    // An edit that leaves the jobs untouched (e.g. forwardHost) must not
-    // reschedule anything.
-    if (JSON.stringify(resolved) === JSON.stringify(current)) return;
+    const signature = JSON.stringify(resolved);
+    if (signature === lastOutcome) return;
+    // An edit that leaves the jobs untouched must not reschedule
+    // anything.
+    if (signature === JSON.stringify(current)) return;
     try {
       current = applyJobs(resolved);
+      lastOutcome = signature;
     } catch (err) {
+      lastOutcome = signature;
       logKeptSchedule("rejected", err);
       return;
     }
-    console.log(`cron: ${current.length} job(s) scheduled after config reload`);
+    console.log(`cron: ${current.length} job(s) scheduled after reload`);
   };
 
   // Boot is fail-fast: an invalid job set throws out of serve startup.
   current = applyJobs(resolveJobs(deps.readJobs()));
   if (current.length > 0)
-    console.log(`cron: ${current.length} job(s) scheduled from the config`);
-  const watcher = watchConfigFile(deps.configPath, reload);
+    console.log(
+      `cron: ${current.length} job(s) scheduled from the cron database`,
+    );
+  const watcher = deps.watchJobs(reload);
 
   return {
+    reload,
     stop: () => {
       watcher.stop();
       for (const cron of scheduled) cron.stop();
@@ -342,4 +379,4 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
 };
 
 export type { CronScheduler };
-export { startCronScheduler };
+export { startCronScheduler, validateCronJobSet };

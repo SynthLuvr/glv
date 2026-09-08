@@ -176,7 +176,7 @@ const NewSessionForm = ({
   /** When present, render the lazy picker slot; `submitted` restores a
    * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
-  /** Scheduled runs from the config file — drives the management section. */
+  /** Scheduled runs from the cron database — drives the management section. */
   jobs?: readonly NamedCronJob[];
 }) => (
   <div class="detail-inner new-session">

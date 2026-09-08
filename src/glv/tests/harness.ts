@@ -261,6 +261,7 @@ type Databases = {
   readonly authDb: string;
   readonly promptsDb: string;
   readonly groupsDb: string;
+  readonly cronDb: string;
   readonly token: string;
   /**
    * Flavor-specific store paths (goose: sessionsDb; claude: projectsDir,
@@ -304,6 +305,7 @@ const baseDatabases = (
     authDb,
     promptsDb: join(scratchDir, "prompts.db"),
     groupsDb: join(scratchDir, "groups.db"),
+    cronDb: join(scratchDir, "cron.db"),
     token: seedAuthDb(authDb),
     flavor,
   };
@@ -317,6 +319,8 @@ const dbOverrideArgs = (dbs: Databases): string[] => [
   dbs.promptsDb,
   "--groups-db",
   dbs.groupsDb,
+  "--cron-db",
+  dbs.cronDb,
 ];
 
 type SseEvent = { event: string; data: string; id: string | undefined };
@@ -553,8 +557,11 @@ const defaultConfigFile = (home: string, dataDirName: string): string =>
     : join(home, ".config", dataDirName, "config.json");
 
 // The config-file shape shared by the cron suites and flavor tests: the
-// file is the source of truth, so tests assert on what the UI writes.
-type CronConfigFile = { cronJobs?: Record<string, unknown>[] };
+// migration reads the file, so tests assert on what it still holds.
+type CronConfigFile = {
+  cronJobs?: Record<string, unknown>[];
+  forwardHost?: string;
+};
 
 // Writes a config file holding exactly these jobs at the flavor's default
 // config path, and returns the path (what serve both reads and watches).
@@ -583,6 +590,99 @@ const cronJobIn = (
   (readCronConfig(path).cronJobs ?? []).find(
     (job) => (job as { name?: string }).name === name,
   );
+
+// The cron database's job rows, as the store spells them (camelCase,
+// `enabled` boolean, absent optionals omitted) — what the UI writes and
+// the scheduler reads.
+type CronJobRow = {
+  name: string;
+  schedule: string;
+  prompt: string;
+  workingDir: string;
+  timezone?: string;
+  enabled: boolean;
+  modelProvider?: string;
+  model?: string;
+};
+
+// Opens the running server's cron database from the test process. The
+// server holds its own connection; busy timeouts on both sides wait out
+// the brief overlap a concurrent write causes.
+const openServerCronDb = (dbPath: string): DatabaseSync => {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA busy_timeout=5000");
+  return db;
+};
+
+const readCronJobRows = (dbPath: string): CronJobRow[] => {
+  const db = openServerCronDb(dbPath);
+  try {
+    const rows = db
+      .prepare(
+        "SELECT name, schedule, prompt, working_dir, timezone, enabled, " +
+          "model_provider, model FROM cron_jobs ORDER BY rowid",
+      )
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => ({
+      name: row.name as string,
+      schedule: row.schedule as string,
+      prompt: row.prompt as string,
+      workingDir: row.working_dir as string,
+      ...(row.timezone === null ? {} : { timezone: row.timezone as string }),
+      enabled: row.enabled !== 0,
+      ...(row.model_provider === null || row.model === null
+        ? {}
+        : {
+            modelProvider: row.model_provider as string,
+            model: row.model as string,
+          }),
+    }));
+  } finally {
+    db.close();
+  }
+};
+
+const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
+  readCronJobRows(dbPath).find((job) => job.name === name);
+
+// Writes a job row exactly as given — no validation, so tests can seed
+// invalid schedules the live reload must reject. An existing row of the
+// same name is replaced (the edit path); removeCronJobRow deletes one.
+const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
+  const db = openServerCronDb(dbPath);
+  try {
+    db.prepare(
+      "INSERT INTO cron_jobs " +
+        "(name, schedule, prompt, working_dir, timezone, enabled, " +
+        "model_provider, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(name) DO UPDATE SET " +
+        "schedule = excluded.schedule, prompt = excluded.prompt, " +
+        "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
+        "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
+        "model = excluded.model",
+    ).run(
+      job.name,
+      job.schedule,
+      job.prompt,
+      job.workingDir,
+      job.timezone ?? null,
+      job.enabled === false ? 0 : 1,
+      job.modelProvider ?? null,
+      job.model ?? null,
+    );
+  } finally {
+    db.close();
+  }
+};
+
+const removeCronJobRow = (dbPath: string, name: string): void => {
+  const db = openServerCronDb(dbPath);
+  try {
+    db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name);
+  } finally {
+    db.close();
+  }
+};
 
 // Boots serve with the given argv/env and resolves on exit; a serve still
 // alive at the deadline is killed and yields status null — which fails a
@@ -969,6 +1069,7 @@ const collectSse = async (
 
 export type {
   CronConfigFile,
+  CronJobRow,
   Databases,
   FlavorAdapter,
   FlavorFixture,
@@ -983,6 +1084,7 @@ export {
   baseDatabases,
   collectSse,
   cronJobIn,
+  cronJobRow,
   dbOverrideArgs,
   defaultConfigFile,
   defaultDataDir,
@@ -997,8 +1099,11 @@ export {
   postNewSession,
   ROOT,
   readCronConfig,
+  readCronJobRows,
   readStoreField,
+  removeCronJobRow,
   rmScratch,
+  seedCronJobRow,
   spawnLauncher,
   spawnLauncherSync,
   startEnv,

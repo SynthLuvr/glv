@@ -1,13 +1,15 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import {
-  appendCronJob,
   deleteCronJob,
-  readCronJobs,
-  writeCronJobs,
-} from "../../config.js";
+  insertCronJob,
+  listCronJobs,
+  setCronJobEnabled,
+  updateCronJob,
+} from "../../cron-jobs.js";
 import {
   jobModelSelection,
   jobModelValue,
@@ -18,7 +20,6 @@ import {
   fmtDateTime,
   type NamedCronJob,
   parseSchedule,
-  withResolvedNames,
 } from "../../schedule.js";
 import {
   SERVER_TIMEZONE,
@@ -39,9 +40,9 @@ import type { ServerContext } from "../context.js";
 import { expandHome } from "../paths.js";
 import { hasModelPicker, modelPickerOpts } from "../render.js";
 
-// Management surface for scheduled runs. The config file stays the source
-// of truth: every mutation is a read-modify-write of its cronJobs array,
-// and the scheduler picks each one up live — no restart needed.
+// Management surface for scheduled runs. The cron database is the source
+// of truth: every mutation writes a row and nudges the scheduler, which
+// re-reads the table live — no restart needed.
 
 // Names must stay URL-safe (they name route params) and human-friendly.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
@@ -64,22 +65,37 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
   return typeof value === "string" ? value.trim() : "";
 };
 
-// A read can only throw when the config file is invalid (it was valid at
-// boot, so someone hand-edited it since); surface that instead of a 500.
+// The section's job list, or an empty list with the read error surfaced
+// when the store is unreadable (it was valid at boot, so something
+// external broke it); shown instead of a 500.
 const readJobsOr = (
   ctx: ServerContext,
 ): {
   jobs: NamedCronJob[];
   error: string | undefined;
 } => {
+  if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
   try {
-    return {
-      jobs: withResolvedNames(readCronJobs(ctx.profile.dataDirName)),
-      error: undefined,
-    };
+    return { jobs: listCronJobs(ctx.cronDb), error: undefined };
   } catch (err) {
     return { jobs: [], error: errorMessage(err) };
   }
+};
+
+// Every successful mutation lands in the database first, then nudges
+// the scheduler so the new schedule applies immediately.
+const writeJobsOr = (
+  ctx: ServerContext,
+  write: (db: DatabaseSync) => void,
+): string | undefined => {
+  if (ctx.cronDb === undefined) return "the cron database is not open";
+  try {
+    write(ctx.cronDb);
+  } catch (err) {
+    return errorMessage(err);
+  }
+  ctx.onCronJobsChange?.();
+  return undefined;
 };
 
 const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
@@ -137,8 +153,8 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   );
 
   // Creates a job from the slot form. The New Session form itself stays
-  // untouched — the config file is written and the confirmation lands in
-  // the slot, with the grid and count refreshing out of band.
+  // untouched — the row is written and the confirmation lands in the
+  // slot, with the grid and count refreshing out of band.
   app.post("/cron", async (c) => {
     const body = (await c.req.parseBody({ all: true })) as Record<
       string,
@@ -186,7 +202,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     if (existing.some((job) => job.name === jobName))
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
-    // English becomes its cron pattern here — the file stores one
+    // English becomes its cron pattern here — the database stores one
     // canonical spelling.
     const job: NamedCronJob = {
       name: jobName,
@@ -196,11 +212,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       ...(timezone === "" ? {} : { timezone }),
       ...modelPinFields(picked),
     };
-    try {
-      appendCronJob(ctx.profile.dataDirName, job);
-    } catch (err) {
-      return reject(`Could not save the scheduled run: ${errorMessage(err)}`);
-    }
+    const writeError = writeJobsOr(ctx, (db) => insertCronJob(db, job));
+    if (writeError !== undefined)
+      return reject(`Could not save the scheduled run: ${writeError}`);
     // Confirmation inline in the slot; the grid and count swap out of
     // band so the new card appears below without touching the slot.
     const { jobs: fresh } = readJobsOr(ctx);
@@ -264,7 +278,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const submittedTimezone = trimmedField(body, "timezone");
 
     // The picker is exposed only where the flavor supports models; an
-    // unexposed field keeps whatever the file already pins.
+    // unexposed field keeps whatever the row already pins.
     const pickerExposed = hasModelPicker(ctx);
     const submittedModel = trimmedField(body, "model_provider");
     const picked = pickerExposed
@@ -316,16 +330,13 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       workingDir,
       ...(timezone === undefined ? {} : { timezone }),
     };
-    try {
-      writeCronJobs(
-        ctx.profile.dataDirName,
-        jobs.map((job) => (job.name === currentName ? updated : job)),
-      );
-    } catch (err) {
+    const writeError = writeJobsOr(ctx, (db) =>
+      updateCronJob(db, currentName, updated),
+    );
+    if (writeError !== undefined)
       return reject(
-        `Could not save — the config file rejected the change: ${errorMessage(err)}`,
+        `Could not save — the cron database rejected the change: ${writeError}`,
       );
-    }
     return c.html(<ScheduleJobCard job={updated} />);
   });
 
@@ -335,19 +346,16 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const name = c.req.param("name") ?? "";
     const { jobs } = readJobsOr(ctx);
     if (findJob(jobs, name) === undefined) return c.notFound();
-    try {
-      writeCronJobs(
-        ctx.profile.dataDirName,
-        jobs.map((job) => (job.name === name ? { ...job, enabled } : job)),
-      );
-    } catch (err) {
+    const writeError = writeJobsOr(ctx, (db) =>
+      setCronJobEnabled(db, name, enabled),
+    );
+    if (writeError !== undefined)
       return c.html(
         <p class="status-hint error">
-          Could not update the config file: {errorMessage(err)}
+          Could not update the cron database: {writeError}
         </p>,
         500,
       );
-    }
     const { jobs: fresh, error } = readJobsOr(ctx);
     if (error !== undefined)
       return c.html(<p class="status-hint error">{error}</p>, 500);
@@ -359,16 +367,18 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
   app.delete("/cron/:name", (c) => {
     const name = c.req.param("name");
-    try {
-      if (!deleteCronJob(ctx.profile.dataDirName, name)) return c.notFound();
-    } catch (err) {
+    let removed = false;
+    const writeError = writeJobsOr(ctx, (db) => {
+      removed = deleteCronJob(db, name);
+    });
+    if (writeError !== undefined)
       return c.html(
         <p class="status-hint error">
-          Could not update the config file: {errorMessage(err)}
+          Could not update the cron database: {writeError}
         </p>,
         500,
       );
-    }
+    if (!removed) return c.notFound();
     const { jobs } = readJobsOr(ctx);
     // The (possibly hidden) section swaps back in, so deleting the last
     // job clears the section from the page.

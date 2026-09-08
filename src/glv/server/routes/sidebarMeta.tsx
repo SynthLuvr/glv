@@ -76,10 +76,10 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
   // Job-started sessions carry their clock badge from the sidecar; one
   // lookup covers the whole sidebar.
   const cronTags = (sessions: readonly SessionRow[]): Map<string, string> =>
-    ctx.cronSessions === undefined
+    ctx.cronDb === undefined
       ? new Map()
       : jobNamesFor(
-          ctx.cronSessions,
+          ctx.cronDb,
           sessions.map((s) => s.id),
         );
 

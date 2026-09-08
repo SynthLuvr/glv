@@ -36,8 +36,8 @@ const clockIcon = (
 // Standing section-level copy: it renders once, and the fragments
 // that swap in beside it (form, confirmation, edit form) add no copy.
 const LIVE_RELOAD_NOTICE =
-  "Changes apply live — the running server watches the config file, so " +
-  "new and edited jobs start firing without a restart.";
+  "Changes apply live — the running server watches the cron database, " +
+  "so new and edited jobs start firing without a restart.";
 
 // A job that can no longer fire (an expired one-shot) or no longer
 // parses (hand-edited) shows a dash instead of pretending.

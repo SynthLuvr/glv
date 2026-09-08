@@ -149,7 +149,11 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       expect(stdout).toContain("forwardHost=10.0.0.1");
     });
 
-    it("lists cron jobs from the config file", () => {
+    it("echoes a not-yet-migrated cronJobs key from the file", () => {
+      // Scheduled runs moved to the cron database; a config file written
+      // before that (or by hand since) still carries the key, and the
+      // raw listing stays honest about what is on disk until serve's
+      // migration strips it.
       writeFileSync(
         cfgPath,
         JSON.stringify({
@@ -166,6 +170,14 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
       expect(stdout).toContain("cronJobs=");
       expect(stdout).toContain("nightly");
+    });
+
+    it("refuses cronJobs as a settable key — it is not config anymore", () => {
+      const { status, stderr } = run(["config", "set", "cronJobs", "[]"], {
+        GLV_CONFIG: cfgPath,
+      });
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("Unknown config key");
     });
 
     it("exits non-zero with a parse error for invalid config JSON", () => {

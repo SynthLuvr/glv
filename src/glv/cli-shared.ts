@@ -12,6 +12,7 @@ import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { readConfig } from "./config.js";
+import { resolveCronDbPath } from "./cron-sessions.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
 import type { FlavorProfile } from "./profile.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
@@ -194,6 +195,7 @@ export {
   registerViewCommand,
   resolveAgentBinary,
   resolveAuthDbPath,
+  resolveCronDbPath,
   resolveForwardHost,
   resolveGroupsDbPath,
   resolvePromptsDbPath,

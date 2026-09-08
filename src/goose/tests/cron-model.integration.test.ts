@@ -5,7 +5,7 @@ import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
-  cronJobIn,
+  cronJobRow,
   fakeHomeEnv,
   flagValue,
   type IntegrationEnv,
@@ -18,9 +18,10 @@ import { startIntegrationEnv } from "./integration-harness.js";
 
 // Scheduled-run model selection: the New Session form's picker (which
 // scheduled runs inherit — the schedule form renders no picker of its
-// own), the config-file modelProvider/model pair, and the flags each
-// fire actually passes to the agent. goose-only, like the New Session
-// picker it shares the catalogue with (claude has no model surface).
+// own), the cron database's modelProvider/model pair, and the flags
+// each fire actually passes to the agent. goose-only, like the New
+// Session picker it shares the catalogue with (claude has no model
+// surface).
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,14 +72,12 @@ const writeGooseConfig = (home: string): void => {
 describe("scheduled-run model picker (goose)", () => {
   let env: IntegrationEnv;
   let homeDir: string;
-  let cfgPath: string;
   let argsPath: string;
   let workDir: string;
 
   beforeAll(async () => {
     homeDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-home-"));
     writeGooseConfig(homeDir);
-    cfgPath = writeCronConfig(homeDir, "glv-goose", []);
     const argsDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-args-"));
     argsPath = join(argsDir, "args.json");
     workDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-work-"));
@@ -90,8 +89,6 @@ describe("scheduled-run model picker (goose)", () => {
         sessionName: "Pinned Session",
       },
       homeDir,
-      // The fast poll makes the edit test's config reload land quickly.
-      { GLV_CONFIG: cfgPath, GLV_CONFIG_WATCH_POLL_MS: "250" },
     );
   }, 180000);
 
@@ -139,8 +136,8 @@ describe("scheduled-run model picker (goose)", () => {
     expect(html).toContain("Model");
     expect(html).toContain("zai / glm-5.1");
     expect(html).toContain("cron-job-model");
-    // The file stores the pair as its two halves.
-    expect(cronJobIn(cfgPath, "Weekly build")).toMatchObject({
+    // The row stores the pair as its two halves.
+    expect(cronJobRow(env.dbs.cronDb, "Weekly build")).toMatchObject({
       modelProvider: "zai",
       model: "glm-5.1",
     });
@@ -154,7 +151,7 @@ describe("scheduled-run model picker (goose)", () => {
       working_dir: workDir,
     });
     expect(status).toBe(200);
-    const job = cronJobIn(cfgPath, "Default sweep");
+    const job = cronJobRow(env.dbs.cronDb, "Default sweep");
     expect(job).toBeDefined();
     expect(job?.modelProvider).toBeUndefined();
     expect(job?.model).toBeUndefined();
@@ -173,7 +170,7 @@ describe("scheduled-run model picker (goose)", () => {
     // The picker lives in the New Session form above, untouched by the
     // slot swap — the re-rendered form carries no picker to restore.
     expect(html).not.toContain("model-picker-slot");
-    expect(cronJobIn(cfgPath, "ghost-job")).toBeUndefined();
+    expect(cronJobRow(env.dbs.cronDb, "ghost-job")).toBeUndefined();
   });
 
   it("rejects a model the provider does not offer", async () => {
@@ -190,7 +187,7 @@ describe("scheduled-run model picker (goose)", () => {
     });
     expect(status).toBe(422);
     expect(html).toContain("no longer available in goose");
-    expect(cronJobIn(cfgPath, "bad-model")).toBeUndefined();
+    expect(cronJobRow(env.dbs.cronDb, "bad-model")).toBeUndefined();
   });
 
   it("starts fired sessions with the pinned model flags", async () => {
@@ -220,7 +217,9 @@ describe("scheduled-run model picker (goose)", () => {
       headers: { "HX-Request": "true" },
     });
     expect(res.status).toBe(200);
-    expect(cronJobIn(cfgPath, "pinned-sweep")?.modelProvider).toBeUndefined();
+    expect(
+      cronJobRow(env.dbs.cronDb, "pinned-sweep")?.modelProvider,
+    ).toBeUndefined();
     // The reload lands, the next fire overwrites the capture file, and
     // its argv carries no model flags anymore.
     const deadline = Date.now() + 30_000;
@@ -254,7 +253,7 @@ describe("scheduled-run model picker (goose)", () => {
     expect(put.status).toBe(200);
     const putHtml = await put.text();
     expect(putHtml).toContain("anthropic / claude-opus-4-6");
-    expect(cronJobIn(cfgPath, "Weekly build")).toMatchObject({
+    expect(cronJobRow(env.dbs.cronDb, "Weekly build")).toMatchObject({
       modelProvider: "anthropic",
       model: "claude-opus-4-6",
     });
@@ -293,7 +292,7 @@ describe("scheduled-run model picker (goose)", () => {
       await expect(page.locator("#cron-job-grid")).toContainText(
         "Browser model job",
       );
-      expect(cronJobIn(cfgPath, "Browser model job")).toMatchObject({
+      expect(cronJobRow(env.dbs.cronDb, "Browser model job")).toMatchObject({
         modelProvider: "zai",
         model: "glm-5.1",
       });
@@ -301,7 +300,7 @@ describe("scheduled-run model picker (goose)", () => {
   });
 });
 
-describe("hand-edited model pin (goose)", () => {
+describe("hand-written model pin in the legacy config file (goose)", () => {
   let env: IntegrationEnv;
   let homeDir: string;
   let argsPath: string;
@@ -338,8 +337,9 @@ describe("hand-edited model pin (goose)", () => {
   });
 
   it("fires a hand-written pin with the model flags", async () => {
-    // The config file is the source of truth: a pin written by hand (never
-    // touched by the form) reaches the agent's argv on every fire.
+    // The pin is written by hand in the legacy config file (never touched
+    // by the form), migrated into the cron database at boot, and reaches
+    // the agent's argv on every fire.
     const args = await waitForArgs(argsPath);
     expect(flagValue(args, "--provider")).toBe("zai");
     expect(flagValue(args, "--model")).toBe("glm-5.3");

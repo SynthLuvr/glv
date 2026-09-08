@@ -42,14 +42,13 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
     });
 
   beforeAll(async () => {
-    // An isolated HOME keeps the cron scheduler away from any real config,
-    // and an explicit GLV_CRON_DB gives the suite a deterministic sidecar
-    // path to seed and inspect.
+    // An isolated HOME keeps the cron scheduler away from any real
+    // config; serve's cron database lives in the scratch dir (--cron-db
+    // via dbOverrideArgs), a deterministic sidecar path to seed and
+    // inspect.
     homeDir = mkdtempSync(join(tmpdir(), "glv-del-home-"));
-    cronDbPath = join(homeDir, "cron.db");
-    env = await fx.startEnv("glv-delete-", undefined, homeDir, {
-      GLV_CRON_DB: cronDbPath,
-    });
+    env = await fx.startEnv("glv-delete-", undefined, homeDir);
+    cronDbPath = env.dbs.cronDb;
     fx.seedSessions(env, [
       {
         id: "dl-a",
