@@ -10,11 +10,12 @@ import {
 } from "../../schedule.js";
 import {
   authedFetch,
-  type CronConfigFile,
-  cronJobIn,
+  type CronJobRow,
+  cronJobRow,
   type FlavorFixture,
   type IntegrationEnv,
-  readCronConfig,
+  readCronJobRows,
+  seedCronJobRow,
   withPage,
   writeCronConfig,
 } from "../harness.js";
@@ -32,65 +33,44 @@ const withSeconds = (schedule: string, target: Date): string =>
 
 // The scheduled-runs UI: creating from the New Session form, managing
 // from the section, recognizing job-started sessions, and the one-shot
-// lifecycle. The config file stays the source of truth throughout — every
-// assertion about state reads the file the UI claims to write.
+// lifecycle. The cron database stays the source of truth throughout —
+// every assertion about state reads the rows the UI claims to write.
 
 const runCronUiSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, cronJobs: unknown[]): string =>
-    writeCronConfig(homeDir, fx.binName, cronJobs);
-
-  // Polls the file until it satisfies the predicate (the server's writes
-  // trail the HTTP response by design — retirement happens after a fire).
-  const waitForConfig = async (
-    path: string,
-    accept: (config: CronConfigFile) => boolean,
+  // Polls the job rows until they satisfy the predicate (the server's
+  // writes trail the HTTP response by design — retirement happens after
+  // a fire).
+  const waitForRows = async (
+    dbPath: string,
+    accept: (rows: CronJobRow[]) => boolean,
     timeoutMs = 15_000,
-  ): Promise<CronConfigFile> => {
+  ): Promise<CronJobRow[]> => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const config = readCronConfig(path);
-      if (accept(config)) return config;
+      const rows = readCronJobRows(dbPath);
+      if (accept(rows)) return rows;
       if (Date.now() > deadline)
         throw new Error(
-          `config at ${path} never matched: ${JSON.stringify(config)}`,
+          `cron rows at ${dbPath} never matched: ${JSON.stringify(rows)}`,
         );
       await sleep(250);
     }
   };
 
-  // Boots serve against an empty config with the watcher polling at
-  // 250ms, so a one-shot can be written once serve is up and applied
-  // live. The lead must be measured from a booted server: a lead
-  // measured before startEnv let a slow boot outlast the target
-  // instant, leaving the job pruned as expired without ever firing.
-  const startEnvWithLiveConfig = async (
-    prefix: string,
-    sessionName: string,
-    homeDir: string,
-  ): Promise<{ cfgPath: string; env: IntegrationEnv }> => {
-    const cfgPath = writeConfig(homeDir, []);
-    const env = await fx.startEnv(prefix, { sessionName }, homeDir, {
-      GLV_CONFIG: cfgPath,
-      GLV_CONFIG_WATCH_POLL_MS: "250",
-    });
-    return { cfgPath, env };
-  };
-
   describe("schedule mode in the New Session form", () => {
     let env: IntegrationEnv;
     let homeDir: string;
-    let cfgPath: string;
     let workingDir: string;
 
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-form-"));
-      cfgPath = writeConfig(homeDir, []);
       workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-work-"));
       env = await fx.startEnv(
         "glv-cronui-form-",
-        { sessionName: "Should Not Start" },
+        {
+          sessionName: "Should Not Start",
+        },
         homeDir,
-        { GLV_CONFIG: cfgPath },
       );
     }, 120000);
 
@@ -338,7 +318,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("not recognized");
     });
 
-    it("creates a job from the slot form, writes the config file, and starts nothing", async () => {
+    it("creates a job from the slot form, writes the database, and starts nothing", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
@@ -367,14 +347,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("cron-job-card");
       expect(html).toContain("Run the nightly build");
 
-      // English is CONVERTED to a cron pattern — the file stores cron.
-      const config = readCronConfig(cfgPath);
-      expect(config.cronJobs).toEqual([
+      // English is CONVERTED to a cron pattern — the row stores cron.
+      expect(readCronJobRows(env.dbs.cronDb)).toEqual([
         {
           name: "Weekly build",
           schedule: "0 9 * * 1-5",
           prompt: "Run the nightly build",
           workingDir,
+          enabled: true,
         },
       ]);
 
@@ -401,7 +381,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // form above, so only this form's two fields needed restoring.
       expect(html).toContain('value="broken-job"');
       expect(html).toContain("definitely not a schedule");
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronJobRows(env.dbs.cronDb)).toHaveLength(1);
     });
 
     it("rejects an empty prompt with a pointer back to the form", async () => {
@@ -431,7 +411,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(await res.text()).toContain(
         "A working directory is required — set one in the form above",
       );
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronJobRows(env.dbs.cronDb)).toHaveLength(1);
     });
 
     it("rejects a working directory that does not exist", async () => {
@@ -446,7 +426,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(422);
       expect(await res.text()).toContain("does not exist");
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronJobRows(env.dbs.cronDb)).toHaveLength(1);
     });
 
     it("rejects a name collision with an existing job", async () => {
@@ -463,7 +443,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("already exists");
       expect(html).toContain("Weekly build");
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronJobRows(env.dbs.cronDb)).toHaveLength(1);
     });
 
     it("rejects a model the agent cannot resolve, with a pointer to the picker", async () => {
@@ -479,10 +459,10 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(422);
       expect(await res.text()).toContain("no longer available");
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      expect(readCronJobRows(env.dbs.cronDb)).toHaveLength(1);
     });
 
-    it("creates a job with a timezone override in the config file", async () => {
+    it("creates a job with a timezone override in the database", async () => {
       const res = await authedFetch(env, "/cron", {
         method: "POST",
         body: new URLSearchParams({
@@ -500,8 +480,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Scheduled run saved");
       expect(html).toContain("(America/New_York)");
       expect(html).toContain("Timezone");
-      // The file stores the override next to the translated cron.
-      const job = cronJobIn(cfgPath, "NY morning");
+      // The row stores the override next to the translated cron.
+      const job = cronJobRow(env.dbs.cronDb, "NY morning");
       expect(job?.schedule).toBe("0 9 * * 1-5");
       expect(job?.timezone).toBe("America/New_York");
     });
@@ -523,7 +503,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       // The typed timezone survives the rejection alongside the rest.
       expect(html).toContain('value="Mars/Olympus"');
       expect(html).toContain('value="tz-broken"');
-      expect(cronJobIn(cfgPath, "tz-broken")).toBeUndefined();
+      expect(cronJobRow(env.dbs.cronDb, "tz-broken")).toBeUndefined();
     });
 
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
@@ -655,7 +635,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           "Scheduled run saved",
           { timeout: 15_000 },
         );
-        expect(cronJobIn(cfgPath, "Timezone job")?.timezone).toBe(
+        expect(cronJobRow(env.dbs.cronDb, "Timezone job")?.timezone).toBe(
           "America/New_York",
         );
       });
@@ -701,7 +681,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await expect(
           page.locator("[data-schedule-confirmation] dd.mono"),
         ).toHaveAttribute("title", otherDir);
-        expect(cronJobIn(cfgPath, "Dir pick job")?.workingDir).toBe(otherDir);
+        expect(cronJobRow(env.dbs.cronDb, "Dir pick job")?.workingDir).toBe(
+          otherDir,
+        );
       });
     });
   });
@@ -709,13 +691,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
   describe("managing scheduled runs", () => {
     let env: IntegrationEnv;
     let homeDir: string;
-    let cfgPath: string;
+    let workA: string;
+    let workB: string;
 
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-manage-"));
-      const workA = mkdtempSync(join(tmpdir(), "glv-cronui-ma-"));
-      const workB = mkdtempSync(join(tmpdir(), "glv-cronui-mb-"));
-      cfgPath = writeConfig(homeDir, [
+      workA = mkdtempSync(join(tmpdir(), "glv-cronui-ma-"));
+      workB = mkdtempSync(join(tmpdir(), "glv-cronui-mb-"));
+      // Seeded through the config file so this boot also covers the
+      // migration into the cron database.
+      writeCronConfig(homeDir, fx.binName, [
         {
           name: "nightly",
           schedule: "0 9 * * *",
@@ -735,7 +720,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         "glv-cronui-manage-",
         { sessionName: "Unstarted" },
         homeDir,
-        { GLV_CONFIG: cfgPath },
       );
     }, 120000);
 
@@ -744,8 +728,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
-    const jobByName = (name: string): Record<string, unknown> | undefined =>
-      cronJobIn(cfgPath, name);
+    const jobByName = (name: string): CronJobRow | undefined =>
+      cronJobRow(env.dbs.cronDb, name);
 
     it("lists every job with status, schedule, next run, and the notice", async () => {
       const res = await authedFetch(env, "/");
@@ -757,13 +741,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Enabled");
       expect(html).toContain("Nightly sweep of the logs");
       // friday-tz is paused and its schedule keeps the raw pattern shape
-      // plus the timezone suffix from the file.
+      // plus the timezone suffix from the row.
       expect(html).toContain("friday-tz");
       expect(html).toContain("Paused");
       expect(html).toContain("(Europe/Berlin)");
     });
 
-    it("pauses and resumes a job through the config file", async () => {
+    it("pauses and resumes a job through the database", async () => {
       const pause = await authedFetch(env, "/cron/nightly/pause", {
         method: "POST",
       });
@@ -795,7 +779,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           job_name: "friday-eu",
           schedule: "on sunday at 18:00",
           prompt: "Rewritten EU report",
-          working_dir: jobByName("friday-tz")?.workingDir as string,
+          working_dir: workB,
         }),
         headers: { "HX-Request": "true" },
       });
@@ -826,7 +810,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           job_name: "nightly",
           schedule: "on sunday at 18:00",
           prompt: "Rewritten EU report",
-          working_dir: jobByName("friday-eu")?.workingDir as string,
+          working_dir: workB,
         }),
         headers: { "HX-Request": "true" },
       });
@@ -851,7 +835,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
             schedule: "on sunday at 18:00",
             timezone,
             prompt: "Rewritten EU report",
-            working_dir: jobByName("friday-eu")?.workingDir as string,
+            working_dir: workB,
           }),
           headers: { "HX-Request": "true" },
         });
@@ -885,7 +869,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain('id="scheduled-runs"');
       expect(html).toContain("No scheduled runs yet");
       expect(html).not.toContain("cron-job-card");
-      expect(readCronConfig(cfgPath).cronJobs).toEqual([]);
+      expect(readCronJobRows(env.dbs.cronDb)).toEqual([]);
     });
   });
 
@@ -896,7 +880,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-badge-"));
       const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-bw-"));
-      writeConfig(homeDir, [
+      writeCronConfig(homeDir, fx.binName, [
         {
           name: "nightly-watch",
           schedule: "* * * * * *",
@@ -956,24 +940,38 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
   });
 
   describe("schedule lifecycle", () => {
-    it("fires once at the chosen time and retires itself from the config", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-once-"));
-      const { cfgPath, env } = await startEnvWithLiveConfig(
+    // Boots serve with the watch poll at 250ms, so a one-shot can be
+    // seeded into the database once serve is up and applied live. The
+    // lead must be measured from a booted server: a lead measured
+    // before startEnv let a slow boot outlast the target instant,
+    // leaving the job pruned as expired without ever firing.
+    const startEnvWithLiveStore = async (
+      prefix: string,
+      sessionName: string,
+    ): Promise<{ env: IntegrationEnv; homeDir: string }> => {
+      const homeDir = mkdtempSync(join(tmpdir(), `${prefix}home-`));
+      const env = await fx.startEnv(prefix, { sessionName }, homeDir, {
+        GLV_CRON_DB_POLL_MS: "250",
+      });
+      return { env, homeDir };
+    };
+
+    it("fires once at the chosen time and retires itself from the database", async () => {
+      const { env, homeDir } = await startEnvWithLiveStore(
         "glv-cronui-once-",
         "One Shot Session",
-        homeDir,
       );
       // Second precision aims a fixed 30s out: no minute-boundary wait,
       // and no boot competing with the countdown.
       const target = new Date(Date.now() + 30_000);
-      writeConfig(homeDir, [
-        {
-          name: "one-shot",
-          schedule: withSeconds(formatOneShotLocal(target), target),
-          prompt: "One time only",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ow-")),
-        },
-      ]);
+      const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-ow-"));
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "one-shot",
+        schedule: withSeconds(formatOneShotLocal(target), target),
+        prompt: "One time only",
+        workingDir,
+        enabled: true,
+      });
       try {
         // The session lands…
         const deadline = Date.now() + 100_000;
@@ -986,21 +984,22 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         }
         expect(html).toContain("One Shot Session");
 
-        // …and the job retires itself from the config after firing.
-        const config = await waitForConfig(
-          cfgPath,
-          (c) => (c.cronJobs ?? []).length === 0,
+        // …and the job retires itself from the database after firing.
+        const rows = await waitForRows(
+          env.dbs.cronDb,
+          (current) => current.length === 0,
         );
-        expect(config.cronJobs).toEqual([]);
+        expect(rows).toEqual([]);
       } finally {
         await env.cleanup();
+        rmSync(workingDir, { recursive: true, force: true });
         rmSync(homeDir, { recursive: true, force: true });
       }
     }, 150000);
 
     it("prunes an expired one-shot at boot without running it", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-exp-"));
-      const cfgPath = writeConfig(homeDir, [
+      writeCronConfig(homeDir, fx.binName, [
         {
           name: "missed",
           schedule: formatOneShotLocal(new Date(Date.now() - 60_000)),
@@ -1012,15 +1011,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         "glv-cronui-exp-",
         { sessionName: "Missed Session" },
         homeDir,
-        { GLV_CONFIG: cfgPath },
       );
       try {
         // The prune happens during boot, before the first request.
-        const config = await waitForConfig(
-          cfgPath,
-          (c) => (c.cronJobs ?? []).length === 0,
+        const rows = await waitForRows(
+          env.dbs.cronDb,
+          (current) => current.length === 0,
         );
-        expect(config.cronJobs).toEqual([]);
+        expect(rows).toEqual([]);
         const res = await authedFetch(env, "/");
         const html = await res.text();
         expect(html).not.toContain("Missed Session");
@@ -1032,25 +1030,23 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     }, 60000);
 
     it("fires a one-shot at the wall-clock time of its timezone", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtz-"));
+      const { env, homeDir } = await startEnvWithLiveStore(
+        "glv-cronui-xtz-",
+        "Zoned One Shot Session",
+      );
       // A zone with no DST so the wall clock maps cleanly; the schedule
       // is the target instant spelled in that zone's clock.
       const zone = "Pacific/Kiritimati";
-      const { cfgPath, env } = await startEnvWithLiveConfig(
-        "glv-cronui-xtz-",
-        "Zoned One Shot Session",
-        homeDir,
-      );
       const target = new Date(Date.now() + 30_000);
-      writeConfig(homeDir, [
-        {
-          name: "zoned-one-shot",
-          schedule: withSeconds(formatOneShotInZone(target, zone), target),
-          timezone: zone,
-          prompt: "Zoned one time only",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xw-")),
-        },
-      ]);
+      const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-xw-"));
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "zoned-one-shot",
+        schedule: withSeconds(formatOneShotInZone(target, zone), target),
+        timezone: zone,
+        prompt: "Zoned one time only",
+        workingDir,
+        enabled: true,
+      });
       try {
         const deadline = Date.now() + 100_000;
         let html = "";
@@ -1061,14 +1057,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           await sleep(500);
         }
         expect(html).toContain("Zoned One Shot Session");
-        // …and the job retires itself from the config after firing.
-        const config = await waitForConfig(
-          cfgPath,
-          (c) => (c.cronJobs ?? []).length === 0,
+        // …and the job retires itself from the database after firing.
+        const rows = await waitForRows(
+          env.dbs.cronDb,
+          (current) => current.length === 0,
         );
-        expect(config.cronJobs).toEqual([]);
+        expect(rows).toEqual([]);
       } finally {
         await env.cleanup();
+        rmSync(workingDir, { recursive: true, force: true });
         rmSync(homeDir, { recursive: true, force: true });
       }
     }, 150000);
@@ -1076,7 +1073,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     it("prunes a zoned one-shot that expired in its timezone", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtzexp-"));
       const zone = "Pacific/Kiritimati";
-      const cfgPath = writeConfig(homeDir, [
+      writeCronConfig(homeDir, fx.binName, [
         {
           name: "zoned-missed",
           schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
@@ -1089,15 +1086,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         "glv-cronui-xtzexp-",
         { sessionName: "Zoned Missed Session" },
         homeDir,
-        { GLV_CONFIG: cfgPath },
       );
       try {
         // Same instant semantics as the local prune, read in the zone.
-        const config = await waitForConfig(
-          cfgPath,
-          (c) => (c.cronJobs ?? []).length === 0,
+        const rows = await waitForRows(
+          env.dbs.cronDb,
+          (current) => current.length === 0,
         );
-        expect(config.cronJobs).toEqual([]);
+        expect(rows).toEqual([]);
         const res = await authedFetch(env, "/");
         const html = await res.text();
         expect(html).not.toContain("Zoned Missed Session");
@@ -1109,7 +1105,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
     it("fires an English schedule, translated to cron at boot", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-text-"));
-      const cfgPath = writeConfig(homeDir, [
+      writeCronConfig(homeDir, fx.binName, [
         {
           name: "text-sweep",
           schedule: "every 2 minutes",
@@ -1121,7 +1117,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         "glv-cronui-text-",
         { sessionName: "Typed Schedule Session" },
         homeDir,
-        { GLV_CONFIG: cfgPath },
       );
       try {
         // "every 2 minutes" fires on even-minute boundaries, so the
@@ -1141,14 +1136,14 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           await sleep(1000);
         }
         expect(html).toContain("Typed Schedule Session");
-        // A recurring job stays in the config (unlike a one-shot).
-        const jobs = readCronConfig(cfgPath).cronJobs ?? [];
+        // A recurring job stays in the database (unlike a one-shot).
+        const jobs = readCronJobRows(env.dbs.cronDb);
         expect(jobs).toHaveLength(1);
       } finally {
         await env.cleanup();
         rmSync(homeDir, { recursive: true, force: true });
       }
-    }, 360_000);
+    }, 360000);
   });
 };
 

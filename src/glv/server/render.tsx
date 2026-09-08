@@ -1,13 +1,13 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { readCronJobs } from "../config.js";
+import { listCronJobs } from "../cron-jobs.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
-import { type NamedCronJob, withResolvedNames } from "../schedule.js";
+import { type NamedCronJob } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
@@ -228,11 +228,12 @@ type NewSessionDetailOpts = {
   modelProvider?: string;
 };
 
-// Reads the config file's cron jobs for the Scheduled runs section. A
-// config broken by a hand edit must not take the page down.
+// Reads the cron database's jobs for the Scheduled runs section. A
+// store broken by an external edit must not take the page down.
 const safeCronJobs = (ctx: ServerContext): NamedCronJob[] => {
+  if (ctx.cronDb === undefined) return [];
   try {
-    return withResolvedNames(readCronJobs(ctx.profile.dataDirName));
+    return listCronJobs(ctx.cronDb);
   } catch (err) {
     console.error(`cron: could not read jobs for the UI: ${errorMessage(err)}`);
     return [];

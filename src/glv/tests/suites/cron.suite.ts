@@ -15,7 +15,15 @@ import {
   expectServeRefusal,
   type FlavorFixture,
   fakeHomeEnv,
+  findFreePort,
   type IntegrationEnv,
+  readCronConfig,
+  readCronJobRows,
+  removeCronJobRow,
+  seedCronJobRow,
+  spawnLauncher,
+  stopProcess,
+  waitForHttp,
   writeCronConfig,
 } from "../harness.js";
 
@@ -64,19 +72,17 @@ const runCronSuite = (fx: FlavorFixture): void => {
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
+    const cfgPath = writeConfig(homeDir, cronJobs);
     const stderr = await expectServeRefusal(
       fx.binPath,
       ["serve", ...fx.defaultServeArgs(homeDir)],
-      {
-        ...fakeHomeEnv(homeDir),
-        GLV_CONFIG: writeConfig(homeDir, cronJobs),
-      },
+      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
     );
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);
     rmSync(homeDir, { recursive: true, force: true });
   };
 
-  describe("scheduled sessions from the config file", () => {
+  describe("scheduled sessions from the cron database", () => {
     let env: IntegrationEnv;
     let homeDir: string;
     let workingDir: string;
@@ -88,6 +94,8 @@ const runCronSuite = (fx: FlavorFixture): void => {
       workingDir = mkdtempSync(join(tmpdir(), "glv-cron-work-"));
       stdinCapture = join(homeDir, "stdin-capture.txt");
       cwdCapture = join(homeDir, "cwd-capture.txt");
+      // Seeded through the config file, so this boot also exercises the
+      // one-time migration into the cron database.
       writeConfig(homeDir, [
         {
           name: "every-second",
@@ -112,6 +120,23 @@ const runCronSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
+    it("migrates the config file's jobs into the cron database at boot", () => {
+      // The row now lives where the scheduler read it from.
+      expect(readCronJobRows(env.dbs.cronDb)).toEqual([
+        {
+          name: "every-second",
+          schedule: "* * * * * *",
+          prompt: "Scheduled check-in from cron",
+          workingDir,
+          enabled: true,
+        },
+      ]);
+      // The config file keeps only its other keys — cronJobs is gone.
+      expect(readCronConfig(defaultConfigFile(homeDir, fx.binName))).toEqual(
+        {},
+      );
+    });
+
     it("starts a new session per fire with the job's prompt and working dir", async () => {
       // The job fires every second; poll the sidebar until a session lands.
       const deadline = Date.now() + 30_000;
@@ -130,6 +155,138 @@ const runCronSuite = (fx: FlavorFixture): void => {
       expect(stdin).toContain("Scheduled check-in from cron");
       const cwd = await waitForContent(cwdCapture);
       expect(cwd.trim()).toBe(workingDir);
+    });
+  });
+
+  describe("migrating the config file into the cron database", () => {
+    let env: IntegrationEnv;
+    let homeDir: string;
+    let cfgPath: string;
+    let workA: string;
+    let workB: string;
+
+    beforeAll(async () => {
+      homeDir = mkdtempSync(join(tmpdir(), "glv-cron-mig-"));
+      workA = mkdtempSync(join(tmpdir(), "glv-cron-mw-a-"));
+      workB = mkdtempSync(join(tmpdir(), "glv-cron-mw-b-"));
+      // An unnamed entry (named cron-1 by position), a disabled one with
+      // a timezone, and a sibling config key that must survive the
+      // rewrite.
+      cfgPath = defaultConfigFile(homeDir, fx.binName);
+      writeConfig(homeDir, [
+        {
+          schedule: "0 3 * * *",
+          prompt: "Nightly sweep",
+          workingDir: workA,
+        },
+        {
+          name: "paused",
+          schedule: "0 4 * * *",
+          prompt: "Never fires yet",
+          workingDir: workB,
+          timezone: "Europe/Oslo",
+          enabled: false,
+        },
+      ]);
+      // writeCronConfig overwrites the file wholesale; re-add forwardHost
+      // by hand so the rewrite has another key to preserve.
+      const config = JSON.parse(readFileSync(cfgPath, "utf-8"));
+      config.forwardHost = "203.0.113.7";
+      writeFileSync(cfgPath, JSON.stringify(config, null, 2));
+      env = await fx.startEnv(
+        "glv-cron-mig-",
+        { sessionName: "Migration Session" },
+        homeDir,
+      );
+    }, 120000);
+
+    afterAll(async () => {
+      await env?.cleanup();
+      rmSync(homeDir, { recursive: true, force: true });
+    });
+
+    it("imports every entry, naming unnamed ones, and strips the key", () => {
+      expect(readCronJobRows(env.dbs.cronDb)).toEqual([
+        {
+          name: "cron-1",
+          schedule: "0 3 * * *",
+          prompt: "Nightly sweep",
+          workingDir: workA,
+          enabled: true,
+        },
+        {
+          name: "paused",
+          schedule: "0 4 * * *",
+          prompt: "Never fires yet",
+          workingDir: workB,
+          timezone: "Europe/Oslo",
+          enabled: false,
+        },
+      ]);
+      const config = readCronConfig(cfgPath);
+      expect(config.cronJobs).toBeUndefined();
+      expect(config.forwardHost).toBe("203.0.113.7");
+    });
+
+    it("lists the migrated jobs in the Scheduled runs section", async () => {
+      const res = await authedFetch(env, "/");
+      const html = await res.text();
+      expect(html).toContain("cron-1");
+      expect(html).toContain("Paused");
+      expect(html).toContain("(Europe/Oslo)");
+    });
+
+    it("re-imports jobs re-added to the config file without duplicating", async () => {
+      // Hand-add the job to the config file again (the old habit) and
+      // boot a second serve against the same cron database: the file's
+      // entry wins on the name collision, the untouched row survives,
+      // and the key is stripped once more.
+      writeConfig(homeDir, [
+        {
+          name: "paused",
+          schedule: "0 4 * * *",
+          prompt: "Edited while re-imported",
+          workingDir: workB,
+          timezone: "Europe/Oslo",
+          enabled: false,
+        },
+      ]);
+      const port = await findFreePort();
+      const proc = spawnLauncher(
+        fx.binPath,
+        ["serve", "-p", String(port), ...fx.defaultServeArgs(homeDir)],
+        {
+          env: {
+            ...process.env,
+            ...fakeHomeEnv(homeDir),
+            GLV_CONFIG: cfgPath,
+            GLV_CRON_DB: env.dbs.cronDb,
+          },
+        },
+      );
+      try {
+        await waitForHttp(`http://localhost:${port}`);
+        expect(readCronJobRows(env.dbs.cronDb)).toEqual([
+          {
+            name: "cron-1",
+            schedule: "0 3 * * *",
+            prompt: "Nightly sweep",
+            workingDir: workA,
+            enabled: true,
+          },
+          {
+            name: "paused",
+            schedule: "0 4 * * *",
+            prompt: "Edited while re-imported",
+            workingDir: workB,
+            timezone: "Europe/Oslo",
+            enabled: false,
+          },
+        ]);
+        expect(readCronConfig(cfgPath).cronJobs).toBeUndefined();
+      } finally {
+        await stopProcess(proc);
+      }
     });
   });
 
@@ -212,7 +369,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  describe("live config reload", () => {
+  describe("live reload from the cron database", () => {
     let env: IntegrationEnv;
     let homeDir: string;
     let workingDir: string;
@@ -222,22 +379,23 @@ const runCronSuite = (fx: FlavorFixture): void => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cron-live-"));
       workingDir = mkdtempSync(join(tmpdir(), "glv-cron-livework-"));
       stdinCapture = join(homeDir, "stdin-live.txt");
-      writeConfig(homeDir, [
-        {
-          name: "live",
-          schedule: "* * * * * *",
-          prompt: "Boot prompt",
-          workingDir,
-        },
-      ]);
       env = await fx.startEnv(
         "glv-cron-live-",
         { sessionName: "Live Session", captureStdin: stdinCapture },
         homeDir,
-        // Shrinks the reload poll so every rewrite below is picked up
-        // quickly even where directory change events never arrive.
-        { GLV_CONFIG_WATCH_POLL_MS: "250" },
+        // Shrinks the watch poll so every row write below is picked up
+        // quickly.
+        { GLV_CRON_DB_POLL_MS: "250" },
       );
+      // Seeded straight into the database the server serves from — an
+      // external writer, exactly the case the poll exists for.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "live",
+        schedule: "* * * * * *",
+        prompt: "Boot prompt",
+        workingDir,
+        enabled: true,
+      });
     }, 120000);
 
     afterAll(async () => {
@@ -279,55 +437,50 @@ const runCronSuite = (fx: FlavorFixture): void => {
       await pollUntil(() => env.serverStderr().includes(fragment), 20_000);
     };
 
-    it("fires the boot job before any edit", async () => {
+    it("picks up a job seeded externally after boot", async () => {
       const count = await waitForSessions(1);
       expect(count).toBeGreaterThanOrEqual(1);
     });
 
-    it("keeps the running schedule when an edit is invalid", async () => {
+    it("keeps the running schedule when a written row is invalid", async () => {
       const before = await countSessions();
 
-      // Unparseable JSON: logged, schedule untouched.
-      writeFileSync(defaultConfigFile(homeDir, fx.binName), "{ not json");
-      await waitForStderr("config reload failed");
-      expect(env.serverStderr()).toContain("keeping the running schedule");
+      // A structurally valid row with an invalid schedule, written
+      // straight into the database: logged, schedule untouched.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "live",
+        schedule: "not a cron expression",
+        prompt: "Boot prompt",
+        workingDir,
+        enabled: true,
+      });
+      await waitForStderr("reload rejected");
+      const stderr = env.serverStderr();
+      expect(stderr).toContain("keeping the running schedule");
+      expect(stderr).toContain('cron job "live"');
+      expect(stderr).toContain("invalid schedule");
 
       // The every-second job kept firing through the broken window.
       const kept = await waitForSessions(before + 2);
       expect(kept).toBeGreaterThanOrEqual(before + 2);
-
-      // Structurally valid file, invalid job: rejected the same way.
-      writeConfig(homeDir, [
-        {
-          name: "live",
-          schedule: "not a cron expression",
-          prompt: "Boot prompt",
-          workingDir,
-        },
-      ]);
-      await waitForStderr("config reload rejected");
-      const stderr = env.serverStderr();
-      expect(stderr).toContain('cron job "live"');
-      expect(stderr).toContain("invalid schedule");
     });
 
-    it("applies an edited job to the running schedule", async () => {
-      writeConfig(homeDir, [
-        {
-          name: "live",
-          schedule: "* * * * * *",
-          prompt: "Edited prompt",
-          workingDir,
-        },
-      ]);
+    it("applies an edited row to the running schedule", async () => {
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "live",
+        schedule: "* * * * * *",
+        prompt: "Edited prompt",
+        workingDir,
+        enabled: true,
+      });
       await waitForPrompt("Edited prompt");
     });
 
-    it("stops firing once the job is removed", async () => {
-      writeConfig(homeDir, []);
-      // Let the reload land (the 250ms poll override picks the rewrite up
-      // in well under a second), then confirm the count stays flat across
-      // three fire windows of the former every-second schedule.
+    it("stops firing once the row is removed", async () => {
+      removeCronJobRow(env.dbs.cronDb, "live");
+      // Let the reload land (the 250ms poll picks the delete up in well
+      // under a second), then confirm the count stays flat across three
+      // fire windows of the former every-second schedule.
       await sleep(3000);
       const first = await countSessions();
       await sleep(3000);
@@ -336,7 +489,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  describe("config validation at serve start", () => {
+  describe("job validation at serve start", () => {
     let restoreAgent: (() => void) | undefined;
 
     beforeAll(async () => {
@@ -353,6 +506,9 @@ const runCronSuite = (fx: FlavorFixture): void => {
     // config) just to watch it exit non-zero and shares no state with
     // the others, so concurrency overlaps the five boots instead of
     // stacking tens of seconds of serial startups on a CI runner.
+    // Every case seeds the legacy config file: the migration is what
+    // validates it, and a refusal must leave the file untouched so it
+    // stays hand-fixable.
     it.concurrent("exits non-zero naming a job with an invalid schedule", () =>
       expectServeRefuses(
         [
@@ -418,6 +574,27 @@ const runCronSuite = (fx: FlavorFixture): void => {
 
     it.concurrent("exits non-zero for a structurally invalid cronJobs value", () =>
       expectServeRefuses("nope", "cronJobs must be an array"));
+
+    it.concurrent("leaves the config file untouched when it refuses", async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-keep-"));
+      const cfgPath = writeConfig(homeDir, [
+        {
+          name: "broken",
+          schedule: "not a cron expression",
+          prompt: "x",
+          workingDir: tmpdir(),
+        },
+      ]);
+      await expectServeRefusal(
+        fx.binPath,
+        ["serve", ...fx.defaultServeArgs(homeDir)],
+        { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+      );
+      // The invalid jobs stay in the file — fixable by hand, retriable
+      // on the next serve.
+      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
+      rmSync(homeDir, { recursive: true, force: true });
+    });
   });
 };
 

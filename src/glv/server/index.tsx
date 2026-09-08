@@ -44,7 +44,8 @@ const createApp = (
     runPrState: opts.runPrState,
     runGit: opts.runGit,
     models: opts.models,
-    cronSessions: opts.cronSessions,
+    cronDb: opts.cronDb,
+    onCronJobsChange: opts.onCronJobsChange,
     createLocks: new Map(),
     assets: buildAssetBundle(opts.profile.id),
   };

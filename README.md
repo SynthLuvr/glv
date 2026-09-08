@@ -60,8 +60,8 @@ the browser.
   equivalent cron pattern on save, with upcoming runs previewed. The
   form sets its own working directory (pre-filled from the New Session
   form and freely editable), so a run can target any directory. Pause,
-  edit, and delete from the same section, or hand-edit the jobs in the
-  config file. Sessions a job starts carry a clock badge naming the job.
+  edit, and delete from the same section; jobs live in the cron database
+  (`cron.db`). Sessions a job starts carry a clock badge naming the job.
   Each job can pin the model its runs use (goose).
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
@@ -182,6 +182,10 @@ Options:
   `~/.local/share/glv-goose/auth.db` on Linux/macOS
   (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
 
+- `--cron-db <path>` — override the scheduled runs database location
+  (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
+  (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
+
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
 
@@ -216,39 +220,32 @@ the flag errors out if the key is missing or the file is malformed.
 
 ### Scheduled runs (cron)
 
-Scheduled runs can be managed two ways: from the **web viewer** (the
-“Scheduled runs” section below the New Session form has a “Schedule…”
-button that opens an inline form — **type a schedule in plain English or
-cron**, validated live as you type with upcoming runs previewed; the run
-uses the **working directory (and model, where the agent supports one)
-from the New Session form above**; an **optional timezone field** picks
-the IANA zone the schedule’s times apply in — searched as you type by
-zone name, city (“new york”), or UTC offset (“utc+2”), with each
-suggestion showing its current offset; the field stays free-typing (any
-IANA name is accepted), and left empty it means the server’s local time;
-the section lists every job with pause, edit, and delete) or by hand in
-the config file. Both write the same entries — the config file is the
-source of truth, and the running server picks changes up live, no
-restart needed.
+Scheduled runs are managed from the **web viewer** (the “Scheduled runs”
+section below the New Session form has a “Schedule…” button that opens
+an inline form — **type a schedule in plain English or cron**, validated
+live as you type with upcoming runs previewed; the run uses the
+**working directory (and model, where the agent supports one) from the
+New Session form above**; an **optional timezone field** picks the IANA
+zone the schedule’s times apply in — searched as you type by zone name,
+city (“new york”), or UTC offset (“utc+2”), with each suggestion showing
+its current offset; the field stays free-typing (any IANA name is
+accepted), and left empty it means the server’s local time; the section
+lists every job with pause, edit, and delete). The jobs live in the
+**cron database** — a glv-owned SQLite file at
+`~/.local/share/glv-goose/cron.db` on Linux/macOS
+(`%APPDATA%\glv-goose\cron.db` on Windows), alongside the
+job-started-session tags that badge fired runs. Override with
+`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
+running server picks changes up live, no restart needed.
 
-To define jobs by hand, add a `cronJobs` array to the config file:
-
-``` json
-{
-  "cronJobs": [
-    {
-      "name": "nightly-review",
-      "schedule": "0 3 * * *",
-      "prompt": "Summarize today's commits and flag risks",
-      "workingDir": "/home/you/project",
-      "timezone": "Europe/Oslo",
-      "enabled": true,
-      "modelProvider": "zai",
-      "model": "glm-5.3"
-    }
-  ]
-}
-```
+Jobs written by hand (or by an older glv) as a `cronJobs` array in the
+[local config file](#local-config-file) are **migrated into the cron
+database automatically** the first time `serve` starts, and the key is
+removed from the file (everything else in it is preserved). An invalid
+legacy file stops the server from starting — naming the job — with the
+file left as it was, so it stays fixable by hand. Re-adding a `cronJobs`
+array later re-imports it on the next start (entries win on a name
+collision; nothing is duplicated).
 
 - `schedule` is one of two spellings:
 
@@ -256,7 +253,7 @@ To define jobs by hand, add a `cronJobs` array to the config file:
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
     part, or a nickname like `"@daily"`.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
-    run. A one-shot fires once and retires itself from the config; if
+    run. A one-shot fires once and retires itself from the database; if
     its moment is already past when `serve` starts, it is removed
     without running (a missed run stays missed). Seconds are optional
     (`"2026-09-03T09:00:30"` fires at that second); the web form writes
@@ -274,9 +271,9 @@ In the web form you can also **type a schedule in English** —
 [@breejs/later](https://github.com/breejs/later) into the equivalent
 cron pattern, and the **cron pattern is what gets saved**
 (`every weekday at 9:00` → `"0 9 * * 1-5"`); the live preview shows the
-conversion before you save. English hand-written in the config file also
-still works — it is translated the same way at serve boot. Phrasings
-that would fire more often than once a minute are rejected.
+conversion before you save. English hand-written in a migrated config
+file also still works — it is translated the same way at serve boot.
+Phrasings that would fire more often than once a minute are rejected.
 
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
   it shows up in the sidebar like any other session — badged with a
@@ -288,28 +285,29 @@ that would fire more often than once a minute are rejected.
   fire of the job to that model — the web form’s schedule dialog has its
   own model picker with the same options as the New Session form; omit
   both keys to run the agent’s default. The pin is validated when you
-  save, and serve refuses to start when a hand-edited job pins a model
-  the flavor can’t take (claude) or sets only one of the two keys.
+  save, and serve refuses to start when a job pins a model the flavor
+  can’t take (claude) or sets only one of the two keys.
 
-- `name` must be unique (defaults: `cron-1`, `cron-2`, …); `timezone`
-  defaults to system-local time; `enabled: false` pauses a job without
-  deleting it.
+- `name` must be unique (every stored job is named; entries migrated
+  from an unnamed config-file slot get `cron-1`, `cron-2`, …);
+  `timezone` defaults to system-local time; `enabled: false` pauses a
+  job without deleting it.
 
 - Jobs are validated at `serve` startup — an invalid job (bad schedule,
   unknown timezone, duplicate name, or a missing working directory on an
   enabled job) stops the server from starting, naming the job.
 
-- `serve` also **watches the config file and reloads the schedule
+- `serve` also **watches the cron database and reloads the schedule
   live**: added, changed, and removed jobs take effect without a
-  restart, typically within a second. A reload only swaps the schedule
-  once the whole new job set validates — an invalid edit (bad JSON, bad
-  schedule, …) is logged to stderr and the previous schedule keeps
-  running until the file is valid again. Runs already in flight when
-  their job is removed or changed are left to finish. A one-shot whose
-  moment already passed — at boot or in a reload — is retired without
-  running: a missed moment stays missed. A content poll backs the
-  watcher up on filesystems without reliable change events
-  (`GLV_CONFIG_WATCH_POLL_MS`, default 5000).
+  restart. Edits from the web UI apply immediately; edits from other
+  processes (direct sqlite3 use, a future cron CLI) land within one poll
+  interval (`GLV_CRON_DB_POLL_MS`, default 5000). A reload only swaps
+  the schedule once the whole new job set validates — an invalid edit (a
+  row with a bad schedule, …) is logged to stderr and the previous
+  schedule keeps running until the table holds a valid set again. Runs
+  already in flight when their job is removed or changed are left to
+  finish. A one-shot whose moment already passed — at boot or in a
+  reload — is retired without running: a missed moment stays missed.
 
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.

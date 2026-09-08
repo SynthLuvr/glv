@@ -3,13 +3,15 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { deleteCronJob, readConfig, resolveConfigPath } from "../config.js";
-import { startCronScheduler } from "../cron.js";
+import { startCronScheduler, validateCronJobSet } from "../cron.js";
 import {
-  openCronSessionsDb,
-  resolveCronDbPath,
-  tagCronSession,
-} from "../cron-sessions.js";
+  deleteCronJob,
+  listCronJobs,
+  migrateCronJobsFromConfig,
+  openCronDb,
+  watchCronJobs,
+} from "../cron-jobs.js";
+import { tagCronSession } from "../cron-sessions.js";
 import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
@@ -39,6 +41,7 @@ type ServeOpts = {
   authDbPath: string;
   promptsDbPath: string;
   groupsDbPath: string;
+  cronDbPath: string;
   rpName: string;
   rpIdOverride?: string;
   forwardHost?: string;
@@ -135,25 +138,28 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // Created here so shutdown can reap detached agent processes.
   const runner = createRunner(opts.runner);
   const launcher = opts.makeLauncher(runner);
-  // Sidecar remembering which scheduled job started which session, so the
-  // sidebar and transcript can badge them. The scheduler writes, the UI
-  // reads; both live in this process.
-  const cronSessions = openCronSessionsDb(
-    resolveCronDbPath(opts.profile.dataDirName),
+  // The cron database: the job schedule and the job-started-session
+  // tags (the sidebar badges), one handle shared by the scheduler, the
+  // routes, and the badge reads.
+  const cronDb = openCronDb(opts.cronDbPath);
+  // Jobs used to live in the config file's cronJobs array: import them
+  // once and strip the key. An invalid legacy file refuses startup with
+  // the file left hand-fixable.
+  migrateCronJobsFromConfig(opts.profile.dataDirName, cronDb, (jobs) =>
+    validateCronJobSet(jobs, opts.models !== undefined),
   );
-  // Scheduled runs from the config file: an invalid job set fails
-  // startup loudly; later file edits reload the schedule live.
+  // Scheduled runs from the cron database: an invalid job set fails
+  // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({
     launcher,
     runner,
-    readJobs: () => readConfig(opts.profile.dataDirName).cronJobs ?? [],
-    configPath: resolveConfigPath(opts.profile.dataDirName),
+    readJobs: () => listCronJobs(cronDb),
+    watchJobs: watchCronJobs,
     tagSession: (sessionId, jobName) =>
-      tagCronSession(cronSessions, sessionId, jobName),
-    // One-shots retire themselves from the config once their moment
-    // passes, so the file (and the UI reading it) tell the truth.
-    retireOneShot: (jobName) =>
-      deleteCronJob(opts.profile.dataDirName, jobName),
+      tagCronSession(cronDb, sessionId, jobName),
+    // One-shots retire themselves from the database once their moment
+    // passes, so the store (and the UI reading it) tell the truth.
+    retireOneShot: (jobName) => deleteCronJob(cronDb, jobName),
     // Without a ModelSource the flavor cannot honor a model pin.
     supportsModels: opts.models !== undefined,
   });
@@ -167,7 +173,8 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     prompts: promptsDb,
     groups: groupsDb,
     models: opts.models,
-    cronSessions,
+    cronDb,
+    onCronJobsChange: cron.reload,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
@@ -191,7 +198,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     authDb.close();
     promptsDb.close();
     groupsDb.close();
-    cronSessions.close();
+    cronDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

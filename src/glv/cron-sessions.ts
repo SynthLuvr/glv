@@ -7,14 +7,15 @@ import { openGlvDb, resolveDataPath } from "./db-path.js";
 // sessions. The agent's own stores stay untouched; this table is glv's,
 // like the rename/archive meta sidecar.
 
-const SCHEMA = `
+// Exported so openCronDb can create both of the cron database's tables
+// through one handle.
+const CRON_SESSIONS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cron_sessions (
   session_id TEXT PRIMARY KEY,
   job_name TEXT NOT NULL,
   fired_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
-
 const Row = type({ session_id: "string", job_name: "string" });
 
 type Row = typeof Row.infer;
@@ -31,7 +32,7 @@ const resolveCronDbPath = (dataDirName: string, override?: string): string =>
 // schema on open, exactly like the meta sidecar.
 const openCronSessionsDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
-  db.exec(SCHEMA);
+  db.exec(CRON_SESSIONS_SCHEMA);
   return db;
 };
 
@@ -81,6 +82,7 @@ const untagCronSession = (db: DatabaseSync, sessionId: string): void => {
 };
 
 export {
+  CRON_SESSIONS_SCHEMA,
   jobNameFor,
   jobNamesFor,
   openCronSessionsDb,

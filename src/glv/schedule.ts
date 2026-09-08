@@ -1,7 +1,7 @@
 import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
 import cronstrue from "cronstrue";
-import type { CronJobConfig } from "./config.js";
+import type { CronJobConfig } from "./cron-jobs.js";
 import { errorMessage } from "./util.js";
 
 // Everything a schedule can be, parsed once and shared by every consumer
@@ -511,16 +511,11 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
 // to cron-<n>); what the UI renders and mutates.
 type NamedCronJob = CronJobConfig & { readonly name: string };
 
-// Unnamed config entries are identified by their position. The
-// scheduler, the UI, and deletion all resolve names through this so a
-// hand-edited entry keeps one identity everywhere.
+// Unnamed entries are identified by their position (cron-1, cron-2, …):
+// the migration names a legacy config file's entries this way, and the
+// scheduler resolves every entry through the same rule.
 const resolvedCronName = (job: CronJobConfig, index: number): string =>
   job.name?.trim() || `cron-${index + 1}`;
-
-// The UI shows each config entry under the same resolved identity the
-// scheduler uses, so a hand-edited entry is recognizable.
-const withResolvedNames = (jobs: readonly CronJobConfig[]): NamedCronJob[] =>
-  jobs.map((job, index) => ({ ...job, name: resolvedCronName(job, index) }));
 
 export type { NamedCronJob };
 export {
@@ -532,5 +527,4 @@ export {
   parseSchedule,
   resolvedCronName,
   validTimezone,
-  withResolvedNames,
 };

@@ -115,9 +115,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   ) => {
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
     const cronJob =
-      ctx.cronSessions !== undefined
-        ? jobNameFor(ctx.cronSessions, id)
-        : undefined;
+      ctx.cronDb !== undefined ? jobNameFor(ctx.cronDb, id) : undefined;
     return render(
       c,
       ctx,
@@ -369,7 +367,7 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     stop(ctx.runner, id);
     ctx.sessions.deleteSessions([id]);
     if (ctx.groups !== undefined) removeMember(ctx.groups, id);
-    if (ctx.cronSessions !== undefined) untagCronSession(ctx.cronSessions, id);
+    if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
     deleteUploads(ctx.profile.dataDirName, id);
     deleteTempDir(ctx.profile.dataDirName, id);
     return newSessionLanding(c);
