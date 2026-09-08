@@ -153,7 +153,7 @@ scheduler’s fail-fast boot validation over the database rows is
 unchanged.
 
 Two hand-edit defenses became structure instead of validation. Duplicate
-names were impossible to store all along — name is the table's primary
+names were impossible to store all along — name is the table’s primary
 key — and the row mapping reads `model_provider`/`model` as a pair, so a
 half pin cannot exist either; the boot checks for both are gone. The
 rejections users still see are the save-time ones: the form refuses a

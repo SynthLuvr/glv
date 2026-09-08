@@ -286,13 +286,12 @@ are rejected.
   can’t take (claude).
 
 - `name` must be unique (every stored job is named; name is the table’s
-  primary key); `timezone` defaults
-  to system-local time; `enabled: false` pauses a job without deleting
-  it.
+  primary key); `timezone` defaults to system-local time;
+  `enabled: false` pauses a job without deleting it.
 
 - Jobs are validated at `serve` startup — an invalid job (bad schedule,
-  unknown timezone, or a missing working directory on an
-  enabled job) stops the server from starting, naming the job.
+  unknown timezone, or a missing working directory on an enabled job)
+  stops the server from starting, naming the job.
 
 - `serve` also **watches the cron database and reloads the schedule
   live**: added, changed, and removed jobs take effect without a
