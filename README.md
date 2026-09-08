@@ -283,14 +283,15 @@ are rejected.
   own model picker with the same options as the New Session form; omit
   both keys to run the agent’s default. The pin is validated when you
   save, and serve refuses to start when a job pins a model the flavor
-  can’t take (claude) or sets only one of the two keys.
+  can’t take (claude).
 
-- `name` must be unique (every stored job is named); `timezone` defaults
+- `name` must be unique (every stored job is named; name is the table’s
+  primary key); `timezone` defaults
   to system-local time; `enabled: false` pauses a job without deleting
   it.
 
 - Jobs are validated at `serve` startup — an invalid job (bad schedule,
-  unknown timezone, duplicate name, or a missing working directory on an
+  unknown timezone, or a missing working directory on an
   enabled job) stops the server from starting, naming the job.
 
 - `serve` also **watches the cron database and reloads the schedule

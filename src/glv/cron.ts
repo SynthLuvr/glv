@@ -87,17 +87,6 @@ const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
     enabled: job.enabled !== false,
   }));
 
-const assertUniqueNames = (jobs: readonly ResolvedJob[]): void => {
-  const seen = new Set<string>();
-  for (const job of jobs) {
-    if (seen.has(job.name))
-      throw new Error(
-        `duplicate cron job name "${job.name}" in the cron database`,
-      );
-    seen.add(job.name);
-  }
-};
-
 const invalidSchedule = (job: ResolvedJob, error: string): Error =>
   new Error(
     `cron job "${job.name}" has an invalid schedule ` +
@@ -124,12 +113,6 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
     throw new Error(
       `cron job "${job.name}" has an invalid timezone "${job.timezone}"`,
     );
-  // A model pin is both halves of the pair or neither — a lone key is a
-  // hand-edit slip, and half a pin cannot run.
-  if ((job.modelProvider === undefined) !== (job.model === undefined))
-    throw new Error(
-      `cron job "${job.name}" must set modelProvider and model together`,
-    );
   if (job.modelProvider !== undefined && !supportsModels)
     throw new Error(
       `cron job "${job.name}" pins model ` +
@@ -146,12 +129,13 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
 };
 
 // Whole-set validation, separate from the running schedule so an edit
-// can be checked fully before anything is swapped in.
+// can be checked fully before anything is swapped in. Names cannot
+// collide here — name is the cron_jobs primary key and the row mapping
+// reads model pins as a pair — so the checks are the per-job ones.
 const validateJobs = (
   jobs: readonly ResolvedJob[],
   supportsModels: boolean,
 ): void => {
-  assertUniqueNames(jobs);
   for (const job of jobs) validateJob(job, supportsModels);
 };
 

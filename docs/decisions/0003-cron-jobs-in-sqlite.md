@@ -151,3 +151,10 @@ job is named (name is the primary key), so the positional `cron-<n>`
 fallback and the optional-name job shape went with the migration; the
 scheduler’s fail-fast boot validation over the database rows is
 unchanged.
+
+Two hand-edit defenses became structure instead of validation. Duplicate
+names were impossible to store all along — name is the table's primary
+key — and the row mapping reads `model_provider`/`model` as a pair, so a
+half pin cannot exist either; the boot checks for both are gone. The
+rejections users still see are the save-time ones: the form refuses a
+name that already exists, and claude refuses any pin at boot.

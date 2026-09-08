@@ -335,10 +335,12 @@ const runCronSuite = (fx: FlavorFixture): void => {
 
     // Each case boots its own serve process against its own seeded cron
     // database just to watch it exit non-zero and shares no state with
-    // the others, so concurrency overlaps the five boots instead of
+    // the others, so concurrency overlaps the three boots instead of
     // stacking tens of seconds of serial startups on a CI runner. The
     // scheduler's boot read validates the whole set and must fail fast
-    // naming the offending job.
+    // naming the offending job. (Duplicate names and half model pins
+    // need no boot defense: the primary key and the paired model columns
+    // make both structurally impossible to store.)
     it.concurrent("exits non-zero naming a job with an invalid schedule", () =>
       expectServeRefuses(
         [
@@ -368,43 +370,6 @@ const runCronSuite = (fx: FlavorFixture): void => {
         ],
         "tz-broken",
         "invalid timezone",
-      ));
-
-    it.concurrent("exits non-zero for duplicate job names", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "twin",
-            schedule: "0 3 * * *",
-            prompt: "x",
-            workingDir: tmpdir(),
-            enabled: true,
-          },
-          {
-            name: "twin",
-            schedule: "0 4 * * *",
-            prompt: "y",
-            workingDir: tmpdir(),
-            enabled: true,
-          },
-        ],
-        'duplicate cron job name "twin"',
-      ));
-
-    it.concurrent("exits non-zero for a job with only half a model pin", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "half-pin",
-            schedule: "0 3 * * *",
-            prompt: "x",
-            workingDir: tmpdir(),
-            model: "glm-5.3",
-            enabled: true,
-          },
-        ],
-        "half-pin",
-        "must set modelProvider and model together",
       ));
 
     it.concurrent("leaves the database untouched when it refuses", async () => {
