@@ -3,7 +3,7 @@ import { type } from "arktype";
 import { readRawConfig, writeConfig } from "./config.js";
 import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
-import { transaction, validate, validateAll } from "./query.js";
+import { transaction, validateAll } from "./query.js";
 import { resolvedCronName } from "./schedule.js";
 import { positiveEnvNumber } from "./util.js";
 
@@ -110,17 +110,6 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
     JobRow,
     db.prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`).all(),
   ).map(mapRow);
-
-const cronJobByName = (
-  db: DatabaseSync,
-  name: string,
-): CronJobRecord | undefined => {
-  const row = validate(
-    JobRow,
-    db.prepare(`SELECT ${JOB_COLS} FROM cron_jobs WHERE name = ?`).get(name),
-  );
-  return row === undefined ? undefined : mapRow(row);
-};
 
 // The write shape every mutation shares: full row values (the UI never
 // patches single columns), enabled defaulted on.
@@ -315,7 +304,6 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 
 export type { CronJobConfig, CronJobRecord, CronJobWrite };
 export {
-  cronJobByName,
   deleteCronJob,
   insertCronJob,
   listCronJobs,
