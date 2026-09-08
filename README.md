@@ -238,14 +238,10 @@ job-started-session tags that badge fired runs. Override with
 `--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
 running server picks changes up live, no restart needed.
 
-Jobs written by hand (or by an older glv) as a `cronJobs` array in the
-[local config file](#local-config-file) are **migrated into the cron
-database automatically** the first time `serve` starts, and the key is
-removed from the file (everything else in it is preserved). An invalid
-legacy file stops the server from starting — naming the job — with the
-file left as it was, so it stays fixable by hand. Re-adding a `cronJobs`
-array later re-imports it on the next start (entries win on a name
-collision; nothing is duplicated).
+Jobs live only in the cron database. A `cronJobs` array in the [local
+config file](#local-config-file) — the pre-SQLite store, or a hand edit
+copying old instructions — is dead weight: it is ignored, and
+`config set cronJobs` reports the key as unknown.
 
 - `schedule` is one of two spellings:
 
@@ -271,9 +267,10 @@ In the web form you can also **type a schedule in English** —
 [@breejs/later](https://github.com/breejs/later) into the equivalent
 cron pattern, and the **cron pattern is what gets saved**
 (`every weekday at 9:00` → `"0 9 * * 1-5"`); the live preview shows the
-conversion before you save. English hand-written in a migrated config
-file also still works — it is translated the same way at serve boot.
-Phrasings that would fire more often than once a minute are rejected.
+conversion before you save. English schedules written straight into the
+database (an external writer) are translated the same way when the
+schedule loads. Phrasings that would fire more often than once a minute
+are rejected.
 
 - Every fire starts a **new session** in `workingDir` with `prompt`, and
   it shows up in the sidebar like any other session — badged with a
@@ -288,10 +285,9 @@ Phrasings that would fire more often than once a minute are rejected.
   save, and serve refuses to start when a job pins a model the flavor
   can’t take (claude) or sets only one of the two keys.
 
-- `name` must be unique (every stored job is named; entries migrated
-  from an unnamed config-file slot get `cron-1`, `cron-2`, …);
-  `timezone` defaults to system-local time; `enabled: false` pauses a
-  job without deleting it.
+- `name` must be unique (every stored job is named); `timezone` defaults
+  to system-local time; `enabled: false` pauses a job without deleting
+  it.
 
 - Jobs are validated at `serve` startup — an invalid job (bad schedule,
   unknown timezone, duplicate name, or a missing working directory on an

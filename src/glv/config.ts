@@ -15,10 +15,8 @@ const configRoot = (): string => {
 // host). It lives outside the repo so per-machine secrets stay
 // uncommitted, and is read once at startup — everything mutable
 // (sessions' rename/archive meta, prompts, groups, cron jobs, cron
-// session tags) lives in glv-owned SQLite databases instead. Scheduled
-// runs moved to the cron database via a one-time boot migration (see
-// cron-jobs.ts); an old file's cronJobs array is imported and the key
-// stripped the first time serve starts.
+// session tags) lives in glv-owned SQLite databases instead (scheduled
+// runs in the cron database — see cron-jobs.ts).
 const Config = type({
   "forwardHost?": "string",
 });
@@ -31,8 +29,7 @@ const CONFIG_KEYS: readonly string[] = ["forwardHost"];
 const resolveConfigPath = (dataDirName: string): string =>
   process.env.GLV_CONFIG ?? join(configRoot(), dataDirName, "config.json");
 
-// The raw file, unknown keys included — what list/set preserve on disk
-// and what the cron migration reads.
+// The raw file, unknown keys included — what list/set preserve on disk.
 const readRawConfig = (dataDirName: string): Record<string, unknown> => {
   const path = resolveConfigPath(dataDirName);
   if (!existsSync(path)) return {};

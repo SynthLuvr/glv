@@ -10,7 +10,6 @@ import {
   fmtDateTime,
   parseOneShotSchedule,
   parseSchedule,
-  resolvedCronName,
   validTimezone,
 } from "./schedule.js";
 import { expandHome } from "./server/paths.js";
@@ -82,9 +81,8 @@ const DEFAULT_SESSION_TIMEOUT_MS = 60_000;
 // Expands ~ and canonicalizes so the spawn cwd, the per-directory create
 // lock, and the flavor's session-discovery poll all see one spelling.
 const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
-  jobs.map((job, index) => ({
+  jobs.map((job) => ({
     ...job,
-    name: resolvedCronName(job, index),
     workingDir: resolve(expandHome(job.workingDir)),
     enabled: job.enabled !== false,
   }));
@@ -148,24 +146,13 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
 };
 
 // Whole-set validation, separate from the running schedule so an edit
-// can be checked fully before anything is swapped in. The config
-// migration runs the same check before committing anything, so an
-// invalid legacy file refuses serve with the file left hand-fixable.
+// can be checked fully before anything is swapped in.
 const validateJobs = (
   jobs: readonly ResolvedJob[],
   supportsModels: boolean,
 ): void => {
   assertUniqueNames(jobs);
   for (const job of jobs) validateJob(job, supportsModels);
-};
-
-// The public whole-set check: resolves names/paths the way the
-// scheduler will, then validates. Throws naming the offending job.
-const validateCronJobSet = (
-  jobs: readonly CronJobConfig[],
-  supportsModels: boolean,
-): void => {
-  validateJobs(resolveJobs(jobs), supportsModels);
 };
 
 // Scheduling translates the schedule to what croner drives: an English
@@ -379,4 +366,4 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
 };
 
 export type { CronScheduler };
-export { startCronScheduler, validateCronJobSet };
+export { startCronScheduler };

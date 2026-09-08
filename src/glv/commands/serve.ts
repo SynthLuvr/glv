@@ -3,11 +3,10 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { startCronScheduler, validateCronJobSet } from "../cron.js";
+import { startCronScheduler } from "../cron.js";
 import {
   deleteCronJob,
   listCronJobs,
-  migrateCronJobsFromConfig,
   openCronDb,
   watchCronJobs,
 } from "../cron-jobs.js";
@@ -142,12 +141,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
   const cronDb = openCronDb(opts.cronDbPath);
-  // Jobs used to live in the config file's cronJobs array: import them
-  // once and strip the key. An invalid legacy file refuses startup with
-  // the file left hand-fixable.
-  migrateCronJobsFromConfig(opts.profile.dataDirName, cronDb, (jobs) =>
-    validateCronJobSet(jobs, opts.models !== undefined),
-  );
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({

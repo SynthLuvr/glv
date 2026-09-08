@@ -507,15 +507,9 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
   return parsed.ok ? parsed.info.human : schedule;
 };
 
-// A job whose display name has been resolved (unnamed entries default
-// to cron-<n>); what the UI renders and mutates.
+// A stored job: what the UI renders and mutates. Every stored job is
+// named — name is the cron_jobs table's primary key.
 type NamedCronJob = CronJobConfig & { readonly name: string };
-
-// Unnamed entries are identified by their position (cron-1, cron-2, …):
-// the migration names a legacy config file's entries this way, and the
-// scheduler resolves every entry through the same rule.
-const resolvedCronName = (job: CronJobConfig, index: number): string =>
-  job.name?.trim() || `cron-${index + 1}`;
 
 export type { NamedCronJob };
 export {
@@ -525,6 +519,5 @@ export {
   humanizeSchedule,
   parseOneShotSchedule,
   parseSchedule,
-  resolvedCronName,
   validTimezone,
 };

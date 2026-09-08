@@ -1,23 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { readRawConfig, writeConfig } from "./config.js";
 import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
-import { transaction, validateAll } from "./query.js";
-import { resolvedCronName } from "./schedule.js";
+import { validateAll } from "./query.js";
 import { positiveEnvNumber } from "./util.js";
 
-// The cron job store. Jobs used to live in the config file's cronJobs
-// array; they now live in the cron database (cron.db) beside the
-// session-tag sidecar, with the config file's entries migrated in at
-// boot (migrateCronJobsFromConfig). The web UI mutates rows here, the
-// scheduler reads them, and a poll watches for external writers.
+// The cron job store. Jobs live in the cron database (cron.db) beside
+// the session-tag sidecar. The web UI mutates rows here, the scheduler
+// reads them, and a poll watches for external writers.
 
-// The job shape the config file used to spell (and the migration still
-// accepts): a name is optional there because hand-edited entries could
-// omit it, and the array position named them (cron-1, cron-2, …).
+// The job shape every stored job spells. name is the table's primary
+// key, so every row is named.
 const CronJob = type({
-  "name?": "string",
+  name: "string",
   schedule: "string>0",
   prompt: "string>0",
   workingDir: "string>0",
@@ -31,11 +26,8 @@ const CronJob = type({
 
 type CronJobConfig = typeof CronJob.infer;
 
-// A stored row: the same shape, but always named — name is the table's
-// primary key, so the positional cron-<n> fallback is applied once, at
-// migration.
+// A stored row: the same shape, but enabled defaulted.
 type CronJobRecord = CronJobConfig & {
-  readonly name: string;
   readonly enabled: boolean;
 };
 
@@ -45,7 +37,9 @@ type CronJobWrite = Omit<CronJobRecord, "enabled"> & {
   readonly enabled?: boolean;
 };
 
-const SCHEMA = `
+// Shared with the test harness, whose row helpers may open a database
+// before serve's first boot has created the table.
+const CRON_JOBS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cron_jobs (
   name           TEXT PRIMARY KEY,
   schedule       TEXT NOT NULL,
@@ -66,7 +60,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 // the badges — exactly like every other glv-owned open.
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
-  db.exec(SCHEMA);
+  db.exec(CRON_JOBS_SCHEMA);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;
 };
@@ -127,22 +121,11 @@ const jobParams = (job: CronJobWrite): (string | number | null)[] => [
 
 const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
-const UPSERT_SQL =
-  `${INSERT_SQL} ON CONFLICT(name) DO UPDATE SET ` +
-  "schedule = excluded.schedule, prompt = excluded.prompt, " +
-  "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
-  "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
-  "model = excluded.model, updated_at = datetime('now')";
-
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
 const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
   db.prepare(INSERT_SQL).run(...jobParams(job));
-};
-
-const upsert = (db: DatabaseSync, job: CronJobWrite): void => {
-  db.prepare(UPSERT_SQL).run(...jobParams(job));
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -182,59 +165,6 @@ const setCronJobEnabled = (
 const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
   db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name).changes > 0;
 
-// The config-file shape as it used to validate, kept only so the
-// migration rejects a malformed cronJobs value with the same message
-// serve always did.
-const CronJobsConfig = type({ "cronJobs?": type([CronJob, "[]"]) });
-
-// Imports the config file's cronJobs array into the database and strips
-// the key from the file — the one-time bridge from the old store. Runs
-// at every serve boot; a file without the key (the common case after
-// the first run) is a no-op. File entries win on a name collision, so
-// re-adding jobs to the file re-imports them once, never duplicated.
-// validateSet checks the whole merged set the way the scheduler will
-// (unique names, parseable schedules, …) — thrown errors refuse serve
-// before anything is written, leaving the file hand-fixable.
-const migrateCronJobsFromConfig = (
-  dataDirName: string,
-  db: DatabaseSync,
-  validateSet: (jobs: readonly CronJobConfig[]) => void,
-): void => {
-  const raw = readRawConfig(dataDirName);
-  if (raw.cronJobs === undefined) return;
-  const parsed = CronJobsConfig(raw);
-  if (parsed instanceof type.errors)
-    throw new Error(`invalid glv config: ${parsed.summary}`);
-  const fromFile = parsed.cronJobs ?? [];
-
-  // The file's own entries are validated before anything is merged or
-  // written: a duplicate name inside the file (invisible after the
-  // name-keyed merge below) refuses serve here, with the file left
-  // untouched, exactly as the config-reader used to refuse it.
-  validateSet(fromFile);
-
-  const merged = new Map(
-    listCronJobs(db).map((job) => [job.name, job] as const),
-  );
-  fromFile.forEach((job, index) => {
-    const name = resolvedCronName(job, index);
-    merged.set(name, { ...job, name, enabled: job.enabled !== false });
-  });
-  const jobs = [...merged.values()];
-  validateSet(jobs);
-
-  transaction(db, () => {
-    for (const job of jobs) upsert(db, job);
-  });
-  delete raw.cronJobs;
-  writeConfig(dataDirName, raw);
-  if (fromFile.length > 0)
-    console.log(
-      `cron: migrated ${fromFile.length} job(s) from the config file ` +
-        "into the cron database",
-    );
-};
-
 // The scheduler's change signal for the database. There is no
 // fs.watch for SQLite, so a poll re-reads the table (the reload itself
 // no-ops when the resolved set is unchanged); UI mutations nudge the
@@ -253,10 +183,10 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 
 export type { CronJobConfig };
 export {
+  CRON_JOBS_SCHEMA,
   deleteCronJob,
   insertCronJob,
   listCronJobs,
-  migrateCronJobsFromConfig,
   openCronDb,
   setCronJobEnabled,
   updateCronJob,

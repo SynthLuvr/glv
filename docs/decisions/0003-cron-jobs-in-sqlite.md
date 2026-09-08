@@ -133,3 +133,21 @@ non-job keys); `CONFIG_KEYS` drops `cronJobs`, so
 - `cron.db` becomes required state for serve (it already was — the badge
   sidecar lived there), now holding the schedule itself; it is a normal
   SQLite file, safe to back up or copy wholesale.
+
+## Update — 2026-09-08: the migration bridge is removed
+
+The boot-time import (`migrateCronJobsFromConfig`) did its job and is
+gone. On the reference install the migration ran at the first `serve`
+boot after this ADR landed: the three real jobs moved into `cron.db`,
+the `cronJobs` key was stripped, and the schedule came up from the
+database (`cron: migrated 3 job(s) …` in the journal) — verified before
+the code was deleted. Installs that never had a `cronJobs` key were
+always in the no-op steady state.
+
+What remains of the old store is the config file itself, reduced to
+boot-time scalars (`forwardHost`). A stray `cronJobs` key is now inert:
+no code reads it, and `config set cronJobs` reports it as unknown. Every
+job is named (name is the primary key), so the positional `cron-<n>`
+fallback and the optional-name job shape went with the migration; the
+scheduler’s fail-fast boot validation over the database rows is
+unchanged.

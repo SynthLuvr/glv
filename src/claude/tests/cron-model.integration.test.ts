@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { it } from "vitest";
 import {
+  defaultCronDb,
   expectServeRefusal,
   fakeHomeEnv,
-  writeCronConfig,
+  insertCronJobRow,
 } from "../../glv/tests/harness.js";
 import { claudeFixture } from "./integration-harness";
 
@@ -16,16 +17,16 @@ import { claudeFixture } from "./integration-harness";
 
 it("refuses to serve a cron job with a model pin", async () => {
   const homeDir = mkdtempSync(join(tmpdir(), "glv-claude-pin-"));
-  const cfgPath = writeCronConfig(homeDir, claudeFixture.binName, [
-    {
-      name: "pinned",
-      schedule: "* * * * * *",
-      prompt: "Pinned nowhere",
-      workingDir: tmpdir(),
-      modelProvider: "zai",
-      model: "glm-5.3",
-    },
-  ]);
+  const cronDb = defaultCronDb(homeDir, claudeFixture.binName);
+  insertCronJobRow(cronDb, {
+    name: "pinned",
+    schedule: "* * * * * *",
+    prompt: "Pinned nowhere",
+    workingDir: tmpdir(),
+    modelProvider: "zai",
+    model: "glm-5.3",
+    enabled: true,
+  });
 
   // serve resolves the agent binary against PATH, which CI runners lack;
   // the mock is never invoked — validation exits serve first. The 90s
@@ -36,7 +37,7 @@ it("refuses to serve a cron job with a model pin", async () => {
     const stderr = await expectServeRefusal(
       claudeFixture.binPath,
       ["serve", ...claudeFixture.defaultServeArgs(homeDir)],
-      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+      fakeHomeEnv(homeDir),
     );
     expect(stderr).toContain("pinned");
     expect(stderr).toContain("does not support model selection");

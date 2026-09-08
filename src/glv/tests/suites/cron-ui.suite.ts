@@ -17,7 +17,6 @@ import {
   readCronJobRows,
   seedCronJobRow,
   withPage,
-  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -690,42 +689,35 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
   describe("managing scheduled runs", () => {
     let env: IntegrationEnv;
-    let homeDir: string;
     let workA: string;
     let workB: string;
 
     beforeAll(async () => {
-      homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-manage-"));
       workA = mkdtempSync(join(tmpdir(), "glv-cronui-ma-"));
       workB = mkdtempSync(join(tmpdir(), "glv-cronui-mb-"));
-      // Seeded through the config file so this boot also covers the
-      // migration into the cron database.
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "nightly",
-          schedule: "0 9 * * *",
-          prompt: "Nightly sweep of the logs",
-          workingDir: workA,
-        },
-        {
-          name: "friday-tz",
-          schedule: "30 8 * * 5",
-          prompt: "Friday EU report",
-          workingDir: workB,
-          timezone: "Europe/Berlin",
-          enabled: false,
-        },
-      ]);
-      env = await fx.startEnv(
-        "glv-cronui-manage-",
-        { sessionName: "Unstarted" },
-        homeDir,
-      );
+      env = await fx.startEnv("glv-cronui-manage-", {
+        sessionName: "Unstarted",
+      });
+      // Seeded straight into the database the server serves from.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "nightly",
+        schedule: "0 9 * * *",
+        prompt: "Nightly sweep of the logs",
+        workingDir: workA,
+        enabled: true,
+      });
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "friday-tz",
+        schedule: "30 8 * * 5",
+        prompt: "Friday EU report",
+        workingDir: workB,
+        timezone: "Europe/Berlin",
+        enabled: false,
+      });
     }, 120000);
 
     afterAll(async () => {
       await env?.cleanup();
-      rmSync(homeDir, { recursive: true, force: true });
     });
 
     const jobByName = (name: string): CronJobRow | undefined =>
@@ -875,29 +867,24 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
   describe("recognizing job-started sessions", () => {
     let env: IntegrationEnv;
-    let homeDir: string;
 
     beforeAll(async () => {
-      homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-badge-"));
       const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-bw-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "nightly-watch",
-          schedule: "* * * * * *",
-          prompt: "Watch the logs",
-          workingDir,
-        },
-      ]);
-      env = await fx.startEnv(
-        "glv-cronui-badge-",
-        { sessionName: "Watched Session" },
-        homeDir,
-      );
+      env = await fx.startEnv("glv-cronui-badge-", {
+        sessionName: "Watched Session",
+      });
+      // Seeded straight into the database the server serves from.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "nightly-watch",
+        schedule: "* * * * * *",
+        prompt: "Watch the logs",
+        workingDir,
+        enabled: true,
+      });
     }, 120000);
 
     afterAll(async () => {
       await env?.cleanup();
-      rmSync(homeDir, { recursive: true, force: true });
     });
 
     it("badges the session in the sidebar and the transcript header", async () => {
@@ -945,19 +932,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     // lead must be measured from a booted server: a lead measured
     // before startEnv let a slow boot outlast the target instant,
     // leaving the job pruned as expired without ever firing.
-    const startEnvWithLiveStore = async (
+    const startEnvWithLiveStore = (
       prefix: string,
       sessionName: string,
-    ): Promise<{ env: IntegrationEnv; homeDir: string }> => {
-      const homeDir = mkdtempSync(join(tmpdir(), `${prefix}home-`));
-      const env = await fx.startEnv(prefix, { sessionName }, homeDir, {
+    ): Promise<IntegrationEnv> =>
+      fx.startEnv(prefix, { sessionName }, undefined, {
         GLV_CRON_DB_POLL_MS: "250",
       });
-      return { env, homeDir };
-    };
 
     it("fires once at the chosen time and retires itself from the database", async () => {
-      const { env, homeDir } = await startEnvWithLiveStore(
+      const env = await startEnvWithLiveStore(
         "glv-cronui-once-",
         "One Shot Session",
       );
@@ -993,27 +977,26 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       } finally {
         await env.cleanup();
         rmSync(workingDir, { recursive: true, force: true });
-        rmSync(homeDir, { recursive: true, force: true });
       }
     }, 150000);
 
-    it("prunes an expired one-shot at boot without running it", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-exp-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "missed",
-          schedule: formatOneShotLocal(new Date(Date.now() - 60_000)),
-          prompt: "Should never run",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ew-")),
-        },
-      ]);
-      const env = await fx.startEnv(
+    it("prunes an expired one-shot without running it", async () => {
+      const env = await startEnvWithLiveStore(
         "glv-cronui-exp-",
-        { sessionName: "Missed Session" },
-        homeDir,
+        "Missed Session",
       );
+      const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-ew-"));
+      // Seeded after boot, so the prune lands on the first reload — the
+      // same applyJobs pass boot runs. A missed moment stays missed.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "missed",
+        schedule: formatOneShotLocal(new Date(Date.now() - 60_000)),
+        prompt: "Should never run",
+        workingDir,
+        enabled: true,
+      });
       try {
-        // The prune happens during boot, before the first request.
+        // The row is retired without ever firing…
         const rows = await waitForRows(
           env.dbs.cronDb,
           (current) => current.length === 0,
@@ -1025,12 +1008,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         expect(html).not.toContain("cron-job-card");
       } finally {
         await env.cleanup();
-        rmSync(homeDir, { recursive: true, force: true });
+        rmSync(workingDir, { recursive: true, force: true });
       }
     }, 60000);
 
     it("fires a one-shot at the wall-clock time of its timezone", async () => {
-      const { env, homeDir } = await startEnvWithLiveStore(
+      const env = await startEnvWithLiveStore(
         "glv-cronui-xtz-",
         "Zoned One Shot Session",
       );
@@ -1066,27 +1049,26 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       } finally {
         await env.cleanup();
         rmSync(workingDir, { recursive: true, force: true });
-        rmSync(homeDir, { recursive: true, force: true });
       }
     }, 150000);
 
     it("prunes a zoned one-shot that expired in its timezone", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtzexp-"));
-      const zone = "Pacific/Kiritimati";
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "zoned-missed",
-          schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
-          timezone: zone,
-          prompt: "Should never run",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xew-")),
-        },
-      ]);
-      const env = await fx.startEnv(
+      const env = await startEnvWithLiveStore(
         "glv-cronui-xtzexp-",
-        { sessionName: "Zoned Missed Session" },
-        homeDir,
+        "Zoned Missed Session",
       );
+      const zone = "Pacific/Kiritimati";
+      const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-xew-"));
+      // Seeded after boot, so the prune lands on the first reload — the
+      // same applyJobs pass boot runs.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "zoned-missed",
+        schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
+        timezone: zone,
+        prompt: "Should never run",
+        workingDir,
+        enabled: true,
+      });
       try {
         // Same instant semantics as the local prune, read in the zone.
         const rows = await waitForRows(
@@ -1099,25 +1081,26 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         expect(html).not.toContain("Zoned Missed Session");
       } finally {
         await env.cleanup();
-        rmSync(homeDir, { recursive: true, force: true });
+        rmSync(workingDir, { recursive: true, force: true });
       }
     }, 60000);
 
-    it("fires an English schedule, translated to cron at boot", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-text-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "text-sweep",
-          schedule: "every 2 minutes",
-          prompt: "Typed schedule sweep",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-tw-")),
-        },
-      ]);
-      const env = await fx.startEnv(
+    it("fires an English schedule, translated to cron when the schedule loads", async () => {
+      const env = await startEnvWithLiveStore(
         "glv-cronui-text-",
-        { sessionName: "Typed Schedule Session" },
-        homeDir,
+        "Typed Schedule Session",
       );
+      const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-tw-"));
+      // Seeded after boot; the watch poll applies it like any external
+      // write — the English spelling is translated to cron the same way
+      // wherever the schedule loads from.
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "text-sweep",
+        schedule: "every 2 minutes",
+        prompt: "Typed schedule sweep",
+        workingDir,
+        enabled: true,
+      });
       try {
         // "every 2 minutes" fires on even-minute boundaries, so the
         // first fire lands within ~2 minutes of boot — but a boot just
@@ -1141,7 +1124,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         expect(jobs).toHaveLength(1);
       } finally {
         await env.cleanup();
-        rmSync(homeDir, { recursive: true, force: true });
+        rmSync(workingDir, { recursive: true, force: true });
       }
     }, 360000);
   });

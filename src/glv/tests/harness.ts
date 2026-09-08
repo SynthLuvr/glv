@@ -13,7 +13,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
@@ -39,6 +38,7 @@ import {
   stripCoverageHookFromNodeOptions,
 } from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
+import { CRON_JOBS_SCHEMA } from "../cron-jobs.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -556,40 +556,14 @@ const defaultConfigFile = (home: string, dataDirName: string): string =>
     ? join(home, "AppData", "Local", dataDirName, "config.json")
     : join(home, ".config", dataDirName, "config.json");
 
-// The config-file shape shared by the cron suites and flavor tests: the
-// migration reads the file, so tests assert on what it still holds.
-type CronConfigFile = {
-  cronJobs?: Record<string, unknown>[];
-  forwardHost?: string;
+// The cron database's default path under a (fake) home — where a serve
+// booted without --cron-db opens it. Creates the directory so a test
+// can seed rows before the boot reads them.
+const defaultCronDb = (home: string, dataDirName: string): string => {
+  const dir = defaultDataDir(home, dataDirName);
+  mkdirSync(dir, { recursive: true });
+  return join(dir, "cron.db");
 };
-
-// Writes a config file holding exactly these jobs at the flavor's default
-// config path, and returns the path (what serve both reads and watches).
-// `cronJobs` is `unknown` on purpose: the invalid-shape suites write
-// values serve must reject.
-const writeCronConfig = (
-  home: string,
-  dataDirName: string,
-  cronJobs: unknown,
-): string => {
-  const path = defaultConfigFile(home, dataDirName);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
-  return path;
-};
-
-const readCronConfig = (path: string): CronConfigFile =>
-  (existsSync(path)
-    ? JSON.parse(readFileSync(path, "utf-8"))
-    : {}) as CronConfigFile;
-
-const cronJobIn = (
-  path: string,
-  name: string,
-): Record<string, unknown> | undefined =>
-  (readCronConfig(path).cronJobs ?? []).find(
-    (job) => (job as { name?: string }).name === name,
-  );
 
 // The cron database's job rows, as the store spells them (camelCase,
 // `enabled` boolean, absent optionals omitted) — what the UI writes and
@@ -607,10 +581,14 @@ type CronJobRow = {
 
 // Opens the running server's cron database from the test process. The
 // server holds its own connection; busy timeouts on both sides wait out
-// the brief overlap a concurrent write causes.
+// the brief overlap a concurrent write causes. The table schema is
+// applied here too, so a helper can seed rows before serve's first
+// boot (the refusal tests) — CREATE IF NOT EXISTS keeps either order
+// working.
 const openServerCronDb = (dbPath: string): DatabaseSync => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
+  db.exec(CRON_JOBS_SCHEMA);
   return db;
 };
 
@@ -648,6 +626,18 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
 const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
   readCronJobRows(dbPath).find((job) => job.name === name);
 
+// The row's column values in JOB_COLS order, shared by both writers.
+const jobRowParams = (job: CronJobRow): (string | number | null)[] => [
+  job.name,
+  job.schedule,
+  job.prompt,
+  job.workingDir,
+  job.timezone ?? null,
+  job.enabled === false ? 0 : 1,
+  job.modelProvider ?? null,
+  job.model ?? null,
+];
+
 // Writes a job row exactly as given — no validation, so tests can seed
 // invalid schedules the live reload must reject. An existing row of the
 // same name is replaced (the edit path); removeCronJobRow deletes one.
@@ -661,16 +651,20 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
         "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
         "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
         "model = excluded.model",
-    ).run(
-      job.name,
-      job.schedule,
-      job.prompt,
-      job.workingDir,
-      job.timezone ?? null,
-      job.enabled === false ? 0 : 1,
-      job.modelProvider ?? null,
-      job.model ?? null,
-    );
+    ).run(...jobRowParams(job));
+  } finally {
+    db.close();
+  }
+};
+
+// Writes a job row as a plain INSERT — no upsert — so a test can seed a
+// set serve must refuse (duplicate names stay distinct rows).
+const insertCronJobRow = (dbPath: string, job: CronJobRow): void => {
+  const db = openServerCronDb(dbPath);
+  try {
+    db.prepare(
+      `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(...jobRowParams(job));
   } finally {
     db.close();
   }
@@ -1069,7 +1063,6 @@ const collectSse = async (
   });
 
 export type {
-  CronConfigFile,
   CronJobRow,
   Databases,
   FlavorAdapter,
@@ -1084,22 +1077,22 @@ export {
   authedFetch,
   baseDatabases,
   collectSse,
-  cronJobIn,
   cronJobRow,
   dbOverrideArgs,
   defaultConfigFile,
+  defaultCronDb,
   defaultDataDir,
   expectServeRefusal,
   fakeHomeEnv,
   findFreePort,
   flagValue,
   IS_WIN,
+  insertCronJobRow,
   makeStartEnv,
   parseSseData,
   postFollowUp,
   postNewSession,
   ROOT,
-  readCronConfig,
   readCronJobRows,
   readStoreField,
   removeCronJobRow,
@@ -1117,5 +1110,4 @@ export {
   waitForJsonFile,
   waitForServeExit,
   withPage,
-  writeCronConfig,
 };
