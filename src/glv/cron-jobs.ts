@@ -261,6 +261,14 @@ const migrateCronJobsFromConfig = (
     throw new Error(`invalid glv config: ${parsed.summary}`);
   const fromFile = parsed.cronJobs ?? [];
 
+  // The file's own entries are validated before anything is merged or
+  // written: a duplicate name inside the file (invisible after the
+  // name-keyed merge below) refuses serve here, with the file left
+  // untouched, exactly as the config-reader used to refuse it.
+  deps.validateSet(fromFile);
+
+  // File entries win on a name collision with a stored row, so
+  // re-adding jobs to the file re-imports them once, never duplicated.
   const merged = new Map(
     listCronJobs(db).map((job) => [job.name, job] as const),
   );
