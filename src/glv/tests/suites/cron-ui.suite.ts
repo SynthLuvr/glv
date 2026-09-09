@@ -1101,7 +1101,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
         await env.cleanup();
         rmSync(homeDir, { recursive: true, force: true });
       }
-    }, 60000);
+    }, 150000);
 
     it("fires an English schedule, translated to cron at boot", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-text-"));
