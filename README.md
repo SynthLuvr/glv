@@ -264,16 +264,26 @@ never reads the file, and a stray `cronJobs` key is inert.
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
     part, or a nickname like `"@daily"`.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
-    run. A one-shot fires once and retires itself from the database; if
-    its moment is already past when `serve` starts, it is removed
-    without running (a missed run stays missed). Seconds are optional
-    (`"2026-09-03T09:00:30"` fires at that second); the web form writes
-    minute precision.
+    run. A one-shot fires once and retires itself from the database.
+    Seconds are optional (`"2026-09-03T09:00:30"` fires at that second);
+    the web form writes minute precision.
 
   An optional `timezone` (IANA name, e.g. `"America/New_York"`) applies
   to every spelling — the pattern fires there, English times apply
   there, and a zone-less one-shot datetime is read as wall-clock time
   there.
+
+- **Missed runs fire on the next start.** If an occurrence’s moment
+  passes while `serve` is not running — the machine was asleep or
+  rebooted, the process was down — the next start fires it once,
+  immediately: the **most recent** missed occurrence, however many piled
+  up (a month-long outage against an hourly job still fires exactly
+  once, never a burst). A paused job catches up the same way when
+  resumed — *paused* means “not now”, not “never”. Each row remembers
+  its last served occurrence (`last_fired_at`), so a restart right after
+  a fire never fires twice, and an edit or rename never re-fires
+  anything. Disabled jobs never catch up: a disabled one-shot whose
+  moment passed is removed without running.
 
 In the web form you can also **type a schedule in English** —
 `every weekday at 9:00`, `at 9:00` (daily), `on sunday at 18:00`,

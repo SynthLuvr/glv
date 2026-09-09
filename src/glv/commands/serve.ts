@@ -9,6 +9,7 @@ import {
   deleteCronJob,
   listCronJobs,
   openCronDb,
+  recordCronFire,
   watchCronJobs,
 } from "../cron-jobs.js";
 import { tagCronSession } from "../cron-sessions.js";
@@ -161,6 +162,10 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     // One-shots retire themselves from the database once their moment
     // passes, so the store (and the UI reading it) tell the truth.
     retireOneShot: (jobName) => deleteCronJob(cronDb, jobName),
+    // Every fire records the occurrence it serves — the missed-run
+    // marker catch-up compares against on the next start.
+    recordFire: (jobName, occurrence) =>
+      recordCronFire(cronDb, jobName, occurrence),
     // Without a ModelSource the flavor cannot honor a model pin.
     supportsModels: opts.models !== undefined,
   });
