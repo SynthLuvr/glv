@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type AuthenticationResponseJSON,
-  type AuthenticatorTransportFuture,
+  type AuthenticatorTransport,
   generateAuthenticationOptions,
   generateRegistrationOptions,
   type PublicKeyCredentialCreationOptionsJSON,
@@ -82,12 +82,13 @@ type AuthService = {
 
 // Stored transports are plain strings; validate each against the WebAuthn
 // transport union rather than asserting the whole array sight-unseen. Values
-// outside the union are dropped so a malformed record can't reach the verifier.
-const Transport = type(
-  "'ble' | 'cable' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb'",
-);
+// outside the union are dropped so a malformed record can't reach the
+// verifier. v14 of @simplewebauthn/server drops the legacy 'cable' and
+// 'smart-card' values from the union, so stored records carrying them fall
+// back to no transports.
+const Transport = type("'ble' | 'hybrid' | 'internal' | 'nfc' | 'usb'");
 
-const toTransports = (raw: string[]): AuthenticatorTransportFuture[] =>
+const toTransports = (raw: string[]): AuthenticatorTransport[] =>
   raw.flatMap((t) => {
     const parsed = Transport(t);
     return parsed instanceof type.errors ? [] : [parsed];
