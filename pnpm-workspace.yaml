@@ -5,4 +5,14 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - ts-canon@0.1.4
   - type-a-bin@0.1.7
+  - cronstrue@3.25.0
+  - jscpd-darwin-arm64@5.2.0
+  - jscpd-darwin-x64@5.2.0
+  - jscpd-linux-arm64-gnu@5.2.0
+  - jscpd-linux-arm64-musl@5.2.0
+  - jscpd-linux-x64-gnu@5.2.0
+  - jscpd-linux-x64-musl@5.2.0
+  - jscpd-windows-arm64-msvc@5.2.0
+  - jscpd-windows-x64-msvc@5.2.0
+  - jscpd@5.2.0
 scriptShell: bash
