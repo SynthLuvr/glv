@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import {
+  type CronJobConfig,
   deleteCronJob,
   insertCronJob,
   listCronJobs,
@@ -16,11 +17,7 @@ import {
   modelPinFields,
   modelUnavailableError,
 } from "../../models.js";
-import {
-  fmtDateTime,
-  type NamedCronJob,
-  parseSchedule,
-} from "../../schedule.js";
+import { fmtDateTime, parseSchedule } from "../../schedule.js";
 import {
   SERVER_TIMEZONE,
   searchTimezones,
@@ -52,9 +49,9 @@ const NAME_ERROR =
   "dashes, and underscores (max 64 characters).";
 
 const findJob = (
-  jobs: readonly NamedCronJob[],
+  jobs: readonly CronJobConfig[],
   name: string,
-): NamedCronJob | undefined => jobs.find((job) => job.name === name);
+): CronJobConfig | undefined => jobs.find((job) => job.name === name);
 
 // First string value of a form field, trimmed (parseBody with all:true
 // yields arrays for repeated fields).
@@ -71,7 +68,7 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
 const readJobsOr = (
   ctx: ServerContext,
 ): {
-  jobs: NamedCronJob[];
+  jobs: CronJobConfig[];
   error: string | undefined;
 } => {
   if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
@@ -209,7 +206,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
 
     // English becomes its cron pattern here — the database stores one
     // canonical spelling.
-    const job: NamedCronJob = {
+    const job: CronJobConfig = {
       name: jobName,
       schedule: parsed.info.cron ?? schedule,
       prompt,
@@ -324,7 +321,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const timezone = timezonePresent
       ? submittedTimezone || undefined
       : keptTimezone;
-    const updated: NamedCronJob = {
+    const updated: CronJobConfig = {
       ...kept,
       ...modelPinFields(
         pickerExposed ? picked : jobModelSelection({ modelProvider, model }),

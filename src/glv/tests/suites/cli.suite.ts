@@ -144,8 +144,9 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
     });
 
     it("tolerates unknown keys stored in the database when re-listing", () => {
-      // A migrated file could carry keys glv never knew about; the
-      // listing stays honest about every row the table holds.
+      // A row the CLI never knew about (a future key, or one a migrated
+      // file once carried) stays listed — the listing is honest about
+      // every row the table holds.
       seedConfigRow(cfgPath, "future", "true");
       const { stdout } = run(["config", "list"], { GLV_CONFIG_DB: cfgPath });
       expect(stdout).toContain("future=true");
@@ -186,9 +187,9 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
 
     it("refuses --forward when no forwardHost is configured", () => {
       // The host is resolved from the config database during serve
-      // boot — after the legacy-file import — so an empty database
-      // refuses the flag with the command that would fix it. A fake
-      // home keeps every store this boot opens off the real profile.
+      // boot, so an empty database refuses the flag with the command
+      // that would fix it. A fake home keeps every store this boot
+      // opens off the real profile.
       const { status, stderr } = run(
         ["serve", "--forward", fx.binaryFlag, process.execPath],
         {
