@@ -58,6 +58,11 @@ type SchedulerDeps = {
    */
   readonly retireOneShot?: (jobName: string) => void;
   /**
+   * Records the occurrence a fire is serving (the job's missed-run
+   * marker). Best-effort: a throw is logged and the fire continues.
+   */
+  readonly recordFire?: (jobName: string, occurrence: Date) => void;
+  /**
    * Whether the flavor can honor a model pin (a ModelSource is wired).
    * A pinned job in a flavor without one fails validation, named,
    * instead of silently running on the agent default.
@@ -160,23 +165,80 @@ const validateJobs = (
   for (const job of jobs) validateJob(job, supportsModels);
 };
 
+// The pattern croner drives for a job: an English schedule as the cron
+// pattern it translated to (stores only ever hold the translation),
+// cron and one-shot spellings as themselves. Shared by the scheduler
+// and the missed-run probe so both sides resolve a schedule — DST
+// shifts, nonexistent wall clocks — identically.
+const cronPattern = (job: ResolvedJob): string => {
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  if (!parsed.ok) throw invalidSchedule(job, parsed.error);
+  return parsed.info.kind === "text"
+    ? (parsed.info.cron ?? job.schedule)
+    : job.schedule;
+};
+
 // Scheduling translates the schedule to what croner drives: an English
 // schedule fires as the cron pattern it translates to (every job is
 // croner-driven), a one-shot as the ISO date croner runs once. A
 // disabled job is still constructed — for validation — but with no
-// callback, which croner never schedules.
-const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
-  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
-  if (!parsed.ok) throw invalidSchedule(job, parsed.error);
-  const pattern =
-    parsed.info.kind === "text"
-      ? (parsed.info.cron ?? job.schedule)
-      : job.schedule;
+// callback, which croner never schedules. The callback names the
+// occurrence it fires: a one-shot's stored instant, else croner's
+// currentRun() — the millisecond-stripped moment the timer fired,
+// which can only land on or after the occurrence, never before it.
+const scheduleJob = (
+  job: ResolvedJob,
+  fire: (occurrence: Date) => void,
+): Cron => {
+  const pattern = cronPattern(job);
   return new Cron(
     pattern,
     { name: job.name, timezone: job.timezone },
-    job.enabled ? fire : undefined,
+    job.enabled
+      ? (self) => {
+          const once = parseOneShotSchedule(job.schedule, job.timezone);
+          fire(once ?? self.currentRun() ?? new Date());
+        }
+      : undefined,
   );
+};
+
+// The job's missed-run marker as an instant. Absent — never fired, or
+// a marker hand-edited into something unparseable — reads as never
+// fired; a recurring job then misses nothing (occurrences before a
+// marker-less row existed are not the job's), while a still-present
+// one-shot with a past moment is caught up (its row could only still
+// exist unfired).
+const markerMs = (job: ResolvedJob): number | undefined => {
+  if (job.lastFiredAt === undefined) return undefined;
+  const ms = Date.parse(job.lastFiredAt);
+  return Number.isNaN(ms) ? undefined : ms;
+};
+
+// The latest occurrence of a recurring job's schedule in
+// (marker, now], or undefined when it missed nothing. A name-less,
+// callback-less probe over the same pattern and timezone the live job
+// runs — croner never schedules it, and a schedule resolves the same
+// on both sides. How many occurrences were missed is deliberately not
+// counted: the latest is served, the rest are gone.
+const latestMissedOccurrence = (
+  job: ResolvedJob,
+  now: number,
+): Date | undefined => {
+  const marker = markerMs(job);
+  if (marker === undefined) return undefined;
+  let probe: Cron;
+  try {
+    probe = new Cron(cronPattern(job), { timezone: job.timezone });
+  } catch {
+    // Unreachable after validation (validateJobs parsed this very
+    // schedule); a probe failure must never block the whole reload.
+    return undefined;
+  }
+  const next = probe.nextRun(new Date(marker));
+  if (next === null || next.getTime() > now) return undefined;
+  const latest = probe.previousRuns(1)[0];
+  return latest !== undefined && latest.getTime() > marker ? latest : next;
 };
 
 // Mid-chain liveness: the cron database is re-read before every
@@ -383,8 +445,12 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
 
   // A fire whose chain (establishment at minimum — the whole chain for
   // a job with follow-ons) is still in flight skips the tick rather
-  // than stacking a second pipeline onto the same directory.
-  const fire = (job: ResolvedJob): void => {
+  // than stacking a second pipeline onto the same directory. The
+  // occurrence — the scheduled instant this fire serves — is recorded
+  // as the missed-run marker before anything is awaited, so a restart
+  // mid-fire never re-serves it, and a failed run still counts as
+  // served (the same stance the retire-after-fire rule takes).
+  const fire = (job: ResolvedJob, occurrence: Date, missed: boolean): void => {
     if (establishing.has(job.name)) {
       console.log(
         `cron job "${job.name}": previous run still in flight — ` +
@@ -392,7 +458,20 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
       );
       return;
     }
+    if (missed)
+      console.log(
+        `cron job "${job.name}": firing missed run scheduled for ` +
+          `${fmtDateTime(occurrence, job.timezone)}`,
+      );
     establishing.add(job.name);
+    try {
+      deps.recordFire?.(job.name, occurrence);
+    } catch (err) {
+      console.error(
+        `cron job "${job.name}": could not record the fire in the ` +
+          `cron database (${errorMessage(err)}) — continuing`,
+      );
+    }
     const done = fireJob(deps, locks, timeoutMs, chainPollMs, job).finally(
       () => {
         establishing.delete(job.name);
@@ -411,38 +490,68 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   // keep running — same semantics as shutdown. One-shots whose moment
   // already passed are retired instead of scheduled, so the set returned
   // (the one now running) can be smaller than the set given.
+  // Adopting a set also adopts its missed moments: every enabled job
+  // with an occurrence after its marker and at or before now fires
+  // once, immediately, serving that occurrence — the latest one,
+  // however many piled up. The rule is occurrence-based, not
+  // cause-based: an occurrence missed because the process was down and
+  // one missed because the job was paused surface the same way.
   const applyJobs = (
     resolved: readonly ResolvedJob[],
   ): readonly ResolvedJob[] => {
     validateJobs(resolved, deps.supportsModels === true);
     for (const cron of scheduled) cron.stop();
     const effective: ResolvedJob[] = [];
+    const catchUps: { readonly job: ResolvedJob; readonly occurrence: Date }[] =
+      [];
+    const now = Date.now();
     for (const job of resolved) {
-      // A one-shot whose time already passed: never fires late — retire
-      // it so the database (and the UI reading it) tells the truth. A
-      // missed moment stays missed, whether the job was enabled or
-      // paused.
       const once = parseOneShotSchedule(job.schedule, job.timezone);
-      if (once !== undefined && once.getTime() <= Date.now()) {
-        if (job.enabled)
-          console.log(
-            `cron job "${job.name}": one-shot time ` +
-              `${fmtDateTime(once, job.timezone)} is in the past — ` +
-              "removed without running",
-          );
-        retire(job);
+      if (once !== undefined && once.getTime() <= now) {
+        // A one-shot whose moment passed. The still-present row plus
+        // the marker decides it: served means the fire happened and
+        // only the retirement delete failed — finish that now;
+        // unserved means the moment passed unwitnessed (serve down, or
+        // the job paused) — fire it once as a catch-up, which retires
+        // it after. Disabled jobs never catch up.
+        const marker = markerMs(job);
+        const served = marker !== undefined && marker >= once.getTime();
+        if (!job.enabled || served) {
+          if (job.enabled)
+            console.log(
+              `cron job "${job.name}": one-shot time ` +
+                `${fmtDateTime(once, job.timezone)} is in the past — ` +
+                "already fired, removed",
+            );
+          retire(job);
+          continue;
+        }
+        catchUps.push({ job, occurrence: once });
         continue;
       }
       effective.push(job);
-      scheduled.push(scheduleJob(job, () => fire(job)));
+      scheduled.push(
+        scheduleJob(job, (occurrence) => fire(job, occurrence, false)),
+      );
+      if (job.enabled) {
+        const missed = latestMissedOccurrence(job, now);
+        if (missed !== undefined) catchUps.push({ job, occurrence: missed });
+      }
     }
+    for (const { job, occurrence } of catchUps) fire(job, occurrence, true);
     return effective;
   };
 
   // The watch poll fires on its interval whether or not anything
   // changed, so the signature of the last set that was acted on (or
   // rejected, named) suppresses repeat work and repeat log lines — one
-  // report per distinct job set, like the file watcher before it.
+  // report per distinct job set, like the file watcher before it. The
+  // marker never appears in the signature: every fire updates it, and a
+  // marker-only change must not reschedule anything — only a change to
+  // what runs (schedule, prompt, enabled, …) adopts a new set.
+  const signatureOf = (jobs: readonly ResolvedJob[]): string =>
+    JSON.stringify(jobs.map((job) => ({ ...job, lastFiredAt: undefined })));
+
   let lastOutcome: string | undefined;
 
   const reload = (): void => {
@@ -457,11 +566,11 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
       }
       return;
     }
-    const signature = JSON.stringify(resolved);
+    const signature = signatureOf(resolved);
     if (signature === lastOutcome) return;
     // An edit that leaves the jobs untouched must not reschedule
     // anything.
-    if (signature === JSON.stringify(current)) return;
+    if (signature === signatureOf(current)) return;
     try {
       current = applyJobs(resolved);
     } catch (err) {

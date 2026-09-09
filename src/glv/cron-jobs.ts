@@ -28,6 +28,11 @@ type CronJobConfig = {
   // prompt's finishes, strictly in order. Absent means a plain
   // single-prompt job.
   followUps?: readonly string[];
+  // The most recent occurrence this job served, ISO UTC (read-only for
+  // every writer here): inserts seed it to now, and only the
+  // scheduler's fire path updates it (recordCronFire) — the missed-run
+  // catch-up compares occurrences against it.
+  lastFiredAt?: string;
 };
 
 // A stored row: the same shape, but always enabled — the column
@@ -47,6 +52,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
   model_provider TEXT,
   model          TEXT,
   follow_ups     TEXT,
+  last_fired_at  TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -62,6 +68,25 @@ const ensureFollowUpsColumn = (db: DatabaseSync): void => {
     db.exec("ALTER TABLE cron_jobs ADD COLUMN follow_ups TEXT");
 };
 
+// Databases created before missed-run catch-up have no last_fired_at
+// column; add it in place and seed existing rows to now — occurrences
+// the pre-upgrade process already served count as served, so the first
+// upgraded boot does not fire every job retroactively. Idempotent, and
+// the seed runs only when the column was just added: a row inserted
+// without a marker afterwards is a new job (an external writer's), not
+// an old one, and is not seeded retroactively behind its creator's
+// back.
+const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
+  const columns = db.prepare("PRAGMA table_info(cron_jobs)").all() as {
+    name: string;
+  }[];
+  if (columns.some((column) => column.name === "last_fired_at")) return;
+  db.exec("ALTER TABLE cron_jobs ADD COLUMN last_fired_at TEXT");
+  db.prepare(
+    "UPDATE cron_jobs SET last_fired_at = ? WHERE last_fired_at IS NULL",
+  ).run(new Date().toISOString());
+};
+
 // One database file, two tables: the schedule itself and the
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
@@ -70,6 +95,7 @@ const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   ensureFollowUpsColumn(db);
+  ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;
 };
@@ -87,13 +113,14 @@ const JobRow = type({
   model_provider: "string | null",
   model: "string | null",
   follow_ups: "string | null",
+  last_fired_at: "string | null",
 });
 
 type JobRow = typeof JobRow.infer;
 
 const JOB_COLS =
   "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model, follow_ups";
+  "model_provider, model, follow_ups, last_fired_at";
 
 // follow_ups holds a JSON array of follow-on prompts, read as strictly
 // as the rest of the row: anything but an array of strings — trimmed,
@@ -138,6 +165,7 @@ const mapRow = (row: JobRow): CronJobRecord => ({
   ...(row.follow_ups === null
     ? {}
     : { followUps: parseFollowUps(row.name, row.follow_ups) }),
+  ...(row.last_fired_at === null ? {} : { lastFiredAt: row.last_fired_at }),
 });
 
 // Insertion order: rowid survives renames, so a renamed job keeps its
@@ -150,7 +178,8 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
 
 // The write shape every mutation shares: values in JOB_COLS order —
 // full row (the UI never patches single columns), optionals nulled,
-// enabled defaulted on.
+// enabled defaulted on — with last_fired_at supplied by the caller
+// (the insert seeds it; updates never write it).
 const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.name,
   job.schedule,
@@ -165,13 +194,15 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
     : null,
 ];
 
-const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-// Appends a job. The caller owns duplicate-name shaping of the
+// Appends a job. The marker seeds to now: a job cannot have been missed
+// before it existed, so occurrences earlier than its creation are not
+// its to catch up. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
 const insertCronJob = (db: DatabaseSync, job: CronJobConfig): void => {
-  db.prepare(INSERT_SQL).run(...jobParams(job));
+  db.prepare(INSERT_SQL).run(...jobParams(job), new Date().toISOString());
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -206,6 +237,21 @@ const setCronJobEnabled = (
     )
     .run(enabled ? 1 : 0, name).changes > 0;
 
+// Records the occurrence a fire is serving — the missed-run marker.
+// Best-effort by contract: the scheduler logs and continues when this
+// throws, because a lost write costs at most one duplicate catch-up
+// after a later restart, never a missed run.
+const recordCronFire = (
+  db: DatabaseSync,
+  jobName: string,
+  occurrence: Date,
+): void => {
+  db.prepare("UPDATE cron_jobs SET last_fired_at = ? WHERE name = ?").run(
+    occurrence.toISOString(),
+    jobName,
+  );
+};
+
 // Removes a job by name; false when nothing matched. One-shots retire
 // through here once their moment passes.
 const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
@@ -233,6 +279,7 @@ export {
   insertCronJob,
   listCronJobs,
   openCronDb,
+  recordCronFire,
   setCronJobEnabled,
   updateCronJob,
   watchCronJobs,

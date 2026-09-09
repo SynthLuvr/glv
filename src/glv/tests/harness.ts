@@ -295,6 +295,17 @@ type IntegrationEnv = {
   tempDir: string;
   /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
   serverStderr: () => string;
+  /**
+   * Reads stdout accumulated by the glv serve process — the
+   * scheduler's event lines (console.log under consola's wrapper).
+   */
+  serverStdout: () => string;
+  /**
+   * Restarts serve against the same databases — the missed-run
+   * catch-up story. The seeded session cookie stays valid; the stderr
+   * buffer resets, so post-restart reads see only the new boot.
+   */
+  readonly restart: () => Promise<void>;
   /** Recorded agent invocations, when the config scripted a behaviour. */
   agentMock: MockBinHandle | undefined;
   cleanup: () => Promise<void>;
@@ -582,6 +593,12 @@ type CronJobRow = {
   model?: string;
   /** Follow-on prompts (chained steps), in run order. */
   followUps?: readonly string[];
+  /**
+   * The missed-run marker (last served occurrence, ISO UTC). Absent on
+   * this shape leaves whatever the store's own write seeded; `null`
+   * clears it; a string sets it — direct control for catch-up tests.
+   */
+  lastFiredAt?: string | null;
 };
 
 // Opens one of the running server's databases from the test process.
@@ -597,7 +614,7 @@ const openServerDb = (dbPath: string): DatabaseSync => {
 // seed statements below.
 const JOB_COLS =
   "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model, follow_ups";
+  "model_provider, model, follow_ups, last_fired_at";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerDb(dbPath);
@@ -623,6 +640,9 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
         : {
             followUps: JSON.parse(row.follow_ups as string) as string[],
           }),
+      ...(row.last_fired_at === null || row.last_fired_at === undefined
+        ? {}
+        : { lastFiredAt: row.last_fired_at as string }),
     }));
   } finally {
     db.close();
@@ -636,11 +656,19 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // invalid schedules the live reload must reject. Opens through the
 // store's own open (schema included), so tests can seed before the
 // server boots. An existing row of the same name is replaced (the edit
-// path); removeCronJobRow deletes one.
+// path); removeCronJobRow deletes one. A lastFiredAt key (even null)
+// is written past the store's own seeding, so catch-up tests control
+// the missed-run marker byte for byte.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
+  const { lastFiredAt, ...storeJob } = job;
   const db = openCronDb(dbPath);
   try {
-    if (!updateCronJob(db, job.name, job)) insertCronJob(db, job);
+    if (!updateCronJob(db, job.name, storeJob)) insertCronJob(db, storeJob);
+    if (lastFiredAt !== undefined)
+      db.prepare("UPDATE cron_jobs SET last_fired_at = ? WHERE name = ?").run(
+        lastFiredAt,
+        job.name,
+      );
   } finally {
     db.close();
   }
@@ -748,8 +776,8 @@ const startServer = (
   dbs: Databases,
   port: number,
   extraEnv: Record<string, string> = {},
-): { proc: ChildProcess; readStderr: () => string } => {
-  let stderr = "";
+  sinks: { stdout: { text: string }; stderr: { text: string } },
+): ChildProcess => {
   const proc = spawnLauncher(
     adapter.binPath,
     ["serve", "-p", String(port), ...adapter.serveArgs(dbs)],
@@ -759,10 +787,17 @@ const startServer = (
       env: { ...process.env, ...extraEnv },
     },
   );
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
+  // Both pipes must drain: stderr carries the diagnostic trail the
+  // suites assert on, stdout the scheduler's event lines (console.log
+  // under consola) — and an undrained pipe would eventually block the
+  // child once its OS buffer fills.
+  proc.stdout?.on("data", (chunk: Buffer) => {
+    sinks.stdout.text += chunk.toString();
   });
-  return { proc, readStderr: () => stderr };
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    sinks.stderr.text += chunk.toString();
+  });
+  return proc;
 };
 
 const startEnv = async (
@@ -789,6 +824,15 @@ const startEnv = async (
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
   const restoreGhPath = await mockGh();
 
+  // The live serve process and its captured output, rebindable so the
+  // same environment can restart serve against the same databases (the
+  // missed-run catch-up story). Both streams accumulate in sinks
+  // restart can clear, so post-restart assertions see only the new
+  // boot.
+  let proc: ChildProcess | undefined;
+  let baseUrl = "";
+  const sinks = { stdout: { text: "" }, stderr: { text: "" } };
+
   const bootEnv = {
     ...adapter.serverEnv(dbs),
     GLV_UPLOADS_DIR: uploadsDir,
@@ -812,34 +856,32 @@ const startEnv = async (
   // fresh port wins that race outright. The same loop races boot against
   // process exit, so a serve that dies immediately fails fast instead of
   // burning waitForHttp's full deadline.
-  const bootServer = async (): Promise<{
-    baseUrl: string;
-    proc: ChildProcess;
-    readStderr: () => string;
-  }> => {
+  const bootServer = async (): Promise<void> => {
     for (let attempt = 1; ; attempt++) {
       const port = await findFreePort();
-      const baseUrl = `http://localhost:${port}`;
-      const { proc, readStderr } = startServer(adapter, dbs, port, bootEnv);
+      const candidate = `http://localhost:${port}`;
+      const started = startServer(adapter, dbs, port, bootEnv, sinks);
+      proc = started;
       // `close`, not `exit`: it fires once stderr has flushed too, so the
       // EADDRINUSE check below is guaranteed to see why a dying serve
       // exited.
       const exited = new Promise<never>((_, reject) => {
-        proc.once("close", (code) => {
+        started.once("close", (code) => {
           reject(new Error(`server exited during boot (code ${code})`));
         });
       });
       try {
-        await Promise.race([waitForHttp(baseUrl), exited]);
-        return { baseUrl, proc, readStderr };
+        await Promise.race([waitForHttp(candidate), exited]);
+        baseUrl = candidate;
+        return;
       } catch (err) {
-        await stopProcess(proc);
-        if (attempt < 3 && readStderr().includes("EADDRINUSE")) continue;
-        abortBoot(err, readStderr());
+        await stopProcess(started);
+        if (attempt < 3 && sinks.stderr.text.includes("EADDRINUSE")) continue;
+        abortBoot(err, sinks.stderr.text);
       }
     }
   };
-  const { baseUrl, proc, readStderr } = await bootServer();
+  await bootServer();
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
@@ -859,26 +901,44 @@ const startEnv = async (
   const cleanup = async (): Promise<void> => {
     await context.close();
     await browser.close();
-    await stopProcess(proc);
+    if (proc !== undefined) await stopProcess(proc);
     restoreAgentPath();
     restoreGhPath();
-    const stderr = readStderr();
+    const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
     rmScratch(scratchDir);
   };
 
+  // Restarts serve against the same databases — the missed-run catch-up
+  // story. The seeded session (and the browser context's cookie) stays
+  // valid, and both output buffers reset so post-restart assertions see
+  // only the new boot.
+  const restart = async (): Promise<void> => {
+    if (proc === undefined) throw new Error("serve is not running");
+    await stopProcess(proc);
+    sinks.stdout.text = "";
+    sinks.stderr.text = "";
+    await bootServer();
+  };
+
   return {
     scratchDir,
-    baseUrl,
+    get baseUrl() {
+      return baseUrl;
+    },
     cookie: `${cookieName}=${dbs.token}`,
     cookieName,
-    serverPid: proc.pid,
+    get serverPid() {
+      return proc?.pid;
+    },
     context,
     dbs,
     uploadsDir,
     tempDir,
-    serverStderr: readStderr,
+    serverStderr: () => sinks.stderr.text,
+    serverStdout: () => sinks.stdout.text,
     agentMock,
+    restart,
     cleanup,
   };
 };
