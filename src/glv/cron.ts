@@ -58,18 +58,9 @@ type SchedulerDeps = {
   readonly supportsModels?: boolean;
 };
 
-// name/workingDir canonicalized and `enabled` defaulted so every later
+// workingDir canonicalized and `enabled` defaulted so every later
 // reference (validation, logs, croner options) sees one spelling.
-type ResolvedJob = {
-  readonly name: string;
-  readonly schedule: string;
-  readonly prompt: string;
-  readonly workingDir: string;
-  readonly timezone?: string;
-  readonly enabled: boolean;
-  readonly modelProvider?: string;
-  readonly model?: string;
-};
+type ResolvedJob = CronJobConfig & { readonly enabled: boolean };
 
 // How long one fire waits for the agent to create its session before the
 // run is stopped — mirrors the HTTP create flow's poll timeout, but

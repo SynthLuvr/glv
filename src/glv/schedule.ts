@@ -1,7 +1,6 @@
 import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
 import cronstrue from "cronstrue";
-import type { CronJobConfig } from "./cron-jobs.js";
 import { errorMessage } from "./util.js";
 
 // Everything a schedule can be, parsed once and shared by every consumer
@@ -28,7 +27,7 @@ type ScheduleInfo = {
   /**
    * The cron pattern an English schedule translated to (text kind only).
    * English is never stored or fired directly — it becomes cron at save
-   * time, so the config file keeps one canonical schedule spelling.
+   * time, so the store keeps one canonical schedule spelling.
    */
   readonly cron?: string;
   /** The next fire times, soonest first (empty when it never fires). */
@@ -507,12 +506,6 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
   return parsed.ok ? parsed.info.human : schedule;
 };
 
-// A job with its display name resolved — name is the cron table's
-// primary key, so every stored row carries one; what the UI renders
-// and mutates.
-type NamedCronJob = CronJobConfig & { readonly name: string };
-
-export type { NamedCronJob };
 export {
   fmtDateTime,
   formatOneShotInZone,

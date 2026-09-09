@@ -38,6 +38,12 @@ import {
   stripCoverageHookFromNodeOptions,
 } from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
+import {
+  deleteCronJob,
+  insertCronJob,
+  openCronDb,
+  updateCronJob,
+} from "../cron-jobs.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -620,48 +626,23 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
   readCronJobRows(dbPath).find((job) => job.name === name);
 
 // Writes a job row exactly as given — no validation, so tests can seed
-// invalid schedules the live reload must reject. Creates the table when
-// missing, so tests can seed before the server boots. An existing row
-// of the same name is replaced (the edit path); removeCronJobRow
-// deletes one.
+// invalid schedules the live reload must reject. Opens through the
+// store's own open (schema included), so tests can seed before the
+// server boots. An existing row of the same name is replaced (the edit
+// path); removeCronJobRow deletes one.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
-  const db = openServerDb(dbPath);
+  const db = openCronDb(dbPath);
   try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS cron_jobs (" +
-        "name TEXT PRIMARY KEY, schedule TEXT NOT NULL, " +
-        "prompt TEXT NOT NULL, working_dir TEXT NOT NULL, " +
-        "timezone TEXT, enabled INTEGER NOT NULL DEFAULT 1, " +
-        "model_provider TEXT, model TEXT, " +
-        "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
-        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
-    );
-    db.prepare(
-      `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ` +
-        "ON CONFLICT(name) DO UPDATE SET " +
-        "schedule = excluded.schedule, prompt = excluded.prompt, " +
-        "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
-        "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
-        "model = excluded.model",
-    ).run(
-      job.name,
-      job.schedule,
-      job.prompt,
-      job.workingDir,
-      job.timezone ?? null,
-      job.enabled === false ? 0 : 1,
-      job.modelProvider ?? null,
-      job.model ?? null,
-    );
+    if (!updateCronJob(db, job.name, job)) insertCronJob(db, job);
   } finally {
     db.close();
   }
 };
 
 const removeCronJobRow = (dbPath: string, name: string): void => {
-  const db = openServerDb(dbPath);
+  const db = openCronDb(dbPath);
   try {
-    db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name);
+    deleteCronJob(db, name);
   } finally {
     db.close();
   }

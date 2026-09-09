@@ -5,8 +5,8 @@ import { openGlvDb } from "./db-path.js";
 import { validateAll } from "./query.js";
 import { positiveEnvNumber } from "./util.js";
 
-// The cron job store: the schedule in the cron database (cron.db)
-// beside the session-tag sidecar. The web UI mutates rows here, the
+// The cron job store: jobs live in the cron database (cron.db) beside
+// the session-tag sidecar. The web UI mutates rows here, the
 // scheduler reads them, and a poll watches for external writers.
 
 // A job as every reader and writer spells it. name is the table's
@@ -29,12 +29,6 @@ type CronJobConfig = {
 // defaults on, so a read never lacks it.
 type CronJobRecord = CronJobConfig & {
   readonly enabled: boolean;
-};
-
-// Writes take the record minus the bookkeeping columns; created_at /
-// updated_at are owned by the table.
-type CronJobWrite = Omit<CronJobRecord, "enabled"> & {
-  readonly enabled?: boolean;
 };
 
 const SCHEMA = `
@@ -106,7 +100,7 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
 // The write shape every mutation shares: values in JOB_COLS order —
 // full row (the UI never patches single columns), optionals nulled,
 // enabled defaulted on.
-const jobParams = (job: CronJobWrite): (string | number | null)[] => [
+const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.name,
   job.schedule,
   job.prompt,
@@ -122,7 +116,7 @@ const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
-const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
+const insertCronJob = (db: DatabaseSync, job: CronJobConfig): void => {
   db.prepare(INSERT_SQL).run(...jobParams(job));
 };
 
@@ -132,7 +126,7 @@ const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
 const updateCronJob = (
   db: DatabaseSync,
   currentName: string,
-  job: CronJobWrite,
+  job: CronJobConfig,
 ): boolean =>
   db
     .prepare(

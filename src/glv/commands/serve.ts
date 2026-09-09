@@ -146,8 +146,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   const cronDb = openCronDb(opts.cronDbPath);
   // The config database: boot-time scalars (forwardHost).
   const configDb = openConfigDb(opts.configDbPath);
-  // Resolved from the database only; the error names the fixing
-  // command.
   const forwardHost = opts.forward
     ? resolveForwardHost(configDb, opts.profile.id)
     : undefined;

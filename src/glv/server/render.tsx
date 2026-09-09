@@ -1,13 +1,12 @@
 import { type Context } from "hono";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { listCronJobs } from "../cron-jobs.js";
+import { type CronJobConfig, listCronJobs } from "../cron-jobs.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
-import { type NamedCronJob } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
@@ -230,7 +229,7 @@ type NewSessionDetailOpts = {
 
 // Reads the cron database's jobs for the Scheduled runs section. A
 // store broken by an external edit must not take the page down.
-const safeCronJobs = (ctx: ServerContext): NamedCronJob[] => {
+const safeCronJobs = (ctx: ServerContext): CronJobConfig[] => {
   if (ctx.cronDb === undefined) return [];
   try {
     return listCronJobs(ctx.cronDb);

@@ -51,7 +51,7 @@ const decodeModelValue = (value: string): ModelSelection | undefined => {
   return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
 };
 
-// A cron job's stored model pin (the config file's modelProvider/model
+// A cron job's stored model pin (the cron row's modelProvider/model
 // pair): both keys together, or neither for the agent's own default.
 type ModelPin = {
   readonly modelProvider?: string;
@@ -65,7 +65,7 @@ const jobModelSelection = (pin: ModelPin): ModelSelection | undefined =>
     ? { provider: pin.modelProvider, model: pin.model }
     : undefined;
 
-// The config-file spelling of a selection: both keys, or neither.
+// The stored spelling of a selection: both keys, or neither.
 const modelPinFields = (selection: ModelSelection | undefined): ModelPin =>
   selection === undefined
     ? {}
