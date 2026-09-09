@@ -17,7 +17,6 @@ import {
   readCronJobRows,
   seedCronJobRow,
   withPage,
-  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -698,28 +697,30 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-manage-"));
       workA = mkdtempSync(join(tmpdir(), "glv-cronui-ma-"));
       workB = mkdtempSync(join(tmpdir(), "glv-cronui-mb-"));
-      // Seeded through the config file so this boot also covers the
-      // migration into the cron database.
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "nightly",
-          schedule: "0 9 * * *",
-          prompt: "Nightly sweep of the logs",
-          workingDir: workA,
-        },
-        {
-          name: "friday-tz",
-          schedule: "30 8 * * 5",
-          prompt: "Friday EU report",
-          workingDir: workB,
-          timezone: "Europe/Berlin",
-          enabled: false,
-        },
-      ]);
+      // Seeded into the cron database before boot, so the scheduler
+      // reads both jobs at startup.
       env = await fx.startEnv(
         "glv-cronui-manage-",
         { sessionName: "Unstarted" },
         homeDir,
+        {},
+        ({ cronDb }) => {
+          seedCronJobRow(cronDb, {
+            name: "nightly",
+            schedule: "0 9 * * *",
+            prompt: "Nightly sweep of the logs",
+            workingDir: workA,
+            enabled: true,
+          });
+          seedCronJobRow(cronDb, {
+            name: "friday-tz",
+            schedule: "30 8 * * 5",
+            prompt: "Friday EU report",
+            workingDir: workB,
+            timezone: "Europe/Berlin",
+            enabled: false,
+          });
+        },
       );
     }, 120000);
 
@@ -880,18 +881,19 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-badge-"));
       const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-bw-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "nightly-watch",
-          schedule: "* * * * * *",
-          prompt: "Watch the logs",
-          workingDir,
-        },
-      ]);
       env = await fx.startEnv(
         "glv-cronui-badge-",
         { sessionName: "Watched Session" },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "nightly-watch",
+            schedule: "* * * * * *",
+            prompt: "Watch the logs",
+            workingDir,
+            enabled: true,
+          }),
       );
     }, 120000);
 
@@ -999,18 +1001,19 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
     it("prunes an expired one-shot at boot without running it", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-exp-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "missed",
-          schedule: formatOneShotLocal(new Date(Date.now() - 60_000)),
-          prompt: "Should never run",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ew-")),
-        },
-      ]);
       const env = await fx.startEnv(
         "glv-cronui-exp-",
         { sessionName: "Missed Session" },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "missed",
+            schedule: formatOneShotLocal(new Date(Date.now() - 60_000)),
+            prompt: "Should never run",
+            workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-ew-")),
+            enabled: true,
+          }),
       );
       try {
         // The prune happens during boot, before the first request.
@@ -1073,19 +1076,20 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     it("prunes a zoned one-shot that expired in its timezone", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-xtzexp-"));
       const zone = "Pacific/Kiritimati";
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "zoned-missed",
-          schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
-          timezone: zone,
-          prompt: "Should never run",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xew-")),
-        },
-      ]);
       const env = await fx.startEnv(
         "glv-cronui-xtzexp-",
         { sessionName: "Zoned Missed Session" },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "zoned-missed",
+            schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),
+            timezone: zone,
+            prompt: "Should never run",
+            workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-xew-")),
+            enabled: true,
+          }),
       );
       try {
         // Same instant semantics as the local prune, read in the zone.
@@ -1105,18 +1109,19 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
     it("fires an English schedule, translated to cron at boot", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-text-"));
-      writeCronConfig(homeDir, fx.binName, [
-        {
-          name: "text-sweep",
-          schedule: "every 2 minutes",
-          prompt: "Typed schedule sweep",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-tw-")),
-        },
-      ]);
       const env = await fx.startEnv(
         "glv-cronui-text-",
         { sessionName: "Typed Schedule Session" },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "text-sweep",
+            schedule: "every 2 minutes",
+            prompt: "Typed schedule sweep",
+            workingDir: mkdtempSync(join(tmpdir(), "glv-cronui-tw-")),
+            enabled: true,
+          }),
       );
       try {
         // "every 2 minutes" fires on even-minute boundaries, so the

@@ -3,16 +3,10 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import {
-  importLegacyConfigValues,
-  openConfigDb,
-  readLegacyConfigFile,
-  resolveForwardHost,
-} from "../config.js";
-import { startCronScheduler, validateCronJobSet } from "../cron.js";
+import { openConfigDb, resolveForwardHost } from "../config.js";
+import { startCronScheduler } from "../cron.js";
 import {
   deleteCronJob,
-  importCronJobsFromLegacyConfig,
   listCronJobs,
   openCronDb,
   watchCronJobs,
@@ -150,22 +144,10 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
   const cronDb = openCronDb(opts.cronDbPath);
-  // The config database: boot-time scalars (forwardHost) and the
-  // landing zone for the retired config file's keys.
+  // The config database: boot-time scalars (forwardHost).
   const configDb = openConfigDb(opts.configDbPath);
-  // A legacy file is imported once — its cronJobs array into the cron
-  // database, every other key into the config database — then renamed
-  // away (config.json.bak). An invalid file refuses startup before
-  // anything is written, leaving it hand-fixable.
-  const legacyConfig = readLegacyConfigFile(opts.profile.dataDirName);
-  if (legacyConfig !== undefined) {
-    importCronJobsFromLegacyConfig(cronDb, legacyConfig, (jobs) =>
-      validateCronJobSet(jobs, opts.models !== undefined),
-    );
-    importLegacyConfigValues(configDb, legacyConfig, opts.profile.dataDirName);
-  }
-  // Resolved after the import above, so a first boot whose host still
-  // lives in a file finds it; every later boot reads the database only.
+  // Resolved from the database only; the error names the fixing
+  // command.
   const forwardHost = opts.forward
     ? resolveForwardHost(configDb, opts.profile.id)
     : undefined;

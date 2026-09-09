@@ -1,32 +1,17 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
-  defaultConfigFile,
+  type CronJobRow,
   expectServeRefusal,
   type FlavorFixture,
   fakeHomeEnv,
-  findFreePort,
   type IntegrationEnv,
-  readConfigRows,
-  readCronConfig,
-  readCronJobRows,
   removeCronJobRow,
   seedCronJobRow,
-  spawnLauncher,
-  stopProcess,
-  waitForHttp,
-  writeCronConfig,
 } from "../harness.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -64,40 +49,21 @@ const waitForContent = async (
 };
 
 const runCronSuite = (fx: FlavorFixture): void => {
-  const writeConfig = (homeDir: string, cronJobs: unknown): string =>
-    writeCronConfig(homeDir, fx.binName, cronJobs);
-
-  // Asserts serve refuses to start for the given cronJobs value, naming
-  // every expected stderr fragment.
-  const expectServeRefuses = async (
-    cronJobs: unknown,
+  // Seeds a job row into a cron database serve will open, then boots
+  // serve against it just to watch it exit non-zero, naming every
+  // expected stderr fragment. Runs its own fake home so concurrent
+  // cases share no state.
+  const expectRowRefuses = async (
+    job: CronJobRow,
     ...stderrContains: string[]
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
-    const cfgPath = writeConfig(homeDir, cronJobs);
+    const cronDb = join(homeDir, "cron.db");
+    seedCronJobRow(cronDb, job);
     const stderr = await expectServeRefusal(
       fx.binPath,
       ["serve", ...fx.defaultServeArgs(homeDir)],
-      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
-    );
-    for (const fragment of stderrContains) expect(stderr).toContain(fragment);
-    rmSync(homeDir, { recursive: true, force: true });
-  };
-
-  // Same, for a legacy file holding raw contents rather than a
-  // cronJobs-bearing record.
-  const expectServeRefusesRawFile = async (
-    contents: string,
-    ...stderrContains: string[]
-  ): Promise<void> => {
-    const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-raw-"));
-    const cfgPath = defaultConfigFile(homeDir, fx.binName);
-    mkdirSync(dirname(cfgPath), { recursive: true });
-    writeFileSync(cfgPath, contents);
-    const stderr = await expectServeRefusal(
-      fx.binPath,
-      ["serve", ...fx.defaultServeArgs(homeDir)],
-      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+      { ...fakeHomeEnv(homeDir), GLV_CRON_DB: cronDb },
     );
     for (const fragment of stderrContains) expect(stderr).toContain(fragment);
     rmSync(homeDir, { recursive: true, force: true });
@@ -115,16 +81,8 @@ const runCronSuite = (fx: FlavorFixture): void => {
       workingDir = mkdtempSync(join(tmpdir(), "glv-cron-work-"));
       stdinCapture = join(homeDir, "stdin-capture.txt");
       cwdCapture = join(homeDir, "cwd-capture.txt");
-      // Seeded through the config file, so this boot also exercises the
-      // one-time migration into the cron database.
-      writeConfig(homeDir, [
-        {
-          name: "every-second",
-          schedule: "* * * * * *",
-          prompt: "Scheduled check-in from cron",
-          workingDir,
-        },
-      ]);
+      // Seeded into the cron database before boot, so the scheduler
+      // reads the job at startup.
       env = await fx.startEnv(
         "glv-cron-",
         {
@@ -133,31 +91,21 @@ const runCronSuite = (fx: FlavorFixture): void => {
           captureCwd: cwdCapture,
         },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "every-second",
+            schedule: "* * * * * *",
+            prompt: "Scheduled check-in from cron",
+            workingDir,
+            enabled: true,
+          }),
       );
     }, 120000);
 
     afterAll(async () => {
       await env?.cleanup();
       rmSync(homeDir, { recursive: true, force: true });
-    });
-
-    it("migrates the config file's jobs into the cron database at boot", () => {
-      // The row now lives where the scheduler read it from.
-      expect(readCronJobRows(env.dbs.cronDb)).toEqual([
-        {
-          name: "every-second",
-          schedule: "* * * * * *",
-          prompt: "Scheduled check-in from cron",
-          workingDir,
-          enabled: true,
-        },
-      ]);
-      // The file is retired wholesale — renamed to config.json.bak —
-      // once its contents have been imported.
-      expect(existsSync(defaultConfigFile(homeDir, fx.binName))).toBe(false);
-      expect(existsSync(`${defaultConfigFile(homeDir, fx.binName)}.bak`)).toBe(
-        true,
-      );
     });
 
     it("starts a new session per fire with the job's prompt and working dir", async () => {
@@ -181,175 +129,25 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  describe("migrating the config file into the cron database", () => {
-    let env: IntegrationEnv;
-    let homeDir: string;
-    let cfgPath: string;
-    let workA: string;
-    let workB: string;
-
-    beforeAll(async () => {
-      homeDir = mkdtempSync(join(tmpdir(), "glv-cron-mig-"));
-      workA = mkdtempSync(join(tmpdir(), "glv-cron-mw-a-"));
-      workB = mkdtempSync(join(tmpdir(), "glv-cron-mw-b-"));
-      // An unnamed entry (named cron-1 by position), a disabled one with
-      // a timezone, and a sibling config key that must survive the
-      // rewrite.
-      cfgPath = defaultConfigFile(homeDir, fx.binName);
-      writeConfig(homeDir, [
-        {
-          schedule: "0 3 * * *",
-          prompt: "Nightly sweep",
-          workingDir: workA,
-        },
-        {
-          name: "paused",
-          schedule: "0 4 * * *",
-          prompt: "Never fires yet",
-          workingDir: workB,
-          timezone: "Europe/Oslo",
-          enabled: false,
-        },
-      ]);
-      // writeCronConfig overwrites the file wholesale; re-add forwardHost
-      // by hand so the rewrite has another key to preserve.
-      const config = JSON.parse(readFileSync(cfgPath, "utf-8"));
-      config.forwardHost = "203.0.113.7";
-      writeFileSync(cfgPath, JSON.stringify(config, null, 2));
-      env = await fx.startEnv(
-        "glv-cron-mig-",
-        { sessionName: "Migration Session" },
-        homeDir,
-      );
-    }, 120000);
-
-    afterAll(async () => {
-      await env?.cleanup();
-      rmSync(homeDir, { recursive: true, force: true });
-    });
-
-    it("imports every entry, naming unnamed ones, and retires the file", () => {
-      expect(readCronJobRows(env.dbs.cronDb)).toEqual([
-        {
-          name: "cron-1",
-          schedule: "0 3 * * *",
-          prompt: "Nightly sweep",
-          workingDir: workA,
-          enabled: true,
-        },
-        {
-          name: "paused",
-          schedule: "0 4 * * *",
-          prompt: "Never fires yet",
-          workingDir: workB,
-          timezone: "Europe/Oslo",
-          enabled: false,
-        },
-      ]);
-      // The sibling scalar lands in the config database, not the file.
-      expect(readConfigRows(env.dbs.configDb)).toEqual({
-        forwardHost: "203.0.113.7",
-      });
-      // The file itself is retired — imported, then renamed away so a
-      // copy stays behind instead of being destroyed.
-      expect(existsSync(cfgPath)).toBe(false);
-      expect(readCronConfig(`${cfgPath}.bak`)).toEqual({
-        cronJobs: [
-          { schedule: "0 3 * * *", prompt: "Nightly sweep", workingDir: workA },
-          {
-            name: "paused",
-            schedule: "0 4 * * *",
-            prompt: "Never fires yet",
-            workingDir: workB,
-            timezone: "Europe/Oslo",
-            enabled: false,
-          },
-        ],
-        forwardHost: "203.0.113.7",
-      });
-    });
-
-    it("lists the migrated jobs in the Scheduled runs section", async () => {
-      const res = await authedFetch(env, "/");
-      const html = await res.text();
-      expect(html).toContain("cron-1");
-      expect(html).toContain("Paused");
-      expect(html).toContain("(Europe/Oslo)");
-    });
-
-    it("re-imports jobs re-added to the config file without duplicating", async () => {
-      // Hand-add the job to the config file again (the old habit) and
-      // boot a second serve against the same cron database: the file's
-      // entry wins on the name collision, the untouched row survives,
-      // and the file is retired once more.
-      writeConfig(homeDir, [
-        {
-          name: "paused",
-          schedule: "0 4 * * *",
-          prompt: "Edited while re-imported",
-          workingDir: workB,
-          timezone: "Europe/Oslo",
-          enabled: false,
-        },
-      ]);
-      const port = await findFreePort();
-      const proc = spawnLauncher(
-        fx.binPath,
-        ["serve", "-p", String(port), ...fx.defaultServeArgs(homeDir)],
-        {
-          env: {
-            ...process.env,
-            ...fakeHomeEnv(homeDir),
-            GLV_CONFIG: cfgPath,
-            GLV_CRON_DB: env.dbs.cronDb,
-          },
-        },
-      );
-      try {
-        await waitForHttp(`http://localhost:${port}`);
-        expect(readCronJobRows(env.dbs.cronDb)).toEqual([
-          {
-            name: "cron-1",
-            schedule: "0 3 * * *",
-            prompt: "Nightly sweep",
-            workingDir: workA,
-            enabled: true,
-          },
-          {
-            name: "paused",
-            schedule: "0 4 * * *",
-            prompt: "Edited while re-imported",
-            workingDir: workB,
-            timezone: "Europe/Oslo",
-            enabled: false,
-          },
-        ]);
-        expect(existsSync(cfgPath)).toBe(false);
-      } finally {
-        await stopProcess(proc);
-      }
-    });
-  });
-
   describe("disabled cron jobs", () => {
     let env: IntegrationEnv;
     let homeDir: string;
 
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cron-off-"));
-      writeConfig(homeDir, [
-        {
-          name: "paused",
-          schedule: "* * * * * *",
-          prompt: "Should never run",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cron-offdir-")),
-          enabled: false,
-        },
-      ]);
       env = await fx.startEnv(
         "glv-cron-off-",
         { sessionName: "Disabled Session" },
         homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "paused",
+            schedule: "* * * * * *",
+            prompt: "Should never run",
+            workingDir: mkdtempSync(join(tmpdir(), "glv-cron-offdir-")),
+            enabled: false,
+          }),
       );
     }, 120000);
 
@@ -374,19 +172,19 @@ const runCronSuite = (fx: FlavorFixture): void => {
 
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-cron-timeout-"));
-      writeConfig(homeDir, [
-        {
-          name: "never",
-          schedule: "* * * * * *",
-          prompt: "No session will appear",
-          workingDir: mkdtempSync(join(tmpdir(), "glv-cron-todir-")),
-        },
-      ]);
       env = await fx.startEnv(
         "glv-cron-timeout-",
         { neverCreateSession: true },
         homeDir,
         { GLV_CRON_SESSION_TIMEOUT_MS: "2000" },
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "never",
+            schedule: "* * * * * *",
+            prompt: "No session will appear",
+            workingDir: mkdtempSync(join(tmpdir(), "glv-cron-todir-")),
+            enabled: true,
+          }),
       );
     }, 120000);
 
@@ -543,111 +341,38 @@ const runCronSuite = (fx: FlavorFixture): void => {
       restoreAgent?.();
     });
 
-    // Each case boots its own serve process (fresh fake home and
-    // config) just to watch it exit non-zero and shares no state with
-    // the others, so concurrency overlaps the five boots instead of
-    // stacking tens of seconds of serial startups on a CI runner.
-    // Every case seeds the legacy config file: the migration is what
-    // validates it, and a refusal must leave the file untouched so it
-    // stays hand-fixable.
+    // Each case boots its own serve process (fresh fake home and cron
+    // database) just to watch it exit non-zero and shares no state with
+    // the others, so concurrency overlaps the boots instead of stacking
+    // tens of seconds of serial startups on a CI runner. Every case
+    // seeds a raw job row — what an external writer or an older glv
+    // could leave behind — that boot validation must refuse.
     it.concurrent("exits non-zero naming a job with an invalid schedule", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "broken",
-            schedule: "not a cron expression",
-            prompt: "x",
-            workingDir: tmpdir(),
-          },
-        ],
-        "broken",
-        "invalid schedule",
-      ));
-
-    it.concurrent("exits non-zero naming a job with an invalid timezone", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "tz-broken",
-            schedule: "0 3 * * *",
-            prompt: "x",
-            workingDir: tmpdir(),
-            timezone: "Bogus/Zone",
-          },
-        ],
-        "tz-broken",
-        "invalid timezone",
-      ));
-
-    it.concurrent("exits non-zero for duplicate job names", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "twin",
-            schedule: "0 3 * * *",
-            prompt: "x",
-            workingDir: tmpdir(),
-          },
-          {
-            name: "twin",
-            schedule: "0 4 * * *",
-            prompt: "y",
-            workingDir: tmpdir(),
-          },
-        ],
-        'duplicate cron job name "twin"',
-      ));
-
-    it.concurrent("exits non-zero for a job with only half a model pin", () =>
-      expectServeRefuses(
-        [
-          {
-            name: "half-pin",
-            schedule: "0 3 * * *",
-            prompt: "x",
-            workingDir: tmpdir(),
-            model: "glm-5.3",
-          },
-        ],
-        "half-pin",
-        "must set modelProvider and model together",
-      ));
-
-    it.concurrent("exits non-zero for a structurally invalid cronJobs value", () =>
-      expectServeRefuses("nope", "cronJobs must be an array"));
-
-    it.concurrent("exits non-zero for a legacy file that is not valid JSON", async () => {
-      await expectServeRefusesRawFile("{ not valid json", "not valid JSON");
-    });
-
-    it.concurrent("exits non-zero for a legacy file that is not an object", async () => {
-      await expectServeRefusesRawFile(
-        "5",
-        "glv config at",
-        "must be an object",
-      );
-    });
-
-    it.concurrent("leaves the config file untouched when it refuses", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-keep-"));
-      const cfgPath = writeConfig(homeDir, [
+      expectRowRefuses(
         {
           name: "broken",
           schedule: "not a cron expression",
           prompt: "x",
           workingDir: tmpdir(),
+          enabled: true,
         },
-      ]);
-      await expectServeRefusal(
-        fx.binPath,
-        ["serve", ...fx.defaultServeArgs(homeDir)],
-        { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
-      );
-      // The invalid jobs stay in the file — fixable by hand, retriable
-      // on the next serve.
-      expect(readCronConfig(cfgPath).cronJobs).toHaveLength(1);
-      rmSync(homeDir, { recursive: true, force: true });
-    });
+        "broken",
+        "invalid schedule",
+      ));
+
+    it.concurrent("exits non-zero naming a job with an invalid timezone", () =>
+      expectRowRefuses(
+        {
+          name: "tz-broken",
+          schedule: "0 3 * * *",
+          prompt: "x",
+          workingDir: tmpdir(),
+          timezone: "Bogus/Zone",
+          enabled: true,
+        },
+        "tz-broken",
+        "invalid timezone",
+      ));
   });
 };
 

@@ -226,11 +226,11 @@ the flag errors out if the key is missing.
 
 Settings used to live in a hand-editable `config.json`
 (`~/.config/glv-goose/config.json`, or `GLV_CONFIG`). That file is
-retired: the first `serve` start imports everything it still holds —
+retired: older glv imported it once on the first `serve` start —
 scheduled runs into the cron database, every other key into the config
-database — and renames it to `config.json.bak`, keeping a copy behind.
-An invalid legacy file stops the server from starting, with the file
-left as it was, so it stays fixable by hand.
+database — and renamed it to `config.json.bak`, keeping a copy behind.
+Current glv never reads the file, so a leftover `config.json` or
+`config.json.bak` can simply be deleted.
 
 ### Scheduled runs (cron)
 
@@ -253,13 +253,10 @@ job-started-session tags that badge fired runs. Override with
 running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
-retired [config file](#config-database) are **migrated into the cron
-database automatically** the first time `serve` starts; the whole file
-is then retired (see above). An invalid legacy file stops the server
-from starting — naming the job — with the file left as it was, so it
-stays fixable by hand. Re-adding a `cronJobs` array to a recreated file
-re-imports it on the next start (entries win on a name collision;
-nothing is duplicated).
+retired [config file](#config-database) were migrated into the cron
+database by the first `serve` starts after that file’s retirement —
+entries won on a name collision, so nothing was duplicated. Current glv
+never reads the file, and a stray `cronJobs` key is inert.
 
 - `schedule` is one of two spellings:
 

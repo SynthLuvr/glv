@@ -91,3 +91,17 @@ bridge never runs again.
   boot it is ignored. `GLV_CONFIG_DB` overrides the database.
 - `config.json.bak` files accumulate nothing and are never read again;
   users may delete them.
+
+## Update — 2026-09-09: the migration bridge is removed
+
+The boot-time import did its job and is gone. serve never reads the
+config file: a leftover `config.json` is ignored, `GLV_CONFIG` is no
+longer read anywhere, and a stray `config.json.bak` can be deleted.
+Installs that never had the file were always in the no-op steady state.
+
+The cron-jobs half of the bridge went with it (see the update in ADR
+0003): scheduled runs come up from `cron.db` alone, and the scheduler’s
+fail-fast boot validation over those rows is unchanged. With the bridge
+gone, every store reads only its own database, and the last reader
+outside the data directory is retired — all per-flavor state now lives
+under one directory in fact, not just by convention.

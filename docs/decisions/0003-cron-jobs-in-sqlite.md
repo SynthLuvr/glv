@@ -133,3 +133,16 @@ non-job keys); `CONFIG_KEYS` drops `cronJobs`, so
 - `cron.db` becomes required state for serve (it already was — the badge
   sidecar lived there), now holding the schedule itself; it is a normal
   SQLite file, safe to back up or copy wholesale.
+
+## Update — 2026-09-09: the migration bridge is removed
+
+The boot-time import (`importCronJobsFromLegacyConfig`) did its job and
+is gone; serve never reads the config file (see the update in ADR 0004).
+Every job is named — name is the table’s primary key — so the positional
+`cron-<n>` fallback and the optional-name job shape went with the
+migration, and the scheduler’s fail-fast boot validation over the
+database rows is unchanged. Duplicate names and half a model pin are
+impossible to store (primary key; the row mapping reads the pin as a
+pair), so the boot checks for both went too; the rejections users still
+see are the save-time ones: the form refuses a name that already exists,
+and a flavor without a model surface refuses any pin at boot.

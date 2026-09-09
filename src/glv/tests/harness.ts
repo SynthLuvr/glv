@@ -13,7 +13,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { platform, tmpdir } from "node:os";
@@ -359,6 +358,7 @@ type FlavorFixture = {
     mock?: MockConfig,
     homeDir?: string,
     extraEnv?: Record<string, string>,
+    prepareDbs?: (dbs: Databases) => void,
   ) => Promise<IntegrationEnv>;
   readonly seedSessions: (env: IntegrationEnv, seeds: SessionSeed[]) => void;
   readonly seedMessages: (
@@ -548,52 +548,19 @@ const fakeHomeEnv = (home: string): Record<string, string> =>
     : { HOME: home };
 
 // Platform default locations for glv-owned files under a (fake) home,
-// mirroring db-path.ts and config.ts: XDG-style on macOS/Linux, Known
-// Folders on Windows.
+// mirroring db-path.ts: XDG-style on macOS/Linux, Known Folders on
+// Windows.
 const defaultDataDir = (home: string, dataDirName: string): string =>
   IS_WIN
     ? join(home, "AppData", "Roaming", dataDirName)
     : join(home, ".local", "share", dataDirName);
 
+// The retired config file's old location. Nothing reads or writes it;
+// tests assert it stays absent.
 const defaultConfigFile = (home: string, dataDirName: string): string =>
   IS_WIN
     ? join(home, "AppData", "Local", dataDirName, "config.json")
     : join(home, ".config", dataDirName, "config.json");
-
-// The config-file shape shared by the cron suites and flavor tests: the
-// migration reads the file, so tests assert on what it still holds.
-type CronConfigFile = {
-  cronJobs?: Record<string, unknown>[];
-  forwardHost?: string;
-};
-
-// Writes a config file holding exactly these jobs at the flavor's default
-// config path, and returns the path (what serve both reads and watches).
-// `cronJobs` is `unknown` on purpose: the invalid-shape suites write
-// values serve must reject.
-const writeCronConfig = (
-  home: string,
-  dataDirName: string,
-  cronJobs: unknown,
-): string => {
-  const path = defaultConfigFile(home, dataDirName);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ cronJobs }, null, 2));
-  return path;
-};
-
-const readCronConfig = (path: string): CronConfigFile =>
-  (existsSync(path)
-    ? JSON.parse(readFileSync(path, "utf-8"))
-    : {}) as CronConfigFile;
-
-const cronJobIn = (
-  path: string,
-  name: string,
-): Record<string, unknown> | undefined =>
-  (readCronConfig(path).cronJobs ?? []).find(
-    (job) => (job as { name?: string }).name === name,
-  );
 
 // The cron database's job rows, as the store spells them (camelCase,
 // `enabled` boolean, absent optionals omitted) — what the UI writes and
@@ -653,11 +620,22 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
   readCronJobRows(dbPath).find((job) => job.name === name);
 
 // Writes a job row exactly as given — no validation, so tests can seed
-// invalid schedules the live reload must reject. An existing row of the
-// same name is replaced (the edit path); removeCronJobRow deletes one.
+// invalid schedules the live reload must reject. Creates the table when
+// missing, so tests can seed before the server boots. An existing row
+// of the same name is replaced (the edit path); removeCronJobRow
+// deletes one.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   const db = openServerDb(dbPath);
   try {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS cron_jobs (" +
+        "name TEXT PRIMARY KEY, schedule TEXT NOT NULL, " +
+        "prompt TEXT NOT NULL, working_dir TEXT NOT NULL, " +
+        "timezone TEXT, enabled INTEGER NOT NULL DEFAULT 1, " +
+        "model_provider TEXT, model TEXT, " +
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    );
     db.prepare(
       `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ` +
         "ON CONFLICT(name) DO UPDATE SET " +
@@ -689,8 +667,7 @@ const removeCronJobRow = (dbPath: string, name: string): void => {
   }
 };
 
-// The config database's rows, what `config list` prints and the
-// legacy migration writes.
+// The config database's rows, what `config list` prints.
 const readConfigRows = (dbPath: string): Record<string, string> => {
   if (!existsSync(dbPath)) return {};
   const db = openServerDb(dbPath);
@@ -806,9 +783,11 @@ const startEnv = async (
   mock: MockConfig = {},
   homeDir?: string,
   extraEnv: Record<string, string> = {},
+  prepareDbs?: (dbs: Databases) => void,
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = adapter.createDatabases(scratchDir);
+  prepareDbs?.(dbs);
   const uploadsDir = join(scratchDir, "uploads");
   mkdirSync(uploadsDir, { recursive: true });
   const tempDir = join(scratchDir, "tmp");
@@ -920,8 +899,8 @@ const startEnv = async (
 // only flavor-specific part is the adapter.
 const makeStartEnv =
   (adapter: FlavorAdapter): FlavorFixture["startEnv"] =>
-  (prefix, mock = {}, homeDir, extraEnv = {}) =>
-    startEnv(adapter, prefix, mock, homeDir, extraEnv);
+  (prefix, mock = {}, homeDir, extraEnv = {}, prepareDbs) =>
+    startEnv(adapter, prefix, mock, homeDir, extraEnv, prepareDbs);
 
 // The scripted agent records every invocation of the mocked binary; the
 // session run is the one carrying the resume flag, because other features
@@ -1107,7 +1086,6 @@ const collectSse = async (
   });
 
 export type {
-  CronConfigFile,
   CronJobRow,
   Databases,
   FlavorAdapter,
@@ -1122,7 +1100,6 @@ export {
   authedFetch,
   baseDatabases,
   collectSse,
-  cronJobIn,
   cronJobRow,
   dbOverrideArgs,
   defaultConfigFile,
@@ -1138,7 +1115,6 @@ export {
   postNewSession,
   ROOT,
   readConfigRows,
-  readCronConfig,
   readCronJobRows,
   readStoreField,
   removeCronJobRow,
@@ -1157,5 +1133,4 @@ export {
   waitForJsonFile,
   waitForServeExit,
   withPage,
-  writeCronConfig,
 };

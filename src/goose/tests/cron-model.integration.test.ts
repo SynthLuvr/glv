@@ -11,7 +11,6 @@ import {
   type IntegrationEnv,
   waitForArgs,
   withPage,
-  writeCronConfig,
 } from "../../glv/tests/harness.js";
 import { gooseConfigPath } from "../models.js";
 import { startIntegrationEnv } from "./integration-harness.js";
@@ -297,51 +296,5 @@ describe("scheduled-run model picker (goose)", () => {
         model: "glm-5.1",
       });
     });
-  });
-});
-
-describe("hand-written model pin in the legacy config file (goose)", () => {
-  let env: IntegrationEnv;
-  let homeDir: string;
-  let argsPath: string;
-
-  beforeAll(async () => {
-    homeDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-hand-"));
-    writeGooseConfig(homeDir);
-    const argsDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-hargs-"));
-    argsPath = join(argsDir, "args.json");
-    const cfgPath = writeCronConfig(homeDir, "glv-goose", [
-      {
-        name: "hand-pin",
-        schedule: "* * * * * *",
-        prompt: "Hand pinned sweep",
-        workingDir: mkdtempSync(join(tmpdir(), "glv-cronmodel-hw-")),
-        modelProvider: "zai",
-        model: "glm-5.3",
-      },
-    ]);
-    env = await startIntegrationEnv(
-      "glv-cronmodel-hand-",
-      {
-        captureArgs: argsPath,
-        sessionName: "Hand Pinned Session",
-      },
-      homeDir,
-      { GLV_CONFIG: cfgPath },
-    );
-  }, 180000);
-
-  afterAll(async () => {
-    await env?.cleanup();
-    rmSync(homeDir, { recursive: true, force: true });
-  });
-
-  it("fires a hand-written pin with the model flags", async () => {
-    // The pin is written by hand in the legacy config file (never touched
-    // by the form), migrated into the cron database at boot, and reaches
-    // the agent's argv on every fire.
-    const args = await waitForArgs(argsPath);
-    expect(flagValue(args, "--provider")).toBe("zai");
-    expect(flagValue(args, "--model")).toBe("glm-5.3");
   });
 });

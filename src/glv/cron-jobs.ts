@@ -1,41 +1,33 @@
-import { DatabaseSync } from "node:sqlite";
+import { type DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
-import { transaction, validateAll } from "./query.js";
-import { resolvedCronName } from "./schedule.js";
+import { validateAll } from "./query.js";
 import { positiveEnvNumber } from "./util.js";
 
-// The cron job store. Jobs used to live in the config file's cronJobs
-// array; they now live in the cron database (cron.db) beside the
-// session-tag sidecar. serve boots the one-time bridge: it reads the
-// legacy config file, hands its cronJobs value to this import, and
-// retires the file (see config.ts). The web UI mutates rows here, the
+// The cron job store: the schedule in the cron database (cron.db)
+// beside the session-tag sidecar. The web UI mutates rows here, the
 // scheduler reads them, and a poll watches for external writers.
 
-// The job shape the config file used to spell (and the migration still
-// accepts): a name is optional there because hand-edited entries could
-// omit it, and the array position named them (cron-1, cron-2, …).
-const CronJob = type({
-  "name?": "string",
-  schedule: "string>0",
-  prompt: "string>0",
-  workingDir: "string>0",
-  "timezone?": "string",
-  "enabled?": "boolean",
+// A job as every reader and writer spells it. name is the table's
+// primary key, so every job is always named; enabled is the column's
+// default-on flag, so writes may omit it.
+type CronJobConfig = {
+  name: string;
+  schedule: string;
+  prompt: string;
+  workingDir: string;
+  timezone?: string;
+  enabled?: boolean;
   // A model pin for the sessions this job starts: both keys together, or
   // neither for the agent's own default.
-  "modelProvider?": "string>0",
-  "model?": "string>0",
-});
+  modelProvider?: string;
+  model?: string;
+};
 
-type CronJobConfig = typeof CronJob.infer;
-
-// A stored row: the same shape, but always named — name is the table's
-// primary key, so the positional cron-<n> fallback is applied once, at
-// migration.
+// A stored row: the same shape, but always enabled — the column
+// defaults on, so a read never lacks it.
 type CronJobRecord = CronJobConfig & {
-  readonly name: string;
   readonly enabled: boolean;
 };
 
@@ -103,8 +95,8 @@ const mapRow = (row: JobRow): CronJobRecord => ({
     : { modelProvider: row.model_provider, model: row.model }),
 });
 
-// Insertion order, like the config array had: rowid survives renames,
-// so a renamed job keeps its place in the section.
+// Insertion order: rowid survives renames, so a renamed job keeps its
+// place in the section.
 const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
   validateAll(
     JobRow,
@@ -127,22 +119,11 @@ const jobParams = (job: CronJobWrite): (string | number | null)[] => [
 
 const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
-const UPSERT_SQL =
-  `${INSERT_SQL} ON CONFLICT(name) DO UPDATE SET ` +
-  "schedule = excluded.schedule, prompt = excluded.prompt, " +
-  "working_dir = excluded.working_dir, timezone = excluded.timezone, " +
-  "enabled = excluded.enabled, model_provider = excluded.model_provider, " +
-  "model = excluded.model, updated_at = datetime('now')";
-
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
 const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
   db.prepare(INSERT_SQL).run(...jobParams(job));
-};
-
-const upsert = (db: DatabaseSync, job: CronJobWrite): void => {
-  db.prepare(UPSERT_SQL).run(...jobParams(job));
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -182,55 +163,6 @@ const setCronJobEnabled = (
 const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
   db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name).changes > 0;
 
-// The config-file shape as it used to validate, kept only so the
-// migration rejects a malformed cronJobs value with the same message
-// serve always did.
-const CronJobsConfig = type({ "cronJobs?": type([CronJob, "[]"]) });
-
-// Imports a legacy config file's cronJobs array into the database, run
-// by serve when it still finds a file. File entries win on a name
-// collision, so re-adding jobs to a file re-imports them once, never
-// duplicated. validateSet checks the whole merged set the way the
-// scheduler will (unique names, parseable schedules, …) — thrown
-// errors refuse serve before anything is written, leaving the file
-// hand-fixable.
-const importCronJobsFromLegacyConfig = (
-  db: DatabaseSync,
-  raw: Record<string, unknown>,
-  validateSet: (jobs: readonly CronJobConfig[]) => void,
-): void => {
-  if (raw.cronJobs === undefined) return;
-  const parsed = CronJobsConfig(raw);
-  if (parsed instanceof type.errors)
-    throw new Error(`invalid glv config: ${parsed.summary}`);
-  const fromFile = parsed.cronJobs ?? [];
-
-  // The file's own entries are validated before anything is merged or
-  // written: a duplicate name inside the file (invisible after the
-  // name-keyed merge below) refuses serve here, with the file left
-  // untouched, exactly as the config-reader used to refuse it.
-  validateSet(fromFile);
-
-  const merged = new Map(
-    listCronJobs(db).map((job) => [job.name, job] as const),
-  );
-  fromFile.forEach((job, index) => {
-    const name = resolvedCronName(job, index);
-    merged.set(name, { ...job, name, enabled: job.enabled !== false });
-  });
-  const jobs = [...merged.values()];
-  validateSet(jobs);
-
-  transaction(db, () => {
-    for (const job of jobs) upsert(db, job);
-  });
-  if (fromFile.length > 0)
-    console.log(
-      `cron: migrated ${fromFile.length} job(s) from the config file ` +
-        "into the cron database",
-    );
-};
-
 // The scheduler's change signal for the database. There is no
 // fs.watch for SQLite, so a poll re-reads the table (the reload itself
 // no-ops when the resolved set is unchanged); UI mutations nudge the
@@ -250,7 +182,6 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 export type { CronJobConfig };
 export {
   deleteCronJob,
-  importCronJobsFromLegacyConfig,
   insertCronJob,
   listCronJobs,
   openCronDb,
