@@ -420,8 +420,7 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
   );
 };
 
-// One follow-on step block on the edit form: a prompt whose session
-// starts only after the step above it finishes. scripts/schedule.ts
+// One follow-on step block on the edit form. scripts/schedule.ts
 // clones this exact structure when "+ Add follow-on" is clicked, so
 // server-rendered and client-added blocks behave identically.
 const FollowOnStep = ({ prompt = "" }: { prompt?: string }) => (
@@ -446,9 +445,9 @@ const FollowOnStep = ({ prompt = "" }: { prompt?: string }) => (
 );
 
 // The stacked follow-on steps of an edit form: one block per stored (or
-// rejected-submit) step, a marker the browser always submits so an
-// emptied list clears the stored chain, and the add button. Pure
-// client-side add/remove — the server just re-renders on save.
+// rejected-submit) step, the follow_ups_present marker whose presence
+// tells the PUT route the submit owns the step list (so an emptied list
+// clears the stored chain), and the add button.
 const FollowOnSteps = ({ steps }: { steps: readonly string[] }) => (
   <div class="cron-steps" data-cron-steps="">
     <input type="hidden" name="follow_ups_present" value="1" />

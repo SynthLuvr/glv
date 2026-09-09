@@ -151,46 +151,38 @@ const closeSlot = (): void => {
   if (slot !== null) slot.innerHTML = "";
 };
 
-// --- Follow-on steps (chained scheduled runs) ---
-//
-// The edit form stacks follow-on prompts; adding or removing a step is
-// pure DOM (no server round-trip), and everything is delegated so an
-// htmx swap (a rejected submit's re-render, a card restore) needs no
-// re-wiring. The step cap matches the server's MAX_CRON_STEPS.
+// Follow-on steps (chained scheduled runs): adding or removing a step
+// is pure DOM, and the listeners are delegated so an htmx swap (a
+// rejected submit's re-render, a card restore) needs no re-wiring.
 
 const STEPS_CONTAINER = "[data-cron-steps]";
 const STEP_BLOCK = "[data-cron-step]";
 const STEP_ADD = "[data-action=add-cron-step]";
 const MAX_FOLLOW_UPS = MAX_CRON_STEPS - 1;
 
-// A fresh step block, structurally identical to what the server renders
-// (views/schedule.tsx FollowOnStep) so both spellings submit the same.
+// Structurally identical to what the server renders
+// (views/schedule.tsx FollowOnStep) so server-rendered and
+// client-added blocks submit the same fields.
+const STEP_BLOCK_HTML = `
+<div class="cron-step" data-cron-step="">
+  <label class="form-field">
+    <span class="form-label">
+      Then run — starts a new session after the one above finishes
+    </span>
+    <textarea name="follow_up" class="form-input" rows="3"></textarea>
+  </label>
+  <button
+    type="button"
+    class="cron-step-remove"
+    data-action="remove-cron-step"
+    aria-label="Remove this follow-on step"
+  >×</button>
+</div>`;
+
 const newStepBlock = (): HTMLElement => {
-  const step = document.createElement("div");
-  step.className = "cron-step";
-  step.dataset.cronStep = "";
-
-  const label = document.createElement("label");
-  label.className = "form-field";
-  const labelSpan = document.createElement("span");
-  labelSpan.className = "form-label";
-  labelSpan.textContent =
-    "Then run — starts a new session after the one above finishes";
-  const textarea = document.createElement("textarea");
-  textarea.name = "follow_up";
-  textarea.className = "form-input";
-  textarea.rows = 3;
-  label.append(labelSpan, textarea);
-
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "cron-step-remove";
-  remove.dataset.action = "remove-cron-step";
-  remove.setAttribute("aria-label", "Remove this follow-on step");
-  remove.textContent = "×";
-
-  step.append(label, remove);
-  return step;
+  const template = document.createElement("template");
+  template.innerHTML = STEP_BLOCK_HTML;
+  return template.content.firstElementChild as HTMLElement;
 };
 
 // The add button reflects the cap: disabled (with the reason as its
@@ -229,11 +221,18 @@ const syncAllStepButtons = (): void => {
 document.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) return;
   const trigger = e.target.closest<HTMLElement>("[data-action]");
-  const action = trigger?.dataset.action;
-  if (action === "close-schedule-slot") closeSlot();
-  if (trigger === null || action === undefined) return;
-  if (action === "add-cron-step") addStep(trigger);
-  if (action === "remove-cron-step") removeStep(trigger);
+  if (trigger === null) return;
+  switch (trigger.dataset.action) {
+    case "close-schedule-slot":
+      closeSlot();
+      break;
+    case "add-cron-step":
+      addStep(trigger);
+      break;
+    case "remove-cron-step":
+      removeStep(trigger);
+      break;
+  }
 });
 
 const afterSwap = (e: Event): void => {

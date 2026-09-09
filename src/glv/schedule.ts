@@ -506,10 +506,10 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
   return parsed.ok ? parsed.info.human : schedule;
 };
 
-// The most steps one scheduled run may stack: the first prompt plus
-// this many follow-on prompts. Lives in this client-safe module — not
-// the node:sqlite-dependent store — so the browser bundle
-// (scripts/schedule.ts enforces the same cap in the edit form) can
+// The most steps one scheduled run may stack, counting the first
+// prompt: it plus at most MAX_CRON_STEPS - 1 follow-ons. Lives in this
+// client-safe module — not the node:sqlite-dependent store — so the
+// browser bundle (which enforces the same cap in the edit form) can
 // import it.
 const MAX_CRON_STEPS = 10;
 

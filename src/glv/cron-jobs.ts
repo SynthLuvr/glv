@@ -24,9 +24,9 @@ type CronJobConfig = {
   // neither for the agent's own default.
   modelProvider?: string;
   model?: string;
-  // Follow-on prompts: after the first prompt's session finishes, each
-  // of these starts a new session, strictly in order (the chain driver
-  // lives in cron.ts). Absent means a plain single-prompt job.
+  // Follow-on prompts: each starts a new session after the first
+  // prompt's finishes, strictly in order. Absent means a plain
+  // single-prompt job.
   followUps?: readonly string[];
 };
 
@@ -53,13 +53,12 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 `;
 
 // Databases created before chained sessions existed have no follow_ups
-// column; ALTER TABLE adds it in place at open (idempotent — the PRAGMA
-// probe skips databases the SCHEMA above already created with it).
+// column; add it in place. The PRAGMA probe makes this idempotent.
 const ensureFollowUpsColumn = (db: DatabaseSync): void => {
   const columns = db.prepare("PRAGMA table_info(cron_jobs)").all() as {
     name: string;
   }[];
-  if (columns.every((column) => column.name !== "follow_ups"))
+  if (!columns.some((column) => column.name === "follow_ups"))
     db.exec("ALTER TABLE cron_jobs ADD COLUMN follow_ups TEXT");
 };
 
@@ -96,13 +95,11 @@ const JOB_COLS =
   "name, schedule, prompt, working_dir, timezone, enabled, " +
   "model_provider, model, follow_ups";
 
-// follow_ups holds a JSON array of follow-on prompts. Reading is as
-// strict as the rest of the row: anything but an array of strings —
-// trimmed, blank-free, and inside the step cap — is a read error
-// naming the row (refused, not guessed at), so a hand-edit surfaces
-// instead of silently truncating a pipeline. The read error travels
-// the same paths a bad schedule does: the scheduler keeps the running
-// schedule, the UI shows the error, and the row stays hand-fixable.
+// follow_ups holds a JSON array of follow-on prompts, read as strictly
+// as the rest of the row: anything but an array of strings — trimmed,
+// blank-free, inside the step cap — is a read error naming the row, so
+// a hand-edit surfaces (the scheduler keeps the running schedule, the
+// UI shows the error) instead of silently truncating a pipeline.
 const FollowUpsValue = type("string[]");
 
 const parseFollowUps = (name: string, raw: string): string[] => {
