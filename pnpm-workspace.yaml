@@ -1,3 +1,14 @@
+# The hono pin is a fork (dist build of the still-unmerged
+# honojs/hono#5289) held for its SSE lifecycle fix, so these three
+# advisories — all patched in hono >=4.13.5 — cannot be upgraded away
+# until the fork rebases. toSSG is never called by glv; the parseBody
+# and query-parser issues need attacker requests reaching routes that
+# sit behind the viewer's auth gate. Drop the ids when the pin moves.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-gqvv-2mrq-wpjv
+    - GHSA-g6gw-c38x-mqfc
+    - GHSA-crvj-82cr-hjcx
 allowBuilds:
   '@ast-grep/cli': true
   '@parcel/watcher': true
