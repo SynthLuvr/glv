@@ -1,5 +1,5 @@
 import "@github/auto-complete-element";
-import { parseSchedule } from "../schedule.js";
+import { MAX_CRON_STEPS, parseSchedule } from "../schedule.js";
 
 // Live validation for the typed schedule (with its optional timezone
 // override). The form's Schedule Run button stays disabled until the
@@ -151,10 +151,89 @@ const closeSlot = (): void => {
   if (slot !== null) slot.innerHTML = "";
 };
 
+// --- Follow-on steps (chained scheduled runs) ---
+//
+// The edit form stacks follow-on prompts; adding or removing a step is
+// pure DOM (no server round-trip), and everything is delegated so an
+// htmx swap (a rejected submit's re-render, a card restore) needs no
+// re-wiring. The step cap matches the server's MAX_CRON_STEPS.
+
+const STEPS_CONTAINER = "[data-cron-steps]";
+const STEP_BLOCK = "[data-cron-step]";
+const STEP_ADD = "[data-action=add-cron-step]";
+const MAX_FOLLOW_UPS = MAX_CRON_STEPS - 1;
+
+// A fresh step block, structurally identical to what the server renders
+// (views/schedule.tsx FollowOnStep) so both spellings submit the same.
+const newStepBlock = (): HTMLElement => {
+  const step = document.createElement("div");
+  step.className = "cron-step";
+  step.dataset.cronStep = "";
+
+  const label = document.createElement("label");
+  label.className = "form-field";
+  const labelSpan = document.createElement("span");
+  labelSpan.className = "form-label";
+  labelSpan.textContent =
+    "Then run — starts a new session after the one above finishes";
+  const textarea = document.createElement("textarea");
+  textarea.name = "follow_up";
+  textarea.className = "form-input";
+  textarea.rows = 3;
+  label.append(labelSpan, textarea);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "cron-step-remove";
+  remove.dataset.action = "remove-cron-step";
+  remove.setAttribute("aria-label", "Remove this follow-on step");
+  remove.textContent = "×";
+
+  step.append(label, remove);
+  return step;
+};
+
+// The add button reflects the cap: disabled (with the reason as its
+// title) once the form holds the most follow-ons a job may stack.
+const syncStepAddButton = (container: Element): void => {
+  const add = container.querySelector<HTMLButtonElement>(STEP_ADD);
+  if (add === null) return;
+  const atCap = container.querySelectorAll(STEP_BLOCK).length >= MAX_FOLLOW_UPS;
+  add.disabled = atCap;
+  add.title = atCap
+    ? `At most ${MAX_FOLLOW_UPS} follow-on steps`
+    : "Stack another prompt that runs after the one above finishes";
+};
+
+const addStep = (trigger: HTMLElement): void => {
+  const container = trigger.closest(STEPS_CONTAINER);
+  if (container === null) return;
+  if (container.querySelectorAll(STEP_BLOCK).length >= MAX_FOLLOW_UPS) return;
+  trigger.before(newStepBlock());
+  syncStepAddButton(container);
+};
+
+const removeStep = (trigger: HTMLElement): void => {
+  const container = trigger.closest(STEPS_CONTAINER);
+  const step = trigger.closest(STEP_BLOCK);
+  if (container === null || step === null) return;
+  step.remove();
+  syncStepAddButton(container);
+};
+
+const syncAllStepButtons = (): void => {
+  for (const container of document.querySelectorAll(STEPS_CONTAINER))
+    syncStepAddButton(container);
+};
+
 document.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) return;
   const trigger = e.target.closest<HTMLElement>("[data-action]");
-  if (trigger?.dataset.action === "close-schedule-slot") closeSlot();
+  const action = trigger?.dataset.action;
+  if (action === "close-schedule-slot") closeSlot();
+  if (trigger === null || action === undefined) return;
+  if (action === "add-cron-step") addStep(trigger);
+  if (action === "remove-cron-step") removeStep(trigger);
 });
 
 const afterSwap = (e: Event): void => {
@@ -166,5 +245,6 @@ const afterSwap = (e: Event): void => {
     target.querySelector?.(SYNC_INPUT) !== null
   )
     validateAll();
+  syncAllStepButtons();
 };
 document.body.addEventListener("htmx:afterSwap", afterSwap);

@@ -17,7 +17,7 @@ import {
   modelPinFields,
   modelUnavailableError,
 } from "../../models.js";
-import { fmtDateTime, parseSchedule } from "../../schedule.js";
+import { fmtDateTime, MAX_CRON_STEPS, parseSchedule } from "../../schedule.js";
 import {
   SERVER_TIMEZONE,
   searchTimezones,
@@ -61,6 +61,27 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
     return typeof value[0] === "string" ? value[0].trim() : "";
   return typeof value === "string" ? value.trim() : "";
 };
+
+// Every string value of a (repeated) form field, verbatim and in submit
+// order — the follow-on steps submit one field per step.
+const stringFields = (body: Record<string, unknown>, key: string): string[] => {
+  const value = body[key];
+  const values =
+    value === undefined ? [] : Array.isArray(value) ? value : [value];
+  return values.filter((entry): entry is string => typeof entry === "string");
+};
+
+// Follow-on steps: trimmed, blanks dropped (an emptied step block is a
+// removal, not an error), capped server-side exactly as the client
+// script caps the form.
+const cleanedFollowUps = (body: Record<string, unknown>): string[] =>
+  stringFields(body, "follow_up")
+    .map((step) => step.trim())
+    .filter((step) => step !== "");
+
+const FOLLOW_UPS_CAP_ERROR =
+  `A scheduled run may have at most ${MAX_CRON_STEPS - 1} follow-on ` +
+  `steps — ${MAX_CRON_STEPS} steps in total, the first prompt included.`;
 
 // The section's job list, or an empty list with the read error surfaced
 // when the store is unreadable (it was valid at boot, so something
@@ -279,6 +300,15 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const timezonePresent = "timezone" in body;
     const submittedTimezone = trimmedField(body, "timezone");
 
+    // Follow-on steps submit one textarea per step. The form always
+    // carries the follow_ups_present marker (hidden input beside the
+    // step blocks), so a browser submit that removed every step clears
+    // the stored chain; a body without the marker (a non-browser
+    // client) keeps whatever the row already has.
+    const followUpsPresent = "follow_ups_present" in body;
+    const submittedFollowUps = stringFields(body, "follow_up");
+    const followUps = cleanedFollowUps(body);
+
     // The picker is exposed only where the flavor supports models; an
     // unexposed field keeps whatever the row already pins.
     const pickerExposed = hasModelPicker(ctx);
@@ -293,6 +323,7 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
           job={{ ...existing, name, prompt, workingDir }}
           schedule={schedule}
           timezone={submittedTimezone}
+          followUps={followUpsPresent ? submittedFollowUps : undefined}
           dirs={ctx.listDirs()}
           modelPicker={
             pickerExposed ? { submitted: submittedModel } : undefined
@@ -308,6 +339,8 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       return reject("That working directory does not exist.");
     const parsed = parseSchedule(schedule, { timezone: submittedTimezone });
     if (!parsed.ok) return reject(parsed.error);
+    if (followUps.length > MAX_CRON_STEPS - 1)
+      return reject(FOLLOW_UPS_CAP_ERROR);
     if (pickerExposed && submittedModel !== "" && picked === undefined)
       return reject(modelUnavailableError(ctx.profile.agentName));
     // Renaming onto a different existing job collides.
@@ -317,10 +350,20 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     // Unexposed fields (enabled, …) survive the edit; only the form's
     // own fields are overwritten. Where the picker is exposed, the
     // submitted value replaces the stored pin — empty clears it.
-    const { modelProvider, model, timezone: keptTimezone, ...kept } = existing;
+    // Follow-ons follow the marker's presence semantics: submitted
+    // values replace the stored steps (an emptied list clears them),
+    // no marker keeps them.
+    const {
+      modelProvider,
+      model,
+      timezone: keptTimezone,
+      followUps: keptFollowUps,
+      ...kept
+    } = existing;
     const timezone = timezonePresent
       ? submittedTimezone || undefined
       : keptTimezone;
+    const nextFollowUps = followUpsPresent ? followUps : keptFollowUps;
     const updated: CronJobConfig = {
       ...kept,
       ...modelPinFields(
@@ -331,6 +374,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
       prompt,
       workingDir,
       ...(timezone === undefined ? {} : { timezone }),
+      ...(nextFollowUps !== undefined && nextFollowUps.length > 0
+        ? { followUps: nextFollowUps }
+        : {}),
     };
     const writeError = writeJobsOr(ctx, (db) =>
       updateCronJob(db, currentName, updated),

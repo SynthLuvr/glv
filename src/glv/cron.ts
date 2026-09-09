@@ -5,9 +5,15 @@ import { type CronJobConfig } from "./cron-jobs.js";
 import { pullRepo } from "./git.js";
 import { type SessionLauncher, withCreateLock } from "./launch.js";
 import { jobModelSelection } from "./models.js";
-import { type Runner, stop } from "./runner/index.js";
+import {
+  getHandle,
+  isTerminalStatus,
+  type Runner,
+  stop,
+} from "./runner/index.js";
 import {
   fmtDateTime,
+  MAX_CRON_STEPS,
   parseOneShotSchedule,
   parseSchedule,
   validTimezone,
@@ -60,7 +66,13 @@ type SchedulerDeps = {
 
 // workingDir canonicalized and `enabled` defaulted so every later
 // reference (validation, logs, croner options) sees one spelling.
-type ResolvedJob = CronJobConfig & { readonly enabled: boolean };
+type ResolvedJob = CronJobConfig & {
+  readonly enabled: boolean;
+  // Follow-on prompts: after the first prompt's session finishes
+  // (completed or errored — only a stop ends the chain early), each
+  // starts a new session in the same working directory, in order.
+  readonly followUps: readonly string[];
+};
 
 // How long one fire waits for the agent to create its session before the
 // run is stopped — mirrors the HTTP create flow's poll timeout, but
@@ -69,6 +81,17 @@ type ResolvedJob = CronJobConfig & { readonly enabled: boolean };
 // observe the timeout path without a minute-long wait.
 const DEFAULT_SESSION_TIMEOUT_MS = 60_000;
 
+// How often the chain driver polls a step's run status while waiting for
+// it to finish. Terminal handles linger in the registry for ~30s after
+// they finish (terminalRetentionMs), which dwarfs this interval, so a
+// poll can never miss the terminal state. GLV_CRON_CHAIN_POLL_MS
+// overrides it so tests can walk a chain quickly — the same pattern as
+// GLV_CRON_SESSION_TIMEOUT_MS.
+const DEFAULT_CHAIN_POLL_MS = 1_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 // Expands ~ and canonicalizes so the spawn cwd, the per-directory create
 // lock, and the flavor's session-discovery poll all see one spelling.
 const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
@@ -76,6 +99,7 @@ const resolveJobs = (jobs: readonly CronJobConfig[]): readonly ResolvedJob[] =>
     ...job,
     workingDir: resolve(expandHome(job.workingDir)),
     enabled: job.enabled !== false,
+    followUps: job.followUps ?? [],
   }));
 
 const invalidSchedule = (job: ResolvedJob, error: string): Error =>
@@ -103,6 +127,16 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
   if (job.timezone !== undefined && !validTimezone(job.timezone))
     throw new Error(
       `cron job "${job.name}" has an invalid timezone "${job.timezone}"`,
+    );
+  // Follow-ons only need shape here — non-empty prompts inside the step
+  // cap; rows from the store are already trimmed and capped by mapRow,
+  // so this is the backstop for direct-API writes.
+  if (job.followUps.some((step) => step.trim() === ""))
+    throw new Error(`cron job "${job.name}" has an empty follow-on prompt`);
+  if (job.followUps.length > MAX_CRON_STEPS - 1)
+    throw new Error(
+      `cron job "${job.name}" has more than ${MAX_CRON_STEPS - 1} ` +
+        `follow-on prompts (the cap is ${MAX_CRON_STEPS} steps in total)`,
     );
   if (job.modelProvider !== undefined && !supportsModels)
     throw new Error(
@@ -147,58 +181,150 @@ const scheduleJob = (job: ResolvedJob, fire: () => void): Cron => {
   );
 };
 
-// One fire of one job: the same establish flow as the HTTP create route —
+// Mid-chain liveness: the cron database is re-read before every
+// follow-on step. A job deleted or paused since the fire aborts the
+// remaining steps (logged) — the user changed their mind mid-pipeline.
+// One exception: a one-shot's own retirement must not read as a
+// deletion. The scheduler retires one-shots once their moment passes
+// (after the fire — or mid-chain when an unrelated edit forces a
+// reload), and that is not the user deleting the job. An unreadable
+// store is likewise not a pause: the chain keeps going rather than
+// dropping a pipeline over a transient read failure.
+const chainStillWanted = (
+  deps: Pick<SchedulerDeps, "readJobs">,
+  job: ResolvedJob,
+): boolean => {
+  let jobs: readonly CronJobConfig[];
+  try {
+    jobs = deps.readJobs();
+  } catch (err) {
+    console.error(
+      `cron job "${job.name}": could not re-read the cron database ` +
+        `mid-chain (${errorMessage(err)}) — continuing`,
+    );
+    return true;
+  }
+  const current = jobs.find((row) => row.name === job.name);
+  if (current === undefined) {
+    if (parseOneShotSchedule(job.schedule, job.timezone) !== undefined)
+      return true;
+    console.error(
+      `cron job "${job.name}": deleted while its chain was running — ` +
+        "remaining steps skipped",
+    );
+    return false;
+  }
+  if (current.enabled === false) {
+    console.error(
+      `cron job "${job.name}": paused while its chain was running — ` +
+        "remaining steps skipped",
+    );
+    return false;
+  }
+  return true;
+};
+
+// One fire of one job, driven as a chain when the job carries follow-on
+// prompts. Step 1 is the same establish flow as the HTTP create route —
 // pull, start, wait for the agent's session, rekey — minus the HTTP
-// concerns (uploads, temp dirs). A pinned model rides along exactly as a
-// picked one does for an interactive session; no pin means the agent's
-// own default (no model flags).
+// concerns (uploads, temp dirs). Each later step starts a brand-new
+// session with the step's prompt in the same working directory and
+// model pin, inside the same per-directory create lock, tagged with the
+// same job name. A step that completes *or errors* advances the chain
+// (the runner's in-session rule: an errored run may still have produced
+// useful state for the next step); only a stopped run ends it — a user
+// who stops a step's session wants the pipeline to halt.
 const runFire = async (
-  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
+  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession" | "readJobs">,
   timeoutMs: number,
+  chainPollMs: number,
   job: ResolvedJob,
 ): Promise<void> => {
+  // The repo pull precedes step 1 only: a chain is one logical run over
+  // one snapshot, and a mid-chain pull could rebase or move the
+  // directory out from under a pipeline that just produced artifacts.
   await pullRepo(job.workingDir);
-  const handle = deps.launcher.startNew(
-    job.workingDir,
-    job.prompt,
-    jobModelSelection(job),
-  );
-  const sessionId = await deps.launcher.awaitNew(
-    handle,
-    job.workingDir,
-    timeoutMs,
-  );
-  if (sessionId === undefined) {
-    stop(deps.runner, handle);
-    console.error(
-      `cron job "${job.name}": no session was created within ${timeoutMs}ms — run stopped`,
+  const steps = [job.prompt, ...job.followUps];
+  for (let index = 0; index < steps.length; index++) {
+    if (index > 0 && !chainStillWanted(deps, job)) return;
+    const stepLabel = `step ${index + 1}/${steps.length}`;
+    const handleKey = deps.launcher.startNew(
+      job.workingDir,
+      steps[index],
+      jobModelSelection(job),
     );
-    return;
+    // Captured right after the enqueue (before awaitNew/establish): the
+    // handle object is registered synchronously, and rekey later mutates
+    // it in place — the reference stays readable even once the registry
+    // evicts it, so the status poll below can never miss the run.
+    const handle = getHandle(deps.runner, handleKey);
+    const sessionId = await deps.launcher.awaitNew(
+      handleKey,
+      job.workingDir,
+      timeoutMs,
+    );
+    if (sessionId === undefined) {
+      stop(deps.runner, handleKey);
+      console.error(
+        `cron job "${job.name}" ${stepLabel}: no session was created ` +
+          `within ${timeoutMs}ms — run stopped`,
+      );
+      return;
+    }
+    const outcome = deps.launcher.establish(
+      handleKey,
+      sessionId,
+      `another session was starting in ${job.workingDir} — cron run stopped`,
+    );
+    if (!outcome.ok) {
+      console.error(`cron job "${job.name}" ${stepLabel}: ${outcome.error}`);
+      return;
+    }
+    deps.tagSession?.(outcome.sessionId, job.name);
+    console.log(
+      `cron job "${job.name}" ${stepLabel} ` +
+        `started session ${outcome.sessionId}`,
+    );
+    // The last step's session runs unwatched — the fire is done once it
+    // is established (exactly today's single-prompt behaviour).
+    if (index === steps.length - 1) return;
+    if (handle === undefined) {
+      // Unreachable by construction (startNew registers the handle
+      // synchronously); typed as optional, so guard rather than assert.
+      console.error(
+        `cron job "${job.name}" ${stepLabel}: run handle missing — ` +
+          "chain aborted",
+      );
+      return;
+    }
+    while (!isTerminalStatus(handle.status)) await sleep(chainPollMs);
+    if (handle.status === "stopped") {
+      console.error(
+        `cron job "${job.name}" ${stepLabel} was stopped — ` +
+          "remaining steps skipped",
+      );
+      return;
+    }
+    if (handle.status === "error")
+      console.error(
+        `cron job "${job.name}" ${stepLabel} errored ` +
+          `(${handle.error ?? "unknown error"}) — continuing the chain`,
+      );
   }
-  const outcome = deps.launcher.establish(
-    handle,
-    sessionId,
-    `another session was starting in ${job.workingDir} — cron run stopped`,
-  );
-  if (!outcome.ok) {
-    console.error(`cron job "${job.name}": ${outcome.error}`);
-    return;
-  }
-  deps.tagSession?.(outcome.sessionId, job.name);
-  console.log(`cron job "${job.name}" started session ${outcome.sessionId}`);
 };
 
 // Serialized per working directory and fully defensive: a scheduled
 // callback must never reject.
 const fireJob = (
-  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession">,
+  deps: Pick<SchedulerDeps, "launcher" | "runner" | "tagSession" | "readJobs">,
   locks: Map<string, Promise<void>>,
   timeoutMs: number,
+  chainPollMs: number,
   job: ResolvedJob,
 ): Promise<void> =>
   withCreateLock(locks, job.workingDir, async (): Promise<void> => {
     try {
-      await runFire(deps, timeoutMs, job);
+      await runFire(deps, timeoutMs, chainPollMs, job);
     } catch (err) {
       console.error(`cron job "${job.name}": ${errorMessage(err)}`);
     }
@@ -224,6 +350,10 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     "GLV_CRON_SESSION_TIMEOUT_MS",
     DEFAULT_SESSION_TIMEOUT_MS,
   );
+  const chainPollMs = positiveEnvNumber(
+    "GLV_CRON_CHAIN_POLL_MS",
+    DEFAULT_CHAIN_POLL_MS,
+  );
   const scheduled: Cron[] = [];
   let current: readonly ResolvedJob[] = [];
 
@@ -238,14 +368,23 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     }
   };
 
-  // A fire whose establishment (poll + rekey) is still in flight skips
-  // the next tick rather than piling runs onto the same directory.
+  // A fire whose chain (establishment at minimum — the whole chain for
+  // a job with follow-ons) is still in flight skips the next tick
+  // rather than stacking a second pipeline onto the same directory.
   const fire = (job: ResolvedJob): void => {
-    if (establishing.has(job.name)) return;
+    if (establishing.has(job.name)) {
+      console.log(
+        `cron job "${job.name}": previous run still in flight — ` +
+          "fire skipped",
+      );
+      return;
+    }
     establishing.add(job.name);
-    const done = fireJob(deps, locks, timeoutMs, job).finally(() => {
-      establishing.delete(job.name);
-    });
+    const done = fireJob(deps, locks, timeoutMs, chainPollMs, job).finally(
+      () => {
+        establishing.delete(job.name);
+      },
+    );
     // A one-shot's moment has passed whatever the outcome; retire it so
     // the database (and the UI reading it) tells the truth.
     if (parseOneShotSchedule(job.schedule, job.timezone) !== undefined)
