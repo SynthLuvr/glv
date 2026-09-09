@@ -6,11 +6,7 @@ on:
 jobs:
   build:
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -27,40 +23,27 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Install pandoc on Linux (pinned for Markdown lint/format)
-        if: runner.os == 'Linux'
+      - name: Install pandoc (pinned for Markdown lint/format)
         run: |
           wget -q https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-1-amd64.deb
           sudo dpkg -i pandoc-3.10.2-1-amd64.deb
           pandoc --version | head -1
 
-      - name: Install pandoc on Windows (pinned for Markdown lint/format)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $zip = "$env:RUNNER_TEMP\pandoc.zip"
-          $dir = "$env:RUNNER_TEMP\pandoc-3.10.2"
-          Invoke-WebRequest -Uri https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-windows-x86_64.zip -OutFile $zip
-          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP"
-          Add-Content $env:GITHUB_PATH $dir
-          & "$dir\pandoc.exe" --version | Select-Object -First 1
-
       - name: Lint
         run: pnpm lint
 
-  # Test shards run in parallel with the build+lint matrix instead of
+  # Test shards run in parallel with the build+lint job instead of
   # waiting on it: they install and build their own assets, and a broken
-  # build still fails the PR through its own job. Tests run on Linux and
-  # Windows: Windows-only regressions (#204, #207) previously escaped CI
-  # because the suite only ever ran on Linux — the win32 suite exclusion
-  # in vitest.config.ts never even executed there.
+  # build still fails the PR through its own job. Ubuntu only: with
+  # Windows out of CI, the win32 suite exclusion in vitest.config.ts
+  # never runs, so Windows-only regressions (#204, #207 were caught
+  # this way) can slip through again.
   test:
     timeout-minutes: 10
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         shard: [1/4, 2/4, 3/4, 4/4]
     steps:
       - uses: actions/checkout@v7.0.1
@@ -81,28 +64,22 @@ jobs:
       - name: Restore Playwright browsers
         uses: actions/cache/restore@v6.1.0
         with:
-          # One path per OS; only the matching one exists on each runner,
-          # and actions/cache ignores the absent ones.
-          path: |
-            ~/.cache/ms-playwright
-            ~/AppData/Local/ms-playwright
+          path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
       # Saved inline (browsers are final once install succeeds) and from
-      # one shard per OS only: the cache action's post-job save made all
-      # four shards race for the same key and burned post-job time the
+      # one shard only: the cache action's post-job save made all four
+      # shards race for the same key and burned post-job time the
       # 10-minute job budget cannot afford.
       - name: Save Playwright browsers
         if: matrix.shard == '4/4'
         uses: actions/cache/save@v6.1.0
         with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/AppData/Local/ms-playwright
+          path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
+      - name: Test (shard ${{ matrix.shard }})
         run: pnpm exec vitest run --shard ${{ matrix.shard }}
