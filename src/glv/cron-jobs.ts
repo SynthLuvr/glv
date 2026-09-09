@@ -187,16 +187,16 @@ const deleteCronJob = (db: DatabaseSync, name: string): boolean =>
 // serve always did.
 const CronJobsConfig = type({ "cronJobs?": type([CronJob, "[]"]) });
 
-// Imports a legacy config file's cronJobs array into the database —
-// the one-time bridge from the old store, run by serve when it still
-// finds a file. File entries win on a name collision, so re-adding
-// jobs to a file re-imports them once, never duplicated.
-// validateSet checks the whole merged set the way the scheduler will
-// (unique names, parseable schedules, …) — thrown errors refuse serve
-// before anything is written, leaving the file hand-fixable.
+// Imports a legacy config file's cronJobs array into the database, run
+// by serve when it still finds a file. File entries win on a name
+// collision, so re-adding jobs to a file re-imports them once, never
+// duplicated. validateSet checks the whole merged set the way the
+// scheduler will (unique names, parseable schedules, …) — thrown
+// errors refuse serve before anything is written, leaving the file
+// hand-fixable.
 const importCronJobsFromLegacyConfig = (
-  raw: Record<string, unknown>,
   db: DatabaseSync,
+  raw: Record<string, unknown>,
   validateSet: (jobs: readonly CronJobConfig[]) => void,
 ): void => {
   if (raw.cronJobs === undefined) return;
@@ -224,10 +224,11 @@ const importCronJobsFromLegacyConfig = (
   transaction(db, () => {
     for (const job of jobs) upsert(db, job);
   });
-  console.log(
-    `cron: migrated ${fromFile.length} job(s) from the config file ` +
-      "into the cron database",
-  );
+  if (fromFile.length > 0)
+    console.log(
+      `cron: migrated ${fromFile.length} job(s) from the config file ` +
+        "into the cron database",
+    );
 };
 
 // The scheduler's change signal for the database. There is no

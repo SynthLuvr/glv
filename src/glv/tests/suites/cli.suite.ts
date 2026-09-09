@@ -1,9 +1,9 @@
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type FlavorFixture,
   fakeHomeEnv,
+  seedConfigRow,
   spawnLauncherSync,
 } from "../harness.js";
 
@@ -146,20 +146,7 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
     it("tolerates unknown keys stored in the database when re-listing", () => {
       // A migrated file could carry keys glv never knew about; the
       // listing stays honest about every row the table holds.
-      const db = new DatabaseSync(cfgPath);
-      try {
-        db.exec(
-          "CREATE TABLE IF NOT EXISTS config (" +
-            "key TEXT PRIMARY KEY, value TEXT NOT NULL, " +
-            "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
-        );
-        db.prepare("INSERT INTO config (key, value) VALUES (?, ?)").run(
-          "future",
-          "true",
-        );
-      } finally {
-        db.close();
-      }
+      seedConfigRow(cfgPath, "future", "true");
       const { stdout } = run(["config", "list"], { GLV_CONFIG_DB: cfgPath });
       expect(stdout).toContain("future=true");
       expect(stdout).toContain("forwardHost=203.0.113.5");

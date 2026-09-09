@@ -45,8 +45,8 @@ const GlobalOpts = type({
   "promptsDb?": "string",
   "groupsDb?": "string",
   "cronDb?": "string",
-  "metaDb?": "string",
   "configDb?": "string",
+  "metaDb?": "string",
 });
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);

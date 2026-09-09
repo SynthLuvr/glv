@@ -96,8 +96,7 @@ const registerViewCommand = (
     .action((sessionId: string) => run(sessionId));
 
 // The serve options every flavor shares, appended after the
-// flavor-specific binary/permission flags. `forward` defers host
-// resolution to runServe (post-migration, from the config database).
+// flavor-specific binary/permission flags.
 const addServeTailOptions = (cmd: Command): Command =>
   cmd
     .option("--rp-name <name>", "WebAuthn relying party name", "GLV")

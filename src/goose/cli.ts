@@ -67,6 +67,7 @@ const getCronDbPath = (): string =>
 
 const getConfigDbPath = (): string =>
   cli.resolveConfigDbPath(gooseProfile.dataDirName, globalOpts().configDb);
+
 // List/view only read; one read-only handle safely backs both store roles.
 const useSessions = (fn: (sessions: SessionStore) => void): void => {
   const db = openDb(getDbPath());

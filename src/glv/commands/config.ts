@@ -7,10 +7,9 @@ import {
   writeConfigValue,
 } from "../config.js";
 
-// One handle per invocation, like every other store-touching command:
-// open, operate, close. openConfigDb creates the file on first use, so
-// `config set` on a fresh install simply brings the database into
-// being.
+// One handle per invocation — open, operate, close — like every other
+// store-touching command. openConfigDb creates the file on first use,
+// so `config set` on a fresh install simply brings it into being.
 const withConfigDb = (dataDirName: string, fn: (db: DatabaseSync) => void) => {
   const db = openConfigDb(resolveConfigDbPath(dataDirName));
   try {

@@ -84,6 +84,25 @@ const runCronSuite = (fx: FlavorFixture): void => {
     rmSync(homeDir, { recursive: true, force: true });
   };
 
+  // Same, for a legacy file holding raw contents rather than a
+  // cronJobs-bearing record.
+  const expectServeRefusesRawFile = async (
+    contents: string,
+    ...stderrContains: string[]
+  ): Promise<void> => {
+    const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-raw-"));
+    const cfgPath = defaultConfigFile(homeDir, fx.binName);
+    mkdirSync(dirname(cfgPath), { recursive: true });
+    writeFileSync(cfgPath, contents);
+    const stderr = await expectServeRefusal(
+      fx.binPath,
+      ["serve", ...fx.defaultServeArgs(homeDir)],
+      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+    );
+    for (const fragment of stderrContains) expect(stderr).toContain(fragment);
+    rmSync(homeDir, { recursive: true, force: true });
+  };
+
   describe("scheduled sessions from the cron database", () => {
     let env: IntegrationEnv;
     let homeDir: string;
@@ -598,32 +617,15 @@ const runCronSuite = (fx: FlavorFixture): void => {
       expectServeRefuses("nope", "cronJobs must be an array"));
 
     it.concurrent("exits non-zero for a legacy file that is not valid JSON", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-json-"));
-      const cfgPath = defaultConfigFile(homeDir, fx.binName);
-      mkdirSync(dirname(cfgPath), { recursive: true });
-      writeFileSync(cfgPath, "{ not valid json");
-      const stderr = await expectServeRefusal(
-        fx.binPath,
-        ["serve", ...fx.defaultServeArgs(homeDir)],
-        { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
-      );
-      expect(stderr).toContain("not valid JSON");
-      rmSync(homeDir, { recursive: true, force: true });
+      await expectServeRefusesRawFile("{ not valid json", "not valid JSON");
     });
 
     it.concurrent("exits non-zero for a legacy file that is not an object", async () => {
-      const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-obj-"));
-      const cfgPath = defaultConfigFile(homeDir, fx.binName);
-      mkdirSync(dirname(cfgPath), { recursive: true });
-      writeFileSync(cfgPath, "5");
-      const stderr = await expectServeRefusal(
-        fx.binPath,
-        ["serve", ...fx.defaultServeArgs(homeDir)],
-        { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+      await expectServeRefusesRawFile(
+        "5",
+        "glv config at",
+        "must be an object",
       );
-      expect(stderr).toContain("glv config at");
-      expect(stderr).toContain("must be an object");
-      rmSync(homeDir, { recursive: true, force: true });
     });
 
     it.concurrent("leaves the config file untouched when it refuses", async () => {

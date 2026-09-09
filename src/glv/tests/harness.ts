@@ -609,10 +609,10 @@ type CronJobRow = {
   model?: string;
 };
 
-// Opens the running server's cron database from the test process. The
-// server holds its own connection; busy timeouts on both sides wait out
-// the brief overlap a concurrent write causes.
-const openServerCronDb = (dbPath: string): DatabaseSync => {
+// Opens one of the running server's databases from the test process.
+// The server holds its own connection; busy timeouts on both sides
+// wait out the brief overlap a concurrent write causes.
+const openServerDb = (dbPath: string): DatabaseSync => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
   return db;
@@ -625,7 +625,7 @@ const JOB_COLS =
   "model_provider, model";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
-  const db = openServerCronDb(dbPath);
+  const db = openServerDb(dbPath);
   try {
     const rows = db
       .prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`)
@@ -656,7 +656,7 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // invalid schedules the live reload must reject. An existing row of the
 // same name is replaced (the edit path); removeCronJobRow deletes one.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
-  const db = openServerCronDb(dbPath);
+  const db = openServerDb(dbPath);
   try {
     db.prepare(
       `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ` +
@@ -681,7 +681,7 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
 };
 
 const removeCronJobRow = (dbPath: string, name: string): void => {
-  const db = openServerCronDb(dbPath);
+  const db = openServerDb(dbPath);
   try {
     db.prepare("DELETE FROM cron_jobs WHERE name = ?").run(name);
   } finally {
@@ -689,19 +689,35 @@ const removeCronJobRow = (dbPath: string, name: string): void => {
   }
 };
 
-// The config database's rows, what `config list` prints and the legacy
-// migration writes.
+// The config database's rows, what `config list` prints and the
+// legacy migration writes.
 const readConfigRows = (dbPath: string): Record<string, string> => {
   if (!existsSync(dbPath)) return {};
-  const db = openServerCronDb(dbPath);
+  const db = openServerDb(dbPath);
   try {
-    const rows = db.prepare("SELECT key, value FROM config").all() as Record<
-      string,
-      unknown
-    >[];
+    const rows = db.prepare("SELECT key, value FROM config").all() as {
+      key: string;
+      value: string;
+    }[];
     const config: Record<string, string> = {};
-    for (const row of rows) config[row.key as string] = row.value as string;
+    for (const row of rows) config[row.key] = row.value;
     return config;
+  } finally {
+    db.close();
+  }
+};
+
+// Writes a config row exactly as given — no key check, so tests can
+// seed keys the CLI would refuse.
+const seedConfigRow = (dbPath: string, key: string, value: string): void => {
+  const db = openServerDb(dbPath);
+  try {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS config (" +
+        "key TEXT PRIMARY KEY, value TEXT NOT NULL, " +
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    );
+    db.prepare("INSERT INTO config (key, value) VALUES (?, ?)").run(key, value);
   } finally {
     db.close();
   }
@@ -1127,6 +1143,7 @@ export {
   readStoreField,
   removeCronJobRow,
   rmScratch,
+  seedConfigRow,
   seedCronJobRow,
   spawnLauncher,
   spawnLauncherSync,

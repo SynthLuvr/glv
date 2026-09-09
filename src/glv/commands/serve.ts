@@ -4,7 +4,7 @@ import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
 import {
-  migrateConfigValues,
+  importLegacyConfigValues,
   openConfigDb,
   readLegacyConfigFile,
   resolveForwardHost,
@@ -150,26 +150,24 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
   const cronDb = openCronDb(opts.cronDbPath);
-  // The config database: boot-time scalars (forwardHost). Also the
+  // The config database: boot-time scalars (forwardHost) and the
   // landing zone for the retired config file's keys.
   const configDb = openConfigDb(opts.configDbPath);
-  // The config file is gone as a store: when a legacy file still
-  // exists, its cronJobs array is imported into the cron database and
-  // every other key into the config database, then the file is renamed
+  // A legacy file is imported once — its cronJobs array into the cron
+  // database, every other key into the config database — then renamed
   // away (config.json.bak). An invalid file refuses startup before
-  // anything is written, leaving the file hand-fixable.
+  // anything is written, leaving it hand-fixable.
   const legacyConfig = readLegacyConfigFile(opts.profile.dataDirName);
   if (legacyConfig !== undefined) {
-    importCronJobsFromLegacyConfig(legacyConfig, cronDb, (jobs) =>
+    importCronJobsFromLegacyConfig(cronDb, legacyConfig, (jobs) =>
       validateCronJobSet(jobs, opts.models !== undefined),
     );
-    migrateConfigValues(configDb, legacyConfig, opts.profile.dataDirName);
+    importLegacyConfigValues(configDb, legacyConfig, opts.profile.dataDirName);
   }
   // Resolved after the import above, so a first boot whose host still
-  // lives in a legacy file finds it; every later boot reads the
-  // database only.
+  // lives in a file finds it; every later boot reads the database only.
   const forwardHost = opts.forward
-    ? resolveForwardHost(configDb, opts.profile)
+    ? resolveForwardHost(configDb, opts.profile.id)
     : undefined;
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
