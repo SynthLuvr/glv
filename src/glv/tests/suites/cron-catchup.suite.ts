@@ -30,7 +30,9 @@ const pollUntil = async (
   return false;
 };
 
-// The log fragment every catch-up fire names — one line per missed run.
+// The log fragment every catch-up fire names — one line per missed
+// run. The scheduler emits it with console.log, which consola's
+// wrapper (serve's logger) sends to stdout — not the stderr trail.
 const CATCHUP_LINE = "firing missed run scheduled for";
 
 // Counts a session-name's occurrences in the sidebar markup (the
@@ -97,7 +99,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         const logged = await pollUntil(
           () =>
             env
-              .serverStderr()
+              .serverStdout()
               .includes(`cron job "sweep-once": ${CATCHUP_LINE}`),
           20_000,
         );
@@ -151,7 +153,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
       it("fires the latest missed occurrence at boot", async () => {
         const logged = await pollUntil(
           () =>
-            env.serverStderr().includes(`cron job "stale": ${CATCHUP_LINE}`),
+            env.serverStdout().includes(`cron job "stale": ${CATCHUP_LINE}`),
           20_000,
         );
         expect(logged).toBe(true);
@@ -179,7 +181,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
           30_000,
         );
         expect(ticking).toBe(true);
-        const catchUps = env.serverStderr().split(CATCHUP_LINE).length - 1;
+        const catchUps = env.serverStdout().split(CATCHUP_LINE).length - 1;
         expect(catchUps).toBe(1);
       });
     });
@@ -240,7 +242,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         // A boot catch-up would have logged before the port bound; give
         // the stderr pipe a moment to flush, then hold the line.
         await sleep(3_000);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         const res = await authedFetch(env, "/");
         expect(res.status).toBe(200);
       });
@@ -281,7 +283,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         );
         expect(retired).toBe(true);
         await sleep(3_000);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         expect(await countSessions(env, "Dead One-Shot")).toBe(0);
       });
     });
@@ -317,7 +319,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
       it("fires the missed occurrence when resumed", async () => {
         // While paused (and its moment long past), nothing fires.
         await sleep(3_000);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         expect(await countSessions(env, "Resume Session")).toBe(0);
 
         const res = await authedFetch(env, "/cron/snooze/resume", {
@@ -328,7 +330,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         // Resuming adopts the job set — and with it the missed moment.
         const logged = await pollUntil(
           () =>
-            env.serverStderr().includes(`cron job "snooze": ${CATCHUP_LINE}`),
+            env.serverStdout().includes(`cron job "snooze": ${CATCHUP_LINE}`),
           20_000,
         );
         expect(logged).toBe(true);
@@ -375,7 +377,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
 
       it("renames the row and preserves last_fired_at byte for byte", async () => {
         await sleep(1_500);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         const marker = cronJobRow(env.dbs.cronDb, "steady")?.lastFiredAt;
         expect(marker).toBeDefined();
 
@@ -397,7 +399,7 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         // The edit adopted a new job set; nothing was missed, so nothing
         // fired.
         await sleep(3_000);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         expect(await countSessions(env, "Edit Session")).toBe(0);
       });
     });
@@ -464,7 +466,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
         expect(Date.now() - ms).toBeLessThan(120_000);
 
         await sleep(3_000);
-        expect(env.serverStderr()).not.toContain(CATCHUP_LINE);
+        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         expect(await countSessions(env, "Migration Session")).toBe(0);
       });
     });

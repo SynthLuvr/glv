@@ -347,6 +347,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Run the nightly build");
 
       // English is CONVERTED to a cron pattern — the row stores cron.
+      // The marker seeds to the insert's now (a new job cannot have
+      // been missed before it existed).
       expect(readCronJobRows(env.dbs.cronDb)).toEqual([
         {
           name: "Weekly build",
@@ -354,6 +356,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Run the nightly build",
           workingDir,
           enabled: true,
+          lastFiredAt: expect.any(String),
         },
       ]);
 

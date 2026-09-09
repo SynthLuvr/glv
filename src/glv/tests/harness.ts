@@ -296,6 +296,11 @@ type IntegrationEnv = {
   /** Reads stderr accumulated by the glv serve process (e.g. console.warn). */
   serverStderr: () => string;
   /**
+   * Reads stdout accumulated by the glv serve process — the
+   * scheduler's event lines (console.log under consola's wrapper).
+   */
+  serverStdout: () => string;
+  /**
    * Restarts serve against the same databases — the missed-run
    * catch-up story. The seeded session cookie stays valid; the stderr
    * buffer resets, so post-restart reads see only the new boot.
@@ -771,7 +776,7 @@ const startServer = (
   dbs: Databases,
   port: number,
   extraEnv: Record<string, string> = {},
-  stderrSink: { text: string },
+  sinks: { stdout: { text: string }; stderr: { text: string } },
 ): ChildProcess => {
   const proc = spawnLauncher(
     adapter.binPath,
@@ -782,8 +787,15 @@ const startServer = (
       env: { ...process.env, ...extraEnv },
     },
   );
+  // Both pipes must drain: stderr carries the diagnostic trail the
+  // suites assert on, stdout the scheduler's event lines (console.log
+  // under consola) — and an undrained pipe would eventually block the
+  // child once its OS buffer fills.
+  proc.stdout?.on("data", (chunk: Buffer) => {
+    sinks.stdout.text += chunk.toString();
+  });
   proc.stderr?.on("data", (chunk: Buffer) => {
-    stderrSink.text += chunk.toString();
+    sinks.stderr.text += chunk.toString();
   });
   return proc;
 };
@@ -812,13 +824,14 @@ const startEnv = async (
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
   const restoreGhPath = await mockGh();
 
-  // The live serve process and its stderr, rebindable so the same
-  // environment can restart serve against the same databases (the
-  // missed-run catch-up story). stderr accumulates in a sink restart
-  // can clear, so post-restart assertions see only the new boot.
+  // The live serve process and its captured output, rebindable so the
+  // same environment can restart serve against the same databases (the
+  // missed-run catch-up story). Both streams accumulate in sinks
+  // restart can clear, so post-restart assertions see only the new
+  // boot.
   let proc: ChildProcess | undefined;
   let baseUrl = "";
-  const stderrSink = { text: "" };
+  const sinks = { stdout: { text: "" }, stderr: { text: "" } };
 
   const bootEnv = {
     ...adapter.serverEnv(dbs),
@@ -847,7 +860,7 @@ const startEnv = async (
     for (let attempt = 1; ; attempt++) {
       const port = await findFreePort();
       const candidate = `http://localhost:${port}`;
-      const started = startServer(adapter, dbs, port, bootEnv, stderrSink);
+      const started = startServer(adapter, dbs, port, bootEnv, sinks);
       proc = started;
       // `close`, not `exit`: it fires once stderr has flushed too, so the
       // EADDRINUSE check below is guaranteed to see why a dying serve
@@ -863,8 +876,8 @@ const startEnv = async (
         return;
       } catch (err) {
         await stopProcess(started);
-        if (attempt < 3 && stderrSink.text.includes("EADDRINUSE")) continue;
-        abortBoot(err, stderrSink.text);
+        if (attempt < 3 && sinks.stderr.text.includes("EADDRINUSE")) continue;
+        abortBoot(err, sinks.stderr.text);
       }
     }
   };
@@ -891,19 +904,20 @@ const startEnv = async (
     if (proc !== undefined) await stopProcess(proc);
     restoreAgentPath();
     restoreGhPath();
-    const stderr = stderrSink.text;
+    const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
     rmScratch(scratchDir);
   };
 
   // Restarts serve against the same databases — the missed-run catch-up
   // story. The seeded session (and the browser context's cookie) stays
-  // valid, and the stderr buffer resets so post-restart assertions see
+  // valid, and both output buffers reset so post-restart assertions see
   // only the new boot.
   const restart = async (): Promise<void> => {
     if (proc === undefined) throw new Error("serve is not running");
     await stopProcess(proc);
-    stderrSink.text = "";
+    sinks.stdout.text = "";
+    sinks.stderr.text = "";
     await bootServer();
   };
 
@@ -921,7 +935,8 @@ const startEnv = async (
     dbs,
     uploadsDir,
     tempDir,
-    serverStderr: () => stderrSink.text,
+    serverStderr: () => sinks.stderr.text,
+    serverStdout: () => sinks.stdout.text,
     agentMock,
     restart,
     cleanup,
