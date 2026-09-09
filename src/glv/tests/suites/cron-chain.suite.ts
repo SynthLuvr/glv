@@ -531,6 +531,17 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           ["Error chain step two"],
         );
 
+        // Step 1 announces the fire: the mock writes its store row
+        // before anything else, so the sidebar gains the session the
+        // moment the pipeline starts. Waiting here first splits the
+        // blind wait in two — a seeded one-shot whose row a stalled
+        // reload tick silently expires ("in the past — removed without
+        // running" logs on stdout) now fails HERE, named, instead of
+        // as a step-two timeout that reads exactly like a stalled
+        // chain.
+        const sessionId = await pollForSessionId(env, "Error Chain");
+        expect(sessionId).toBeDefined();
+
         expect(
           await pollUntil(
             () => capture().includes("Error chain step two"),
@@ -542,7 +553,7 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
         ).toBe(true);
         expect(env.serverStderr()).toContain("errored");
         expect(env.serverStderr()).toContain("continuing the chain");
-      }, 200000);
+      }, 240000);
 
       it("skips fires while a chain is still running instead of stacking pipelines", async () => {
         const { env, workDir, countSessions } = await bootChainEnv(
