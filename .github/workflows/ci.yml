@@ -34,10 +34,10 @@ jobs:
 
   # Test shards run in parallel with the build+lint job instead of
   # waiting on it: they install and build their own assets, and a broken
-  # build still fails the PR through its own job. Tests run on Ubuntu
-  # only — Windows is no longer in CI, so the win32 suite exclusion in
-  # vitest.config.ts never executes here and Windows-only regressions
-  # (#204, #207 were caught this way) can slip through again.
+  # build still fails the PR through its own job. Ubuntu only: with
+  # Windows out of CI, the win32 suite exclusion in vitest.config.ts
+  # never runs, so Windows-only regressions (#204, #207 were caught
+  # this way) can slip through again.
   test:
     timeout-minutes: 10
     runs-on: ubuntu-latest

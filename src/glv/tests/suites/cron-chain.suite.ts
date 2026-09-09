@@ -531,16 +531,12 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           ["Error chain step two"],
         );
 
-        // Step 1 announces the fire: the mock writes its store row
-        // before anything else, so the sidebar gains the session the
-        // moment the pipeline starts. Waiting here first splits the
-        // blind wait in two — a seeded one-shot whose row a stalled
-        // reload tick silently expires ("in the past — removed without
-        // running" logs on stdout) now fails HERE, named, instead of
-        // as a step-two timeout that reads exactly like a stalled
+        // A stalled reload tick can silently expire the seeded one-shot
+        // ("in the past — removed without running" on stdout). Waiting
+        // for step 1's session first surfaces that failure here, named,
+        // instead of as a step-two timeout that reads like a stalled
         // chain.
-        const sessionId = await pollForSessionId(env, "Error Chain");
-        expect(sessionId).toBeDefined();
+        expect(await pollForSessionId(env, "Error Chain")).toBeDefined();
 
         expect(
           await pollUntil(

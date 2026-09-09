@@ -200,9 +200,8 @@ describe("new-session model picker (goose)", () => {
   });
 
   it("passes a live-discovered model through to the run", async () => {
-    // Drop the file from the prior run so waitForArgs waits for this
-    // one — a leftover capture resolves instantly with the previous
-    // run's flags whenever the new mock run loses the spawn race.
+    // Drop the prior run's capture so waitForArgs waits for this run —
+    // a leftover file resolves instantly with its stale flags.
     rmSync(argsPath, { force: true });
     const res = await authedFetch(env, "/sessions", {
       method: "POST",
