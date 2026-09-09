@@ -580,6 +580,8 @@ type CronJobRow = {
   enabled: boolean;
   modelProvider?: string;
   model?: string;
+  /** Follow-on prompts (chained steps), in run order. */
+  followUps?: readonly string[];
 };
 
 // Opens one of the running server's databases from the test process.
@@ -595,7 +597,7 @@ const openServerDb = (dbPath: string): DatabaseSync => {
 // seed statements below.
 const JOB_COLS =
   "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model";
+  "model_provider, model, follow_ups";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerDb(dbPath);
@@ -615,6 +617,11 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
         : {
             modelProvider: row.model_provider as string,
             model: row.model as string,
+          }),
+      ...(row.follow_ups === null || row.follow_ups === undefined
+        ? {}
+        : {
+            followUps: JSON.parse(row.follow_ups as string) as string[],
           }),
     }));
   } finally {

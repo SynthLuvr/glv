@@ -3222,6 +3222,95 @@ select.form-input {
   gap: 0.4rem;
   margin-top: 0.15rem;
 }
+/* Follow-on step blocks on the edit form — stacked prompts that run as
+   new sessions, one after another, after the first finishes. */
+.cron-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cron-step {
+  position: relative;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+}
+.cron-step .form-field {
+  margin: 0;
+}
+.cron-step .form-label {
+  color: var(--color-faint);
+}
+.cron-step-remove {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.cron-step-remove:hover {
+  border-color: var(--color-err);
+  color: var(--color-err);
+}
+.cron-step-add {
+  align-self: flex-start;
+  padding: 0.3rem 0.7rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.cron-step-add:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.cron-step-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* Steps chip on the management card: the pipeline at a glance. */
+.cron-job-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+}
+.cron-job-steps-chip {
+  align-self: flex-start;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.cron-job-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+  overflow-wrap: anywhere;
+}
+/* The Steps row on the save confirmation. */
+.schedule-confirmation-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
 /* Clock badge for job-started sessions — same weight as the git chips. */
 .cron-chip {
   display: inline-flex;

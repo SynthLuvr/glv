@@ -315,6 +315,20 @@ const ScheduleConfirmation = ({ job }: { job: CronJobConfig }) => {
         )}
         <dt>Prompt</dt>
         <dd>{truncate(job.prompt, 140)}</dd>
+        {job.followUps !== undefined && job.followUps.length > 0 && (
+          <Fragment>
+            <dt>Steps</dt>
+            <dd>
+              <span class="schedule-confirmation-steps">
+                {[job.prompt, ...job.followUps].map((step, index) => (
+                  <span class="schedule-confirmation-step">
+                    {index + 1}. {truncate(step.replace(/\s+/g, " "), 90)}
+                  </span>
+                ))}
+              </span>
+            </dd>
+          </Fragment>
+        )}
       </dl>
     </section>
   );
@@ -352,6 +366,23 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
       <p class="cron-job-prompt" title={job.prompt}>
         {truncate(job.prompt.replace(/\s+/g, " "), 140)}
       </p>
+      {job.followUps !== undefined && job.followUps.length > 0 && (
+        <p
+          class="cron-job-steps"
+          title={[job.prompt, ...job.followUps].join("\n\n")}
+        >
+          <span class="cron-job-steps-chip">
+            {1 + job.followUps.length} steps →
+          </span>
+          <span class="cron-job-steps-list">
+            {job.followUps.map((step, index) => (
+              <span class="cron-job-step-line">
+                {index + 2}. {truncate(step.replace(/\s+/g, " "), 56)}
+              </span>
+            ))}
+          </span>
+        </p>
+      )}
       <p class="cron-job-dir mono" title={job.workingDir}>
         {truncateMiddle(shortenHome(job.workingDir), 48)}
       </p>
@@ -389,6 +420,46 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
   );
 };
 
+// One follow-on step block on the edit form. scripts/schedule.ts
+// clones this exact structure when "+ Add follow-on" is clicked, so
+// server-rendered and client-added blocks behave identically.
+const FollowOnStep = ({ prompt = "" }: { prompt?: string }) => (
+  <div class="cron-step" data-cron-step="">
+    <label class="form-field">
+      <span class="form-label">
+        Then run — starts a new session after the one above finishes
+      </span>
+      <textarea name="follow_up" class="form-input" rows={3}>
+        {prompt}
+      </textarea>
+    </label>
+    <button
+      type="button"
+      class="cron-step-remove"
+      data-action="remove-cron-step"
+      aria-label="Remove this follow-on step"
+    >
+      ×
+    </button>
+  </div>
+);
+
+// The stacked follow-on steps of an edit form: one block per stored (or
+// rejected-submit) step, the follow_ups_present marker whose presence
+// tells the PUT route the submit owns the step list (so an emptied list
+// clears the stored chain), and the add button.
+const FollowOnSteps = ({ steps }: { steps: readonly string[] }) => (
+  <div class="cron-steps" data-cron-steps="">
+    <input type="hidden" name="follow_ups_present" value="1" />
+    {steps.map((step) => (
+      <FollowOnStep prompt={step} />
+    ))}
+    <button type="button" class="cron-step-add" data-action="add-cron-step">
+      + Add follow-on
+    </button>
+  </div>
+);
+
 // Edit form reusing the typed-schedule controls, pre-filled from the
 // job. Fields the form doesn't expose (e.g. a paused job's `enabled`)
 // are preserved by the PUT route.
@@ -396,6 +467,7 @@ const ScheduleJobEditForm = ({
   job,
   schedule,
   timezone,
+  followUps,
   dirs = [],
   modelPicker,
   error,
@@ -405,6 +477,9 @@ const ScheduleJobEditForm = ({
   schedule?: string;
   /** Restores a rejected edit's timezone. */
   timezone?: string;
+  /** Restores a rejected edit's follow-on steps (verbatim, blanks
+   * included); without it the job's stored steps render. */
+  followUps?: readonly string[];
   /** Home directories offered as datalist suggestions. */
   dirs?: readonly string[];
   /** Renders the model picker slot when the flavor supports models;
@@ -448,6 +523,7 @@ const ScheduleJobEditForm = ({
             {job.prompt}
           </textarea>
         </label>
+        <FollowOnSteps steps={followUps ?? job.followUps ?? []} />
         <label class="form-field">
           <span class="form-label">Working directory</span>
           <input

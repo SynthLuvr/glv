@@ -3,6 +3,7 @@ import { type } from "arktype";
 import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
 import { validateAll } from "./query.js";
+import { MAX_CRON_STEPS } from "./schedule.js";
 import { positiveEnvNumber } from "./util.js";
 
 // The cron job store: jobs live in the cron database (cron.db) beside
@@ -23,6 +24,10 @@ type CronJobConfig = {
   // neither for the agent's own default.
   modelProvider?: string;
   model?: string;
+  // Follow-on prompts: each starts a new session after the first
+  // prompt's finishes, strictly in order. Absent means a plain
+  // single-prompt job.
+  followUps?: readonly string[];
 };
 
 // A stored row: the same shape, but always enabled — the column
@@ -41,10 +46,21 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
   enabled        INTEGER NOT NULL DEFAULT 1,
   model_provider TEXT,
   model          TEXT,
+  follow_ups     TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
+
+// Databases created before chained sessions existed have no follow_ups
+// column; add it in place. The PRAGMA probe makes this idempotent.
+const ensureFollowUpsColumn = (db: DatabaseSync): void => {
+  const columns = db.prepare("PRAGMA table_info(cron_jobs)").all() as {
+    name: string;
+  }[];
+  if (!columns.some((column) => column.name === "follow_ups"))
+    db.exec("ALTER TABLE cron_jobs ADD COLUMN follow_ups TEXT");
+};
 
 // One database file, two tables: the schedule itself and the
 // job-started-session tags the sidebar badges read. Opening creates
@@ -53,6 +69,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
+  ensureFollowUpsColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;
 };
@@ -69,13 +86,44 @@ const JobRow = type({
   enabled: "number",
   model_provider: "string | null",
   model: "string | null",
+  follow_ups: "string | null",
 });
 
 type JobRow = typeof JobRow.infer;
 
 const JOB_COLS =
   "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model";
+  "model_provider, model, follow_ups";
+
+// follow_ups holds a JSON array of follow-on prompts, read as strictly
+// as the rest of the row: anything but an array of strings — trimmed,
+// blank-free, inside the step cap — is a read error naming the row, so
+// a hand-edit surfaces (the scheduler keeps the running schedule, the
+// UI shows the error) instead of silently truncating a pipeline.
+const FollowUpsValue = type("string[]");
+
+const parseFollowUps = (name: string, raw: string): string[] => {
+  const invalid = (why: string): Error =>
+    new Error(`cron job "${name}" has an invalid follow_ups value (${why})`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw invalid("not valid JSON");
+  }
+  const checked = FollowUpsValue(parsed);
+  if (checked instanceof type.errors)
+    throw invalid("not a JSON array of strings");
+  const steps = checked
+    .map((step) => step.trim())
+    .filter((step) => step !== "");
+  if (steps.length > MAX_CRON_STEPS - 1)
+    throw invalid(
+      `more than ${MAX_CRON_STEPS - 1} follow-on steps ` +
+        `(the cap is ${MAX_CRON_STEPS} steps in total)`,
+    );
+  return steps;
+};
 
 const mapRow = (row: JobRow): CronJobRecord => ({
   name: row.name,
@@ -87,6 +135,9 @@ const mapRow = (row: JobRow): CronJobRecord => ({
   ...(row.model_provider === null || row.model === null
     ? {}
     : { modelProvider: row.model_provider, model: row.model }),
+  ...(row.follow_ups === null
+    ? {}
+    : { followUps: parseFollowUps(row.name, row.follow_ups) }),
 });
 
 // Insertion order: rowid survives renames, so a renamed job keeps its
@@ -109,9 +160,12 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.enabled === false ? 0 : 1,
   job.modelProvider ?? null,
   job.model ?? null,
+  job.followUps !== undefined && job.followUps.length > 0
+    ? JSON.stringify(job.followUps)
+    : null,
 ];
 
-const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
@@ -133,7 +187,7 @@ const updateCronJob = (
       `UPDATE cron_jobs
          SET name = ?, schedule = ?, prompt = ?, working_dir = ?,
              timezone = ?, enabled = ?, model_provider = ?, model = ?,
-             updated_at = datetime('now')
+             follow_ups = ?, updated_at = datetime('now')
          WHERE name = ?`,
     )
     .run(...jobParams(job), currentName).changes > 0;
