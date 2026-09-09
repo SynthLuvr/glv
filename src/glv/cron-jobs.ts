@@ -9,8 +9,8 @@ import { positiveEnvNumber } from "./util.js";
 // the session-tag sidecar. The web UI mutates rows here, the scheduler
 // reads them, and a poll watches for external writers.
 
-// The job shape every stored job spells. name is the table's primary
-// key, so every row is named.
+// The shape every job carries: name is the cron_jobs primary key, so
+// every stored job is named.
 const CronJob = type({
   name: "string",
   schedule: "string>0",
@@ -26,15 +26,9 @@ const CronJob = type({
 
 type CronJobConfig = typeof CronJob.infer;
 
-// A stored row: the same shape, but enabled defaulted.
+// A job as read back from a row, `enabled` defaulted on.
 type CronJobRecord = CronJobConfig & {
   readonly enabled: boolean;
-};
-
-// Writes take the record minus the bookkeeping columns; created_at /
-// updated_at are owned by the table.
-type CronJobWrite = Omit<CronJobRecord, "enabled"> & {
-  readonly enabled?: boolean;
 };
 
 // Shared with the test harness, whose row helpers may open a database
@@ -108,7 +102,7 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
 // The write shape every mutation shares: values in JOB_COLS order —
 // full row (the UI never patches single columns), optionals nulled,
 // enabled defaulted on.
-const jobParams = (job: CronJobWrite): (string | number | null)[] => [
+const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.name,
   job.schedule,
   job.prompt,
@@ -124,7 +118,7 @@ const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?
 // Appends a job. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
-const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
+const insertCronJob = (db: DatabaseSync, job: CronJobConfig): void => {
   db.prepare(INSERT_SQL).run(...jobParams(job));
 };
 
@@ -134,7 +128,7 @@ const insertCronJob = (db: DatabaseSync, job: CronJobWrite): void => {
 const updateCronJob = (
   db: DatabaseSync,
   currentName: string,
-  job: CronJobWrite,
+  job: CronJobConfig,
 ): boolean =>
   db
     .prepare(

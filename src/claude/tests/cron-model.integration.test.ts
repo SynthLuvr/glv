@@ -7,7 +7,7 @@ import {
   defaultCronDb,
   expectServeRefusal,
   fakeHomeEnv,
-  insertCronJobRow,
+  seedCronJobRow,
 } from "../../glv/tests/harness.js";
 import { claudeFixture } from "./integration-harness";
 
@@ -18,7 +18,7 @@ import { claudeFixture } from "./integration-harness";
 it("refuses to serve a cron job with a model pin", async () => {
   const homeDir = mkdtempSync(join(tmpdir(), "glv-claude-pin-"));
   const cronDb = defaultCronDb(homeDir, claudeFixture.binName);
-  insertCronJobRow(cronDb, {
+  seedCronJobRow(cronDb, {
     name: "pinned",
     schedule: "* * * * * *",
     prompt: "Pinned nowhere",

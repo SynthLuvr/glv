@@ -58,7 +58,7 @@ type SchedulerDeps = {
   readonly supportsModels?: boolean;
 };
 
-// name/workingDir canonicalized and `enabled` defaulted so every later
+// workingDir canonicalized and `enabled` defaulted so every later
 // reference (validation, logs, croner options) sees one spelling.
 type ResolvedJob = {
   readonly name: string;
@@ -126,17 +126,6 @@ const validateJob = (job: ResolvedJob, supportsModels: boolean): void => {
       `cron job "${job.name}" working directory does not exist: ${job.workingDir}`,
     );
   assertParsableSchedule(job);
-};
-
-// Whole-set validation, separate from the running schedule so an edit
-// can be checked fully before anything is swapped in. Names cannot
-// collide here — name is the cron_jobs primary key and the row mapping
-// reads model pins as a pair — so the checks are the per-job ones.
-const validateJobs = (
-  jobs: readonly ResolvedJob[],
-  supportsModels: boolean,
-): void => {
-  for (const job of jobs) validateJob(job, supportsModels);
 };
 
 // Scheduling translates the schedule to what croner drives: an English
@@ -273,7 +262,10 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   const applyJobs = (
     resolved: readonly ResolvedJob[],
   ): readonly ResolvedJob[] => {
-    validateJobs(resolved, deps.supportsModels === true);
+    // Per-job checks only: duplicate names and half model pins cannot
+    // be stored (name is the primary key; the row mapping reads a pin
+    // as a pair), so no set-level check remains.
+    for (const job of resolved) validateJob(job, deps.supportsModels === true);
     for (const cron of scheduled) cron.stop();
     const effective: ResolvedJob[] = [];
     for (const job of resolved) {

@@ -2,7 +2,7 @@ import { shortenHome } from "../../glv/format/index.js";
 import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
-import type { NamedCronJob } from "../schedule.js";
+import type { CronJobConfig } from "../cron-jobs.js";
 import { PromptLibrarySection } from "./prompt-library.js";
 import { ScheduledRunsSection } from "./schedule.js";
 
@@ -177,7 +177,7 @@ const NewSessionForm = ({
    * rejected submit's selection across the re-render. */
   modelPicker?: { submitted?: string };
   /** Scheduled runs from the cron database — drives the management section. */
-  jobs?: readonly NamedCronJob[];
+  jobs?: readonly CronJobConfig[];
 }) => (
   <div class="detail-inner new-session">
     <h2>New Session</h2>

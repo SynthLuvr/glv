@@ -1,7 +1,6 @@
 import later, { type LaterSchedule } from "@breejs/later";
 import { Cron } from "croner";
 import cronstrue from "cronstrue";
-import type { CronJobConfig } from "./cron-jobs.js";
 import { errorMessage } from "./util.js";
 
 // Everything a schedule can be, parsed once and shared by every consumer
@@ -507,11 +506,6 @@ const humanizeSchedule = (schedule: string, timezone?: string): string => {
   return parsed.ok ? parsed.info.human : schedule;
 };
 
-// A stored job: what the UI renders and mutates. Every stored job is
-// named — name is the cron_jobs table's primary key.
-type NamedCronJob = CronJobConfig & { readonly name: string };
-
-export type { NamedCronJob };
 export {
   fmtDateTime,
   formatOneShotInZone,

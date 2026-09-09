@@ -11,7 +11,6 @@ import {
   type FlavorFixture,
   fakeHomeEnv,
   type IntegrationEnv,
-  insertCronJobRow,
   readCronJobRows,
   removeCronJobRow,
   seedCronJobRow,
@@ -62,7 +61,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
   ): Promise<void> => {
     const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-bad-"));
     const cronDb = defaultCronDb(homeDir, fx.binName);
-    for (const job of jobs) insertCronJobRow(cronDb, job);
+    for (const job of jobs) seedCronJobRow(cronDb, job);
     const stderr = await expectServeRefusal(
       fx.binPath,
       ["serve", ...fx.defaultServeArgs(homeDir)],
@@ -137,7 +136,6 @@ const runCronSuite = (fx: FlavorFixture): void => {
       env = await fx.startEnv("glv-cron-off-", {
         sessionName: "Disabled Session",
       });
-      // Seeded straight into the database the server serves from.
       seedCronJobRow(env.dbs.cronDb, {
         name: "paused",
         schedule: "* * * * * *",
@@ -171,7 +169,6 @@ const runCronSuite = (fx: FlavorFixture): void => {
         undefined,
         { GLV_CRON_SESSION_TIMEOUT_MS: "2000" },
       );
-      // Seeded straight into the database the server serves from.
       seedCronJobRow(env.dbs.cronDb, {
         name: "never",
         schedule: "* * * * * *",
@@ -382,7 +379,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
         workingDir: tmpdir(),
         enabled: true,
       };
-      insertCronJobRow(cronDb, broken);
+      seedCronJobRow(cronDb, broken);
       await expectServeRefusal(
         fx.binPath,
         ["serve", ...fx.defaultServeArgs(homeDir)],

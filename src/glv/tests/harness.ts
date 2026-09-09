@@ -657,19 +657,6 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   }
 };
 
-// Writes a job row as a plain INSERT — no upsert — so a test can seed a
-// set serve must refuse (duplicate names stay distinct rows).
-const insertCronJobRow = (dbPath: string, job: CronJobRow): void => {
-  const db = openServerCronDb(dbPath);
-  try {
-    db.prepare(
-      `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(...jobRowParams(job));
-  } finally {
-    db.close();
-  }
-};
-
 const removeCronJobRow = (dbPath: string, name: string): void => {
   const db = openServerCronDb(dbPath);
   try {
@@ -1087,7 +1074,6 @@ export {
   findFreePort,
   flagValue,
   IS_WIN,
-  insertCronJobRow,
   makeStartEnv,
   parseSseData,
   postFollowUp,

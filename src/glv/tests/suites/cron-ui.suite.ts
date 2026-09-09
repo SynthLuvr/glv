@@ -698,7 +698,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       env = await fx.startEnv("glv-cronui-manage-", {
         sessionName: "Unstarted",
       });
-      // Seeded straight into the database the server serves from.
       seedCronJobRow(env.dbs.cronDb, {
         name: "nightly",
         schedule: "0 9 * * *",
@@ -873,7 +872,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       env = await fx.startEnv("glv-cronui-badge-", {
         sessionName: "Watched Session",
       });
-      // Seeded straight into the database the server serves from.
       seedCronJobRow(env.dbs.cronDb, {
         name: "nightly-watch",
         schedule: "* * * * * *",
@@ -1059,8 +1057,6 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
       const zone = "Pacific/Kiritimati";
       const workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-xew-"));
-      // Seeded after boot, so the prune lands on the first reload — the
-      // same applyJobs pass boot runs.
       seedCronJobRow(env.dbs.cronDb, {
         name: "zoned-missed",
         schedule: formatOneShotInZone(new Date(Date.now() - 60_000), zone),

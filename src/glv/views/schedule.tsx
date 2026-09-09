@@ -1,12 +1,8 @@
 import { Fragment } from "hono/jsx";
+import type { CronJobConfig } from "../cron-jobs.js";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
 import { jobModelSelection, modelLabel } from "../models.js";
-import {
-  fmtDateTime,
-  humanizeSchedule,
-  type NamedCronJob,
-  parseSchedule,
-} from "../schedule.js";
+import { fmtDateTime, humanizeSchedule, parseSchedule } from "../schedule.js";
 import {
   offsetLabel,
   SERVER_TIMEZONE,
@@ -41,7 +37,7 @@ const LIVE_RELOAD_NOTICE =
 
 // A job that can no longer fire (an expired one-shot) or no longer
 // parses (hand-edited) shows a dash instead of pretending.
-const nextRunText = (job: NamedCronJob): string => {
+const nextRunText = (job: CronJobConfig): string => {
   if (job.enabled === false) return "paused";
   const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
   if (!parsed.ok || parsed.info.next.length === 0) return "—";
@@ -280,7 +276,7 @@ const ScheduleSaveForm = ({
 
 // Success state rendered into the detail pane after a job is saved: the
 // job's name, humanized schedule, and next run.
-const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
+const ScheduleConfirmation = ({ job }: { job: CronJobConfig }) => {
   const human = humanizeSchedule(job.schedule, job.timezone);
   const model = jobModelSelection(job);
   return (
@@ -326,7 +322,7 @@ const ScheduleConfirmation = ({ job }: { job: NamedCronJob }) => {
 
 // One job card in the management section. Actions are htmx requests
 // scoped to the section so the list refreshes in place.
-const ScheduleJobCard = ({ job }: { job: NamedCronJob }) => {
+const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
   const name = encodeURIComponent(job.name);
   const enabled = job.enabled !== false;
   const model = jobModelSelection(job);
@@ -404,7 +400,7 @@ const ScheduleJobEditForm = ({
   modelPicker,
   error,
 }: {
-  job: NamedCronJob;
+  job: CronJobConfig;
   /** Restores a rejected edit's schedule. */
   schedule?: string;
   /** Restores a rejected edit's timezone. */
@@ -489,7 +485,7 @@ const CronJobGrid = ({
   jobs,
   oob = false,
 }: {
-  jobs: readonly NamedCronJob[];
+  jobs: readonly CronJobConfig[];
   oob?: boolean;
 }) => (
   <div
@@ -516,7 +512,7 @@ const ScheduledRunsSection = ({
   jobs,
   oob = false,
 }: {
-  jobs: readonly NamedCronJob[];
+  jobs: readonly CronJobConfig[];
   oob?: boolean;
 }) => (
   <section
