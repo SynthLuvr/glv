@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
   fakeHomeEnv,
   findFreePort,
   ROOT,
+  readConfigRows,
   rmScratch,
   spawnLauncher,
   spawnLauncherSync,
@@ -92,7 +93,7 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
     }, 30000);
   });
 
-  describe("platform-aware default config directory", () => {
+  describe("platform-aware config database location", () => {
     let homeDir: string;
 
     beforeAll(() => {
@@ -103,7 +104,7 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
       rmScratch(homeDir);
     });
 
-    it("writes the config file under the default config directory", () => {
+    it("stores config under the default data directory, not a config dir", () => {
       const result = spawnLauncherSync(
         fx.binPath,
         ["config", "set", "forwardHost", "example.com"],
@@ -111,14 +112,14 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
       );
       expect(result.status).toBe(0);
 
-      const configPath = defaultConfigFile(homeDir, fx.binName);
-      expect(existsSync(configPath)).toBe(true);
-
-      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-        string,
-        unknown
-      >;
-      expect(raw.forwardHost).toBe("example.com");
+      const configDb = join(defaultDataDir(homeDir, fx.binName), "config.db");
+      expect(existsSync(configDb)).toBe(true);
+      expect(readConfigRows(configDb)).toEqual({
+        forwardHost: "example.com",
+      });
+      // The retired file's old location stays untouched: nothing is
+      // written under ~/.config (LOCALAPPDATA) anymore.
+      expect(existsSync(defaultConfigFile(homeDir, fx.binName))).toBe(false);
     });
   });
 };

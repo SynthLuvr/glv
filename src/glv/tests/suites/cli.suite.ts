@@ -1,7 +1,11 @@
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type FlavorFixture, spawnLauncherSync } from "../harness.js";
+import {
+  type FlavorFixture,
+  fakeHomeEnv,
+  seedConfigRow,
+  spawnLauncherSync,
+} from "../harness.js";
 
 type RunResult = { status: number; stdout: string; stderr: string };
 
@@ -9,7 +13,7 @@ type RunCli = (args: string[], env?: Record<string, string>) => RunResult;
 
 type CliDeps = {
   readonly run: RunCli;
-  /** Temp dir for the config tests' GLV_CONFIG target. */
+  /** Temp dir for the config tests' GLV_CONFIG_DB target. */
   readonly cfgDir: () => string;
   /** Flavor-specific `view` header assertions beyond id/name/dir. */
   readonly assertViewHeader?: (stdout: string) => void;
@@ -110,12 +114,12 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
     let cfgPath: string;
 
     beforeAll(() => {
-      cfgPath = join(cfgDir(), "config.json");
+      cfgPath = join(cfgDir(), "config.db");
     });
 
-    it("lists known keys with empty values when the file is absent", () => {
+    it("lists known keys with empty values when the database is absent", () => {
       const { status, stdout } = run(["config", "list"], {
-        GLV_CONFIG: cfgPath,
+        GLV_CONFIG_DB: cfgPath,
       });
       expect(status).toBe(0);
       expect(stdout).toContain("forwardHost=");
@@ -123,80 +127,37 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
 
     it("sets a field then reads it back", () => {
       run(["config", "set", "forwardHost", "203.0.113.5"], {
-        GLV_CONFIG: cfgPath,
+        GLV_CONFIG_DB: cfgPath,
       });
       const { stdout } = run(["config", "get", "forwardHost"], {
-        GLV_CONFIG: cfgPath,
+        GLV_CONFIG_DB: cfgPath,
       });
       expect(stdout.trim()).toBe("203.0.113.5");
     });
 
     it("exits non-zero for an unknown key", () => {
       const { status, stderr } = run(["config", "get", "bogus"], {
-        GLV_CONFIG: cfgPath,
+        GLV_CONFIG_DB: cfgPath,
       });
       expect(status).not.toBe(0);
       expect(stderr).toContain("Unknown config key");
     });
 
-    it("tolerates unknown keys preserved on disk when re-listing", () => {
-      writeFileSync(
-        cfgPath,
-        JSON.stringify({ forwardHost: "10.0.0.1", future: true }),
-      );
-      const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
+    it("tolerates unknown keys stored in the database when re-listing", () => {
+      // A migrated file could carry keys glv never knew about; the
+      // listing stays honest about every row the table holds.
+      seedConfigRow(cfgPath, "future", "true");
+      const { stdout } = run(["config", "list"], { GLV_CONFIG_DB: cfgPath });
       expect(stdout).toContain("future=true");
-      expect(stdout).toContain("forwardHost=10.0.0.1");
-    });
-
-    it("echoes a not-yet-migrated cronJobs key from the file", () => {
-      // Scheduled runs moved to the cron database; a config file written
-      // before that (or by hand since) still carries the key, and the
-      // raw listing stays honest about what is on disk until serve's
-      // migration strips it.
-      writeFileSync(
-        cfgPath,
-        JSON.stringify({
-          cronJobs: [
-            {
-              name: "nightly",
-              schedule: "0 3 * * *",
-              prompt: "Review the day",
-              workingDir: "/tmp/project",
-            },
-          ],
-        }),
-      );
-      const { stdout } = run(["config", "list"], { GLV_CONFIG: cfgPath });
-      expect(stdout).toContain("cronJobs=");
-      expect(stdout).toContain("nightly");
+      expect(stdout).toContain("forwardHost=203.0.113.5");
     });
 
     it("refuses cronJobs as a settable key — it is not config anymore", () => {
       const { status, stderr } = run(["config", "set", "cronJobs", "[]"], {
-        GLV_CONFIG: cfgPath,
+        GLV_CONFIG_DB: cfgPath,
       });
       expect(status).not.toBe(0);
       expect(stderr).toContain("Unknown config key");
-    });
-
-    it("exits non-zero with a parse error for invalid config JSON", () => {
-      writeFileSync(cfgPath, "{ not valid json");
-      const { status, stderr } = run(["config", "list"], {
-        GLV_CONFIG: cfgPath,
-      });
-      expect(status).not.toBe(0);
-      expect(stderr).toContain("not valid JSON");
-    });
-
-    it("exits non-zero for valid JSON that is not an object", () => {
-      writeFileSync(cfgPath, "5");
-      const { status, stderr } = run(["config", "list"], {
-        GLV_CONFIG: cfgPath,
-      });
-      expect(status).not.toBe(0);
-      expect(stderr).toContain("glv config at");
-      expect(stderr).toContain("must be an object");
     });
   });
 
@@ -221,6 +182,22 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       ]);
       expect(status).not.toBe(0);
       expect(stderr.toLowerCase()).toContain("not found");
+    });
+
+    it("refuses --forward when no forwardHost is configured", () => {
+      // The host is resolved from the config database during serve
+      // boot — after the legacy-file import — so an empty database
+      // refuses the flag with the command that would fix it. A fake
+      // home keeps every store this boot opens off the real profile.
+      const { status, stderr } = run(
+        ["serve", "--forward", fx.binaryFlag, process.execPath],
+        {
+          ...fakeHomeEnv(cfgDir()),
+          GLV_CONFIG_DB: join(cfgDir(), "forward.db"),
+        },
+      );
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("config set forwardHost");
     });
 
     it("documents the --forward flag in help", () => {

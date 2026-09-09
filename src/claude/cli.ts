@@ -36,6 +36,7 @@ program
   .option("--prompts-db <path>", "saved prompts database path")
   .option("--groups-db <path>", "session groups database path")
   .option("--cron-db <path>", "scheduled runs database path")
+  .option("--config-db <path>", "config database path")
   .option("--meta-db <path>", "viewer metadata database path");
 
 const GlobalOpts = type({
@@ -44,6 +45,7 @@ const GlobalOpts = type({
   "promptsDb?": "string",
   "groupsDb?": "string",
   "cronDb?": "string",
+  "configDb?": "string",
   "metaDb?": "string",
 });
 
@@ -163,11 +165,15 @@ serveCmd.action((opts: ServeOpts) => {
       claudeProfile.dataDirName,
       globalOpts().cronDb,
     ),
+    configDbPath: cli.resolveConfigDbPath(
+      claudeProfile.dataDirName,
+      globalOpts().configDb,
+    ),
     groupsDbPath: cli.resolveGroupsDbPath(
       claudeProfile.dataDirName,
       globalOpts().groupsDb,
     ),
-    ...cli.serveTail(claudeProfile, opts),
+    ...cli.serveTail(opts),
   });
 });
 

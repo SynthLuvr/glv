@@ -134,10 +134,10 @@ Windows notes:
   and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point
   glv at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
   environment variable.
-- glv-owned data (the auth database, prompt library, uploads) lives
-  under `%APPDATA%\glv-goose`, and per-machine config (e.g. the forward
-  host) under `%LOCALAPPDATA%\glv-goose\config.json`. Both are
-  overridable — see the flags below.
+- glv-owned data (the auth database, prompt library, uploads, and the
+  config database holding per-machine settings such as the forward host)
+  lives under `%APPDATA%\glv-goose`. All of it is overridable — see the
+  flags below.
 
 ### Prerequisites
 
@@ -182,6 +182,10 @@ Options:
   `~/.local/share/glv-goose/auth.db` on Linux/macOS
   (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
 
+- `--config-db <path>` — override the config database location (default
+  `~/.local/share/glv-goose/config.db` on Linux/macOS
+  (`%APPDATA%\glv-goose\config.db` on Windows), or `GLV_CONFIG_DB`).
+
 - `--cron-db <path>` — override the scheduled runs database location
   (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
   (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
@@ -196,27 +200,37 @@ Options:
   a remote host. When set, `glv-goose` runs
   `ssh -NT -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:<port>:127.0.0.1:<port> <host>`,
   binding the serve port on the remote host back to the local viewer.
-  The tunnel host comes from your [local config
-  file](#local-config-file) and is **not** started unless this flag is
-  passed.
+  The tunnel host comes from your [config database](#config-database)
+  and is **not** started unless this flag is passed.
 
 The viewer rebuilds its stylesheet and client scripts on every start, so
 it always serves current assets.
 
-### Local config file
+### Config database
 
-Per-machine settings live outside the repo at
-`~/.config/glv-goose/config.json` on Linux/macOS
-(`%LOCALAPPDATA%\glv-goose\config.json` on Windows; override with the
-`GLV_CONFIG` environment variable), so secrets like a forward host never
-get committed:
+Per-machine settings live in a glv-owned SQLite database at
+`~/.local/share/glv-goose/config.db` on Linux/macOS
+(`%APPDATA%\glv-goose\config.db` on Windows), beside the other glv
+stores — override with `--config-db <path>` or the `GLV_CONFIG_DB`
+environment variable, so secrets like a forward host never get
+committed. Set and read values with the CLI:
 
-``` json
-{ "forwardHost": "91.98.17.2" }
+``` bash
+glv-goose config set forwardHost 91.98.17.2
+glv-goose config get forwardHost
+glv-goose config list
 ```
 
 `glv-goose serve --forward` uses `forwardHost` as the SSH tunnel target;
-the flag errors out if the key is missing or the file is malformed.
+the flag errors out if the key is missing.
+
+Settings used to live in a hand-editable `config.json`
+(`~/.config/glv-goose/config.json`, or `GLV_CONFIG`). That file is
+retired: the first `serve` start imports everything it still holds —
+scheduled runs into the cron database, every other key into the config
+database — and renames it to `config.json.bak`, keeping a copy behind.
+An invalid legacy file stops the server from starting, with the file
+left as it was, so it stays fixable by hand.
 
 ### Scheduled runs (cron)
 
@@ -239,13 +253,13 @@ job-started-session tags that badge fired runs. Override with
 running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
-[local config file](#local-config-file) are **migrated into the cron
-database automatically** the first time `serve` starts, and the key is
-removed from the file (everything else in it is preserved). An invalid
-legacy file stops the server from starting — naming the job — with the
-file left as it was, so it stays fixable by hand. Re-adding a `cronJobs`
-array later re-imports it on the next start (entries win on a name
-collision; nothing is duplicated).
+retired [config file](#config-database) are **migrated into the cron
+database automatically** the first time `serve` starts; the whole file
+is then retired (see above). An invalid legacy file stops the server
+from starting — naming the job — with the file left as it was, so it
+stays fixable by hand. Re-adding a `cronJobs` array to a recreated file
+re-imports it on the next start (entries win on a name collision;
+nothing is duplicated).
 
 - `schedule` is one of two spellings:
 

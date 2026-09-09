@@ -1,12 +1,13 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
@@ -17,6 +18,7 @@ import {
   fakeHomeEnv,
   findFreePort,
   type IntegrationEnv,
+  readConfigRows,
   readCronConfig,
   readCronJobRows,
   removeCronJobRow,
@@ -82,6 +84,25 @@ const runCronSuite = (fx: FlavorFixture): void => {
     rmSync(homeDir, { recursive: true, force: true });
   };
 
+  // Same, for a legacy file holding raw contents rather than a
+  // cronJobs-bearing record.
+  const expectServeRefusesRawFile = async (
+    contents: string,
+    ...stderrContains: string[]
+  ): Promise<void> => {
+    const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-raw-"));
+    const cfgPath = defaultConfigFile(homeDir, fx.binName);
+    mkdirSync(dirname(cfgPath), { recursive: true });
+    writeFileSync(cfgPath, contents);
+    const stderr = await expectServeRefusal(
+      fx.binPath,
+      ["serve", ...fx.defaultServeArgs(homeDir)],
+      { ...fakeHomeEnv(homeDir), GLV_CONFIG: cfgPath },
+    );
+    for (const fragment of stderrContains) expect(stderr).toContain(fragment);
+    rmSync(homeDir, { recursive: true, force: true });
+  };
+
   describe("scheduled sessions from the cron database", () => {
     let env: IntegrationEnv;
     let homeDir: string;
@@ -131,9 +152,11 @@ const runCronSuite = (fx: FlavorFixture): void => {
           enabled: true,
         },
       ]);
-      // The config file keeps only its other keys — cronJobs is gone.
-      expect(readCronConfig(defaultConfigFile(homeDir, fx.binName))).toEqual(
-        {},
+      // The file is retired wholesale — renamed to config.json.bak —
+      // once its contents have been imported.
+      expect(existsSync(defaultConfigFile(homeDir, fx.binName))).toBe(false);
+      expect(existsSync(`${defaultConfigFile(homeDir, fx.binName)}.bak`)).toBe(
+        true,
       );
     });
 
@@ -205,7 +228,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
       rmSync(homeDir, { recursive: true, force: true });
     });
 
-    it("imports every entry, naming unnamed ones, and strips the key", () => {
+    it("imports every entry, naming unnamed ones, and retires the file", () => {
       expect(readCronJobRows(env.dbs.cronDb)).toEqual([
         {
           name: "cron-1",
@@ -223,9 +246,27 @@ const runCronSuite = (fx: FlavorFixture): void => {
           enabled: false,
         },
       ]);
-      const config = readCronConfig(cfgPath);
-      expect(config.cronJobs).toBeUndefined();
-      expect(config.forwardHost).toBe("203.0.113.7");
+      // The sibling scalar lands in the config database, not the file.
+      expect(readConfigRows(env.dbs.configDb)).toEqual({
+        forwardHost: "203.0.113.7",
+      });
+      // The file itself is retired — imported, then renamed away so a
+      // copy stays behind instead of being destroyed.
+      expect(existsSync(cfgPath)).toBe(false);
+      expect(readCronConfig(`${cfgPath}.bak`)).toEqual({
+        cronJobs: [
+          { schedule: "0 3 * * *", prompt: "Nightly sweep", workingDir: workA },
+          {
+            name: "paused",
+            schedule: "0 4 * * *",
+            prompt: "Never fires yet",
+            workingDir: workB,
+            timezone: "Europe/Oslo",
+            enabled: false,
+          },
+        ],
+        forwardHost: "203.0.113.7",
+      });
     });
 
     it("lists the migrated jobs in the Scheduled runs section", async () => {
@@ -240,7 +281,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
       // Hand-add the job to the config file again (the old habit) and
       // boot a second serve against the same cron database: the file's
       // entry wins on the name collision, the untouched row survives,
-      // and the key is stripped once more.
+      // and the file is retired once more.
       writeConfig(homeDir, [
         {
           name: "paused",
@@ -283,7 +324,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
             enabled: false,
           },
         ]);
-        expect(readCronConfig(cfgPath).cronJobs).toBeUndefined();
+        expect(existsSync(cfgPath)).toBe(false);
       } finally {
         await stopProcess(proc);
       }
@@ -574,6 +615,18 @@ const runCronSuite = (fx: FlavorFixture): void => {
 
     it.concurrent("exits non-zero for a structurally invalid cronJobs value", () =>
       expectServeRefuses("nope", "cronJobs must be an array"));
+
+    it.concurrent("exits non-zero for a legacy file that is not valid JSON", async () => {
+      await expectServeRefusesRawFile("{ not valid json", "not valid JSON");
+    });
+
+    it.concurrent("exits non-zero for a legacy file that is not an object", async () => {
+      await expectServeRefusesRawFile(
+        "5",
+        "glv config at",
+        "must be an object",
+      );
+    });
 
     it.concurrent("leaves the config file untouched when it refuses", async () => {
       const homeDir = mkdtempSync(join(tmpdir(), "glv-cron-keep-"));
