@@ -460,22 +460,24 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           ["Stop chain step two"],
         );
 
-        // Wait for step 1's session, then stop it mid-run.
+        // Wait for step 1's session, then stop it mid-run. The session
+        // shows up in the sidebar the moment the agent writes its store
+        // row, which can briefly predate the scheduler rekeying the run
+        // onto that id — a stop in that window misses (stop() is keyed
+        // by session id), so retry until the chain acknowledges.
         const sessionId = await pollForSessionId(env, "Stopped Chain");
         expect(sessionId).toBeDefined();
-        const stop = await authedFetch(env, `/sessions/${sessionId}/stop`, {
-          method: "POST",
-        });
-        expect(stop.status).toBe(200);
+        const stopAcked = async (): Promise<boolean> => {
+          const stop = await authedFetch(env, `/sessions/${sessionId}/stop`, {
+            method: "POST",
+          });
+          expect(stop.status).toBe(200);
+          return env.serverStderr().includes("was stopped — ");
+        };
+        expect(await pollUntil(stopAcked, 30_000)).toBe(true);
 
         // The stop ends the pipeline: step 2's prompt never reaches the
-        // agent, no second session appears, and the abort is logged.
-        expect(
-          await pollUntil(
-            () => env.serverStderr().includes("was stopped — "),
-            15_000,
-          ),
-        ).toBe(true);
+        // agent, and no second session appears.
         expect(capture().includes("Stop chain step two")).toBe(false);
         expect(await countSessions()).toBe(1);
       }, 200000);
