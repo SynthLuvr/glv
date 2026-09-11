@@ -24,7 +24,6 @@ type ServeOpts = {
   gooseBinary: string;
   rpName: string;
   rpId?: string;
-  forward?: boolean;
   debug?: boolean;
 };
 
@@ -37,8 +36,7 @@ program
   .option("--auth-db <path>", "auth database path")
   .option("--prompts-db <path>", "saved prompts database path")
   .option("--groups-db <path>", "session groups database path")
-  .option("--cron-db <path>", "scheduled runs database path")
-  .option("--config-db <path>", "config database path");
+  .option("--cron-db <path>", "scheduled runs database path");
 
 const GlobalOpts = type({
   "db?": "string",
@@ -46,7 +44,6 @@ const GlobalOpts = type({
   "promptsDb?": "string",
   "groupsDb?": "string",
   "cronDb?": "string",
-  "configDb?": "string",
 });
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);
@@ -64,9 +61,6 @@ const getGroupsDbPath = (): string =>
 
 const getCronDbPath = (): string =>
   cli.resolveCronDbPath(gooseProfile.dataDirName, globalOpts().cronDb);
-
-const getConfigDbPath = (): string =>
-  cli.resolveConfigDbPath(gooseProfile.dataDirName, globalOpts().configDb);
 
 // List/view only read; one read-only handle safely backs both store roles.
 const useSessions = (fn: (sessions: SessionStore) => void): void => {
@@ -122,8 +116,6 @@ cli.registerViewCommand(program, (sessionId) =>
   useSessions((sessions) => cli.runView(sessions, sessionId)),
 );
 
-cli.registerConfigCommands(program, gooseProfile);
-
 const serveCmd = program
   .command("serve")
   .description("Start a local web viewer for goose sessions")
@@ -171,7 +163,6 @@ serveCmd.action((opts: ServeOpts) => {
     promptsDbPath: getPromptsDbPath(),
     groupsDbPath: getGroupsDbPath(),
     cronDbPath: getCronDbPath(),
-    configDbPath: getConfigDbPath(),
     ...cli.serveTail(opts),
   });
 });

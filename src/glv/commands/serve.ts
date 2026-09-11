@@ -3,7 +3,6 @@ import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
-import { openConfigDb, resolveForwardHost } from "../config.js";
 import { startCronScheduler } from "../cron.js";
 import {
   deleteCronJob,
@@ -13,7 +12,6 @@ import {
   watchCronJobs,
 } from "../cron-jobs.js";
 import { tagCronSession } from "../cron-sessions.js";
-import { startForwardTunnel, type TunnelHandle } from "../forward.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
 import { setupLogging } from "../log.js";
@@ -43,11 +41,8 @@ type ServeOpts = {
   promptsDbPath: string;
   groupsDbPath: string;
   cronDbPath: string;
-  configDbPath: string;
   rpName: string;
   rpIdOverride?: string;
-  /** Opens the reverse tunnel when set (--forward). */
-  forward: boolean;
   debug: boolean;
 };
 
@@ -84,7 +79,6 @@ type ShutdownDeps = {
   destroyConnections: () => void;
   stopCron: () => void;
   stopProcesses: () => void;
-  stopTunnel: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
 };
@@ -105,7 +99,6 @@ const createShutdown = (
     await closeServer(deps.server);
     deps.stopCron();
     deps.stopProcesses();
-    deps.stopTunnel();
     deps.closeDbs();
     deps.exit(exitCode);
   };
@@ -145,11 +138,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
   const cronDb = openCronDb(opts.cronDbPath);
-  // The config database: boot-time scalars (forwardHost).
-  const configDb = openConfigDb(opts.configDbPath);
-  const forwardHost = opts.forward
-    ? resolveForwardHost(configDb, opts.profile.id)
-    : undefined;
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({
@@ -184,8 +172,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  // Started once the port is bound so the -R bind targets the real listener.
-  let tunnel: TunnelHandle | undefined;
   const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
     console.log(
       `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
@@ -194,8 +180,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     // takes seconds; warm it now so the first New Session render is instant.
     // Best-effort only: a failure degrades the picker, never the server.
     void opts.models?.choices();
-    if (forwardHost !== undefined)
-      tunnel = startForwardTunnel(info.port, forwardHost);
   });
   const destroyConnections = trackConnections(server);
 
@@ -205,15 +189,13 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     promptsDb.close();
     groupsDb.close();
     cronDb.close();
-    configDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
-  // SIGKILL, so detached agent children (and the ssh tunnel) are reaped even
-  // if the async shutdown above never started or finished.
+  // SIGKILL, so detached agent children are reaped even if the async
+  // shutdown above never started or finished.
   process.on("exit", () => {
     stopAll(runner);
-    tunnel?.kill();
   });
 
   const shutdown = createShutdown({
@@ -221,7 +203,6 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     destroyConnections,
     stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),
-    stopTunnel: () => tunnel?.kill(),
     closeDbs,
     exit: (code?: number) => process.exit(code),
   });

@@ -3,18 +3,11 @@ import { type } from "arktype";
 import { type Command, InvalidArgumentError } from "commander";
 import which from "which";
 import { resolveAuthDbPath } from "./auth/db.js";
-import {
-  runConfigGet,
-  runConfigList,
-  runConfigSet,
-} from "./commands/config.js";
 import { runList } from "./commands/list.js";
 import { runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import { resolveConfigDbPath } from "./config.js";
 import { resolveCronDbPath } from "./cron-sessions.js";
 import { resolveGroupsDbPath } from "./groups/db.js";
-import type { FlavorProfile } from "./profile.js";
 import { resolvePromptsDbPath } from "./prompts/db.js";
 import { makeRunnerConfig } from "./runner/index.js";
 
@@ -47,35 +40,6 @@ const resolveAgentBinary = (value: string): string => {
   return value;
 };
 
-const registerConfigCommands = (
-  program: Command,
-  profile: FlavorProfile,
-): Command => {
-  const configCmd = program
-    .command("config")
-    .description("Read and set fields in the glv config database")
-    .action(() => runConfigList(profile.dataDirName));
-
-  configCmd
-    .command("get <key>")
-    .description("Print the value of a config field")
-    .action((key: string) => runConfigGet(profile.dataDirName, key));
-
-  configCmd
-    .command("set <key> <value>")
-    .description("Set a config field to a value")
-    .action((key: string, value: string) =>
-      runConfigSet(profile.dataDirName, key, value),
-    );
-
-  configCmd
-    .command("list")
-    .description("List all config fields")
-    .action(() => runConfigList(profile.dataDirName));
-
-  return configCmd;
-};
-
 const readGlobalOpts = <T>(
   program: Command,
   schema: (raw: unknown) => T | type.errors,
@@ -104,16 +68,11 @@ const addServeTailOptions = (cmd: Command): Command =>
       "--rp-id <domain>",
       "WebAuthn relying party ID (defaults to the request host)",
     )
-    .option(
-      "--forward",
-      "open an ssh reverse tunnel (host: config set forwardHost)",
-    )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
 type ServeTailOpts = {
   rpName: string;
   rpId?: string;
-  forward?: boolean;
   debug?: boolean;
 };
 
@@ -122,12 +81,10 @@ const serveTail = (
 ): {
   rpName: string;
   rpIdOverride?: string;
-  forward: boolean;
   debug: boolean;
 } => ({
   rpName: opts.rpName,
   rpIdOverride: opts.rpId,
-  forward: opts.forward === true,
   debug: opts.debug === true,
 });
 
@@ -179,11 +136,9 @@ export {
   makeRunnerConfig,
   parsePositiveInt,
   readGlobalOpts,
-  registerConfigCommands,
   registerViewCommand,
   resolveAgentBinary,
   resolveAuthDbPath,
-  resolveConfigDbPath,
   resolveCronDbPath,
   resolveGroupsDbPath,
   resolvePromptsDbPath,

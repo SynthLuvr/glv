@@ -105,3 +105,14 @@ fail-fast boot validation over those rows is unchanged. With the bridge
 gone, every store reads only its own database, and the last reader
 outside the data directory is retired — all per-flavor state now lives
 under one directory in fact, not just by convention.
+
+## Update — 2026-09-11: the store is removed along with `--forward`
+
+`forwardHost` was the store’s only key and its only consumer was
+`serve --forward`; with the reverse-tunnel flag retired, the whole
+config subsystem went with it: `config.db`, the `config get/set/list`
+commands, the `--config-db` flag, and the `GLV_CONFIG_DB` environment
+variable. serve no longer opens a config database. A leftover
+`config.db` under the flavor’s data directory is inert — nothing reads
+it — and can be deleted. If a future setting needs a home, this ADR
+remains the blueprint for bringing the store back.
