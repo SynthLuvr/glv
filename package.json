@@ -55,7 +55,7 @@
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "croner": "^10.0.1",
+    "croner": "github:SynthLuvr/croner#dist/fix-clock-step-skip",
     "cronstrue": "^3.25.0",
     "dompurify": "^3.4.15",
     "execa": "^10.0.1",
