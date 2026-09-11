@@ -45,7 +45,7 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
     it("loads cli.ts via tsx and prints serve help", () => {
       const { status, stdout } = runNode(["serve", "--help"]);
       expect(status).toBe(0);
-      expect(stdout).toContain("--forward");
+      expect(stdout).toContain("--rp-name");
     });
 
     it.runIf(canRunShell)(

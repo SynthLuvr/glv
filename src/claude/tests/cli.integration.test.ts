@@ -72,7 +72,6 @@ const run = makeRunner(GLV, () => [
 
 runCliSuite(claudeFixture, {
   run,
-  cfgDir: () => dir,
   assertViewHeader: (stdout) => {
     expect(stdout).toContain("claude");
   },

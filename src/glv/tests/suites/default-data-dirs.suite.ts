@@ -3,16 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  defaultConfigFile,
   defaultDataDir,
   type FlavorFixture,
   fakeHomeEnv,
   findFreePort,
   ROOT,
-  readConfigRows,
   rmScratch,
   spawnLauncher,
-  spawnLauncherSync,
   stopProcess,
   waitForHttp,
 } from "../harness.js";
@@ -91,36 +88,6 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
         rmScratch(emptyHome);
       }
     }, 30000);
-  });
-
-  describe("platform-aware config database location", () => {
-    let homeDir: string;
-
-    beforeAll(() => {
-      homeDir = mkdtempSync(join(tmpdir(), "glv-default-config-"));
-    });
-
-    afterAll(() => {
-      rmScratch(homeDir);
-    });
-
-    it("stores config under the default data directory, not a config dir", () => {
-      const result = spawnLauncherSync(
-        fx.binPath,
-        ["config", "set", "forwardHost", "example.com"],
-        { env: { ...process.env, ...fakeHomeEnv(homeDir) }, encoding: "utf-8" },
-      );
-      expect(result.status).toBe(0);
-
-      const configDb = join(defaultDataDir(homeDir, fx.binName), "config.db");
-      expect(existsSync(configDb)).toBe(true);
-      expect(readConfigRows(configDb)).toEqual({
-        forwardHost: "example.com",
-      });
-      // The retired file's old location stays untouched: nothing is
-      // written under ~/.config (LOCALAPPDATA) anymore.
-      expect(existsSync(defaultConfigFile(homeDir, fx.binName))).toBe(false);
-    });
   });
 };
 
