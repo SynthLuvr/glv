@@ -1,11 +1,5 @@
-import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
-import {
-  type FlavorFixture,
-  fakeHomeEnv,
-  seedConfigRow,
-  spawnLauncherSync,
-} from "../harness.js";
+import { describe, expect, it } from "vitest";
+import { type FlavorFixture, spawnLauncherSync } from "../harness.js";
 
 type RunResult = { status: number; stdout: string; stderr: string };
 
@@ -13,8 +7,6 @@ type RunCli = (args: string[], env?: Record<string, string>) => RunResult;
 
 type CliDeps = {
   readonly run: RunCli;
-  /** Temp dir for the config tests' GLV_CONFIG_DB target. */
-  readonly cfgDir: () => string;
   /** Flavor-specific `view` header assertions beyond id/name/dir. */
   readonly assertViewHeader?: (stdout: string) => void;
 };
@@ -38,7 +30,7 @@ const makeRunner = (bin: string, globalFlags: () => string[]): RunCli => {
 };
 
 const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
-  const { run, cfgDir, assertViewHeader } = deps;
+  const { run, assertViewHeader } = deps;
 
   describe(`${fx.binName} sessions`, () => {
     it("lists sessions, excluding archived ones", () => {
@@ -110,58 +102,6 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
     });
   });
 
-  describe(`${fx.binName} config`, () => {
-    let cfgPath: string;
-
-    beforeAll(() => {
-      cfgPath = join(cfgDir(), "config.db");
-    });
-
-    it("lists known keys with empty values when the database is absent", () => {
-      const { status, stdout } = run(["config", "list"], {
-        GLV_CONFIG_DB: cfgPath,
-      });
-      expect(status).toBe(0);
-      expect(stdout).toContain("forwardHost=");
-    });
-
-    it("sets a field then reads it back", () => {
-      run(["config", "set", "forwardHost", "203.0.113.5"], {
-        GLV_CONFIG_DB: cfgPath,
-      });
-      const { stdout } = run(["config", "get", "forwardHost"], {
-        GLV_CONFIG_DB: cfgPath,
-      });
-      expect(stdout.trim()).toBe("203.0.113.5");
-    });
-
-    it("exits non-zero for an unknown key", () => {
-      const { status, stderr } = run(["config", "get", "bogus"], {
-        GLV_CONFIG_DB: cfgPath,
-      });
-      expect(status).not.toBe(0);
-      expect(stderr).toContain("Unknown config key");
-    });
-
-    it("tolerates unknown keys stored in the database when re-listing", () => {
-      // A row the CLI never knew about (a future key, or one a migrated
-      // file once carried) stays listed — the listing is honest about
-      // every row the table holds.
-      seedConfigRow(cfgPath, "future", "true");
-      const { stdout } = run(["config", "list"], { GLV_CONFIG_DB: cfgPath });
-      expect(stdout).toContain("future=true");
-      expect(stdout).toContain("forwardHost=203.0.113.5");
-    });
-
-    it("refuses cronJobs as a settable key — it is not config anymore", () => {
-      const { status, stderr } = run(["config", "set", "cronJobs", "[]"], {
-        GLV_CONFIG_DB: cfgPath,
-      });
-      expect(status).not.toBe(0);
-      expect(stderr).toContain("Unknown config key");
-    });
-  });
-
   describe(`${fx.binName} serve argument validation`, () => {
     it("rejects a non-positive --max-concurrent", () => {
       const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
@@ -183,27 +123,6 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
       ]);
       expect(status).not.toBe(0);
       expect(stderr.toLowerCase()).toContain("not found");
-    });
-
-    it("refuses --forward when no forwardHost is configured", () => {
-      // The host is resolved from the config database during serve
-      // boot, so an empty database refuses the flag with the command
-      // that would fix it. A fake home keeps every store this boot
-      // opens off the real profile.
-      const { status, stderr } = run(
-        ["serve", "--forward", fx.binaryFlag, process.execPath],
-        {
-          ...fakeHomeEnv(cfgDir()),
-          GLV_CONFIG_DB: join(cfgDir(), "forward.db"),
-        },
-      );
-      expect(status).not.toBe(0);
-      expect(stderr).toContain("config set forwardHost");
-    });
-
-    it("documents the --forward flag in help", () => {
-      const { stdout } = run(["serve", "--help"]);
-      expect(stdout).toContain("--forward");
     });
   });
 };

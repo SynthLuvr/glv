@@ -134,10 +134,9 @@ Windows notes:
   and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point
   glv at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
   environment variable.
-- glv-owned data (the auth database, prompt library, uploads, and the
-  config database holding per-machine settings such as the forward host)
-  lives under `%APPDATA%\glv-goose`. All of it is overridable — see the
-  flags below.
+- glv-owned data (the auth database, prompt library, and uploads) lives
+  under `%APPDATA%\glv-goose`. All of it is overridable — see the flags
+  below.
 
 ### Prerequisites
 
@@ -148,9 +147,6 @@ Windows notes:
   and PR status features.
 - **pandoc ≥ 3.10** (only needed for the Markdown lint/format check
   during development).
-- An **`ssh`** client (OpenSSH) on your `PATH` — only needed for the
-  `--forward` reverse-tunnel flag. It ships with Linux and macOS; on
-  Windows 10/11 install the optional **OpenSSH Client** feature.
 
 The toolchain runs on Linux, macOS, and Windows; line endings are
 normalized to LF via `.gitattributes`, and pandoc is invoked with
@@ -182,10 +178,6 @@ Options:
   `~/.local/share/glv-goose/auth.db` on Linux/macOS
   (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
 
-- `--config-db <path>` — override the config database location (default
-  `~/.local/share/glv-goose/config.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\config.db` on Windows), or `GLV_CONFIG_DB`).
-
 - `--cron-db <path>` — override the scheduled runs database location
   (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
   (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
@@ -196,41 +188,8 @@ Options:
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).
 
-- `--forward` — open an SSH reverse tunnel so the viewer is reachable on
-  a remote host. When set, `glv-goose` runs
-  `ssh -NT -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:<port>:127.0.0.1:<port> <host>`,
-  binding the serve port on the remote host back to the local viewer.
-  The tunnel host comes from your [config database](#config-database)
-  and is **not** started unless this flag is passed.
-
 The viewer rebuilds its stylesheet and client scripts on every start, so
 it always serves current assets.
-
-### Config database
-
-Per-machine settings live in a glv-owned SQLite database at
-`~/.local/share/glv-goose/config.db` on Linux/macOS
-(`%APPDATA%\glv-goose\config.db` on Windows), beside the other glv
-stores — override with `--config-db <path>` or the `GLV_CONFIG_DB`
-environment variable, so secrets like a forward host never get
-committed. Set and read values with the CLI:
-
-``` bash
-glv-goose config set forwardHost 91.98.17.2
-glv-goose config get forwardHost
-glv-goose config list
-```
-
-`glv-goose serve --forward` uses `forwardHost` as the SSH tunnel target;
-the flag errors out if the key is missing.
-
-Settings used to live in a hand-editable `config.json`
-(`~/.config/glv-goose/config.json`, or `GLV_CONFIG`). That file is
-retired: older glv imported it once on the first `serve` start —
-scheduled runs into the cron database, every other key into the config
-database — and renamed it to `config.json.bak`, keeping a copy behind.
-Current glv never reads the file, so a leftover `config.json` or
-`config.json.bak` can simply be deleted.
 
 ### Scheduled runs (cron)
 

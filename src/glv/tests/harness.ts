@@ -267,7 +267,6 @@ type Databases = {
   readonly promptsDb: string;
   readonly groupsDb: string;
   readonly cronDb: string;
-  readonly configDb: string;
   readonly token: string;
   /**
    * Flavor-specific store paths (goose: sessionsDb; claude: projectsDir,
@@ -323,7 +322,6 @@ const baseDatabases = (
     promptsDb: join(scratchDir, "prompts.db"),
     groupsDb: join(scratchDir, "groups.db"),
     cronDb: join(scratchDir, "cron.db"),
-    configDb: join(scratchDir, "config.db"),
     token: seedAuthDb(authDb),
     flavor,
   };
@@ -339,8 +337,6 @@ const dbOverrideArgs = (dbs: Databases): string[] => [
   dbs.groupsDb,
   "--cron-db",
   dbs.cronDb,
-  "--config-db",
-  dbs.configDb,
 ];
 
 type SseEvent = { event: string; data: string; id: string | undefined };
@@ -574,11 +570,6 @@ const defaultDataDir = (home: string, dataDirName: string): string =>
 
 // The retired config file's old location. Nothing reads or writes it;
 // tests assert it stays absent.
-const defaultConfigFile = (home: string, dataDirName: string): string =>
-  IS_WIN
-    ? join(home, "AppData", "Local", dataDirName, "config.json")
-    : join(home, ".config", dataDirName, "config.json");
-
 // The cron database's job rows, as the store spells them (camelCase,
 // `enabled` boolean, absent optionals omitted) — what the UI writes and
 // the scheduler reads.
@@ -678,39 +669,6 @@ const removeCronJobRow = (dbPath: string, name: string): void => {
   const db = openCronDb(dbPath);
   try {
     deleteCronJob(db, name);
-  } finally {
-    db.close();
-  }
-};
-
-// The config database's rows, what `config list` prints.
-const readConfigRows = (dbPath: string): Record<string, string> => {
-  if (!existsSync(dbPath)) return {};
-  const db = openServerDb(dbPath);
-  try {
-    const rows = db.prepare("SELECT key, value FROM config").all() as {
-      key: string;
-      value: string;
-    }[];
-    const config: Record<string, string> = {};
-    for (const row of rows) config[row.key] = row.value;
-    return config;
-  } finally {
-    db.close();
-  }
-};
-
-// Writes a config row exactly as given — no key check, so tests can
-// seed keys the CLI would refuse.
-const seedConfigRow = (dbPath: string, key: string, value: string): void => {
-  const db = openServerDb(dbPath);
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS config (" +
-        "key TEXT PRIMARY KEY, value TEXT NOT NULL, " +
-        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
-    );
-    db.prepare("INSERT INTO config (key, value) VALUES (?, ?)").run(key, value);
   } finally {
     db.close();
   }
@@ -1150,7 +1108,6 @@ export {
   collectSse,
   cronJobRow,
   dbOverrideArgs,
-  defaultConfigFile,
   defaultDataDir,
   expectServeRefusal,
   fakeHomeEnv,
@@ -1162,12 +1119,10 @@ export {
   postFollowUp,
   postNewSession,
   ROOT,
-  readConfigRows,
   readCronJobRows,
   readStoreField,
   removeCronJobRow,
   rmScratch,
-  seedConfigRow,
   seedCronJobRow,
   spawnLauncher,
   spawnLauncherSync,

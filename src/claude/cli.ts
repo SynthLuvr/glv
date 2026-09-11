@@ -22,7 +22,6 @@ type ServeOpts = {
   permissionMode: string;
   rpName: string;
   rpId?: string;
-  forward?: boolean;
   debug?: boolean;
 };
 
@@ -36,7 +35,6 @@ program
   .option("--prompts-db <path>", "saved prompts database path")
   .option("--groups-db <path>", "session groups database path")
   .option("--cron-db <path>", "scheduled runs database path")
-  .option("--config-db <path>", "config database path")
   .option("--meta-db <path>", "viewer metadata database path");
 
 const GlobalOpts = type({
@@ -45,7 +43,6 @@ const GlobalOpts = type({
   "promptsDb?": "string",
   "groupsDb?": "string",
   "cronDb?": "string",
-  "configDb?": "string",
   "metaDb?": "string",
 });
 
@@ -100,8 +97,6 @@ program
 cli.registerViewCommand(program, (sessionId) =>
   useStore((sessions) => cli.runView(sessions, sessionId)),
 );
-
-cli.registerConfigCommands(program, claudeProfile);
 
 const parsePermissionMode = (value: string): string => {
   if (!PERMISSION_MODES.includes(value))
@@ -164,10 +159,6 @@ serveCmd.action((opts: ServeOpts) => {
     cronDbPath: cli.resolveCronDbPath(
       claudeProfile.dataDirName,
       globalOpts().cronDb,
-    ),
-    configDbPath: cli.resolveConfigDbPath(
-      claudeProfile.dataDirName,
-      globalOpts().configDb,
     ),
     groupsDbPath: cli.resolveGroupsDbPath(
       claudeProfile.dataDirName,

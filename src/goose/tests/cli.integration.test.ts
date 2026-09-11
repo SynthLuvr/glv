@@ -143,7 +143,6 @@ const run = makeRunner(GLV, () => ["--db", dbPath]);
 
 runCliSuite(gooseFixture, {
   run,
-  cfgDir: () => dir,
   assertViewHeader: (stdout) => {
     expect(stdout).toContain("100");
     expect(stdout).toContain("Anthropic");
