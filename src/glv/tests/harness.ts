@@ -568,8 +568,6 @@ const defaultDataDir = (home: string, dataDirName: string): string =>
     ? join(home, "AppData", "Roaming", dataDirName)
     : join(home, ".local", "share", dataDirName);
 
-// The retired config file's old location. Nothing reads or writes it;
-// tests assert it stays absent.
 // The cron database's job rows, as the store spells them (camelCase,
 // `enabled` boolean, absent optionals omitted) — what the UI writes and
 // the scheduler reads.

@@ -212,10 +212,10 @@ job-started-session tags that badge fired runs. Override with
 running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
-retired [config file](#config-database) were migrated into the cron
-database by the first `serve` starts after that file’s retirement —
-entries won on a name collision, so nothing was duplicated. Current glv
-never reads the file, and a stray `cronJobs` key is inert.
+retired config file were migrated into the cron database by the first
+`serve` starts after that file’s retirement — entries won on a name
+collision, so nothing was duplicated. Current glv never reads the file,
+and a stray `cronJobs` key is inert.
 
 - `schedule` is one of two spellings:
 
