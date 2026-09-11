@@ -1,3 +1,7 @@
+import "../warnings.js";
+// The warning filter above must evaluate before @simplewebauthn/server —
+// its import-time WebCrypto probe is what the filter silences. See
+// ../warnings.ts for the full import-order contract.
 import { createHash, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
