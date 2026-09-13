@@ -1,56 +1,67 @@
 # Guided Live Velocity
 
 A self-hosted web app that **increases your development speed with
-agentic coding**. Guided Live Velocity drives the
-[goose](https://github.com/block/goose) agentic engine from a fast
-browser UI: launch guided coding sessions, watch them stream live, and
-turn raw transcripts into navigable, searchable velocity.
+agentic coding**. Guided Live Velocity (**glv**) drives a coding agent
+from a fast browser UI: launch guided coding sessions, watch them stream
+live, and turn raw transcripts into navigable, searchable velocity.
 
-goose records every session — prompts, model responses, tool calls, and
-reasoning — in an on-disk SQLite database. **Guided Live Velocity** (or
-**glv**) turns that database into a fast, self-hosted web UI: browse
-past sessions, watch live runs stream in real time, kick off fresh runs,
-and even launch goose against a GitHub repository — all without leaving
-the browser.
+Your agent already records every session — prompts, model responses,
+tool calls, and reasoning — on your own disk. glv turns that data into a
+fast, self-hosted web UI: browse past sessions, watch live runs stream
+in real time, kick off fresh runs, and even launch an agent against a
+GitHub repository — all without leaving the browser.
+
+## One core, two agents
+
+glv is one product shipped as two launchers, each driving a different
+agentic engine from a shared core (`src/glv/`):
+
+- **`glv-goose`** drives the [goose](https://github.com/block/goose)
+  engine and reads its sessions from goose’s on-disk SQLite database.
+- **`glv-claude`** drives the `claude` CLI and reads its sessions from
+  the JSONL transcripts claude writes under its `projects` directory.
+
+Both flavors serve the same UI and the same features. Wherever the
+engines differ — data locations, command-line flags, model pinning —
+this README says which flavor a detail applies to.
 
 ## Why
 
-- **Ship faster with agentic coding.** Guided Live Velocity puts the
-  goose agentic engine behind one fast UI, so you spend less time
-  juggling terminals and more time shipping guided, live-streamed
-  sessions.
-- **Make your session history navigable.** goose’s transcripts are rich
+- **Ship faster with agentic coding.** glv puts a coding agent behind
+  one fast UI, so you spend less time juggling terminals and more time
+  shipping guided, live-streamed sessions.
+- **Make your session history navigable.** Agent transcripts are rich
   (markdown, tool calls, thinking blocks, token usage), but they live in
-  a database that is hard to read directly. glv renders them as a clean,
-  searchable web transcript.
-- **Run goose from a UI.** Instead of juggling terminals, start a new
-  `goose run` from a form, queue follow-up prompts, and watch the output
+  on-disk formats that are hard to read directly. glv renders them as a
+  clean, searchable web transcript.
+- **Run your agent from a UI.** Instead of juggling terminals, start a
+  new run from a form, queue follow-up prompts, and watch the output
   stream live — on one machine or many.
-- **Safe to use alongside goose.** Browsing is read-only, and the only
-  writes are viewer-side archive/rename metadata — never to the live
-  session data a running goose session is using.
+- **Safe to use alongside a running agent.** Browsing is read-only, and
+  the only writes are viewer-side archive/rename metadata — never to the
+  live session data a running agent is using.
 - **Private by design.** The viewer is protected by passkey
   authentication and runs entirely on your own machine.
 
 ## Features
 
-- **Session browser.** A sidebar lists every goose session with its
-  name, working directory, provider, token count, and last-updated time.
-  Select one to read the full transcript of prompts and outputs.
+- **Session browser.** A sidebar lists every session with its name,
+  working directory, provider or model, token count, and last-updated
+  time. Select one to read the full transcript of prompts and outputs.
 - **Live streaming.** Start a run in the viewer and its output streams
   in real time via Server-Sent Events. The session appears in the
-  sidebar the moment goose writes it.
-- **New sessions.** A `+` button opens a form to start a fresh goose
-  run. Pick a **working directory** on disk, or point goose at a
-  **GitHub repository** — glv clones the repo (using your existing `gh`
-  auth) and runs goose against it.
+  sidebar the moment the agent writes it.
+- **New sessions.** A `+` button opens a form to start a fresh run. Pick
+  a **working directory** on disk, or point the agent at a **GitHub
+  repository** — glv clones the repo (using your existing `gh` auth) and
+  runs the agent against it.
 - **Queued follow-ups.** While a session is running you can queue
   follow-up prompts that chain together once the current run finishes.
   Runs are governed by a concurrency-limited queue (six by default).
 - **Tail external sessions.** Sessions started from the terminal,
-  desktop, or another CLI are tracked too — glv polls the shared
-  database and streams only the deltas, so you can keep an eye on a run
-  from anywhere.
+  desktop, or another CLI are tracked too — glv watches the agent’s
+  session data and streams only the deltas, so you can keep an eye on a
+  run from anywhere.
 - **PR tracking.** When a session mentions a GitHub pull request, glv
   surfaces a link with a live open / merged / closed status badge (via
   `gh`).
@@ -62,7 +73,7 @@ the browser.
   form and freely editable), so a run can target any directory. Pause,
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
-  Each job can pin the model its runs use (goose).
+  Each job can pin the model its runs use (goose flavor).
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -74,28 +85,32 @@ the browser.
 glv is a single Node.js process built on the [Hono](https://hono.dev)
 web framework:
 
-- **Reads goose’s database directly.** Sessions are read from the goose
-  SQLite database at `~/.local/share/goose/sessions/sessions.db`.
-  Browsing opens the database **read-only** — the only writes are
-  viewer-managed archive and rename metadata, routed through a separate
-  writable connection, and they never touch the rows a running goose
-  session reads, so it is always safe while goose is running.
+- **Reads the agent’s session data directly.** The goose flavor opens
+  goose’s SQLite database at
+  `~/.local/share/goose/sessions/sessions.db`; browsing opens it
+  **read-only** — the only writes are viewer-managed archive and rename
+  metadata, routed through a separate writable connection, and they
+  never touch the rows a running goose session reads, so it is always
+  safe while goose is running. The claude flavor reads claude’s
+  append-only JSONL transcripts under its projects root (by default
+  `~/.claude/projects`) and never writes to claude’s files at all — the
+  same guarantee, so it is always safe while claude is running.
 - **Server-rendered with interactivity.** Pages are rendered server-side
   with `hono/jsx` and updated incrementally with
   [htmx](https://htmx.org) — there is no client-side SPA to build or
   ship. Styling is [Tailwind CSS v4](https://tailwindcss.com).
-- **A runner spawns goose.** When you start or resume a session, glv
-  spawns a `goose run` subprocess, feeds the prompt over stdin, and
-  parses the `stream-json` output. A `p-queue` caps how many goose
+- **A runner spawns the agent.** When you start or resume a session, glv
+  spawns the agent’s run command as a subprocess, feeds the prompt over
+  stdin, and parses its stream output. A `p-queue` caps how many agent
   processes run at once; surplus prompts are queued and chained
   automatically.
 - **Live updates over SSE.** Active runs stream through
   `/sessions/:id/stream`; sessions started elsewhere are followed via
-  `/sessions/:id/tail`, which polls the shared database for new and
+  `/sessions/:id/tail`, which polls the agent’s session data for new and
   edited messages.
-- **Sanitized output.** All model and tool output is rendered as GitHub-
-  Flavored Markdown and sanitized with DOMPurify before it reaches the
-  browser.
+- **Sanitized output.** All model and tool output is rendered as
+  GitHub-Flavored Markdown and sanitized with DOMPurify before it
+  reaches the browser.
 
 ## Setup
 
@@ -108,6 +123,15 @@ your PATH (`~/.local/bin/glv-goose` on macOS/Linux,
 `%USERPROFILE%\.local\bin\glv-goose.cmd` on Windows). `./setup.sh`
 remains as a thin Unix wrapper. Re-running is safe.
 
+The claude flavor ships from the same checkout and needs no separate
+setup — run it with Node directly:
+
+``` bash
+node bin/glv-claude.mjs serve
+```
+
+(or add your own alias or shim if you want `glv-claude` on your PATH).
+
 ### Windows
 
 `node scripts\setup.mjs` does the same on Windows: it installs
@@ -116,8 +140,9 @@ If setup warns that the folder is not on your `PATH`, add it (Settings →
 System → About → Advanced system settings → Environment Variables) and
 open a new terminal; `glv-goose serve` then works from anywhere.
 
-You can also skip the shim and invoke the launcher with Node directly —
-this is exactly what the shim runs:
+You can also skip the shim and invoke a launcher with Node directly —
+this is exactly what the shim runs (`bin\glv-claude.mjs` works the same
+way for the claude flavor):
 
 ``` powershell
 node bin\glv-goose.mjs serve -p 3001
@@ -125,24 +150,30 @@ node bin\glv-goose.mjs serve -p 3001
 
 Windows notes:
 
-- The launcher hands its TypeScript loader to `node --import` as a
+- The launchers hand their TypeScript loader to `node --import` as a
   `file://` URL. A plain `C:\...` path there is rejected by Node’s ESM
-  loader (`ERR_UNSUPPORTED_ESM_URL_SCHEME`), so keep the launcher as the
+  loader (`ERR_UNSUPPORTED_ESM_URL_SCHEME`), so keep a launcher as the
   entry point rather than re-creating the `node --import` chain by hand.
-- glv reads goose’s sessions database from goose’s own platform-default
-  location: `%APPDATA%\Block\goose\data\sessions\sessions.db` on Windows
-  and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point
-  glv at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
-  environment variable.
+- The goose flavor reads goose’s sessions database from goose’s own
+  platform-default location:
+  `%APPDATA%\Block\goose\data\sessions\sessions.db` on Windows and
+  `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point it
+  at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
+  environment variable. The claude flavor reads claude’s transcript
+  directory instead — `CLAUDE_CONFIG_DIR\projects` on Windows
+  (`~/.claude/projects` by default on Linux/macOS), overridable with
+  `--projects-dir <path>`.
 - glv-owned data (the auth database, prompt library, and uploads) lives
-  under `%APPDATA%\glv-goose`. All of it is overridable — see the flags
-  below.
+  under `%APPDATA%\glv-goose` for the goose flavor and
+  `%APPDATA%\glv-claude` for the claude flavor. All of it is overridable
+  — see the flags below.
 
 ### Prerequisites
 
 - **Node.js ≥ 24** and **pnpm ≥ 10**.
-- The **`goose`** binary on your `PATH` (to start new runs from the
-  viewer).
+- The binary of any agent you want to drive from the viewer — the
+  **`goose`** and/or **`claude`** CLI — on your `PATH` (needed to start
+  new runs; browsing past sessions works without it).
 - The **`gh`** CLI, authenticated, to use the GitHub repository source
   and PR status features.
 - **pandoc ≥ 3.10** (only needed for the Markdown lint/format check
@@ -155,7 +186,8 @@ normalized to LF via `.gitattributes`, and pandoc is invoked with
 ## Running the web viewer
 
 ``` bash
-glv-goose serve
+glv-goose serve    # goose flavor
+glv-claude serve   # claude flavor
 ```
 
 Open the printed URL (e.g. <http://localhost:3000>). The first visitor
@@ -165,22 +197,30 @@ Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
 
-- `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
-  driven from the viewer (default `6`).
+- `-c, --max-concurrent <number>` — maximum concurrent agent runs driven
+  from the viewer (default `6`).
 
-- `--goose-binary <path>` — path to the `goose` binary used to run
-  prompts (default `goose` on `PATH`).
+- `--goose-binary <path>` (goose) / `--claude-binary <path>` (claude) —
+  path to the agent binary used to run prompts (default: the agent’s
+  name on `PATH`).
 
-- `--db <path>` — override the goose sessions database location (or
-  `GOOSE_SESSIONS_DB`).
+- `--permission-mode <mode>` (claude) — claude permission mode for
+  glv-launched runs; `inherit` defers to your claude `settings.json`.
+
+- `--db <path>` (goose) — override the goose sessions database location
+  (or `GOOSE_SESSIONS_DB`).
+
+- `--projects-dir <path>` (claude) — override the claude projects
+  (transcripts) directory; defaults from `CLAUDE_CONFIG_DIR`, else
+  `~/.claude/projects`.
 
 - `--auth-db <path>` — override the auth database location (default
   `~/.local/share/glv-goose/auth.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
+  (`%APPDATA%\glv-goose\auth.db` on Windows) for the goose flavor, the
+  same path under `glv-claude` for the claude flavor; or `GLV_AUTH_DB`).
 
 - `--cron-db <path>` — override the scheduled runs database location
-  (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
+  (same per-flavor defaults as the auth database; or `GLV_CRON_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
@@ -206,10 +246,11 @@ accepted), and left empty it means the server’s local time; the section
 lists every job with pause, edit, and delete). The jobs live in the
 **cron database** — a glv-owned SQLite file at
 `~/.local/share/glv-goose/cron.db` on Linux/macOS
-(`%APPDATA%\glv-goose\cron.db` on Windows), alongside the
-job-started-session tags that badge fired runs. Override with
-`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
-running server picks changes up live, no restart needed.
+(`%APPDATA%\glv-goose\cron.db` on Windows; the claude flavor uses the
+same path under `glv-claude`), alongside the job-started-session tags
+that badge fired runs. Override with `--cron-db <path>` or the
+`GLV_CRON_DB` environment variable. The running server picks changes up
+live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
 retired config file were migrated into the cron database by the first
@@ -261,12 +302,12 @@ Phrasings that would fire more often than once a minute are rejected.
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
 
-- `modelProvider`/`model` (goose only, both keys together) pin every
-  fire of the job to that model — the web form’s schedule dialog has its
-  own model picker with the same options as the New Session form; omit
-  both keys to run the agent’s default. The pin is validated when you
-  save, and serve refuses to start when a job pins a model the flavor
-  can’t take (claude) or sets only one of the two keys.
+- `modelProvider`/`model` (goose flavor only, both keys together) pin
+  every fire of the job to that model — the web form’s schedule dialog
+  has its own model picker with the same options as the New Session
+  form; omit both keys to run the agent’s default. The pin is validated
+  when you save, and serve refuses to start when a job pins a model the
+  flavor can’t take (claude) or sets only one of the two keys.
 
 - `name` must be unique (every stored job is named; entries migrated
   from an unnamed config-file slot get `cron-1`, `cron-2`, …);
@@ -302,8 +343,9 @@ back in at any time with a quick passkey tap.
 
 - **Auth database** — passkey credentials and login sessions live in a
   separate SQLite database at `~/.local/share/glv-goose/auth.db` on
-  Linux/macOS (`%APPDATA%\glv-goose\auth.db` on Windows), fully
-  independent of the goose sessions database. Override with
+  Linux/macOS (`%APPDATA%\glv-goose\auth.db` on Windows) for the goose
+  flavor, and the same path under `glv-claude` for the claude flavor —
+  fully independent of the agent’s session data. Override with
   `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once
@@ -389,8 +431,9 @@ normally) and the propagation suites are skipped — see the exclusion
 list in `vitest.config.ts`.
 
 The repository hosts two viewers with parallel structure: `src/goose/`
-(goose sessions) and `src/claude/` (claude sessions). Each is styled
-with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source
+(goose sessions) and `src/claude/` (claude sessions), both on top of the
+shared core in `src/glv/`. Each is styled with [Tailwind CSS
+v4](https://tailwindcss.com): the stylesheet source
 (`src/<app>/styles/app.css`) uses Tailwind’s CSS-first setup —
 `@import "tailwindcss"` plus a `@theme` block of design tokens — and is
 compiled to `dist/<app>/app.css` by `pnpm build:assets` (see
@@ -401,8 +444,8 @@ claude viewer with `glv-claude`.
 
 ## The CLI
 
-Everything above is driven by the `glv-goose` command, which also offers
-a few lightweight terminal commands for quick lookups without opening a
+Everything above is driven by the flavor launchers, which also offer a
+few lightweight terminal commands for quick lookups without opening a
 browser:
 
 ``` bash
@@ -410,3 +453,6 @@ glv-goose sessions      # list recent sessions
 glv-goose view <id>     # show prompts + outputs for a session
 glv-goose logs          # list --no-session runs
 ```
+
+`glv-claude` takes the same `sessions` and `view` commands (`logs` is
+goose-only).
