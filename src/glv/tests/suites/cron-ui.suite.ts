@@ -127,7 +127,9 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("data-schedule-timezone");
       expect(html).toContain('src="/cron/timezones"');
       expect(html).toContain('for="schedule-timezones-list"');
-      expect(html).toContain('fetch-on-empty=""');
+      // Serialized bare by preact-render-to-string (empty-string attributes
+      // lose the `=""` suffix); DOM-identical either way.
+      expect(html).toContain("fetch-on-empty");
       expect(html).toContain('data-autoselect="true"');
       expect(html).toContain('id="schedule-timezones-list"');
       expect(html).toContain('id="schedule-timezones-list-feedback"');

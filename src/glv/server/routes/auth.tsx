@@ -24,6 +24,14 @@ const rpFromRequest = (req: FastifyRequest, ctx: ServerContext): RpConfig => {
   };
 };
 
+// JSON bodies arrive as raw text (see the content-type parser in
+// createApp): parsing here lets each verify route's catch answer a
+// malformed body with its own 400 {verified:false}.
+const jsonBody = (req: FastifyRequest): unknown => {
+  const body = req.body;
+  return typeof body === "string" ? JSON.parse(body) : body;
+};
+
 const finishAuth = (
   reply: FastifyReply,
   auth: AuthService,
@@ -100,7 +108,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     return verifyAndRespond(reply, auth, "Verification failed.", async () =>
       auth.verifyRegistration(
         rpFromRequest(req, ctx),
-        req.body as Parameters<typeof auth.verifyRegistration>[1],
+        jsonBody(req) as Parameters<typeof auth.verifyRegistration>[1],
       ),
     );
   });
@@ -113,7 +121,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     verifyAndRespond(reply, auth, "Login failed.", async () =>
       auth.verifyLogin(
         rpFromRequest(req, ctx),
-        req.body as Parameters<typeof auth.verifyLogin>[1],
+        jsonBody(req) as Parameters<typeof auth.verifyLogin>[1],
       ),
     ),
   );
@@ -182,7 +190,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     return verifyAndRespond(reply, auth, "Enrollment failed.", async () => {
       const result = await auth.verifyEnrollment(
         rpFromRequest(req, ctx),
-        req.body as Parameters<typeof auth.verifyEnrollment>[1],
+        jsonBody(req) as Parameters<typeof auth.verifyEnrollment>[1],
       );
       // Burn the link only after a successful enroll so a cancelled or failed
       // ceremony can be retried with the same link.

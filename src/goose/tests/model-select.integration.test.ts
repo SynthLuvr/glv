@@ -161,7 +161,9 @@ describe("new-session model picker (goose)", () => {
     expect(res.status).toBe(200);
     expect(html).toContain('name="model_provider"');
     expect(html).toContain("goose default — zai / glm-5.3");
-    expect(html).toContain('value="" selected=""');
+    // Serialized bare by preact-render-to-string (empty-string attributes
+    // lose the `=""` suffix); DOM-identical either way.
+    expect(html).toContain("<option value selected>");
     // Static catalogue models, grouped per provider, submitted as pairs.
     expect(html).toContain('<optgroup label="zai">');
     expect(html).toContain('value="zai:glm-5.1"');

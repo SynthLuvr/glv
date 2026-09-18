@@ -72,6 +72,16 @@ const createApp = (
   void app.register(cookie);
   void app.register(formbody);
   void app.register(multipart, { limits: MULTIPART_LIMITS });
+  // JSON bodies pass through as raw text: the auth verify endpoints own
+  // malformed-JSON handling (400 with {verified:false}), which Fastify's
+  // stock parser would preempt with a framework-level parse error.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      done(null, body);
+    },
+  );
 
   // Plain-text 404/500 bodies, matching the responses htmx clients saw
   // from the previous framework layer.
