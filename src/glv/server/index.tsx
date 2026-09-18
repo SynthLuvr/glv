@@ -1,10 +1,14 @@
-import { Hono } from "hono";
+import cookie from "@fastify/cookie";
+import formbody from "@fastify/formbody";
+import multipart from "@fastify/multipart";
+import Fastify, { type FastifyInstance } from "fastify";
 import { authMiddleware } from "../auth/service.js";
 import type { SessionLauncher } from "../launch.js";
 import { type Runner } from "../runner/index.js";
 import type { SessionStore } from "../sessions.js";
 import { buildAssetBundle } from "./bundle.js";
 import { type ServerContext, type ServerOptions } from "./context.js";
+import { sendNotFound } from "./http.js";
 import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -24,7 +28,7 @@ const createApp = (
   launcher: SessionLauncher,
   runner: Runner,
   opts: ServerOptions,
-): Hono => {
+): FastifyInstance => {
   const ctx: ServerContext = {
     sessions,
     launcher,
@@ -50,23 +54,51 @@ const createApp = (
     assets: buildAssetBundle(opts.profile.id),
   };
 
-  const app = new Hono();
-  // Auth gate sits first: every non-public request must carry a valid
-  // session before any other middleware or route runs.
-  if (ctx.auth !== undefined) app.use("*", authMiddleware(ctx.auth));
+  // Uploads ride the body parser: the friendly per-file (50 MB) and
+  // total (100 MB) checks live in saveUploads, so the framework limits
+  // sit above them to let those errors surface instead of a hard 413.
+  const UPLOAD_BODY_LIMIT = 110 * 1024 * 1024;
 
-  registerAssetRoutes(app, ctx);
-  registerAuthRoutes(app, ctx);
-  registerBrowseRoutes(app, ctx);
-  registerSidebarMetaRoutes(app, ctx);
-  registerSessionRoutes(app, ctx);
-  registerGroupRoutes(app, ctx);
-  registerPrRoutes(app, ctx);
-  registerGitRoutes(app, ctx);
-  registerPromptRoutes(app, ctx);
-  registerCronRoutes(app, ctx);
-  registerStreamRoutes(app, ctx);
-  registerEventsRoutes(app, ctx);
+  const app = Fastify({
+    logger: false,
+    bodyLimit: UPLOAD_BODY_LIMIT,
+  });
+
+  app.register(cookie);
+  // urlencoded form bodies (every plain htmx submit).
+  app.register(formbody);
+  // multipart form bodies (file uploads), parts attached to request.body
+  // and normalized by server/forms.ts.
+  app.register(multipart, {
+    attachFieldsToBody: true,
+    limits: {
+      fileSize: UPLOAD_BODY_LIMIT,
+      files: 20,
+      fields: 200,
+    },
+  });
+
+  // Registered inside a scope so the auth gate — an onRequest hook — runs
+  // after @fastify/cookie's root-level parse hook (parent hooks run first)
+  // and before every route handler.
+  app.register(async (scope) => {
+    if (ctx.auth !== undefined)
+      scope.addHook("onRequest", authMiddleware(ctx.auth));
+    scope.setNotFoundHandler((_request, reply) => sendNotFound(reply));
+
+    registerAssetRoutes(scope, ctx);
+    registerAuthRoutes(scope, ctx);
+    registerBrowseRoutes(scope, ctx);
+    registerSidebarMetaRoutes(scope, ctx);
+    registerSessionRoutes(scope, ctx);
+    registerGroupRoutes(scope, ctx);
+    registerPrRoutes(scope, ctx);
+    registerGitRoutes(scope, ctx);
+    registerPromptRoutes(scope, ctx);
+    registerCronRoutes(scope, ctx);
+    registerStreamRoutes(scope, ctx);
+    registerEventsRoutes(scope, ctx);
+  });
 
   return app;
 };

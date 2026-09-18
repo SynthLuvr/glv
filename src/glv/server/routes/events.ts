@@ -1,4 +1,4 @@
-import { type Hono } from "hono";
+import type { FastifyInstance } from "fastify";
 import { feedEventData } from "../../sse-events.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
@@ -14,9 +14,12 @@ const sidebarNames = (ctx: ServerContext): Map<string, string> =>
 // Streams status deltas for all active runs — not just the one the detail
 // pane watches — to drive the sidebar's running indicators and live session
 // names.
-const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
-  app.get("/events/status", (c) =>
-    streamSse(c, async (stream) => {
+const registerEventsRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
+  app.get("/events/status", (_request, reply) =>
+    streamSse(reply, async (stream) => {
       let last = activeStatuses(ctx.runner);
       // The agent renames a session mid-run, so track names to push updates.
       let lastNames = sidebarNames(ctx);

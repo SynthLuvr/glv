@@ -1,9 +1,4 @@
-import { type Context } from "hono";
-import {
-  type SSEMessage,
-  type SSEStreamingApi,
-  streamSSE,
-} from "hono/streaming";
+import type { FastifyReply } from "fastify";
 import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
@@ -16,52 +11,120 @@ import {
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
-// The registry hono build lacks the SSE lifecycle fixes this project used to
-// consume from a fork (honojs/hono#5289): exposing the reconnect cursor and
-// making writes after a client disconnect cheap no-ops. streamSse vendors
-// both, so the routes keep fork semantics on the stock package.
+// Fastify has no first-class SSE helper, so the response is hijacked and
+// the wire format written by hand. The lifecycle contract this project
+// relied on (the reconnect cursor, and writes after a client disconnect
+// becoming cheap no-ops — the semantics the dropped hono fork carried) is
+// preserved: lastEventId exposes the Last-Event-ID header, and writeSSE
+// checks the abort flag before every write.
+type SseMessage = {
+  event: SessionEventName | FeedEventName;
+  data: string;
+  id?: string;
+};
+
 type SseStream = {
-  /** The `Last-Event-ID` header an EventSource sends on reconnect;
+  /**
+   * The `Last-Event-ID` header an EventSource sends on reconnect;
    * undefined on a first connect.
    */
   readonly lastEventId: string | undefined;
   readonly aborted: boolean;
   sleep: (ms: number) => Promise<unknown>;
-  writeSSE: (message: SSEMessage) => Promise<void>;
+  writeSSE: (message: SseMessage) => Promise<void>;
 };
 
-const wrapSse = (
-  api: SSEStreamingApi,
-  lastEventId: string | undefined,
-): SseStream => ({
-  lastEventId,
-  get aborted() {
-    return api.aborted;
-  },
-  sleep: (ms) => api.sleep(ms),
-  writeSSE: async (message) => {
-    // After the client disconnects the writable is torn down; depending on
-    // the runtime, writing to it throws or hangs. Checking aborted first
-    // keeps emissions no-ops, exactly as the fork did.
-    if (api.aborted) return;
-    await api.writeSSE(message);
-  },
-});
+// The exact frame serialization hono's streamSSE used: event, then
+// multi-line-safe data, then id — separated by newlines, terminated by a
+// blank line.
+const serialize = (message: SseMessage): string => {
+  const data = message.data
+    .split("\n")
+    .map((line) => `data: ${line}`)
+    .join("\n");
+  return (
+    [
+      message.event !== undefined ? `event: ${message.event}` : false,
+      data,
+      message.id !== undefined && message.id !== ""
+        ? `id: ${message.id}`
+        : false,
+    ]
+      .filter((part) => typeof part === "string")
+      .join("\n") + "\n\n"
+  );
+};
 
-// streamSSE with the vendored lifecycle fixes applied (see SseStream).
 const streamSse = (
-  c: Context,
+  reply: FastifyReply,
   run: (stream: SseStream) => Promise<void>,
-): Response => {
-  const lastEventId = c.req.header("Last-Event-ID");
-  return streamSSE(c, async (api) => {
-    await run(wrapSse(api, lastEventId));
+): FastifyReply => {
+  reply.hijack();
+  const raw = reply.raw;
+  const request = reply.request;
+  let aborted = false;
+  // The incoming request emits close when the client disconnects; after
+  // the loop ends normally it fires again harmlessly.
+  request.raw.on("close", () => {
+    aborted = true;
   });
+
+  // Honors backpressure: resolves on drain when the kernel buffer is full.
+  const write = (chunk: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (raw.writableEnded || raw.destroyed) {
+        aborted = true;
+        resolve();
+        return;
+      }
+      const flushed = raw.write(chunk, (err) => {
+        if (err !== null && err !== undefined) reject(err);
+      });
+      if (flushed) resolve();
+      else raw.once("drain", () => resolve());
+    });
+
+  const header = (name: string): string | undefined => {
+    const value = request.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  const stream: SseStream = {
+    get lastEventId() {
+      return header("last-event-id");
+    },
+    get aborted() {
+      return aborted;
+    },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    writeSSE: async (message) => {
+      if (aborted || raw.writableEnded) return;
+      await write(serialize(message));
+    },
+  };
+
+  raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  // The response ends when the run completes (tests bound the poll count)
+  // or fails; errors surface on stderr instead of killing the process.
+  void run(stream)
+    .catch((err: unknown) => {
+      console.error("sse stream failed:", err);
+    })
+    .finally(() => {
+      aborted = true;
+      if (!raw.writableEnded) raw.end();
+    });
+  return reply;
 };
 
 // The optional `id` sets the SSE event id so EventSource can resume via
 // Last-Event-ID on transient reconnect. writeSSE is a no-op after the client
-// disconnects (wrapSse), so emissions need no abort guarding.
+// disconnects, so emissions need no abort guarding.
 const emit = (
   stream: SseStream,
   event: SessionEventName | FeedEventName,

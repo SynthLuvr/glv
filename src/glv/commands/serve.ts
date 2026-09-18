@@ -1,5 +1,4 @@
 import type { Socket } from "node:net";
-import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
@@ -172,16 +171,20 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
+  app.listen({ port: opts.port, host: "::" }, (err, address) => {
+    if (err !== null) {
+      console.error(err);
+      process.exit(1);
+    }
     console.log(
-      `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
+      `glv-${opts.profile.id} web viewer → ${address.replace("[::]", "localhost")}`,
     );
     // Enumerating the model catalogue can spawn the agent binary, which
     // takes seconds; warm it now so the first New Session render is instant.
     // Best-effort only: a failure degrades the picker, never the server.
     void opts.models?.choices();
   });
-  const destroyConnections = trackConnections(server);
+  const destroyConnections = trackConnections(app.server);
 
   const closeDbs = (): void => {
     opts.closeStore();
@@ -199,7 +202,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   });
 
   const shutdown = createShutdown({
-    server,
+    server: app,
     destroyConnections,
     stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),

@@ -1,6 +1,5 @@
-import { type Context } from "hono";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { type Child, Fragment, type PropsWithChildren } from "hono/jsx";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type CronJobConfig, listCronJobs } from "../cron-jobs.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
@@ -18,7 +17,7 @@ import {
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
-import { isHtmxRequest } from "./http.js";
+import { isHtmxRequest, sendHtml } from "./http.js";
 import { activeSessionIds } from "./status.js";
 
 // Folds the session list and the viewer-owned group memberships into a
@@ -120,7 +119,8 @@ const Shell = ({
 // selection survives. Mutations additionally refresh the sidebar
 // out-of-band.
 const render = (
-  c: Context,
+  request: FastifyRequest,
+  reply: FastifyReply,
   ctx: ServerContext,
   sessions: SessionRow[],
   selectedId: string | undefined,
@@ -131,48 +131,56 @@ const render = (
     title = "GLV",
   }: {
     refreshSidebar?: boolean;
-    status?: ContentfulStatusCode;
+    status?: number;
     title?: string;
   } = {},
-) => {
+): FastifyReply => {
   const entries = sidebarEntries(ctx, sessions);
   const runningIds = activeSessionIds(ctx.runner);
   const showLogout = ctx.auth !== undefined;
-  return isHtmxRequest(c)
-    ? c.html(
-        <Fragment>
-          {detail}
-          {refreshSidebar && (
-            <SessionList
-              entries={entries}
-              selectedId={undefined}
-              runningIds={runningIds}
-              oob
-              count={sessions.length}
-            />
-          )}
-        </Fragment>,
-        status,
-      )
-    : c.html(
-        <Shell
-          agentName={ctx.profile.agentName}
-          sessions={sessions}
-          entries={entries}
-          selectedId={selectedId}
-          runningIds={runningIds}
-          logout={showLogout}
-          title={title}
-        >
-          {detail}
-        </Shell>,
-        status,
-      );
+  if (isHtmxRequest(request))
+    return sendHtml(
+      reply,
+      <Fragment>
+        {detail}
+        {refreshSidebar && (
+          <SessionList
+            entries={entries}
+            selectedId={undefined}
+            runningIds={runningIds}
+            oob
+            count={sessions.length}
+          />
+        )}
+      </Fragment>,
+      status,
+    );
+  return sendHtml(
+    reply,
+    <Shell
+      agentName={ctx.profile.agentName}
+      sessions={sessions}
+      entries={entries}
+      selectedId={selectedId}
+      runningIds={runningIds}
+      logout={showLogout}
+      title={title}
+    >
+      {detail}
+    </Shell>,
+    status,
+  );
 };
 
-const renderNotFound = (c: Context, ctx: ServerContext, id: string) =>
+const renderNotFound = (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  ctx: ServerContext,
+  id: string,
+): FastifyReply =>
   render(
-    c,
+    request,
+    reply,
     ctx,
     ctx.sessions.listSessions(VIEWER_FILTER),
     undefined,

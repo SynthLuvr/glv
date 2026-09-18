@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { type Context, type Hono } from "hono";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Fragment } from "hono/jsx";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
@@ -23,7 +22,8 @@ import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
 import { ServerContext, VIEWER_FILTER } from "../context.js";
-import { extractIds, isHtmxRequest } from "../http.js";
+import { parseForm } from "../forms.js";
+import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
 import { expandHome } from "../paths.js";
 import {
   modelPicker,
@@ -46,7 +46,7 @@ import {
   uploadErrorMessage,
 } from "../uploads.js";
 
-// parseBody({ all: true }) returns an array per field; take the first string.
+// parseForm yields an array per repeated field; take the first string.
 const firstString = (val: unknown): string => {
   if (Array.isArray(val))
     return typeof val[0] === "string" ? val[0].trim() : "";
@@ -62,7 +62,10 @@ const firstString = (val: unknown): string => {
 const canonicalWorkingDir = (raw: string): string =>
   raw === "" ? raw : resolve(raw);
 
-const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerSessionRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
   // The saved-prompt library powers the follow-up bar picker; empty when the
   // prompts store is disabled so the picker shows its "no prompts" message.
@@ -75,12 +78,20 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // Shared archive/delete landing: the New Session form in #detail-pane,
   // with the URL kept in step so a refresh doesn't hit the removed
   // session (404).
-  const newSessionLanding = (c: Context) => {
-    c.header("HX-Push-Url", "/sessions/new");
-    return render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx), {
-      refreshSidebar: true,
-      title: NEW_SESSION_TITLE,
-    });
+  const newSessionLanding = (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header("HX-Push-Url", "/sessions/new");
+    return render(
+      request,
+      reply,
+      ctx,
+      sessionsAll(),
+      undefined,
+      newSessionDetail(ctx),
+      {
+        refreshSidebar: true,
+        title: NEW_SESSION_TITLE,
+      },
+    );
   };
 
   // The sidebar-list fragment returned by the rename and archive routes;
@@ -98,7 +109,8 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // Renders a full <Transcript> (messages + run handle) inside the standard
   // page shell.
   const renderSession = (
-    c: Context,
+    request: FastifyRequest,
+    reply: FastifyReply,
     id: string,
     session: SessionRow,
     {
@@ -112,12 +124,13 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
       includeRun?: boolean;
       uploadError?: string;
     } = {},
-  ) => {
+  ): FastifyReply => {
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
     const cronJob =
       ctx.cronDb !== undefined ? jobNameFor(ctx.cronDb, id) : undefined;
     return render(
-      c,
+      request,
+      reply,
       ctx,
       sessionsAll(),
       id,
@@ -135,16 +148,24 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   };
 
-  app.get("/", (c) =>
-    render(c, ctx, sessionsAll(), undefined, newSessionDetail(ctx)),
+  app.get("/", (request, reply) =>
+    render(
+      request,
+      reply,
+      ctx,
+      sessionsAll(),
+      undefined,
+      newSessionDetail(ctx),
+    ),
   );
 
   // Registered before the /sessions/:id wildcard so "new" and "model-picker"
   // read as literal segments rather than session ids.
-  app.get("/sessions/new", (c) => {
-    const workingDir = c.req.query("working_dir") || undefined;
+  app.get("/sessions/new", (request, reply) => {
+    const workingDir = queryValue(request, "working_dir") || undefined;
     return render(
-      c,
+      request,
+      reply,
       ctx,
       sessionsAll(),
       undefined,
@@ -157,9 +178,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
   // spawn the agent binary, so the form renders instantly and swaps this in
   // once it lands. A no-picker result still swaps a hidden placeholder —
   // htmx skips empty response bodies, which would strand the loading slot.
-  app.get("/sessions/model-picker", async (c) => {
-    const picker = await modelPicker(ctx, c.req.query("submitted"));
-    return c.html(
+  app.get("/sessions/model-picker", async (request, reply) => {
+    const picker = await modelPicker(ctx, queryValue(request, "submitted"));
+    return sendHtml(
+      reply,
       picker === undefined ? (
         <span class="model-picker-empty" hidden />
       ) : (
@@ -168,9 +190,9 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.post("/sessions", async (c) => {
+  app.post("/sessions", async (request, reply) => {
     const sessions = sessionsAll();
-    const body = await c.req.parseBody({ all: true });
+    const body = await parseForm(request);
     const fieldString = (key: string): string => firstString(body[key]);
 
     const prompt = fieldString("prompt");
@@ -186,12 +208,10 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
     // Every rejection re-renders the form with the submitted prompt and
     // schedule values restored — scheduling is an alternate submit, and
     // nothing typed may be lost either way.
-    const rejectForm = async (
-      error: string,
-      status: ContentfulStatusCode,
-    ): Promise<Response> =>
+    const rejectForm = (error: string, status: number): FastifyReply =>
       render(
-        c,
+        request,
+        reply,
         ctx,
         sessions,
         undefined,
@@ -303,165 +323,191 @@ const registerSessionRoutes = (app: Hono, ctx: ServerContext): void => {
 
     // The transcript swaps into #detail-pane; push the new session's URL
     // so the address bar (and a refresh) match what is on screen.
-    c.header("HX-Push-Url", `/sessions/${sessionId}`);
-    return renderSession(c, sessionId, session, {
+    reply.header("HX-Push-Url", `/sessions/${sessionId}`);
+    return renderSession(request, reply, sessionId, session, {
       prompt,
       refreshSidebar: true,
     });
   });
 
-  app.get("/sessions/:id", (c) => {
-    const id = c.req.param("id");
+  app.get<{ Params: { id: string } }>("/sessions/:id", (request, reply) => {
+    const id = request.params.id;
     const session = ctx.sessions.getSession(id);
-    if (session === undefined) return renderNotFound(c, ctx, id);
+    if (session === undefined) return renderNotFound(request, reply, ctx, id);
     // ?sidebar=1 (set by the stream's done handler) requests an out-of-band
     // sidebar refresh so a freshly renamed session no longer shows the stale
     // "CLI session" placeholder.
-    return renderSession(c, id, session, {
-      refreshSidebar: c.req.query("sidebar") === "1",
+    return renderSession(request, reply, id, session, {
+      refreshSidebar: queryValue(request, "sidebar") === "1",
     });
   });
 
   // Targeted prompt-bar fragment swap (status transition only). Lets the
   // client swap just the form — not the whole transcript — when a run ends.
-  app.get("/sessions/:id/prompt-bar", (c) => {
-    const id = c.req.param("id");
-    const session = ctx.sessions.getSession(id);
-    if (session === undefined) return renderNotFound(c, ctx, id);
-    const run = getHandle(ctx.runner, id);
-    const tool =
-      run?.status === "running"
-        ? pendingTool(ctx.sessions.listMessages(id).map(parseMessage))
-        : undefined;
-    return c.html(
-      <PromptBar
-        agentName={ctx.profile.agentName}
-        sessionId={id}
-        run={run}
-        prompts={libraryPrompts()}
-        workingDir={session.working_dir}
-        pendingTool={tool}
-      />,
-    );
-  });
+  app.get<{ Params: { id: string } }>(
+    "/sessions/:id/prompt-bar",
+    (request, reply) => {
+      const id = request.params.id;
+      const session = ctx.sessions.getSession(id);
+      if (session === undefined) return renderNotFound(request, reply, ctx, id);
+      const run = getHandle(ctx.runner, id);
+      const tool =
+        run?.status === "running"
+          ? pendingTool(ctx.sessions.listMessages(id).map(parseMessage))
+          : undefined;
+      return sendHtml(
+        reply,
+        <PromptBar
+          agentName={ctx.profile.agentName}
+          sessionId={id}
+          run={run}
+          prompts={libraryPrompts()}
+          workingDir={session.working_dir}
+          pendingTool={tool}
+        />,
+      );
+    },
+  );
 
-  app.post("/sessions/:id/archive", (c) => {
-    const id = c.req.param("id");
-    // Stop an in-flight run first: sweeping the temp working dir out from
-    // under a live agent (or deleting uploads its prompt references) leaves
-    // the run writing into deleted directories.
-    stop(ctx.runner, id);
-    ctx.sessions.archiveSessions([id]);
-    deleteUploads(ctx.profile.dataDirName, id);
-    deleteTempDir(ctx.profile.dataDirName, id);
-    return newSessionLanding(c);
-  });
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/archive",
+    (request, reply) => {
+      const id = request.params.id;
+      // Stop an in-flight run first: sweeping the temp working dir out from
+      // under a live agent (or deleting uploads its prompt references) leaves
+      // the run writing into deleted directories.
+      stop(ctx.runner, id);
+      ctx.sessions.archiveSessions([id]);
+      deleteUploads(ctx.profile.dataDirName, id);
+      deleteTempDir(ctx.profile.dataDirName, id);
+      return newSessionLanding(request, reply);
+    },
+  );
 
   // Archive only hides a session; delete destroys every record of it — the
   // flavor's own store, glv's group and cron sidecars, the run's uploads
   // and temp dir. Unknown ids 404 rather than "succeeding" invisibly.
-  app.post("/sessions/:id/delete", (c) => {
-    const id = c.req.param("id");
-    if (ctx.sessions.getSession(id) === undefined)
-      return renderNotFound(c, ctx, id);
-    stop(ctx.runner, id);
-    ctx.sessions.deleteSessions([id]);
-    if (ctx.groups !== undefined) removeMember(ctx.groups, id);
-    if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
-    deleteUploads(ctx.profile.dataDirName, id);
-    deleteTempDir(ctx.profile.dataDirName, id);
-    return newSessionLanding(c);
-  });
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/delete",
+    (request, reply) => {
+      const id = request.params.id;
+      if (ctx.sessions.getSession(id) === undefined)
+        return renderNotFound(request, reply, ctx, id);
+      stop(ctx.runner, id);
+      ctx.sessions.deleteSessions([id]);
+      if (ctx.groups !== undefined) removeMember(ctx.groups, id);
+      if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
+      deleteUploads(ctx.profile.dataDirName, id);
+      deleteTempDir(ctx.profile.dataDirName, id);
+      return newSessionLanding(request, reply);
+    },
+  );
 
-  app.post("/sessions/:id/rename", async (c) => {
-    const id = c.req.param("id");
-    const body = await c.req.parseBody();
-    const name = typeof body.name === "string" ? body.name : "";
-    const from = body.from === "sidebar" ? "sidebar" : "header";
-    ctx.sessions.renameSession(id, name);
-    const updated = ctx.sessions.getSession(id);
-    if (updated === undefined) return renderNotFound(c, ctx, id);
-    const sessions = sessionsAll();
-    if (from === "sidebar") return c.html(sessionList(sessions));
-    if (!isHtmxRequest(c)) return renderSession(c, id, updated);
-    return c.html(
-      <Fragment>
-        <SessionTitleWrap session={updated} />
-        {sessionList(sessions, true)}
-      </Fragment>,
-    );
-  });
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/rename",
+    async (request, reply) => {
+      const id = request.params.id;
+      const body = await parseForm(request);
+      const name = typeof body.name === "string" ? body.name : "";
+      const from = body.from === "sidebar" ? "sidebar" : "header";
+      ctx.sessions.renameSession(id, name);
+      const updated = ctx.sessions.getSession(id);
+      if (updated === undefined) return renderNotFound(request, reply, ctx, id);
+      const sessions = sessionsAll();
+      if (from === "sidebar") return sendHtml(reply, sessionList(sessions));
+      if (!isHtmxRequest(request))
+        return renderSession(request, reply, id, updated);
+      return sendHtml(
+        reply,
+        <Fragment>
+          <SessionTitleWrap session={updated} />
+          {sessionList(sessions, true)}
+        </Fragment>,
+      );
+    },
+  );
 
-  app.post("/sessions/archive", async (c) => {
-    const body = await c.req.parseBody({ all: true });
+  app.post("/sessions/archive", async (request, reply) => {
+    const body = await parseForm(request);
     ctx.sessions.archiveSessions(extractIds(body.id));
-    return c.html(sessionList(sessionsAll()));
+    return sendHtml(reply, sessionList(sessionsAll()));
   });
 
   // Prompt runner endpoints
 
-  app.post("/sessions/:id/prompt", async (c) => {
-    const id = c.req.param("id");
-    const session = ctx.sessions.getSession(id);
-    if (session === undefined) return renderNotFound(c, ctx, id);
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/prompt",
+    async (request, reply) => {
+      const id = request.params.id;
+      const session = ctx.sessions.getSession(id);
+      if (session === undefined) return renderNotFound(request, reply, ctx, id);
 
-    const body = await c.req.parseBody({ all: true });
-    const prompt = firstString(body.prompt);
-    const files = collectFiles(body.uploads);
+      const body = await parseForm(request);
+      const prompt = firstString(body.prompt);
+      const files = collectFiles(body.uploads);
 
-    // Session id is known, so tag the upload dir immediately for cleanup.
-    let fullPrompt = prompt;
-    let uploadError: string | undefined;
-    if (files.length > 0)
-      try {
-        const saved = await saveUploads(files, ctx.profile.dataDirName);
-        fullPrompt = prompt + buildUploadContext(saved.paths);
-        tagDir(saved.dir, id);
-      } catch (err) {
-        uploadError = uploadErrorMessage(err);
+      // Session id is known, so tag the upload dir immediately for cleanup.
+      let fullPrompt = prompt;
+      let uploadError: string | undefined;
+      if (files.length > 0)
+        try {
+          const saved = await saveUploads(files, ctx.profile.dataDirName);
+          fullPrompt = prompt + buildUploadContext(saved.paths);
+          tagDir(saved.dir, id);
+        } catch (err) {
+          uploadError = uploadErrorMessage(err);
+        }
+
+      // Render the submitted prompt only when it started right away; queued
+      // prompts surface as QueuedPrompt cards via the handle, so passing the
+      // text here too would double-display it. Skip enqueuing entirely when an
+      // upload failed so the user can retry.
+      let activePrompt: string | undefined;
+      if (prompt !== "" && uploadError === undefined) {
+        const { queued } = enqueueOrQueue(
+          ctx.runner,
+          id,
+          fullPrompt,
+          session.working_dir,
+        );
+        if (!queued) activePrompt = prompt;
       }
 
-    // Render the submitted prompt only when it started right away; queued
-    // prompts surface as QueuedPrompt cards via the handle, so passing the
-    // text here too would double-display it. Skip enqueuing entirely when an
-    // upload failed so the user can retry.
-    let activePrompt: string | undefined;
-    if (prompt !== "" && uploadError === undefined) {
-      const { queued } = enqueueOrQueue(
-        ctx.runner,
-        id,
-        fullPrompt,
-        session.working_dir,
-      );
-      if (!queued) activePrompt = prompt;
-    }
+      const run = getHandle(ctx.runner, id);
+      activePrompt ??= activeRunPrompt(run);
 
-    const run = getHandle(ctx.runner, id);
-    activePrompt ??= activeRunPrompt(run);
+      return renderSession(request, reply, id, session, {
+        prompt: activePrompt,
+        uploadError,
+      });
+    },
+  );
 
-    return renderSession(c, id, session, {
-      prompt: activePrompt,
-      uploadError,
-    });
-  });
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/queue/cancel",
+    (request, reply) => {
+      const id = request.params.id;
+      const session = ctx.sessions.getSession(id);
+      if (session === undefined) return renderNotFound(request, reply, ctx, id);
 
-  app.post("/sessions/:id/queue/cancel", (c) => {
-    const id = c.req.param("id");
-    const session = ctx.sessions.getSession(id);
-    if (session === undefined) return renderNotFound(c, ctx, id);
+      clearPending(ctx.runner, id);
+      const run = getHandle(ctx.runner, id);
+      return renderSession(request, reply, id, session, {
+        prompt: activeRunPrompt(run),
+      });
+    },
+  );
 
-    clearPending(ctx.runner, id);
-    const run = getHandle(ctx.runner, id);
-    return renderSession(c, id, session, { prompt: activeRunPrompt(run) });
-  });
-
-  app.post("/sessions/:id/stop", (c) => {
-    const id = c.req.param("id");
-    stop(ctx.runner, id);
-    const session = ctx.sessions.getSession(id);
-    if (session === undefined) return renderNotFound(c, ctx, id);
-    return renderSession(c, id, session, { includeRun: false });
-  });
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/stop",
+    (request, reply) => {
+      const id = request.params.id;
+      stop(ctx.runner, id);
+      const session = ctx.sessions.getSession(id);
+      if (session === undefined) return renderNotFound(request, reply, ctx, id);
+      return renderSession(request, reply, id, session, { includeRun: false });
+    },
+  );
 };
 
 export { registerSessionRoutes };
