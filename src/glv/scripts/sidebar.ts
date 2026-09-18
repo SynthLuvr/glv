@@ -1,4 +1,12 @@
-import { onSessionListSwap, parseJson } from "./shared";
+import {
+  type FeedRenamePayload,
+  type FeedStatusPayload,
+  onFeedEvent,
+  parsePayload,
+  StringListPayload,
+} from "../sse-events.js";
+import { getHtmx } from "./htmx.js";
+import { onSessionListSwap } from "./shared";
 
 const getChecks = (): HTMLInputElement[] => [
   ...document.querySelectorAll<HTMLInputElement>(".session-check"),
@@ -128,28 +136,12 @@ const setSessionName = (sessionId: string, name: string): void => {
   if (node !== null) node.textContent = name === "" ? "(unnamed)" : name;
 };
 
-type HtmxAjax = {
-  ajax: (
-    verb: string,
-    path: string,
-    options: { target: string; swap: string },
-  ) => void;
-};
-
-// htmx is read off the global rather than redeclared so this classic
-// <script> stays self-contained.
-const isHtmxAjax = (value: unknown): value is HtmxAjax =>
-  typeof value === "object" &&
-  value !== null &&
-  "ajax" in value &&
-  typeof value.ajax === "function";
-
 // A completing run may have resolved a PR badge that was withheld while
 // running; re-fetch the session's meta to reveal it.
 const refreshMeta = (sessionId: string): void => {
   if (findSessionItem(sessionId) === null) return;
-  const { htmx } = globalThis as { htmx?: unknown };
-  if (!isHtmxAjax(htmx)) return;
+  const htmx = getHtmx();
+  if (htmx === undefined) return;
   htmx.ajax("GET", `/sessions/${sessionId}/sidebar-meta`, {
     target: "#session-list",
     swap: "none",
@@ -158,13 +150,8 @@ const refreshMeta = (sessionId: string): void => {
 
 // On (re)connect the server emits a full snapshot of active session ids.
 // Reconcile every card to correct indicators that drifted during a disconnect.
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === "string");
-
-const applySync = (data: string): void => {
-  const parsed = parseJson(data);
-  if (!isStringArray(parsed)) return;
-  const active = new Set(parsed);
+const applySync = (activeIds: string[]): void => {
+  const active = new Set(activeIds);
   for (const item of document.querySelectorAll<HTMLElement>(
     ".session-item[data-session-id]",
   )) {
@@ -188,8 +175,9 @@ const unreadStorage = (): Storage | null => {
 const loadUnread = (): string[] => {
   const storage = unreadStorage();
   if (storage === null) return [];
-  const parsed = parseJson(storage.getItem(UNREAD_KEY) ?? "");
-  return isStringArray(parsed) ? parsed : [];
+  return (
+    parsePayload(StringListPayload, storage.getItem(UNREAD_KEY) ?? "") ?? []
+  );
 };
 
 const unread = new Set<string>(loadUnread());
@@ -237,42 +225,18 @@ const applyUnread = (): void => {
   }
 };
 
-type StatusPayload = { sessionId: string; status: string };
-
-const isStatusPayload = (value: unknown): value is StatusPayload =>
-  typeof value === "object" &&
-  value !== null &&
-  "sessionId" in value &&
-  typeof value.sessionId === "string" &&
-  "status" in value &&
-  typeof value.status === "string";
-
-const onStatusEvent = (data: string): void => {
-  const parsed = parseJson(data);
-  if (!isStatusPayload(parsed)) return;
-  const running = parsed.status !== "done";
-  setStatusIndicator(parsed.sessionId, running);
+const onStatusEvent = (payload: FeedStatusPayload): void => {
+  const running = payload.status !== "done";
+  setStatusIndicator(payload.sessionId, running);
   if (running) return;
-  refreshMeta(parsed.sessionId);
-  if (openSessionId() === parsed.sessionId) return;
-  markUnread(parsed.sessionId);
-  findSessionItem(parsed.sessionId)?.classList.add("unread");
+  refreshMeta(payload.sessionId);
+  if (openSessionId() === payload.sessionId) return;
+  markUnread(payload.sessionId);
+  findSessionItem(payload.sessionId)?.classList.add("unread");
 };
 
-type RenamePayload = { sessionId: string; name: string };
-
-const isRenamePayload = (value: unknown): value is RenamePayload =>
-  typeof value === "object" &&
-  value !== null &&
-  "sessionId" in value &&
-  typeof value.sessionId === "string" &&
-  "name" in value &&
-  typeof value.name === "string";
-
-const onRenameEvent = (data: string): void => {
-  const parsed = parseJson(data);
-  if (!isRenamePayload(parsed)) return;
-  setSessionName(parsed.sessionId, parsed.name);
+const onRenameEvent = (payload: FeedRenamePayload): void => {
+  setSessionName(payload.sessionId, payload.name);
 };
 
 const STATUS_RECONNECT_BASE_MS = 1000;
@@ -302,18 +266,9 @@ const connectStatusFeed = (): void => {
   statusSource.addEventListener("open", () => {
     reconnectDelay = STATUS_RECONNECT_BASE_MS;
   });
-  statusSource.addEventListener("sync", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    applySync(e.data);
-  });
-  statusSource.addEventListener("status", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    onStatusEvent(e.data);
-  });
-  statusSource.addEventListener("rename", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    onRenameEvent(e.data);
-  });
+  onFeedEvent(statusSource, "sync", applySync);
+  onFeedEvent(statusSource, "status", onStatusEvent);
+  onFeedEvent(statusSource, "rename", onRenameEvent);
   // The poll loop emits "done" when it exhausts; close the EventSource and
   // reconnect with backoff instead of spinning into a reconnect storm.
   statusSource.addEventListener("done", () => {

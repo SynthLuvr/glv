@@ -1,5 +1,6 @@
 import "@github/auto-complete-element";
 import { MAX_CRON_STEPS, parseSchedule } from "../schedule.js";
+import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
 // Live validation for the typed schedule (with its optional timezone
 // override). The form's Schedule Run button stays disabled until the
@@ -94,29 +95,6 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("DOMContentLoaded", validateAll);
 
-// The htmx surface this file needs beyond attribute wiring: a direct
-// preview request after a combobox pick (below). groups.ts drives its
-// swaps the same way.
-type HtmxApi = {
-  ajax: (
-    verb: string,
-    path: string,
-    options: {
-      target: Element;
-      swap: string;
-      values: Record<string, string>;
-    },
-  ) => void;
-};
-
-const globalHtmx = (): HtmxApi | undefined => {
-  const { htmx } = globalThis as { htmx?: unknown };
-  if (typeof htmx !== "object" || htmx === null) return undefined;
-  return "ajax" in htmx && typeof htmx.ajax === "function"
-    ? (htmx as HtmxApi)
-    : undefined;
-};
-
 // A combobox pick lands in the input programmatically — no input event
 // fires, so the schedule's live verdict and the Next-runs preview would
 // both sit stale until the next keystroke. Re-validate directly and
@@ -130,7 +108,7 @@ document.addEventListener("auto-complete-change", (e) => {
   if (!(input instanceof HTMLInputElement) || !input.matches(TIMEZONE_FIELD))
     return;
   syncFormSchedule(input);
-  const api = globalHtmx();
+  const api = getHtmx();
   const body = input
     .closest("[data-schedule-options]")
     ?.querySelector(".next-runs-body");
@@ -236,13 +214,9 @@ document.addEventListener("click", (e) => {
 });
 
 const afterSwap = (e: Event): void => {
-  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
-    .detail?.target;
-  if (target === null || target === undefined) return;
-  if (
-    target.id === "detail-pane" ||
-    target.querySelector?.(SYNC_INPUT) !== null
-  )
+  const target = htmxSwapTarget(e);
+  if (target === null) return;
+  if (target.id === "detail-pane" || target.querySelector(SYNC_INPUT) !== null)
     validateAll();
   syncAllStepButtons();
 };

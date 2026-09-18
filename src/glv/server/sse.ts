@@ -3,6 +3,12 @@ import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
 import type { SessionRow } from "../sessions.js";
+import {
+  type FeedEventName,
+  type SessionEventName,
+  sessionEventData,
+  type ToolEventPayload,
+} from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
 // The optional `id` sets the SSE event id so EventSource can resume via
@@ -10,7 +16,7 @@ import { renderStreamLine } from "../views/stream-line.js";
 // disconnects, so emissions need no abort guarding.
 const emit = (
   stream: SSEStreamingApi,
-  event: string,
+  event: SessionEventName | FeedEventName,
   data: string,
   id?: number,
 ): Promise<void> => stream.writeSSE({ event, data, id: id?.toString() });
@@ -32,6 +38,14 @@ const flushPreview = async (
   return nextSeq;
 };
 
+// pendingTool writes an explicit `timeoutSec: undefined` when no timeout
+// applies; a spread would copy it into the nested tool object, where
+// jsonSafe cannot strip it and the contract rejects it.
+const toolEvent = (tool: ToolRun): ToolEventPayload =>
+  tool.timeoutSec === undefined
+    ? { name: tool.name, count: tool.count, startMs: tool.startMs }
+    : { ...tool };
+
 // Status payloads carry the run's bookkeeping plus, while a run is running,
 // the tool call it is currently waiting on (from the persisted request row)
 // — null when the newest row is not an unanswered request.
@@ -44,7 +58,7 @@ const emitStatus = (
   emit(
     stream,
     "status",
-    JSON.stringify({
+    sessionEventData("status", {
       status: handle.status,
       queuePosition: handle.queuePosition,
       pendingCount: handle.pendingPrompts.length,
@@ -52,7 +66,7 @@ const emitStatus = (
       error: handle.error ?? null,
       tool:
         handle.status === "running" && tool !== undefined
-          ? { ...tool, timeoutSec: tool.timeoutSec ?? null }
+          ? toolEvent(tool)
           : null,
     }),
     id,
@@ -66,7 +80,7 @@ const emitMeta = (
   emit(
     stream,
     "meta",
-    JSON.stringify({
+    sessionEventData("meta", {
       updated: fmtRelative(session.updated_at),
       updatedTitle: session.updated_at,
     }),

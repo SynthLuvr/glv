@@ -1,3 +1,5 @@
+import { getHtmx } from "./htmx.js";
+
 const closestWrap = (el: Element | null): Element | null =>
   el?.closest(".rename-wrap") ?? null;
 
@@ -30,23 +32,11 @@ const editActions: Record<string, (wrap: Element) => void> = {
   "cancel-rename": exitEdit,
 };
 
-type Htmx = { trigger: (...args: unknown[]) => void };
-
-const isHtmx = (value: unknown): value is Htmx =>
-  typeof value === "object" &&
-  value !== null &&
-  "trigger" in value &&
-  typeof value.trigger === "function";
-
 // The form has no action, so requestSubmit() can fall back to a native POST to
 // the current URL (a 404); trigger htmx directly so the rename stays in place.
 const submitRename = (form: HTMLFormElement | null): void => {
   if (form === null) return;
-  const g: unknown = globalThis;
-  const htmx =
-    typeof g === "object" && g !== null && "htmx" in g && isHtmx(g.htmx)
-      ? g.htmx
-      : undefined;
+  const htmx = getHtmx();
   if (htmx !== undefined) {
     htmx.trigger(form, "submit");
     return;
@@ -97,5 +87,3 @@ document.addEventListener("focusout", (e) => {
   }
   submitRename(input.form);
 });
-
-export {};

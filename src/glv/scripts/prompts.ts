@@ -3,32 +3,15 @@ import {
   substitutePlaceholders,
   today,
 } from "../prompts/template.js";
+import { getHtmx, htmxRequestDetail } from "./htmx.js";
 import { fillPromptInput } from "./shared.js";
 
 (() => {
-  // Scoped inside this IIFE so it never collides with the global `htmx`
-  // ambient declaration (stream.ts) or the top-level helpers in sibling
-  // scripts (rename.ts).
-  type Htmx = { trigger: (...args: unknown[]) => void };
-
-  const isHtmx = (value: unknown): value is Htmx =>
-    typeof value === "object" &&
-    value !== null &&
-    "trigger" in value &&
-    typeof value.trigger === "function";
-
-  const globalHtmx = (): Htmx | undefined => {
-    const g: unknown = globalThis;
-    return typeof g === "object" && g !== null && "htmx" in g && isHtmx(g.htmx)
-      ? g.htmx
-      : undefined;
-  };
-
   // The new-session form has no native action we can reuse, so trigger htmx
   // directly (mirrors rename.ts) with a requestSubmit fallback.
   const submitSessionForm = (form: HTMLFormElement | null): void => {
     if (form === null) return;
-    const api = globalHtmx();
+    const api = getHtmx();
     if (api !== undefined) {
       api.trigger(form, "submit");
       return;
@@ -327,14 +310,9 @@ import { fillPromptInput } from "./shared.js";
     if (titleField !== null) titleField.focus();
   };
 
-  type Detail = {
-    requestConfig?: { path?: string };
-    successful?: boolean;
-  };
-
   const onAfterRequest = (e: Event): void => {
-    const detail = (e as CustomEvent).detail as Detail | undefined;
-    if (detail?.requestConfig?.path !== "/prompts/new") return;
+    const detail = htmxRequestDetail(e);
+    if (detail.requestConfig?.path !== "/prompts/new") return;
     if (detail.successful) fillSaveBody();
   };
 

@@ -1,5 +1,6 @@
 import { type Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { feedEventData } from "../../sse-events.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { emit } from "../sse.js";
@@ -26,10 +27,14 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
         names: Iterable<[string, string]>,
       ): Promise<void> => {
         for (const [id, name] of names)
-          await emit(stream, "rename", JSON.stringify({ sessionId: id, name }));
+          await emit(
+            stream,
+            "rename",
+            feedEventData("rename", { sessionId: id, name }),
+          );
       };
 
-      await emit(stream, "sync", JSON.stringify([...last.keys()]));
+      await emit(stream, "sync", feedEventData("sync", [...last.keys()]));
       await emitNames(lastNames);
 
       while (!stream.aborted && polls < ctx.maxStatusPolls) {
@@ -42,7 +47,7 @@ const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
           await emit(
             stream,
             "status",
-            JSON.stringify({ sessionId: id, status }),
+            feedEventData("status", { sessionId: id, status }),
           );
         last = now;
 
