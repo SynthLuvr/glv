@@ -1,4 +1,9 @@
-import type { SSEStreamingApi } from "hono/streaming";
+import { type Context } from "hono";
+import {
+  type SSEMessage,
+  type SSEStreamingApi,
+  streamSSE,
+} from "hono/streaming";
 import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
@@ -11,11 +16,54 @@ import {
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
+// The registry hono build lacks the SSE lifecycle fixes this project used to
+// consume from a fork (honojs/hono#5289): exposing the reconnect cursor and
+// making writes after a client disconnect cheap no-ops. streamSse vendors
+// both, so the routes keep fork semantics on the stock package.
+type SseStream = {
+  /** The `Last-Event-ID` header an EventSource sends on reconnect;
+   * undefined on a first connect.
+   */
+  readonly lastEventId: string | undefined;
+  readonly aborted: boolean;
+  sleep: (ms: number) => Promise<unknown>;
+  writeSSE: (message: SSEMessage) => Promise<void>;
+};
+
+const wrapSse = (
+  api: SSEStreamingApi,
+  lastEventId: string | undefined,
+): SseStream => ({
+  lastEventId,
+  get aborted() {
+    return api.aborted;
+  },
+  sleep: (ms) => api.sleep(ms),
+  writeSSE: async (message) => {
+    // After the client disconnects the writable is torn down; depending on
+    // the runtime, writing to it throws or hangs. Checking aborted first
+    // keeps emissions no-ops, exactly as the fork did.
+    if (api.aborted) return;
+    await api.writeSSE(message);
+  },
+});
+
+// streamSSE with the vendored lifecycle fixes applied (see SseStream).
+const streamSse = (
+  c: Context,
+  run: (stream: SseStream) => Promise<void>,
+): Response => {
+  const lastEventId = c.req.header("Last-Event-ID");
+  return streamSSE(c, async (api) => {
+    await run(wrapSse(api, lastEventId));
+  });
+};
+
 // The optional `id` sets the SSE event id so EventSource can resume via
 // Last-Event-ID on transient reconnect. writeSSE is a no-op after the client
-// disconnects, so emissions need no abort guarding.
+// disconnects (wrapSse), so emissions need no abort guarding.
 const emit = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   event: SessionEventName | FeedEventName,
   data: string,
   id?: number,
@@ -24,7 +72,7 @@ const emit = (
 // drain snapshots before any await, so concurrent pushes can't mutate the
 // emitted lines. Returns the next sequence number to resume from.
 const flushPreview = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   buffer: LineBuffer,
   fromSeq: number,
   envelope: StreamEnvelope,
@@ -50,7 +98,7 @@ const toolEvent = (tool: ToolRun): ToolEventPayload =>
 // the tool call it is currently waiting on (from the persisted request row)
 // — null when the newest row is not an unanswered request.
 const emitStatus = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   handle: RunHandle,
   tool: ToolRun | undefined,
   id?: number,
@@ -73,7 +121,7 @@ const emitStatus = (
   );
 
 const emitMeta = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   session: SessionRow,
   id?: number,
 ): Promise<void> =>
@@ -87,4 +135,5 @@ const emitMeta = (
     id,
   );
 
-export { emit, emitMeta, emitStatus, flushPreview };
+export type { SseStream };
+export { emit, emitMeta, emitStatus, flushPreview, streamSse };

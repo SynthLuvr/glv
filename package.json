@@ -50,7 +50,7 @@
   "dependencies": {
     "@breejs/later": "^4.2.0",
     "@github/auto-complete-element": "^3.8.0",
-    "@hono/node-server": "github:SynthLuvr/node-server#dist/open-prs",
+    "@hono/node-server": "^2.1.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.1",
     "arktype": "^2.2.3",
@@ -60,7 +60,7 @@
     "cronstrue": "^3.25.0",
     "dompurify": "^3.4.15",
     "execa": "^10.0.1",
-    "hono": "github:SynthLuvr/hono#dist/fix/sse-lifecycle-4.13.7",
+    "hono": "^4.13.8",
     "htmx.org": "2.0.10",
     "humanize-duration": "^3.34.1",
     "jsdom": "^30.0.1",

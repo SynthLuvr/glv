@@ -190,6 +190,100 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  // The local sendFile is vendored from the @hono/node-server fork this
+  // branch dropped; these pin its wire behavior: ranges, conditionals, and
+  // HEAD metadata.
+  describe("browse: file delivery — ranges and conditionals", () => {
+    it("serves a bounded byte range as 206 with Content-Range", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { Range: "bytes=0-4" },
+      });
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 0-4/12");
+      expect(res.headers.get("content-length")).toBe("5");
+      expect(await res.text()).toBe("hello");
+    });
+
+    it("serves a suffix range from the file's tail", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { Range: "bytes=-5" },
+      });
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 7-11/12");
+      expect(await res.text()).toBe("orld\n");
+    });
+
+    it("serves an open-ended range to EOF", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { Range: "bytes=6-" },
+      });
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 6-11/12");
+      expect(await res.text()).toBe("world\n");
+    });
+
+    it("rejects an unsatisfiable range with 416 and the total size", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { Range: "bytes=100-200" },
+      });
+      expect(res.status).toBe(416);
+      expect(res.headers.get("content-range")).toBe("bytes */12");
+    });
+
+    it("serves the whole file when the Range header is malformed", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { Range: "bytes=abc" },
+      });
+      // As serveStatic always did: an unparseable range degrades to an
+      // open-ended range from zero — the whole file, still as 206.
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 0-11/12");
+      expect(await res.text()).toBe("hello world\n");
+    });
+
+    it("answers HEAD with metadata and no body", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        method: "HEAD",
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-length")).toBe("12");
+      expect(res.headers.get("last-modified")).toBeTruthy();
+      expect(await res.text()).toBe("");
+    });
+
+    it("returns 304 for an unmodified If-Modified-Since", async () => {
+      const full = await authedFetch(env, "/files/Documents/notes.txt");
+      const lastModified = full.headers.get("last-modified");
+      expect(lastModified).toBeTruthy();
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { "If-Modified-Since": lastModified ?? "" },
+      });
+      expect(res.status).toBe(304);
+      // A 304 carries no representation metadata (RFC 9110 §15.4.5).
+      expect(res.headers.get("content-type")).toBe(null);
+      expect(await res.text()).toBe("");
+    });
+
+    it("serves the file when If-Modified-Since predates it", async () => {
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: { "If-Modified-Since": "Mon, 01 Jan 1990 00:00:00 GMT" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("hello world\n");
+    });
+
+    it("ignores If-Modified-Since when If-None-Match is present", async () => {
+      const full = await authedFetch(env, "/files/Documents/notes.txt");
+      const res = await authedFetch(env, "/files/Documents/notes.txt", {
+        headers: {
+          "If-Modified-Since": full.headers.get("last-modified") ?? "",
+          "If-None-Match": '"etag"',
+        },
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
   describe("browse: security — dotfile exclusion", () => {
     it("refuses to list a dotfile directory", async () => {
       const res = await authedFetch(env, "/browse/.ssh");
