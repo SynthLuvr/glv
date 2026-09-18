@@ -1,6 +1,7 @@
+import { type } from "arktype";
 import type { ParsedMessage } from "./format/index.js";
 import { thinkingText, toolResultInfo } from "./format/index.js";
-import { AnyJson, parseJson } from "./parse.js";
+import { AnyJson, JsonObject, parseJson } from "./parse.js";
 
 // Only full `github.com/owner/repo/pull/N` URLs count — shorthand `#N`
 // collides with issues and changelog noise.
@@ -37,8 +38,10 @@ const prUrlInString = (text: string): string | undefined =>
 // whereas `url` is an API endpoint (and may point at `/issues/` for a PR).
 const findPrUrlInValue = (value: unknown): string | undefined => {
   if (typeof value === "string") return prUrlInString(value);
-  if (value === null || typeof value !== "object") return undefined;
-  const record = value as Record<string, unknown>;
+  // Any JSON object (arrays included) walks the same way; a miss on the
+  // record schema is just a value with nothing to walk.
+  const record = JsonObject(value);
+  if (record instanceof type.errors) return undefined;
   const htmlUrl = record.html_url;
   if (typeof htmlUrl === "string") {
     const found = prUrlInString(htmlUrl);

@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
+import { type } from "arktype";
 import { execa } from "execa";
-import { isRecord } from "../glv/parse.js";
+import { isRecord, parseJson } from "../glv/parse.js";
 
 // goose exposes its provider/model catalogue over ACP (the same protocol
 // `goose acp` serves to editors) as unstable extensions:
@@ -22,10 +23,15 @@ type CatalogModel = {
 /** provider id → models, for the configured providers only. */
 type ProviderCatalog = ReadonlyMap<string, readonly CatalogModel[]>;
 
-type AcpReply = {
-  readonly result?: unknown;
-  readonly error?: { readonly code: number; readonly message: string };
-};
+// One JSON-RPC reply over the ACP wire: id routes it to its pending
+// request; result and error are mutually exclusive by convention but
+// both optional here. Undeclared keys (jsonrpc) pass through untouched.
+const AcpReply = type({
+  "id?": "unknown",
+  "result?": "unknown",
+  "error?": { code: "number", message: "string" },
+});
+type AcpReply = typeof AcpReply.infer;
 
 const INIT_TIMEOUT_MS = 10_000;
 const LIST_TIMEOUT_MS = 15_000;
@@ -73,13 +79,13 @@ const startAcp = (binary: string) => {
     proc.stdin?.write(`${JSON.stringify(message)}\n`);
   };
   const onLine = (line: string): void => {
-    let msg: { id?: unknown };
-    try {
-      msg = JSON.parse(line) as { id?: unknown };
-    } catch {
-      return;
-    }
-    if (typeof msg.id === "number") pending.get(msg.id)?.(msg as AcpReply);
+    // A reply that misses the schema (like a non-JSON log line) is
+    // dropped: the pending request resolves through its timeout instead.
+    const parsed = parseJson(line, AcpReply);
+    if (!parsed.ok) return;
+    const reply = parsed.data;
+    if (typeof reply.id !== "number") return;
+    pending.get(reply.id)?.(reply);
   };
   if (proc.stdout !== undefined)
     createInterface({ input: proc.stdout }).on("line", onLine);

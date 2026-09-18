@@ -64,12 +64,12 @@ const jobNamesFor = (
   const result = new Map<string, string>();
   if (sessionIds.length === 0) return result;
   const placeholders = sessionIds.map(() => "?").join(", ");
-  const rows = db
+  const rows: unknown[] = db
     .prepare(
       `SELECT session_id, job_name FROM cron_sessions ` +
         `WHERE session_id IN (${placeholders})`,
     )
-    .all(...sessionIds) as unknown[];
+    .all(...sessionIds);
   for (const row of rows) {
     const valid = validate(row);
     if (valid !== undefined) result.set(valid.session_id, valid.job_name);

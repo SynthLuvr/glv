@@ -54,12 +54,11 @@ const findJob = (
 ): CronJobConfig | undefined => jobs.find((job) => job.name === name);
 
 // First string value of a form field, trimmed (parseBody with all:true
-// yields arrays for repeated fields).
+// yields arrays for repeated fields, File for uploads).
 const trimmedField = (body: Record<string, unknown>, key: string): string => {
   const value = body[key];
-  if (Array.isArray(value))
-    return typeof value[0] === "string" ? value[0].trim() : "";
-  return typeof value === "string" ? value.trim() : "";
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return typeof candidate === "string" ? candidate.trim() : "";
 };
 
 // Every string value of a (repeated) form field, verbatim and in submit
@@ -171,10 +170,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
   // untouched — the row is written and the confirmation lands in the
   // slot, with the grid and count refreshing out of band.
   app.post("/cron", async (c) => {
-    const body = (await c.req.parseBody({ all: true })) as Record<
-      string,
-      unknown
-    >;
+    const body: Record<string, unknown> = await c.req.parseBody({
+      all: true,
+    });
     const jobName = trimmedField(body, "job_name");
     const schedule = trimmedField(body, "schedule");
     const prompt = trimmedField(body, "prompt");
@@ -274,10 +272,9 @@ const registerCronRoutes = (app: Hono, ctx: ServerContext): void => {
     const { jobs } = readJobsOr(ctx);
     const existing = findJob(jobs, currentName);
     if (existing === undefined) return c.notFound();
-    const body = (await c.req.parseBody({ all: true })) as Record<
-      string,
-      unknown
-    >;
+    const body: Record<string, unknown> = await c.req.parseBody({
+      all: true,
+    });
 
     const name = trimmedField(body, "job_name");
     const schedule = trimmedField(body, "schedule");

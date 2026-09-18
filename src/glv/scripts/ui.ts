@@ -1,4 +1,4 @@
-import { getHtmx } from "./htmx.js";
+import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
 const UI_TITLE_SUFFIX = " \u2014 GLV";
 const UI_HOME_TITLE = "GLV";
@@ -192,7 +192,8 @@ const uiInitPaneToggle = (): void => {
     "detail";
   uiApplyPane(current);
   bar.addEventListener("click", (e) => {
-    const btn = (e.target as Element | null)?.closest(".mobile-pane-btn");
+    if (!(e.target instanceof Element)) return;
+    const btn = e.target.closest(".mobile-pane-btn");
     if (!(btn instanceof HTMLElement)) return;
     const pane = btn.dataset.pane;
     if (pane !== undefined) uiApplyPane(pane);
@@ -319,9 +320,7 @@ document.addEventListener("DOMContentLoaded", uiInit);
 // mobile pane switch is deliberately NOT done here: a swap that lands after
 // the user clicked "Sessions" would bounce them back to the detail pane.
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
-    .detail?.target;
-  if (target?.id !== "detail-pane") return;
+  if (htmxSwapTarget(e)?.id !== "detail-pane") return;
   uiSyncTitle();
   uiAutogrowAll();
   uiFocusAutofocus();

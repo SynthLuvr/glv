@@ -1,4 +1,4 @@
-import { type distill, type Type, type } from "arktype";
+import { type Type, type } from "arktype";
 
 // The SSE wire contract, shared by the server (validated emit) and the
 // browser bundle (validated parse) so the two ends cannot drift apart
@@ -116,11 +116,11 @@ type FeedEventPayload<E extends FeedEventName> =
 
 // Parses one SSE data field against a schema; undefined when the payload
 // is malformed, so a drifted or truncated frame is dropped rather than
-// trusted with a cast.
-const parsePayload = <t>(
-  schema: Type<t>,
+// trusted.
+const parsePayload = <S extends Type<unknown>>(
+  schema: S,
   raw: string,
-): distill.Out<t> | undefined => {
+): S["infer"] | undefined => {
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -128,50 +128,99 @@ const parsePayload = <t>(
     return undefined;
   }
   const out = schema(data);
-  return out instanceof type.errors ? undefined : (out as distill.Out<t>);
+  return out instanceof type.errors ? undefined : out;
 };
 
-// Subscribes one event from a registry: JSON payloads are parsed and
-// validated against the contract — a frame that fails the schema never
-// reaches the handler — while text events arrive as-is.
-const onContractEvent = <P>(
+// Subscribes one JSON event off a registry: the frame is parsed and
+// validated against the event's schema — a frame that fails the schema
+// never reaches the handler.
+const onRegistryEvent = <
+  R extends Record<string, Type<unknown>>,
+  E extends keyof R & string,
+>(
   source: EventSource,
-  registry: Record<string, Type<unknown>>,
-  event: string,
-  handler: (payload: P) => void,
+  registry: R,
+  event: E,
+  handler: (payload: R[E]["infer"]) => void,
 ): void => {
   source.addEventListener(event, (e) => {
     if (!(e instanceof MessageEvent)) return;
-    const schema = registry[event];
-    if (schema === undefined) {
-      handler(e.data as P);
-      return;
-    }
-    const parsed = parsePayload(schema, e.data) as P | undefined;
-    if (parsed !== undefined) handler(parsed);
+    const payload = parsePayload(registry[event], e.data);
+    if (payload !== undefined) handler(payload);
   });
 };
 
-const onSessionEvent = <E extends SessionEventName>(
+// Fragment events travel as raw HTML text; a frame that is not a string
+// is dropped rather than handed to the handler.
+const onTextEvent = (
+  source: EventSource,
+  event: string,
+  handler: (payload: string) => void,
+): void => {
+  source.addEventListener(event, (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    const text = type.string(e.data);
+    if (!(text instanceof type.errors)) handler(text);
+  });
+};
+
+// Widened views of the text-event tuples so includes() accepts any event
+// name without a cast.
+const SESSION_TEXT_EVENT_NAMES: readonly string[] = SESSION_TEXT_EVENTS;
+const FEED_TEXT_EVENT_NAMES: readonly string[] = FEED_TEXT_EVENTS;
+
+const isSessionTextEvent = (
+  event: SessionEventName,
+): event is (typeof SESSION_TEXT_EVENTS)[number] =>
+  SESSION_TEXT_EVENT_NAMES.includes(event);
+
+const isFeedTextEvent = (
+  event: FeedEventName,
+): event is (typeof FEED_TEXT_EVENTS)[number] =>
+  FEED_TEXT_EVENT_NAMES.includes(event);
+
+// Subscribes one event off the registries: JSON events resolve their
+// schema by name — the same table the server emits through — while
+// fragment events arrive as validated text.
+function onSessionEvent<E extends SessionEventName>(
   source: EventSource,
   event: E,
   handler: (payload: SessionEventPayload<E>) => void,
-): void => onContractEvent(source, SESSION_JSON_EVENTS, event, handler);
+): void;
+function onSessionEvent(
+  source: EventSource,
+  event: SessionEventName,
+  handler: (payload: SessionEventPayload<SessionEventName>) => void,
+): void {
+  if (isSessionTextEvent(event)) onTextEvent(source, event, handler);
+  else onRegistryEvent(source, SESSION_JSON_EVENTS, event, handler);
+}
 
-const onFeedEvent = <E extends FeedEventName>(
+function onFeedEvent<E extends FeedEventName>(
   source: EventSource,
   event: E,
   handler: (payload: FeedEventPayload<E>) => void,
-): void => onContractEvent(source, FEED_JSON_EVENTS, event, handler);
+): void;
+function onFeedEvent(
+  source: EventSource,
+  event: FeedEventName,
+  handler: (payload: FeedEventPayload<FeedEventName>) => void,
+): void {
+  if (isFeedTextEvent(event)) onTextEvent(source, event, handler);
+  else onRegistryEvent(source, FEED_JSON_EVENTS, event, handler);
+}
 
 // ---- serialize (server) ----
 
 // Drops keys whose value is undefined before validation — JSON.stringify
 // ignores them on the wire, but arktype treats an explicit undefined as
 // a violation of an optional key. Arrays must pass through untouched, or
-// Object.entries would crush them into an object.
-const jsonSafe = (payload: object): object => {
+// Object.entries would crush them into an object. A non-object payload
+// is a programming error and throws.
+const jsonSafe = (payload: unknown): object => {
   if (Array.isArray(payload)) return payload;
+  if (typeof payload !== "object" || payload === null)
+    throw new Error("SSE payload must be an object");
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload))
     if (value !== undefined) out[key] = value;
@@ -184,7 +233,7 @@ const jsonSafe = (payload: object): object => {
 const serializeJsonEvent = (
   schema: Type<unknown>,
   event: string,
-  payload: object,
+  payload: unknown,
 ): string => {
   const out = schema(jsonSafe(payload));
   if (out instanceof type.errors)
@@ -204,7 +253,7 @@ const registryEventData = <
   registry: R,
   event: E,
   payload: R[E]["infer"],
-): string => serializeJsonEvent(registry[event], event, payload as object);
+): string => serializeJsonEvent(registry[event], event, payload);
 
 const sessionEventData = <E extends keyof typeof SESSION_JSON_EVENTS>(
   event: E,

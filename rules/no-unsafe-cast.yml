@@ -1,0 +1,18 @@
+id: no-unsafe-cast
+language: ts
+severity: error
+message: >
+  Unsafe cast via `as`: a type assertion makes a runtime claim nothing
+  checked. Validate the value instead — an ArkType schema at data
+  boundaries, a typeof/instanceof narrowing elsewhere. `as const` is
+  allowed (compile-time literal tightening, no runtime claim).
+rule:
+  kind: as_expression
+  not:
+    pattern: $X as const
+files:
+  - "src/**"
+  - "scripts/**"
+ignores:
+  - "**/tests/**"
+  - "**/*.test.ts"

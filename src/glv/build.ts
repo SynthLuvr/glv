@@ -10,6 +10,7 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type } from "arktype";
 import { buildSync } from "esbuild";
 import { execaSync } from "execa";
 
@@ -99,13 +100,16 @@ const manifestPath = (outputDir: string): string =>
   join(outputDir, "build-manifest.json");
 
 // The fingerprint recorded at the last successful build; undefined when
-// the manifest is missing or corrupt, which forces a rebuild.
+// the manifest is missing, corrupt, or off-contract — any of which
+// forces a rebuild.
+const BuildManifest = type({ "fingerprint?": "unknown" });
+
 const recordedFingerprint = (outputDir: string): unknown => {
   try {
-    const manifest = JSON.parse(
-      readFileSync(manifestPath(outputDir), "utf-8"),
-    ) as { fingerprint?: unknown } | null;
-    return manifest?.fingerprint;
+    const manifest = BuildManifest(
+      JSON.parse(readFileSync(manifestPath(outputDir), "utf-8")),
+    );
+    return manifest instanceof type.errors ? undefined : manifest.fingerprint;
   } catch {
     return undefined;
   }

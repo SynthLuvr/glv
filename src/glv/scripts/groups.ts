@@ -1,29 +1,12 @@
+import { getHtmx } from "./htmx.js";
 import { onSessionListSwap } from "./shared";
-
-type HtmxGroupsAjax = {
-  ajax: (
-    verb: string,
-    path: string,
-    options: {
-      target: string;
-      swap: string;
-      values?: Record<string, string>;
-    },
-  ) => void;
-};
-
-const isHtmxGroupsAjax = (value: unknown): value is HtmxGroupsAjax =>
-  typeof value === "object" &&
-  value !== null &&
-  "ajax" in value &&
-  typeof value.ajax === "function";
 
 const postGroupAction = (
   path: string,
   values: Record<string, string>,
 ): void => {
-  const { htmx } = globalThis as { htmx?: unknown };
-  if (!isHtmxGroupsAjax(htmx)) return;
+  const htmx = getHtmx();
+  if (htmx === undefined) return;
   htmx.ajax("POST", path, {
     target: "#session-list",
     swap: "outerHTML",
@@ -66,7 +49,11 @@ const cleanupDrag = (): void => {
 
 // On touch the finger hides the source, so a clone tracks the pointer.
 const createGhost = (source: HTMLElement): HTMLElement => {
-  const ghost = source.cloneNode(true) as HTMLElement;
+  const ghost = source.cloneNode(true);
+  // cloneNode is typed as Node; an HTMLElement always clones to one, so
+  // re-prove it here rather than cast on faith.
+  if (!(ghost instanceof HTMLElement))
+    throw new Error("drag ghost clone is not an HTMLElement");
   ghost.classList.remove("dragging");
   ghost.classList.add("drag-ghost");
   ghost.style.width = `${source.getBoundingClientRect().width}px`;
@@ -143,12 +130,13 @@ document.addEventListener("pointerdown", (e) => {
   if (handle === null) return;
   const item = handle.closest(".session-item");
   if (item === null) return;
+  if (!(item instanceof HTMLElement)) return;
   const id = item.getAttribute("data-session-id");
   if (id === null) return;
   suppressClick = true;
   activeDrag = {
     sourceId: id,
-    sourceEl: item as HTMLElement,
+    sourceEl: item,
     pointerId: e.pointerId,
     startX: e.clientX,
     startY: e.clientY,

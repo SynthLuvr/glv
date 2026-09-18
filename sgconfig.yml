@@ -8,3 +8,4 @@
 # `.ts` and `.tsx` files.
 ruleDirs:
   - node_modules/ts-canon/rules
+  - rules

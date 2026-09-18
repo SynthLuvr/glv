@@ -18,6 +18,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type } from "arktype";
 import { runPnpm } from "./run-pnpm.mts";
 
 const TREES = new Set(["goose", "claude", "glv"]);
@@ -26,13 +27,18 @@ const TREES = new Set(["goose", "claude", "glv"]);
 const FORMAT_LIST = ["typescript", "tsx", "css", "markdown"];
 const FORMATS = FORMAT_LIST.join(",");
 
-type Clone = {
-  firstFile: { name: string };
-  secondFile: { name: string };
-  lines: number;
-};
+// The slice of jscpd's JSON report this check reads; a report missing
+// these fields is a broken tool run, not an empty result, and fails
+// loudly through the schema.
+const Clone = type({
+  firstFile: { name: "string" },
+  secondFile: { name: "string" },
+  lines: "number",
+});
 
-type Report = { duplicates: Clone[] };
+const JscpdReport = type({ duplicates: Clone.array() });
+
+type Report = typeof JscpdReport.infer;
 
 // Report names are relative to the scan root (src/), e.g. "goose/db.ts",
 // and may carry a ":format" suffix (e.g. "goose/system-prompt.md:markdown").
@@ -81,7 +87,10 @@ const runJscpd = (outDir: string): Report => {
       `jscpd produced no report (status ${result.status}):\n` +
         `${result.stdout}${result.stderr}`,
     );
-  return JSON.parse(readFileSync(reportPath, "utf8")) as Report;
+  const parsed = JscpdReport(JSON.parse(readFileSync(reportPath, "utf8")));
+  if (parsed instanceof type.errors)
+    throw new Error(`jscpd report failed schema validation: ${parsed.summary}`);
+  return parsed;
 };
 
 const checkCrossTree = (): void => {
