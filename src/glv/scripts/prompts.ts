@@ -66,7 +66,8 @@ import { fillPromptInput } from "./shared.js";
     new Promise((resolve) => {
       // dialog.remove() never returns focus; capture the trigger first so it
       // can be restored on close for keyboard users.
-      const trigger = document.activeElement as HTMLElement | null;
+      const active = document.activeElement;
+      const trigger = active instanceof HTMLElement ? active : null;
       const dialog = document.createElement("dialog");
       dialog.className = "prompt-var-modal";
       const form = document.createElement("form");

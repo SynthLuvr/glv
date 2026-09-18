@@ -1,4 +1,4 @@
-import "@github/auto-complete-element";
+import { AutoCompleteEvent } from "@github/auto-complete-element";
 import { MAX_CRON_STEPS, parseSchedule } from "../schedule.js";
 import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
@@ -103,8 +103,11 @@ document.addEventListener("DOMContentLoaded", validateAll);
 // target's value didn't move, and one fired on the field would make
 // the combobox re-open its popup for the just-picked zone.)
 document.addEventListener("auto-complete-change", (e) => {
-  const input = (e as Event & { relatedTarget?: EventTarget | null })
-    .relatedTarget;
+  // The combobox dispatches its own event subclass carrying the field as
+  // relatedTarget; instanceof both narrows the event and re-proves the
+  // element type at runtime.
+  if (!(e instanceof AutoCompleteEvent)) return;
+  const input = e.relatedTarget;
   if (!(input instanceof HTMLInputElement) || !input.matches(TIMEZONE_FIELD))
     return;
   syncFormSchedule(input);
@@ -160,7 +163,12 @@ const STEP_BLOCK_HTML = `
 const newStepBlock = (): HTMLElement => {
   const template = document.createElement("template");
   template.innerHTML = STEP_BLOCK_HTML;
-  return template.content.firstElementChild as HTMLElement;
+  const block = template.content.firstElementChild;
+  // STEP_BLOCK_HTML is a constant whose root is a <div>; a miss here is
+  // a programming error in that constant, not a runtime possibility.
+  if (!(block instanceof HTMLElement))
+    throw new Error("step block template did not yield an element");
+  return block;
 };
 
 // The add button reflects the cap: disabled (with the reason as its

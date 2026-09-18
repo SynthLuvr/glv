@@ -72,11 +72,10 @@ const parseMessage = (row: MessageRow): ParsedMessage => ({
 
 // Runtime guard over raw (unvalidated) tool-result content, so the same
 // text-extraction strategy serves both validated items and raw arrays.
+const TextItem = type({ type: "'text'", text: "string" });
+
 const isTextItem = (item: unknown): item is { text: string } =>
-  item !== null &&
-  typeof item === "object" &&
-  (item as { type?: unknown }).type === "text" &&
-  typeof (item as { text?: unknown }).text === "string";
+  !(TextItem(item) instanceof type.errors);
 
 const extractTexts = (items: readonly unknown[]): string[] =>
   items.flatMap((item) => (isTextItem(item) ? [item.text] : []));

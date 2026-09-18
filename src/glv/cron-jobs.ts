@@ -58,13 +58,27 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 );
 `;
 
+// The names of the columns an existing cron_jobs table carries.
+// PRAGMA output rows carry more fields (cid, type, …), all ignored; a
+// row without a string name means the store is broken, and failing the
+// migration loudly beats silently skipping it.
+const PragmaColumn = type({ name: "string" });
+
+const tableColumns = (db: DatabaseSync, table: string): string[] => {
+  const out = PragmaColumn.array()(
+    db.prepare(`PRAGMA table_info(${table})`).all(),
+  );
+  if (out instanceof type.errors)
+    throw new Error(
+      `PRAGMA table_info(${table}) returned unexpected rows: ${out.summary}`,
+    );
+  return out.map((column) => column.name);
+};
+
 // Databases created before chained sessions existed have no follow_ups
 // column; add it in place. The PRAGMA probe makes this idempotent.
 const ensureFollowUpsColumn = (db: DatabaseSync): void => {
-  const columns = db.prepare("PRAGMA table_info(cron_jobs)").all() as {
-    name: string;
-  }[];
-  if (!columns.some((column) => column.name === "follow_ups"))
+  if (!tableColumns(db, "cron_jobs").includes("follow_ups"))
     db.exec("ALTER TABLE cron_jobs ADD COLUMN follow_ups TEXT");
 };
 
@@ -77,10 +91,7 @@ const ensureFollowUpsColumn = (db: DatabaseSync): void => {
 // an old one, and is not seeded retroactively behind its creator's
 // back.
 const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
-  const columns = db.prepare("PRAGMA table_info(cron_jobs)").all() as {
-    name: string;
-  }[];
-  if (columns.some((column) => column.name === "last_fired_at")) return;
+  if (tableColumns(db, "cron_jobs").includes("last_fired_at")) return;
   db.exec("ALTER TABLE cron_jobs ADD COLUMN last_fired_at TEXT");
   db.prepare(
     "UPDATE cron_jobs SET last_fired_at = ? WHERE last_fired_at IS NULL",

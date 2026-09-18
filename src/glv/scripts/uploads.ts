@@ -1,3 +1,5 @@
+import { htmxSwapTarget } from "./htmx.js";
+
 const UPLOADS_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — mirrors server limit
 
 const formatFileSize = (bytes: number): string => {
@@ -257,8 +259,7 @@ document.addEventListener("DOMContentLoaded", initUploadForms);
 // Capture which session's prompt bar is about to be swapped so the fresh
 // node can inherit the staged chips (see wireForm).
 document.body.addEventListener("htmx:beforeSwap", (e) => {
-  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
-    .detail?.target;
+  const target = htmxSwapTarget(e);
   if (target?.hasAttribute("data-prompt-bar"))
     carrySessionId = sessionOfBar(target);
 });
@@ -266,8 +267,7 @@ document.body.addEventListener("htmx:beforeSwap", (e) => {
 // A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
 // transition) both bring a fresh form node to wire.
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  const target = (e as Event & { detail?: { target?: HTMLElement | null } })
-    .detail?.target;
+  const target = htmxSwapTarget(e);
   if (target?.id === "detail-pane") {
     // Navigation replaced the whole pane; a captured carry must not leak
     // into whatever form the new pane brings.
@@ -277,5 +277,3 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   }
   if (target?.hasAttribute("data-prompt-bar")) initUploadForms();
 });
-
-export {};
