@@ -1,9 +1,8 @@
 import { type Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 import { feedEventData } from "../../sse-events.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
-import { emit } from "../sse.js";
+import { emit, streamSse } from "../sse.js";
 import { activeStatuses, nameDeltas, statusDeltas } from "../status.js";
 
 // Snapshot every sidebar session's name — not just runner-managed ids —
@@ -17,7 +16,7 @@ const sidebarNames = (ctx: ServerContext): Map<string, string> =>
 // names.
 const registerEventsRoutes = (app: Hono, ctx: ServerContext): void => {
   app.get("/events/status", (c) =>
-    streamSSE(c, async (stream) => {
+    streamSse(c, async (stream) => {
       let last = activeStatuses(ctx.runner);
       // The agent renames a session mid-run, so track names to push updates.
       let lastNames = sidebarNames(ctx);

@@ -1,5 +1,4 @@
 import { type Hono } from "hono";
-import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import {
   type ParsedMessage,
   parseMessage,
@@ -15,7 +14,14 @@ import { type MessageEntry, sessionEventData } from "../../sse-events.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
-import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
+import {
+  emit,
+  emitMeta,
+  emitStatus,
+  flushPreview,
+  type SseStream,
+  streamSse,
+} from "../sse.js";
 
 // Mutable state threaded across poll iterations: snapshots detect in-place
 // message edits; the rest track deltas so only changes are emitted.
@@ -83,7 +89,7 @@ const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
 // Returns false once the session is deleted; the deleted status signals the
 // client to close its EventSource.
 const pollDb = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -162,7 +168,7 @@ const pollDb = async (
 // Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
 // preview lines.
 const pollRunner = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -219,7 +225,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
     const initial = ctx.sessions.getSession(id);
     if (initial === undefined) return c.text("Session not found", 404);
 
-    return streamSSE(c, async (stream) => {
+    return streamSse(c, async (stream) => {
       const cursor = resumeCursor(stream.lastEventId, c.req.query("cursor"));
 
       const baselineRows = ctx.sessions.listMessages(id);

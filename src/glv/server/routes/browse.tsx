@@ -1,11 +1,11 @@
 import { homedir } from "node:os";
-import { sendFile } from "@hono/node-server/send-file";
 import { type Context, type Hono } from "hono";
 import { BrowseDetail, BrowseError } from "../../views/Browse.js";
 import { listBrowseDir, resolveBrowsePath, subPathOf } from "../browse.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { render } from "../render.js";
+import { sendFile } from "../send-file.js";
 
 const BROWSE_PREFIX = "/browse";
 const FILES_PREFIX = "/files";
@@ -53,7 +53,7 @@ const serveBrowseFile = async (c: Context, sub: string): Promise<Response> => {
   const target = resolveBrowsePath(home, sub);
   if (!target.ok) return c.body("Not found\n", target.status);
   if (!target.stat.isFile()) return c.notFound();
-  return sendFile(c, target.abs);
+  return sendFile(c, target.abs, target.stat);
 };
 
 // /browse renders a navigable listing; /files streams a file's bytes. Both sit
