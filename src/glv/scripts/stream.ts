@@ -239,8 +239,6 @@ const updateMeta = (data: MetaUpdate): void => {
   setValue("meta-updated", data.updated, data.updatedTitle);
 };
 
-// The hint reflects the contract's status payload: statuses are a closed
-// union, and the in-flight tool (when present) matches ToolRun's shape.
 const updateStatusHint = (data: SessionStatusPayload): void => {
   const hint = document.querySelector(".status-hint");
   if (hint === null) return;

@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect } from "@playwright/test";
-import { type Type, type } from "arktype";
+import { type Type } from "arktype";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   FEED_JSON_EVENTS,
@@ -23,8 +23,9 @@ import {
 
 type JsonEventSchemas = Record<string, Type<unknown>>;
 
-// Every JSON event on the wire, checked against its schema; returns the
-// violations (empty when the whole stream is contract-conformant).
+// Every JSON event on the wire, run through the same parser the browser
+// bundle uses; returns one entry per frame the client would drop (empty
+// when the whole stream is contract-conformant).
 const contractViolations = (
   events: SseEvent[],
   schemas: JsonEventSchemas,
@@ -33,16 +34,8 @@ const contractViolations = (
   for (const ev of events) {
     const schema = schemas[ev.event];
     if (schema === undefined) continue;
-    let data: unknown;
-    try {
-      data = JSON.parse(ev.data);
-    } catch {
-      violations.push(`${ev.event}: data is not JSON`);
-      continue;
-    }
-    const out = schema(data);
-    if (out instanceof type.errors)
-      violations.push(`${ev.event}: ${out.summary}`);
+    if (parsePayload(schema, ev.data) === undefined)
+      violations.push(`${ev.event}: ${ev.data}`);
   }
   return violations;
 };

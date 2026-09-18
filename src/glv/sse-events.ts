@@ -2,9 +2,9 @@ import { type distill, type Type, type } from "arktype";
 
 // The SSE wire contract, shared by the server (validated emit) and the
 // browser bundle (validated parse) so the two ends cannot drift apart
-// silently: the same arktype schemas that serialize an event on the
-// server validate it in the client. Keep this module free of Node and
-// hono imports — the client scripts bundle it for the browser.
+// silently: the schemas that serialize an event on the server validate
+// it in the client. Keep this module free of Node and hono imports —
+// the client scripts bundle it for the browser.
 
 // ---- session stream (/sessions/:id/events) ----
 
@@ -19,15 +19,13 @@ const MessagesPayload = type({
   entries: MessageEntry.array(),
   cursor: "number.integer",
 });
-type MessagesPayload = typeof MessagesPayload.infer;
-
-// The agent derived a new session title mid-run.
-const SessionRenamePayload = type({ name: "string" });
-type SessionRenamePayload = typeof SessionRenamePayload.infer;
 
 // The updated-at chip under the session title.
-const MetaPayload = type({ updated: "string", updatedTitle: "string" });
-type MetaUpdate = typeof MetaPayload.infer;
+const MetaUpdate = type({ updated: "string", updatedTitle: "string" });
+type MetaUpdate = typeof MetaUpdate.infer;
+
+const SessionRenamePayload = type({ name: "string" });
+type SessionRenamePayload = typeof SessionRenamePayload.infer;
 
 // The tool call a running session is currently waiting on. Same shape as
 // format/duration's ToolRun, with an absent timeout simply omitted —
@@ -55,20 +53,18 @@ type SessionStatusPayload = typeof SessionStatusPayload.infer;
 
 // ---- status feed (/events/status) ----
 
-// A plain list of session ids (the active-set snapshot on reconnect).
-// Also the shape the sidebar stores its unread set under in
+// A plain list of session ids — the active-set snapshot on reconnect,
+// and also the shape the sidebar stores its unread set under in
 // localStorage, so both parses share one schema.
 const StringListPayload = type.string.array();
-type StringList = typeof StringListPayload.infer;
 
-// One session's run state moved; "done" means it left the active set.
+// "done" is synthetic: it means the session left the active set.
 const FeedStatusPayload = type({
   sessionId: "string",
   status: "'queued'|'running'|'completed'|'stopped'|'error'|'done'",
 });
 type FeedStatusPayload = typeof FeedStatusPayload.infer;
 
-// A session's derived name changed.
 const FeedRenamePayload = type({ sessionId: "string", name: "string" });
 type FeedRenamePayload = typeof FeedRenamePayload.infer;
 
@@ -81,7 +77,7 @@ const SESSION_JSON_EVENTS = {
   append: MessageEntry,
   replace: MessageEntry,
   rename: SessionRenamePayload,
-  meta: MetaPayload,
+  meta: MetaUpdate,
   status: SessionStatusPayload,
 } as const;
 
@@ -104,8 +100,8 @@ type FeedEventName =
   | keyof typeof FEED_JSON_EVENTS
   | (typeof FEED_TEXT_EVENTS)[number];
 
-// The payload type one event name carries: the schema's inference for
-// JSON events, the raw text for fragment events.
+// The payload one event name carries: the schema's inference for JSON
+// events, the raw text for fragment events.
 type SessionEventPayload<E extends SessionEventName> =
   E extends keyof typeof SESSION_JSON_EVENTS
     ? (typeof SESSION_JSON_EVENTS)[E]["infer"]
@@ -115,14 +111,6 @@ type FeedEventPayload<E extends FeedEventName> =
   E extends keyof typeof FEED_JSON_EVENTS
     ? (typeof FEED_JSON_EVENTS)[E]["infer"]
     : string;
-
-// Registry lookup with an honest unknown widening at the boundary; the
-// payload typing above is what call sites compile against.
-const schemaFor = (
-  registry: object,
-  event: string,
-): Type<unknown> | undefined =>
-  (registry as Record<string, Type<unknown>>)[event];
 
 // ---- parse (client / tests) ----
 
@@ -143,50 +131,45 @@ const parsePayload = <t>(
   return out instanceof type.errors ? undefined : (out as distill.Out<t>);
 };
 
-// Subscribes one session-stream event with the payload parsed and
-// validated against the contract. JSON events whose payload fails the
-// schema never reach the handler; text events arrive as-is.
+// Subscribes one event from a registry: JSON payloads are parsed and
+// validated against the contract — a frame that fails the schema never
+// reaches the handler — while text events arrive as-is.
+const onContractEvent = <P>(
+  source: EventSource,
+  registry: Record<string, Type<unknown>>,
+  event: string,
+  handler: (payload: P) => void,
+): void => {
+  source.addEventListener(event, (e) => {
+    if (!(e instanceof MessageEvent)) return;
+    const schema = registry[event];
+    if (schema === undefined) {
+      handler(e.data as P);
+      return;
+    }
+    const parsed = parsePayload(schema, e.data) as P | undefined;
+    if (parsed !== undefined) handler(parsed);
+  });
+};
+
 const onSessionEvent = <E extends SessionEventName>(
   source: EventSource,
   event: E,
   handler: (payload: SessionEventPayload<E>) => void,
-): void => {
-  source.addEventListener(event, (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const schema = schemaFor(SESSION_JSON_EVENTS, event);
-    if (schema === undefined) {
-      handler(e.data as SessionEventPayload<E>);
-      return;
-    }
-    const parsed = parsePayload(schema, e.data);
-    if (parsed !== undefined) handler(parsed as SessionEventPayload<E>);
-  });
-};
+): void => onContractEvent(source, SESSION_JSON_EVENTS, event, handler);
 
-// The status-feed twin of onSessionEvent.
 const onFeedEvent = <E extends FeedEventName>(
   source: EventSource,
   event: E,
   handler: (payload: FeedEventPayload<E>) => void,
-): void => {
-  source.addEventListener(event, (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const schema = schemaFor(FEED_JSON_EVENTS, event);
-    if (schema === undefined) {
-      handler(e.data as FeedEventPayload<E>);
-      return;
-    }
-    const parsed = parsePayload(schema, e.data);
-    if (parsed !== undefined) handler(parsed as FeedEventPayload<E>);
-  });
-};
+): void => onContractEvent(source, FEED_JSON_EVENTS, event, handler);
 
 // ---- serialize (server) ----
 
-// Drops keys whose value is undefined before validation — the same
-// normalization JSON.stringify applies when writing the wire — because
-// arktype (unlike JSON) treats an explicit undefined as a violation of
-// an optional key. Arrays pass through untouched.
+// Drops keys whose value is undefined before validation — JSON.stringify
+// ignores them on the wire, but arktype treats an explicit undefined as
+// a violation of an optional key. Arrays must pass through untouched, or
+// Object.entries would crush them into an object.
 const jsonSafe = (payload: object): object => {
   if (Array.isArray(payload)) return payload;
   const out: Record<string, unknown> = {};
@@ -211,44 +194,37 @@ const serializeJsonEvent = (
   return JSON.stringify(out);
 };
 
-// Typed per-event wrappers: the payload is checked against the event's
-// inferred type at compile time and re-checked at runtime on the way
-// out, mirroring what onSessionEvent does on the way in. The internal
-// widenings are safe because the wrapper's signature already pinned the
-// payload type, and every registry entry is an object schema.
+// Typed per-event emit: the payload is pinned to the event's inferred
+// type at compile time and re-validated on the way out, mirroring what
+// onSessionEvent/onFeedEvent do on the way in.
+const registryEventData = <
+  R extends Record<string, Type<unknown>>,
+  E extends keyof R & string,
+>(
+  registry: R,
+  event: E,
+  payload: R[E]["infer"],
+): string => serializeJsonEvent(registry[event], event, payload as object);
+
 const sessionEventData = <E extends keyof typeof SESSION_JSON_EVENTS>(
   event: E,
   payload: (typeof SESSION_JSON_EVENTS)[E]["infer"],
-): string =>
-  serializeJsonEvent(
-    SESSION_JSON_EVENTS[event] as Type<unknown>,
-    event,
-    payload as object,
-  );
+): string => registryEventData(SESSION_JSON_EVENTS, event, payload);
 
 const feedEventData = <E extends keyof typeof FEED_JSON_EVENTS>(
   event: E,
   payload: (typeof FEED_JSON_EVENTS)[E]["infer"],
-): string =>
-  serializeJsonEvent(
-    FEED_JSON_EVENTS[event] as Type<unknown>,
-    event,
-    payload as object,
-  );
+): string => registryEventData(FEED_JSON_EVENTS, event, payload);
 
 export type {
   FeedEventName,
-  FeedEventPayload,
   FeedRenamePayload,
   FeedStatusPayload,
   MessageEntry,
-  MessagesPayload,
   MetaUpdate,
   SessionEventName,
-  SessionEventPayload,
   SessionRenamePayload,
   SessionStatusPayload,
-  StringList,
   ToolEventPayload,
 };
 export {

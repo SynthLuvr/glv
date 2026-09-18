@@ -38,9 +38,9 @@ const flushPreview = async (
   return nextSeq;
 };
 
-// The wire shape of the in-flight tool call: a ToolRun with an absent
-// timeout omitted rather than nulled — the spread would otherwise copy
-// an explicit undefined, which the contract (rightly) rejects.
+// pendingTool writes an explicit `timeoutSec: undefined` when no timeout
+// applies; a spread would copy it into the nested tool object, where
+// jsonSafe cannot strip it and the contract rejects it.
 const toolEvent = (tool: ToolRun): ToolEventPayload =>
   tool.timeoutSec === undefined
     ? { name: tool.name, count: tool.count, startMs: tool.startMs }
@@ -48,9 +48,7 @@ const toolEvent = (tool: ToolRun): ToolEventPayload =>
 
 // Status payloads carry the run's bookkeeping plus, while a run is running,
 // the tool call it is currently waiting on (from the persisted request row)
-// — null when the newest row is not an unanswered request. Serialization
-// runs through the shared contract, so a drifted field throws here instead
-// of reaching the client as an unparseable frame.
+// — null when the newest row is not an unanswered request.
 const emitStatus = (
   stream: SSEStreamingApi,
   handle: RunHandle,
