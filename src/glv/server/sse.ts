@@ -10,6 +10,7 @@ import {
   type ToolEventPayload,
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
+import { headerValue } from "./http.js";
 
 // Fastify has no first-class SSE helper, so the response is hijacked and
 // the wire format written by hand. The lifecycle contract this project
@@ -37,23 +38,14 @@ type SseStream = {
 // The exact frame serialization hono's streamSSE used: event, then
 // multi-line-safe data, then id — separated by newlines, terminated by a
 // blank line.
-const serialize = (message: SseMessage): string => {
-  const data = message.data
-    .split("\n")
-    .map((line) => `data: ${line}`)
-    .join("\n");
-  return (
-    [
-      message.event !== undefined ? `event: ${message.event}` : false,
-      data,
-      message.id !== undefined && message.id !== ""
-        ? `id: ${message.id}`
-        : false,
-    ]
-      .filter((part) => typeof part === "string")
-      .join("\n") + "\n\n"
-  );
-};
+const serialize = (message: SseMessage): string =>
+  [
+    `event: ${message.event}`,
+    ...message.data.split("\n").map((line) => `data: ${line}`),
+    ...(message.id !== undefined && message.id !== ""
+      ? [`id: ${message.id}`]
+      : []),
+  ].join("\n") + "\n\n";
 
 const streamSse = (
   reply: FastifyReply,
@@ -84,14 +76,9 @@ const streamSse = (
       else raw.once("drain", () => resolve());
     });
 
-  const header = (name: string): string | undefined => {
-    const value = request.headers[name];
-    return Array.isArray(value) ? value[0] : value;
-  };
-
   const stream: SseStream = {
     get lastEventId() {
-      return header("last-event-id");
+      return headerValue(request.headers["last-event-id"]);
     },
     get aborted() {
       return aborted;

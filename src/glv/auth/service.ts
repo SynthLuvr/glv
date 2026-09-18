@@ -17,6 +17,7 @@ import {
 } from "@simplewebauthn/server";
 import { type } from "arktype";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { headerValue } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -432,19 +433,16 @@ const isPublicPath = (path: string): boolean =>
 const firstForwardedValue = (
   header: string | string[] | undefined,
 ): string | undefined => {
-  const first0 = Array.isArray(header) ? header[0] : header;
-  if (first0 === undefined || first0 === "") return undefined;
-  const first = first0.split(",")[0]?.trim();
-  return first === undefined || first === "" ? undefined : first;
+  const first = headerValue(header)?.split(",")[0]?.trim();
+  return first === "" ? undefined : first;
 };
 
 const resolveRequestUrl = (request: FastifyRequest): URL => {
   // The Host header carries the port (localhost:3457); Fastify's
   // request.hostname does not, and a portless origin would fail WebAuthn
   // origin verification on every non-standard port.
-  const hostHeader = request.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-  const url = new URL(request.raw.url ?? "/", `http://${host ?? "localhost"}`);
+  const host = headerValue(request.headers.host) ?? "localhost";
+  const url = new URL(request.raw.url ?? "/", `http://${host}`);
   const forwardedHost = firstForwardedValue(
     request.headers["x-forwarded-host"],
   );

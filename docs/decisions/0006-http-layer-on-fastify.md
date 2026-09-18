@@ -65,8 +65,8 @@ Positive:
 - Encapsulated scopes and lifecycle hooks (onRequest/preValidation/…)
   give the auth gate a cleaner home than a wildcard middleware.
 - Fastify’s `request.body is unknown` forced the WebAuthn JSON boundary
-  through ArkType validation (`server/webauthn-json.ts`) where Hono’s
-  `req.json()` returned `any` silently.
+  through explicit structural validation (`server/webauthn-json.ts`)
+  where Hono’s `req.json()` returned `any` silently.
 
 Negative:
 

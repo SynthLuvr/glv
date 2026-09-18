@@ -147,14 +147,14 @@ const rangeResponse = (
     });
 
   const length = resolved.end - resolved.start + 1;
-  reply
+  return reply
     .status(206)
-    .header("Content-Type", meta.contentType)
-    .header("Last-Modified", meta.lastModified)
-    .header("Accept-Ranges", "bytes")
-    .header("Content-Length", length.toString())
-    .header("Content-Range", `bytes ${resolved.start}-${resolved.end}/${size}`);
-  return reply.send(createReadStream(path, resolved));
+    .headers({
+      ...headers,
+      "Content-Length": length.toString(),
+      "Content-Range": `bytes ${resolved.start}-${resolved.end}/${size}`,
+    })
+    .send(createReadStream(path, resolved));
 };
 
 // Body-less responses (HEAD/OPTIONS/304/416) bypass Fastify's serializer —
@@ -177,21 +177,18 @@ const fileResponse = (
   size: number,
   meta: { contentType: string; lastModified: string },
 ): FastifyReply => {
+  const headers: Record<string, string> = {
+    "Content-Type": meta.contentType,
+    "Last-Modified": meta.lastModified,
+    "Content-Length": size.toString(),
+  };
   const method = reply.request.method;
   if (method === "HEAD" || method === "OPTIONS")
-    return sendHead(reply, 200, {
-      "Content-Type": meta.contentType,
-      "Last-Modified": meta.lastModified,
-      "Content-Length": size.toString(),
-    });
+    return sendHead(reply, 200, headers);
 
   const range = headerValue(reply.request.headers.range);
   if (range !== undefined) return rangeResponse(reply, path, range, size, meta);
-  reply
-    .header("Content-Type", meta.contentType)
-    .header("Last-Modified", meta.lastModified)
-    .header("Content-Length", size.toString());
-  return reply.status(200).send(createReadStream(path));
+  return reply.status(200).headers(headers).send(createReadStream(path));
 };
 
 // The caller owns the safety checks (containment, dotfile and symlink rules

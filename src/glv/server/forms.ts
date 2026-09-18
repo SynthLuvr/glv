@@ -62,6 +62,11 @@ const normalizeEntry = async (
   return items.length === 1 ? items[0] : items;
 };
 
+// A text field from a parsed form body — "" when absent, repeated, or a
+// file part.
+const fieldString = (body: Record<string, unknown>, key: string): string =>
+  typeof body[key] === "string" ? body[key] : "";
+
 // Reads a parsed form body (urlencoded or multipart) into the normalized
 // record. JSON bodies (the auth endpoints) never route through here.
 const parseForm = async (
@@ -77,4 +82,4 @@ const parseForm = async (
   return out;
 };
 
-export { parseForm };
+export { fieldString, parseForm };

@@ -76,9 +76,8 @@ const verifyAndRespond = async (
   }
 };
 
-// The verify endpoints' JSON bodies arrive as `unknown`; a body the
-// ArkType schemas reject is a client error, reported like a failed
-// ceremony.
+// A body the structural guards in webauthn-json.ts reject is a client
+// error, reported like a failed ceremony.
 const malformedBody = (reply: FastifyReply): FastifyReply =>
   reply.status(400).send({ verified: false, error: "Malformed request." });
 

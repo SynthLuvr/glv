@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { PromptInput, PromptSort } from "../../prompts/db.js";
 import {
   createPrompt,
@@ -16,15 +16,10 @@ import {
   PromptSaveForm,
 } from "../../views/prompt-library.js";
 import type { ServerContext } from "../context.js";
-import { parseForm } from "../forms.js";
+import { fieldString, parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
-
-const fieldString = (body: Record<string, unknown>, key: string): string => {
-  const value = body[key];
-  return typeof value === "string" ? value : "";
-};
 
 const readInput = (body: Record<string, unknown>): PromptInput => ({
   title: fieldString(body, "title"),
@@ -75,7 +70,7 @@ const registerPromptRoutes = (
   });
 
   // Inline save form, loaded into the save slot on demand.
-  app.get("/prompts/new", (_request, reply: FastifyReply) =>
+  app.get("/prompts/new", (_request, reply) =>
     sendHtml(reply, <PromptSaveForm agentName={ctx.profile.agentName} />),
   );
 

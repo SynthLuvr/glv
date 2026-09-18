@@ -12,15 +12,10 @@ import {
 import { SessionList } from "../../views/Sidebar.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
-import { parseForm } from "../forms.js";
+import { fieldString, parseForm } from "../forms.js";
 import { sendHtml, sendNotFound } from "../http.js";
 import { sidebarEntries } from "../render.js";
 import { activeSessionIds } from "../status.js";
-
-const fieldString = (body: Record<string, unknown>, key: string): string => {
-  const value = body[key];
-  return typeof value === "string" ? value : "";
-};
 
 // The groups sidecar is optional; when absent no routes register, so requests
 // fall through to a 404.
