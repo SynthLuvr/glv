@@ -64,6 +64,19 @@ const createApp = (
     bodyLimit: UPLOAD_BODY_LIMIT,
   });
 
+  // JSON bodies arrive as the raw string. The WebAuthn verify endpoints
+  // parse leniently and answer with their own 400 shape (parity with the
+  // previous framework, where parsing happened inside the handler);
+  // Fastify's default parser would reject malformed JSON with its own
+  // error body before any handler runs.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+
   app.register(cookie);
   // urlencoded form bodies (every plain htmx submit).
   app.register(formbody);

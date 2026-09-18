@@ -439,9 +439,16 @@ const firstForwardedValue = (
 };
 
 const resolveRequestUrl = (request: FastifyRequest): URL => {
-  const url = new URL(request.raw.url ?? "/", `http://${request.hostname}`);
-  const host = firstForwardedValue(request.headers["x-forwarded-host"]);
-  if (host !== undefined) url.host = host;
+  // The Host header carries the port (localhost:3457); Fastify's
+  // request.hostname does not, and a portless origin would fail WebAuthn
+  // origin verification on every non-standard port.
+  const hostHeader = request.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  const url = new URL(request.raw.url ?? "/", `http://${host ?? "localhost"}`);
+  const forwardedHost = firstForwardedValue(
+    request.headers["x-forwarded-host"],
+  );
+  if (forwardedHost !== undefined) url.host = forwardedHost;
   const proto = firstForwardedValue(request.headers["x-forwarded-proto"]);
   if (proto !== undefined) url.protocol = `${proto}:`;
   return url;
