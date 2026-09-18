@@ -1,4 +1,5 @@
-import type { SSEStreamingApi } from "hono/streaming";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
@@ -11,11 +12,93 @@ import {
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
+// A raw-response SSE channel. Fastify hands us the Node response via
+// reply.hijack(); this wraps it with the tiny surface the stream routes
+// used from hono/streaming: writeSSE (silently a no-op once the client
+// is gone), sleep, aborted, and lastEventId for resume.
+class SseStream {
+  readonly lastEventId: string | undefined;
+  readonly sleep: (ms: number) => Promise<void>;
+  readonly writeSSE: (message: {
+    event?: string;
+    data: string;
+    id?: string;
+  }) => Promise<void>;
+  readonly res: ServerResponse;
+  #aborted = false;
+
+  constructor(req: IncomingMessage, res: ServerResponse) {
+    this.res = res;
+    const header = req.headers["last-event-id"];
+    this.lastEventId = Array.isArray(header) ? header[0] : header;
+    this.sleep = (ms: number) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      });
+    this.writeSSE = async ({ event, data, id }) => {
+      if (this.#aborted || res.writableEnded) return;
+      // Writes one SSE frame. Multi-line data fans out across data:
+      // lines per the SSE wire format; a write after disconnect is
+      // dropped, so emissions need no abort guarding.
+      let frame = "";
+      if (event !== undefined) frame += `event: ${event}\n`;
+      if (id !== undefined) frame += `id: ${id}\n`;
+      for (const line of data.split("\n")) frame += `data: ${line}\n`;
+      frame += "\n";
+      await new Promise<void>((resolve, reject) => {
+        res.write(frame, "utf8", (err) => {
+          if (err !== null && err !== undefined) reject(err);
+          else resolve();
+        });
+      });
+    };
+    // The request 'close' event fires when the connection tears down —
+    // client disconnect, socket error, or server shutdown destroying the
+    // socket — which is exactly the abort signal the poll loops check.
+    req.on("close", () => {
+      this.#aborted = true;
+    });
+  }
+
+  get aborted(): boolean {
+    return this.#aborted;
+  }
+
+  close(): void {
+    if (!this.res.writableEnded) this.res.end();
+  }
+}
+
+// Hijacks the reply and runs the handler against a raw SSE stream. The
+// stream never closes on its own; the handler's return (poll budget
+// exhausted, session deleted) or client disconnect ends it.
+const streamSSE = (
+  req: FastifyRequest,
+  reply: FastifyReply,
+  handler: (stream: SseStream) => Promise<void>,
+): void => {
+  reply.hijack();
+  const res = reply.raw;
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  const stream = new SseStream(req.raw, res);
+  void handler(stream)
+    .catch((err: unknown) => {
+      console.error(err);
+    })
+    .finally(() => {
+      stream.close();
+    });
+};
+
 // The optional `id` sets the SSE event id so EventSource can resume via
 // Last-Event-ID on transient reconnect. writeSSE is a no-op after the client
 // disconnects, so emissions need no abort guarding.
 const emit = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   event: SessionEventName | FeedEventName,
   data: string,
   id?: number,
@@ -24,7 +107,7 @@ const emit = (
 // drain snapshots before any await, so concurrent pushes can't mutate the
 // emitted lines. Returns the next sequence number to resume from.
 const flushPreview = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   buffer: LineBuffer,
   fromSeq: number,
   envelope: StreamEnvelope,
@@ -50,7 +133,7 @@ const toolEvent = (tool: ToolRun): ToolEventPayload =>
 // the tool call it is currently waiting on (from the persisted request row)
 // — null when the newest row is not an unanswered request.
 const emitStatus = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   handle: RunHandle,
   tool: ToolRun | undefined,
   id?: number,
@@ -73,7 +156,7 @@ const emitStatus = (
   );
 
 const emitMeta = (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   session: SessionRow,
   id?: number,
 ): Promise<void> =>
@@ -87,4 +170,4 @@ const emitMeta = (
     id,
   );
 
-export { emit, emitMeta, emitStatus, flushPreview };
+export { emit, emitMeta, emitStatus, flushPreview, SseStream, streamSSE };

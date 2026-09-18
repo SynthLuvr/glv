@@ -1,5 +1,4 @@
 import type { Socket } from "node:net";
-import { serve } from "@hono/node-server";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
@@ -172,16 +171,35 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
-    console.log(
-      `glv-${opts.profile.id} web viewer → http://localhost:${info.port}`,
-    );
-    // Enumerating the model catalogue can spawn the agent binary, which
-    // takes seconds; warm it now so the first New Session render is instant.
-    // Best-effort only: a failure degrades the picker, never the server.
-    void opts.models?.choices();
-  });
-  const destroyConnections = trackConnections(server);
+  // Fastify only creates the underlying socket server during listen, so
+  // connection tracking (and the socket reap on shutdown) binds once
+  // listening has actually started.
+  let destroyConnections = (): void => {
+    // Replaced with real socket tracking once listening starts.
+  };
+  void app.listen({ port: opts.port }).then(
+    () => {
+      destroyConnections = trackConnections(app.server);
+      const address = app.server.address();
+      const port =
+        typeof address === "object" && address !== null
+          ? address.port
+          : opts.port;
+      console.log(
+        `glv-${opts.profile.id} web viewer → http://localhost:${port}`,
+      );
+      // Enumerating the model catalogue can spawn the agent binary, which
+      // takes seconds; warm it now so the first New Session render is
+      // instant. Best-effort only: a failure degrades the picker, never
+      // the server.
+      void opts.models?.choices();
+    },
+    // A listen failure (port in use) surfaces as an unhandled rejection,
+    // which the crash handler in registerShutdown turns into shutdown(1).
+    (err: unknown) => {
+      throw err;
+    },
+  );
 
   const closeDbs = (): void => {
     opts.closeStore();
@@ -199,8 +217,8 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
   });
 
   const shutdown = createShutdown({
-    server,
-    destroyConnections,
+    server: app,
+    destroyConnections: () => destroyConnections(),
     stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),
     closeDbs,

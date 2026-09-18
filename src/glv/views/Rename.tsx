@@ -1,5 +1,5 @@
-import type { Child } from "hono/jsx";
 import { displayName } from "../format/index.js";
+import type { Child } from "../jsx.js";
 import type { SessionRow } from "../sessions.js";
 
 const icon = (children: Child): Child => (

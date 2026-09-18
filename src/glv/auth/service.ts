@@ -16,8 +16,8 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { type } from "arktype";
-import { type Context, type MiddlewareHandler } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { pathOf } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -77,10 +77,10 @@ type AuthService = {
   isEnrollmentTokenValid: (token: string) => boolean;
   consumeEnrollmentToken: (token: string) => string | undefined;
   listCredentialSummaries: () => CredentialSummary[];
-  readSessionCookie: (c: Context) => string | undefined;
-  setSessionCookie: (c: Context, token: string) => void;
+  readSessionCookie: (req: FastifyRequest) => string | undefined;
+  setSessionCookie: (reply: FastifyReply, token: string) => void;
   isValidSession: (token: string | undefined) => boolean;
-  logout: (c: Context) => void;
+  logout: (req: FastifyRequest, reply: FastifyReply) => void;
 };
 
 // Stored transports are plain strings; validate each against the WebAuthn
@@ -345,24 +345,24 @@ const makeAuthService = (
     return true;
   };
 
-  const readSessionCookie = (c: Context): string | undefined =>
-    getCookie(c, cookieName);
+  const readSessionCookie = (req: FastifyRequest): string | undefined =>
+    req.cookies[cookieName];
 
-  const setSessionCookie = (c: Context, token: string): void => {
-    const url = resolveRequestUrl(c);
-    setCookie(c, cookieName, token, {
+  const setSessionCookie = (reply: FastifyReply, token: string): void => {
+    const url = resolveRequestUrl(reply.request);
+    reply.setCookie(cookieName, token, {
       httpOnly: true,
-      sameSite: "Strict",
+      sameSite: "strict",
       secure: url.protocol === "https:",
       path: "/",
       maxAge: SESSION_TTL_SECONDS,
     });
   };
 
-  const logout = (c: Context): void => {
-    const token = getCookie(c, cookieName);
+  const logout = (req: FastifyRequest, reply: FastifyReply): void => {
+    const token = req.cookies[cookieName];
     if (token !== undefined && token !== "") deleteSession(authDb, token);
-    deleteCookie(c, cookieName, { path: "/" });
+    reply.clearCookie(cookieName, { path: "/" });
   };
 
   const issueEnrollmentToken = (): string | undefined => {
@@ -430,34 +430,40 @@ const firstForwardedValue = (
   return first === undefined || first === "" ? undefined : first;
 };
 
-const resolveRequestUrl = (c: Context): URL => {
-  const url = new URL(c.req.url);
-  const host = firstForwardedValue(c.req.header("x-forwarded-host"));
-  if (host !== undefined) url.host = host;
-  const proto = firstForwardedValue(c.req.header("x-forwarded-proto"));
-  if (proto !== undefined) url.protocol = `${proto}:`;
+const resolveRequestUrl = (req: FastifyRequest): URL => {
+  const host = req.headers.host ?? "localhost";
+  const url = new URL(req.raw.url ?? "/", `http://${host}`);
+  const forwardedHost = firstForwardedValue(
+    typeof req.headers["x-forwarded-host"] === "string"
+      ? req.headers["x-forwarded-host"]
+      : undefined,
+  );
+  if (forwardedHost !== undefined) url.host = forwardedHost;
+  const forwardedProto = firstForwardedValue(
+    typeof req.headers["x-forwarded-proto"] === "string"
+      ? req.headers["x-forwarded-proto"]
+      : undefined,
+  );
+  if (forwardedProto !== undefined) url.protocol = `${forwardedProto}:`;
   return url;
 };
 
-const authMiddleware =
-  (auth: AuthService): MiddlewareHandler =>
-  async (c, next) => {
-    if (isPublicPath(c.req.path)) return next();
-    const token = auth.readSessionCookie(c);
+// Auth gate for every non-public request: a valid session cookie must
+// ride along before any route handler runs.
+const authGate =
+  (auth: AuthService) =>
+  async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (isPublicPath(pathOf(req))) return;
+    const token = auth.readSessionCookie(req);
     if (token !== undefined && auth.isValidSession(token)) {
       // Sliding window: re-issue the cookie so the browser expiry tracks
       // the just-refreshed DB session rather than the original login.
-      auth.setSessionCookie(c, token);
-      return next();
+      auth.setSessionCookie(reply, token);
+      return;
     }
     const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
-    return c.redirect(dest, 302);
+    await reply.redirect(dest, 302);
   };
 
 export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
-export {
-  authMiddleware,
-  makeAuthService,
-  resolveRequestUrl,
-  sessionCookieName,
-};
+export { authGate, makeAuthService, resolveRequestUrl, sessionCookieName };

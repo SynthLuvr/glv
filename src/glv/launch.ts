@@ -1,10 +1,13 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ModelSelection } from "./models.js";
 import type { SessionRow } from "./sessions.js";
 
+// Rejection statuses the launcher strategies produce: a directory
+// conflict and a session-establishment timeout.
+type LauncherStatusCode = 409 | 502;
+
 type EstablishOutcome =
   | { ok: true; sessionId: string; session: SessionRow }
-  | { ok: false; status: ContentfulStatusCode; error: string };
+  | { ok: false; status: LauncherStatusCode; error: string };
 
 // The new-session strategy, implemented per flavor. goose must discover the
 // session id its agent chose (temp handle, poll, rekey); claude pre-assigns

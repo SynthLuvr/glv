@@ -1,6 +1,7 @@
 # ADR 0001: Use Hono rather than Elysia as the web framework
 
-- Status: Accepted
+- Status: Superseded by ADR 0006 (framework now Fastify; the Elysia
+  findings below remain valid history)
 - Date: 2026-08-08
 - Deciders: glv maintainers
 

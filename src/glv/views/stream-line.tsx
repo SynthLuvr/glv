@@ -1,11 +1,11 @@
-import type { Child } from "hono/jsx";
-import { renderToString } from "hono/jsx/dom/server";
+import { renderToString } from "preact-render-to-string";
 import {
   MESSAGE_TAGS,
   messageKind,
   parseContent,
 } from "../../glv/format/index.js";
 import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
+import type { Child } from "../jsx.js";
 import type { StreamEnvelope } from "../profile.js";
 import { itemBlock } from "./message-blocks.js";
 

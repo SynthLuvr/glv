@@ -1,5 +1,4 @@
-import { type Hono } from "hono";
-import { type SSEStreamingApi, streamSSE } from "hono/streaming";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   type ParsedMessage,
   parseMessage,
@@ -15,7 +14,15 @@ import { type MessageEntry, sessionEventData } from "../../sse-events.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
-import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
+import { param, queryValue } from "../http.js";
+import {
+  emit,
+  emitMeta,
+  emitStatus,
+  flushPreview,
+  type SseStream,
+  streamSSE,
+} from "../sse.js";
 
 // Mutable state threaded across poll iterations: snapshots detect in-place
 // message edits; the rest track deltas so only changes are emitted.
@@ -83,7 +90,7 @@ const recordStatusBaseline = (state: PollState, h: RunHandle): void => {
 // Returns false once the session is deleted; the deleted status signals the
 // client to close its EventSource.
 const pollDb = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -162,7 +169,7 @@ const pollDb = async (
 // Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
 // preview lines.
 const pollRunner = async (
-  stream: SSEStreamingApi,
+  stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
@@ -208,86 +215,96 @@ const pollRunner = async (
   }
 };
 
-const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerStreamRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
   // Unified session event stream. The DB is the source of truth for committed
   // messages; in-memory NDJSON lines are a transient preview shown below the
   // transcript while a run is active. The stream never closes itself — it
   // shifts from active polling (50 ms) to idle polling (tailPollMs) and stays
   // open until the client disconnects.
-  app.get("/sessions/:id/events", (c) => {
-    const id = c.req.param("id");
-    const initial = ctx.sessions.getSession(id);
-    if (initial === undefined) return c.text("Session not found", 404);
+  app.get(
+    "/sessions/:id/events",
+    (req: FastifyRequest, reply: FastifyReply) => {
+      const id = param(req, "id");
+      const initial = ctx.sessions.getSession(id);
+      if (initial === undefined)
+        return reply.code(404).send("Session not found");
 
-    return streamSSE(c, async (stream) => {
-      const cursor = resumeCursor(stream.lastEventId, c.req.query("cursor"));
+      return streamSSE(req, reply, async (stream) => {
+        const cursor = resumeCursor(
+          stream.lastEventId,
+          queryValue(req, "cursor"),
+        );
 
-      const baselineRows = ctx.sessions.listMessages(id);
-      const baselineMessages = baselineRows.map(parseMessage);
-      const state: PollState = {
-        snapshots: baselineRows.map((row) => row.content_json),
-        msgCursor: baselineRows.length,
-        lastName: initial.name,
-        lastUpdated: initial.updated_at,
-        previewCleared: false,
-        lastStatus: undefined,
-        lastQueuePosition: undefined,
-        lastPendingCount: undefined,
-        lastStartedCount: 0,
-        sentLineOffset: 0,
-        flushedTerminal: false,
-        pendingTool: pendingTool(baselineMessages),
-        lastToolKey: "",
-      };
+        const baselineRows = ctx.sessions.listMessages(id);
+        const baselineMessages = baselineRows.map(parseMessage);
+        const state: PollState = {
+          snapshots: baselineRows.map((row) => row.content_json),
+          msgCursor: baselineRows.length,
+          lastName: initial.name,
+          lastUpdated: initial.updated_at,
+          previewCleared: false,
+          lastStatus: undefined,
+          lastQueuePosition: undefined,
+          lastPendingCount: undefined,
+          lastStartedCount: 0,
+          sentLineOffset: 0,
+          flushedTerminal: false,
+          pendingTool: pendingTool(baselineMessages),
+          lastToolKey: "",
+        };
 
-      const catchup = renderCatchup(baselineMessages, cursor);
-      await emit(
-        stream,
-        "messages",
-        sessionEventData("messages", {
-          entries: catchup,
-          cursor: state.msgCursor,
-        }),
-        state.msgCursor,
-      );
-
-      const handle = getHandle(ctx.runner, id);
-      const active = handle !== undefined && !isTerminalStatus(handle.status);
-
-      if (handle !== undefined) {
-        await emitStatus(stream, handle, state.pendingTool, state.msgCursor);
-        recordStatusBaseline(state, handle);
-        state.lastStartedCount = handle.startedPrompts.length;
-      } else
+        const catchup = renderCatchup(baselineMessages, cursor);
         await emit(
           stream,
-          "status",
-          sessionEventData("status", { status: "idle" }),
+          "messages",
+          sessionEventData("messages", {
+            entries: catchup,
+            cursor: state.msgCursor,
+          }),
           state.msgCursor,
         );
 
-      if (active && handle !== undefined)
-        state.sentLineOffset = await flushPreview(
-          stream,
-          handle.output,
-          0,
-          ctx.profile.streamEnvelope,
-          state.msgCursor,
-        );
+        const handle = getHandle(ctx.runner, id);
+        const active = handle !== undefined && !isTerminalStatus(handle.status);
 
-      let polls = 0;
-      while (!stream.aborted && polls < ctx.maxTailPolls) {
-        const probe = getHandle(ctx.runner, id);
-        const probeActive =
-          probe !== undefined && !isTerminalStatus(probe.status);
-        await stream.sleep(probeActive ? 50 : ctx.tailPollMs);
-        if (stream.aborted) return;
-        polls++;
-        if (!(await pollDb(stream, ctx, id, state))) return;
-        await pollRunner(stream, ctx, id, state);
-      }
-    });
-  });
+        if (handle !== undefined) {
+          await emitStatus(stream, handle, state.pendingTool, state.msgCursor);
+          recordStatusBaseline(state, handle);
+          state.lastStartedCount = handle.startedPrompts.length;
+        } else
+          await emit(
+            stream,
+            "status",
+            sessionEventData("status", { status: "idle" }),
+            state.msgCursor,
+          );
+
+        if (active && handle !== undefined)
+          state.sentLineOffset = await flushPreview(
+            stream,
+            handle.output,
+            0,
+            ctx.profile.streamEnvelope,
+            state.msgCursor,
+          );
+
+        let polls = 0;
+        while (!stream.aborted && polls < ctx.maxTailPolls) {
+          const probe = getHandle(ctx.runner, id);
+          const probeActive =
+            probe !== undefined && !isTerminalStatus(probe.status);
+          await stream.sleep(probeActive ? 50 : ctx.tailPollMs);
+          if (stream.aborted) return;
+          polls++;
+          if (!(await pollDb(stream, ctx, id, state))) return;
+          await pollRunner(stream, ctx, id, state);
+        }
+      });
+    },
+  );
 };
 
 export { registerStreamRoutes };

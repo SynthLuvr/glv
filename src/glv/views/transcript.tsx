@@ -1,4 +1,4 @@
-import { renderToString } from "hono/jsx/dom/server";
+import { renderToString } from "preact-render-to-string";
 import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
 import {
   fmtRelative,

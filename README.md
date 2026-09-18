@@ -71,8 +71,8 @@ the browser.
 
 ## How it works
 
-glv is a single Node.js process built on the [Hono](https://hono.dev)
-web framework:
+glv is a single Node.js process built on the
+[Fastify](https://fastify.dev) web framework:
 
 - **Reads goose’s database directly.** Sessions are read from the goose
   SQLite database at `~/.local/share/goose/sessions/sessions.db`.
@@ -81,7 +81,7 @@ web framework:
   writable connection, and they never touch the rows a running goose
   session reads, so it is always safe while goose is running.
 - **Server-rendered with interactivity.** Pages are rendered server-side
-  with `hono/jsx` and updated incrementally with
+  with `preact-render-to-string` and updated incrementally with
   [htmx](https://htmx.org) — there is no client-side SPA to build or
   ship. Styling is [Tailwind CSS v4](https://tailwindcss.com).
 - **A runner spawns goose.** When you start or resume a session, glv

@@ -1,5 +1,4 @@
-import { type Hono } from "hono";
-import { Fragment } from "hono/jsx";
+import type { FastifyInstance } from "fastify";
 import { jobNamesFor } from "../../cron-sessions.js";
 import { parseMessage } from "../../format/index.js";
 import { type GitRunner, readGitInfo } from "../../git.js";
@@ -8,6 +7,7 @@ import type { SessionRow, SessionStore } from "../../sessions.js";
 import { BranchChip, CronChip, PrChip } from "../../views/chips.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
+import { param, sendHtml } from "../http.js";
 import { activeSessionIds } from "../status.js";
 
 // One git lookup per unique working dir, not one per session; a non-repo or
@@ -72,7 +72,10 @@ const renderMeta = (
 // refreshes a single slot after a run completes. PR badges are withheld
 // while running since detection over a partial transcript can latch onto
 // the wrong URL.
-const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerSidebarMetaRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
   // Job-started sessions carry their clock badge from the sidecar; one
   // lookup covers the whole sidebar.
   const cronTags = (sessions: readonly SessionRow[]): Map<string, string> =>
@@ -83,27 +86,29 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
           sessions.map((s) => s.id),
         );
 
-  app.get("/sessions/:id/sidebar-meta", async (c) => {
-    const id = c.req.param("id");
+  app.get("/sessions/:id/sidebar-meta", async (req, reply) => {
+    const id = param(req, "id");
     const session = ctx.sessions.getSession(id);
-    if (session === undefined) return c.notFound();
+    if (session === undefined) return reply.callNotFound();
     const branches = await resolveBranches([session], ctx.runGit);
     const prUrl = activeSessionIds(ctx.runner).has(id)
       ? undefined
       : resolvePrUrls(ctx.sessions, [session]).get(id);
-    return c.html(
+    return sendHtml(
+      reply,
       renderMeta(session, branches.get(id), prUrl, cronTags([session]).get(id)),
     );
   });
 
-  app.get("/sessions/sidebar-meta", async (c) => {
+  app.get("/sessions/sidebar-meta", async (_req, reply) => {
     const sessions = ctx.sessions.listSessions(VIEWER_FILTER);
     const runningIds = activeSessionIds(ctx.runner);
     const branches = await resolveBranches(sessions, ctx.runGit);
     const prUrls = resolvePrUrls(ctx.sessions, sessions);
     const tags = cronTags(sessions);
-    return c.html(
-      <Fragment>
+    return sendHtml(
+      reply,
+      <>
         {sessions.map((session) => {
           const branch = branches.get(session.id);
           const prUrl = runningIds.has(session.id)
@@ -111,7 +116,7 @@ const registerSidebarMetaRoutes = (app: Hono, ctx: ServerContext): void => {
             : prUrls.get(session.id);
           return renderMeta(session, branch, prUrl, tags.get(session.id));
         })}
-      </Fragment>,
+      </>,
     );
   });
 };

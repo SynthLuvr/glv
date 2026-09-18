@@ -145,7 +145,7 @@ const PrChip = ({
   compact?: boolean;
 }) => {
   const stateId = compact ? `sb-pr-state-${sessionId}` : "pr-state";
-  // hono/jsx can't emit `::` attributes directly, so spread it.
+  // JSX can't emit `::` attributes directly, so spread it.
   const errorHandler = {
     "hx-on::response-error": `this.querySelector('#${stateId}')?.remove()`,
   };

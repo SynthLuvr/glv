@@ -21,7 +21,7 @@ const PromptCard = ({
   <article
     class="prompt-card"
     id={`prompt-card-${prompt.id}`}
-    draggable="true"
+    draggable={true}
     data-prompt-id={prompt.id}
   >
     <div class="prompt-card-head">

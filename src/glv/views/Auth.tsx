@@ -1,5 +1,5 @@
-import type { Child } from "hono/jsx";
 import type { CredentialSummary } from "../auth/db.js";
+import type { Child } from "../jsx.js";
 import { HeadMeta } from "./head.js";
 
 // Mirrors the inline bootstrap in Layout.tsx so the saved theme applies before

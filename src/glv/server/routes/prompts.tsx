@@ -1,4 +1,4 @@
-import { type Hono } from "hono";
+import type { FastifyInstance } from "fastify";
 import type { PromptInput, PromptSort } from "../../prompts/db.js";
 import {
   createPrompt,
@@ -16,6 +16,8 @@ import {
   PromptSaveForm,
 } from "../../views/prompt-library.js";
 import type { ServerContext } from "../context.js";
+import { parseForm } from "../forms.js";
+import { param, queryValue, sendHtml } from "../http.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
 
@@ -30,16 +32,20 @@ const isValid = (input: PromptInput): boolean =>
 
 // The prompts store is optional (tests may omit it); when absent no routes
 // are registered, so requests fall through to a 404.
-const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerPromptRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
   const prompts = ctx.prompts;
 
   if (prompts === undefined) return;
 
-  app.get("/prompts", (c) => {
-    const grouped = c.req.query("grouped") === "1";
+  app.get("/prompts", (req, reply) => {
+    const grouped = queryValue(req, "grouped") === "1";
     const sortBy: PromptSort =
-      c.req.query("sort") === "usage" ? "usage" : "order";
-    return c.html(
+      queryValue(req, "sort") === "usage" ? "usage" : "order";
+    return sendHtml(
+      reply,
       <PromptLibrary
         prompts={listPrompts(prompts, sortBy)}
         categories={listCategories(prompts)}
@@ -52,26 +58,27 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
   // Persists a manual reordering from drag-and-drop. Accepts a single
   // comma-separated `order` field of ids; assigns sort_order by position.
   // Returns an empty 200 — the DOM is already reordered client-side.
-  app.post("/prompts/reorder", async (c) => {
-    const body = await c.req.parseBody();
+  app.post("/prompts/reorder", async (req, reply) => {
+    const body = await parseForm(req);
     const raw = typeof body.order === "string" ? body.order : "";
     const ids = raw
       .split(",")
       .map((id) => id.trim())
       .filter((id) => id !== "");
     if (ids.length > 0) reorderPrompts(prompts, ids);
-    return c.body(null, 200);
+    return reply.code(200).send("");
   });
 
   // Inline save form, loaded into the save slot on demand.
-  app.get("/prompts/new", (c) =>
-    c.html(<PromptSaveForm agentName={ctx.profile.agentName} />),
+  app.get("/prompts/new", (_req, reply) =>
+    sendHtml(reply, <PromptSaveForm agentName={ctx.profile.agentName} />),
   );
 
-  app.post("/prompts", async (c) => {
-    const input = readInput(await c.req.parseBody());
+  app.post("/prompts", async (req, reply) => {
+    const input = readInput(await parseForm(req));
     if (!isValid(input))
-      return c.html(
+      return sendHtml(
+        reply,
         <PromptSaveForm
           agentName={ctx.profile.agentName}
           title={input.title}
@@ -83,7 +90,8 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
     createPrompt(prompts, input);
     // No in-place content: the save slot is cleared while the refreshed
     // library swaps in out-of-band.
-    return c.html(
+    return sendHtml(
+      reply,
       <PromptLibrary
         prompts={listPrompts(prompts)}
         categories={listCategories(prompts)}
@@ -92,16 +100,17 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.get("/prompts/:id/card", (c) => {
-    const prompt = getPrompt(prompts, c.req.param("id"));
-    if (prompt === undefined) return c.notFound();
-    return c.html(<PromptCard prompt={prompt} />);
+  app.get("/prompts/:id/card", (req, reply) => {
+    const prompt = getPrompt(prompts, param(req, "id"));
+    if (prompt === undefined) return reply.callNotFound();
+    return sendHtml(reply, <PromptCard prompt={prompt} />);
   });
 
-  app.get("/prompts/:id/edit", (c) => {
-    const prompt = getPrompt(prompts, c.req.param("id"));
-    if (prompt === undefined) return c.notFound();
-    return c.html(
+  app.get("/prompts/:id/edit", (req, reply) => {
+    const prompt = getPrompt(prompts, param(req, "id"));
+    if (prompt === undefined) return reply.callNotFound();
+    return sendHtml(
+      reply,
       <PromptEditForm
         id={prompt.id}
         title={prompt.title}
@@ -111,13 +120,14 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
     );
   });
 
-  app.put("/prompts/:id", async (c) => {
-    const id = c.req.param("id");
-    const input = readInput(await c.req.parseBody());
+  app.put("/prompts/:id", async (req, reply) => {
+    const id = param(req, "id");
+    const input = readInput(await parseForm(req));
     const existing = getPrompt(prompts, id);
-    if (existing === undefined) return c.notFound();
+    if (existing === undefined) return reply.callNotFound();
     if (!isValid(input))
-      return c.html(
+      return sendHtml(
+        reply,
         <PromptEditForm
           id={id}
           title={input.title}
@@ -128,14 +138,14 @@ const registerPromptRoutes = (app: Hono, ctx: ServerContext): void => {
       );
     updatePrompt(prompts, id, input);
     const updated = getPrompt(prompts, id);
-    if (updated === undefined) return c.notFound();
-    return c.html(<PromptCard prompt={updated} />);
+    if (updated === undefined) return reply.callNotFound();
+    return sendHtml(reply, <PromptCard prompt={updated} />);
   });
 
   // Empty body + outerHTML swap removes the card from the DOM.
-  app.delete("/prompts/:id", (c) => {
-    deletePrompt(prompts, c.req.param("id"));
-    return c.body(null, 200);
+  app.delete("/prompts/:id", (req, reply) => {
+    deletePrompt(prompts, param(req, "id"));
+    return reply.code(200).send("");
   });
 };
 

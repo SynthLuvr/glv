@@ -1,6 +1,4 @@
-import type { Child } from "hono/jsx";
-import { renderToString } from "hono/jsx/dom/server";
-import { raw } from "hono/utils/html";
+import { renderToString } from "preact-render-to-string";
 import type {
   ContentItem,
   MessageKind,
@@ -19,6 +17,7 @@ import {
   toolResultInfo,
   truncate,
 } from "../../glv/format/index.js";
+import type { Child } from "../jsx.js";
 
 const jsonString = (value: object, pretty: boolean): string => {
   try {
@@ -88,7 +87,10 @@ const TextBlock = ({
 }) =>
   asMarkdown ? (
     <div class="markdown-wrap">
-      <div class="markdown">{raw(renderMarkdown(text))}</div>
+      <div
+        class="markdown"
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+      />
       <CopyButton text={text} />
     </div>
   ) : (

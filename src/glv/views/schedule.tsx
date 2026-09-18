@@ -1,6 +1,6 @@
-import { Fragment } from "hono/jsx";
 import type { CronJobConfig } from "../cron-jobs.js";
 import { shortenHome, truncate, truncateMiddle } from "../format/index.js";
+import { Fragment } from "../jsx.js";
 import { jobModelSelection, modelLabel } from "../models.js";
 import { fmtDateTime, humanizeSchedule, parseSchedule } from "../schedule.js";
 import {
