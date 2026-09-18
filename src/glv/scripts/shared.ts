@@ -1,10 +1,4 @@
-const parseJson = <T = unknown>(raw: string): T | undefined => {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-};
+import { htmxSwapTarget } from "./htmx.js";
 
 // `.value =` doesn't fire `input`; dispatch it so the autogrow listener
 // (ui.ts) resizes multi-line prompts instead of leaving them clipped.
@@ -25,9 +19,9 @@ const fillPromptInput = (
 const onSessionListSwap = (apply: () => void): void => {
   for (const eventName of ["htmx:afterSwap", "htmx:oobAfterSwap"])
     document.addEventListener(eventName, (e) => {
-      const target = e instanceof CustomEvent ? e.detail?.target : undefined;
-      if (target instanceof Element && target.id === "session-list") apply();
+      const target = htmxSwapTarget(e);
+      if (target !== null && target.id === "session-list") apply();
     });
 };
 
-export { fillPromptInput, onSessionListSwap, parseJson };
+export { fillPromptInput, onSessionListSwap };

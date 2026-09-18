@@ -1,3 +1,5 @@
+import { getHtmx } from "./htmx.js";
+
 const UI_TITLE_SUFFIX = " \u2014 GLV";
 const UI_HOME_TITLE = "GLV";
 const UI_NEAR_BOTTOM_PX = 160;
@@ -18,12 +20,8 @@ const uiDownIcon =
 // with a 404 detail. Those must swap, or every form error fails silently:
 // the user clicks and nothing happens. This file loads after htmx.min.js
 // (defer order) and before any user request can fire.
-declare const htmx: {
-  config: {
-    responseHandling: Array<{ code: string; swap: boolean; error?: boolean }>;
-  };
-};
-if (typeof htmx !== "undefined")
+const htmx = getHtmx();
+if (htmx !== undefined)
   htmx.config.responseHandling = [
     { code: "204", swap: false },
     { code: "[23]..", swap: true },
@@ -359,5 +357,3 @@ const uiOnHistoryRestore = (): void => {
   uiInit();
 };
 document.body.addEventListener("htmx:historyRestore", uiOnHistoryRestore);
-
-export {};

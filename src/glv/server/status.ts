@@ -13,11 +13,15 @@ const activeStatuses = (runner: Runner): Map<string, RunStatus> =>
 const activeSessionIds = (runner: Runner): Set<string> =>
   new Set(activeStatuses(runner).keys());
 
+// The statuses the status feed emits: a live run state, or "done" for a
+// session that just left the active set.
+type FeedStatus = RunStatus | "done";
+
 const statusDeltas = (
   last: Map<string, RunStatus>,
   now: Map<string, RunStatus>,
-): Array<[string, string]> => {
-  const result: Array<[string, string]> = [];
+): Array<[string, FeedStatus]> => {
+  const result: Array<[string, FeedStatus]> = [];
   for (const [id, status] of now)
     if (last.get(id) !== status) result.push([id, status]);
   for (const [id] of last) if (!now.has(id)) result.push([id, "done"]);

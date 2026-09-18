@@ -11,12 +11,11 @@ import {
   isTerminalStatus,
   type RunHandle,
 } from "../../runner/index.js";
+import { type MessageEntry, sessionEventData } from "../../sse-events.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
 import { emit, emitMeta, emitStatus, flushPreview } from "../sse.js";
-
-type MessageDelta = { index: number; html: string };
 
 // Mutable state threaded across poll iterations: snapshots detect in-place
 // message edits; the rest track deltas so only changes are emitted.
@@ -51,8 +50,8 @@ const resumeCursor = (
 const renderCatchup = (
   messages: ParsedMessage[],
   cursor: number,
-): MessageDelta[] => {
-  const deltas: MessageDelta[] = [];
+): MessageEntry[] => {
+  const deltas: MessageEntry[] = [];
   for (let i = cursor; i < messages.length; i++) {
     const html = renderMessage(messages[i], i);
     if (html !== "") deltas.push({ index: i, html });
@@ -94,7 +93,7 @@ const pollDb = async (
     await emit(
       stream,
       "status",
-      JSON.stringify({ status: "deleted" }),
+      sessionEventData("status", { status: "deleted" }),
       state.msgCursor,
     );
     return false;
@@ -110,7 +109,12 @@ const pollDb = async (
     for (let i = state.snapshots.length; i < messages.length; i++) {
       const html = renderMessage(messages[i], i);
       if (html !== "")
-        await emit(stream, "append", JSON.stringify({ index: i, html }), i + 1);
+        await emit(
+          stream,
+          "append",
+          sessionEventData("append", { index: i, html }),
+          i + 1,
+        );
     }
     state.msgCursor = rows.length;
     state.previewCleared = true;
@@ -126,7 +130,7 @@ const pollDb = async (
       await emit(
         stream,
         "replace",
-        JSON.stringify({ index: i, html }),
+        sessionEventData("replace", { index: i, html }),
         state.msgCursor,
       );
     metaChanged = true;
@@ -141,7 +145,7 @@ const pollDb = async (
     await emit(
       stream,
       "rename",
-      JSON.stringify({ name: session.name }),
+      sessionEventData("rename", { name: session.name }),
       state.msgCursor,
     );
   }
@@ -240,7 +244,10 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
       await emit(
         stream,
         "messages",
-        JSON.stringify({ entries: catchup, cursor: state.msgCursor }),
+        sessionEventData("messages", {
+          entries: catchup,
+          cursor: state.msgCursor,
+        }),
         state.msgCursor,
       );
 
@@ -255,7 +262,7 @@ const registerStreamRoutes = (app: Hono, ctx: ServerContext): void => {
         await emit(
           stream,
           "status",
-          JSON.stringify({ status: "idle" }),
+          sessionEventData("status", { status: "idle" }),
           state.msgCursor,
         );
 

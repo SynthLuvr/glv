@@ -1,13 +1,13 @@
 import { queuedSuffix, type ToolRun, toolRunText } from "../format/duration.js";
-import { fillPromptInput, parseJson } from "./shared.js";
-
-declare const htmx: {
-  ajax: (
-    verb: string,
-    path: string,
-    options: { target: string; swap: string },
-  ) => void;
-};
+import {
+  type MessageEntry,
+  type MetaUpdate,
+  onSessionEvent,
+  type SessionRenamePayload,
+  type SessionStatusPayload,
+} from "../sse-events.js";
+import { getHtmx, htmxSwapTarget } from "./htmx.js";
+import { fillPromptInput } from "./shared.js";
 
 let activeSource: EventSource | null = null;
 
@@ -163,8 +163,7 @@ const wireScrollMemory = (): void => {
   }
   if (scrollMemoryWired) return;
   document.body.addEventListener("htmx:beforeSwap", (e) => {
-    if (!(e instanceof CustomEvent)) return;
-    if (e.detail?.target?.id === "detail-pane") saveScroll();
+    if (htmxSwapTarget(e)?.id === "detail-pane") saveScroll();
   });
   scrollMemoryWired = true;
 };
@@ -192,8 +191,6 @@ const removeEmptyState = (): void => {
   document.getElementById("no-messages")?.remove();
 };
 
-type MessageEntry = { index: number; html: string };
-
 // Append a message, skipping if its index is already present (idempotent on
 // reconnect — the cursor-based catch-up may re-send rows the client has).
 const appendMessage = (
@@ -215,37 +212,20 @@ const reconcileMessages = (
   if (nearBottom()) scrollToBottom();
 };
 
-const isMessageEntry = (value: unknown): value is MessageEntry =>
-  typeof value === "object" &&
-  value !== null &&
-  "index" in value &&
-  typeof value.index === "number" &&
-  "html" in value &&
-  typeof value.html === "string";
-
-const applyReplace = (messages: Element | null, data: string): void => {
-  if (messages === null) return;
-  const parsed = parseJson<unknown>(data);
-  if (!isMessageEntry(parsed) || parsed.html === "") return;
-  const existing = messages.querySelector(`[data-msg-index="${parsed.index}"]`);
-  if (existing !== null) existing.outerHTML = parsed.html;
+const applyReplace = (messages: Element | null, entry: MessageEntry): void => {
+  if (messages === null || entry.html === "") return;
+  const existing = messages.querySelector(`[data-msg-index="${entry.index}"]`);
+  if (existing !== null) existing.outerHTML = entry.html;
   else {
-    insertMessageInOrder(messages, parsed.index, parsed.html);
+    insertMessageInOrder(messages, entry.index, entry.html);
     removeEmptyState();
   }
 };
 
-const applyRename = (data: string): void => {
-  const parsed = parseJson<{ name?: unknown }>(data);
-  if (parsed === undefined || typeof parsed.name !== "string") return;
+const applyRename = (payload: SessionRenamePayload): void => {
   const title = document.querySelector("#detail-pane .session-title");
   if (title !== null)
-    title.textContent = parsed.name === "" ? "(unnamed)" : parsed.name;
-};
-
-type MetaUpdate = {
-  updated: string;
-  updatedTitle: string;
+    title.textContent = payload.name === "" ? "(unnamed)" : payload.name;
 };
 
 const updateMeta = (data: MetaUpdate): void => {
@@ -259,16 +239,9 @@ const updateMeta = (data: MetaUpdate): void => {
   setValue("meta-updated", data.updated, data.updatedTitle);
 };
 
-type StreamStatus = {
-  status: string;
-  queuePosition?: number;
-  pendingCount?: number;
-  error?: string | null;
-  /** Tool call the run is currently waiting on; null when none is pending. */
-  tool?: ToolRun | null;
-};
-
-const updateStatusHint = (data: StreamStatus): void => {
+// The hint reflects the contract's status payload: statuses are a closed
+// union, and the in-flight tool (when present) matches ToolRun's shape.
+const updateStatusHint = (data: SessionStatusPayload): void => {
   const hint = document.querySelector(".status-hint");
   if (hint === null) return;
   // Every transition re-arms the polite region (the ticker silences it
@@ -314,14 +287,18 @@ const dismissQueuedCard = (): void => {
 // Swap just the prompt bar (Stop/Queue → Send or vice-versa) on a busy/idle
 // transition — never the whole transcript. The draft is captured first and
 // restored after the swap so unsent text survives.
-const updatePromptBar = (sessionId: string, data: StreamStatus): void => {
+const updatePromptBar = (
+  sessionId: string,
+  data: SessionStatusPayload,
+): void => {
   const busy = data.status === "queued" || data.status === "running";
   if (busy === lastBusy) return;
   lastBusy = busy;
   const bar = document.querySelector("[data-prompt-bar]");
   if (bar === null) return;
   captureBarDraft();
-  if (typeof htmx !== "undefined")
+  const htmx = getHtmx();
+  if (htmx !== undefined)
     htmx.ajax(
       "GET",
       `/sessions/${sessionId}/prompt-bar?status=${data.status}`,
@@ -336,9 +313,7 @@ const restoreBarDraft = (): void => {
   pendingBarDraft = undefined;
 };
 
-const handleStatus = (sessionId: string, raw: string): void => {
-  const data = parseJson<StreamStatus>(raw);
-  if (data === undefined) return;
+const handleStatus = (sessionId: string, data: SessionStatusPayload): void => {
   // Session deleted mid-connection: close so EventSource stops retrying.
   if (data.status === "deleted") {
     teardown();
@@ -362,69 +337,54 @@ const connect = (root: Element): void => {
     `/sessions/${sessionId}/events?cursor=${root.getAttribute("data-cursor") ?? 0}`,
   );
 
-  activeSource.addEventListener("messages", (e) => {
-    if (!(e instanceof MessageEvent) || messages === null) return;
-    const data = parseJson<{ entries: MessageEntry[] }>(e.data);
-    if (data !== undefined) reconcileMessages(messages, data.entries);
+  onSessionEvent(activeSource, "messages", (data) => {
+    if (messages !== null) reconcileMessages(messages, data.entries);
   });
 
-  activeSource.addEventListener("append", (e) => {
-    if (!(e instanceof MessageEvent) || messages === null) return;
-    const entry = parseJson<MessageEntry>(e.data);
-    if (entry === undefined) return;
+  onSessionEvent(activeSource, "append", (entry) => {
+    if (messages === null) return;
     appendMessage(messages, entry.index, entry.html);
     if (nearBottom()) scrollToBottom();
   });
 
-  activeSource.addEventListener("replace", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    applyReplace(messages, e.data);
+  onSessionEvent(activeSource, "replace", (entry) => {
+    applyReplace(messages, entry);
     if (nearBottom()) scrollToBottom();
   });
 
-  activeSource.addEventListener("preview", (e) => {
-    if (!(e instanceof MessageEvent)) return;
+  onSessionEvent(activeSource, "preview", (html) => {
     const liveTail = document.getElementById("live-tail");
-    if (liveTail === null || e.data === "") return;
-    liveTail.insertAdjacentHTML("beforeend", e.data);
+    if (liveTail === null || html === "") return;
+    liveTail.insertAdjacentHTML("beforeend", html);
     if (nearBottom()) scrollToBottom();
   });
 
   // DB messages supersede the transient preview — clear it. The active prompt
   // card (server-rendered on submit) is removed once the committed user row
   // arrives.
-  activeSource.addEventListener("preview-clear", () => {
+  onSessionEvent(activeSource, "preview-clear", () => {
     const liveTail = document.getElementById("live-tail");
     if (liveTail !== null) liveTail.innerHTML = "";
     document.querySelector("[data-active-prompt]")?.remove();
   });
 
-  activeSource.addEventListener("status", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    handleStatus(sessionId ?? "", e.data);
+  onSessionEvent(activeSource, "status", (data) => {
+    handleStatus(sessionId ?? "", data);
   });
 
   // A chained prompt started — append its card to the preview tail and dismiss
   // the matching queued-prompt card.
-  activeSource.addEventListener("prompt", (e) => {
-    if (!(e instanceof MessageEvent)) return;
+  onSessionEvent(activeSource, "prompt", (html) => {
     const liveTail = document.getElementById("live-tail");
-    if (liveTail !== null && e.data !== "")
-      liveTail.insertAdjacentHTML("beforeend", e.data);
+    if (liveTail !== null && html !== "")
+      liveTail.insertAdjacentHTML("beforeend", html);
     dismissQueuedCard();
     if (nearBottom()) scrollToBottom();
   });
 
-  activeSource.addEventListener("rename", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    applyRename(e.data);
-  });
+  onSessionEvent(activeSource, "rename", applyRename);
 
-  activeSource.addEventListener("meta", (e) => {
-    if (!(e instanceof MessageEvent)) return;
-    const data = parseJson<MetaUpdate>(e.data);
-    if (data !== undefined) updateMeta(data);
-  });
+  onSessionEvent(activeSource, "meta", updateMeta);
 };
 
 const init = (): void => {
@@ -438,8 +398,7 @@ const init = (): void => {
 
 document.addEventListener("DOMContentLoaded", init);
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (!(e instanceof CustomEvent)) return;
-  if (e.detail?.target?.id === "detail-pane") {
+  if (htmxSwapTarget(e)?.id === "detail-pane") {
     init();
     return;
   }
@@ -449,9 +408,8 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
 // The bar is still the old one here — one last draft read so nothing
 // typed since the status event is dropped by the replacement.
 document.body.addEventListener("htmx:beforeSwap", (e) => {
-  if (!(e instanceof CustomEvent)) return;
-  const target = e.detail?.target;
-  if (target instanceof Element && target.hasAttribute("data-prompt-bar"))
+  const target = htmxSwapTarget(e);
+  if (target !== null && target.hasAttribute("data-prompt-bar"))
     captureBarDraft();
 });
 // History restore swaps the whole body: the restored transcript carries no
