@@ -33,8 +33,8 @@ importers:
         specifier: ^3.4.2
         version: 3.4.2
       croner:
-        specifier: ^10.0.1
-        version: 10.0.1
+        specifier: github:SynthLuvr/croner#dist/fix-clock-step-skip
+        version: https://codeload.github.com/SynthLuvr/croner/tar.gz/e6ebadbf63113f055445b23f4cd51b2e7821ad83
       cronstrue:
         specifier: ^3.25.0
         version: 3.25.0
@@ -1295,8 +1295,9 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
-  croner@10.0.1:
-    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+  croner@https://codeload.github.com/SynthLuvr/croner/tar.gz/e6ebadbf63113f055445b23f4cd51b2e7821ad83:
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/SynthLuvr/croner/tar.gz/e6ebadbf63113f055445b23f4cd51b2e7821ad83}
+    version: 10.0.2-clockstep.1
     engines: {node: '>=18.0'}
 
   cronstrue@3.25.0:
@@ -2974,7 +2975,7 @@ snapshots:
     dependencies:
       ts-morph: 28.0.0
 
-  croner@10.0.1: {}
+  croner@https://codeload.github.com/SynthLuvr/croner/tar.gz/e6ebadbf63113f055445b23f4cd51b2e7821ad83: {}
 
   cronstrue@3.25.0: {}
 
@@ -3067,9 +3068,9 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  fdir@6.5.0(picomatch@4.0.5):
+  fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
-      picomatch: 4.0.5
+      picomatch: 4.0.7
 
   figures@6.1.0:
     dependencies:
@@ -3484,8 +3485,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.5)
-      picomatch: 4.0.5
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
 
   tinyrainbow@3.1.1: {}
 
@@ -3583,7 +3584,7 @@ snapshots:
   vite@8.1.3(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       postcss: 8.5.16
       rolldown: 1.1.4
       tinyglobby: 0.2.17
