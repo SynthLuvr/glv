@@ -1,78 +1,27 @@
-import { createReadStream, type ReadStream, type Stats } from "node:fs";
+import { createReadStream, type Stats } from "node:fs";
+import { createStreamBody } from "@hono/node-server/utils/stream";
 import { type Context } from "hono";
 import { getMimeType } from "hono/utils/mime";
 
-// Vendored from @hono/node-server (the fork this project used to depend on,
-// honojs/node-server "sendFile helper" + If-Modified-Since 304 + Range fixes;
-// the stream bridge is upstream's createStreamBody). The fork is gone from
-// the dependencies: this local copy serves a validated absolute path with
-// the same wire behavior — extension-derived Content-Type, Content-Length,
-// Last-Modified, conditional 304s, HEAD/OPTIONS, and single byte-range
-// requests — streamed from disk, never buffered.
+// Vendored from the @hono/node-server fork this project dropped: the stock
+// package exports no sendFile, and its serveStatic re-resolves request paths
+// and ignores If-Modified-Since. This local copy serves an already-validated
+// absolute path with the fork's wire behavior — extension-derived
+// Content-Type, Content-Length, Last-Modified, conditional 304s, HEAD/OPTIONS,
+// and single byte-range requests — streamed from disk, never buffered.
 
-// Bridges a Node file stream into the DOM-typed ReadableStream hono's
-// body() accepts. Readable.toWeb()'s node-typed result is structurally
-// incompatible with the DOM ReadableStream, so the stream is pumped
-// manually with pause/resume backpressure, as node-server itself does.
-const streamBody = (stream: ReadStream): ReadableStream<Uint8Array> => {
-  let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-  let settled = false;
-
-  const cleanup = (): void => {
-    stream.off("data", onData);
-    stream.off("error", onError);
-    stream.off("end", onTerminate);
-    stream.off("close", onTerminate);
-  };
-
-  const settle = (finish?: () => void): void => {
-    if (settled) return;
-    settled = true;
-    cleanup();
-    finish?.();
-  };
-
-  const onData = (chunk: Buffer): void => {
-    if (settled || controller === undefined) return;
-    // createReadStream runs without encoding, so chunks are Buffers.
-    controller.enqueue(chunk);
-    if ((controller.desiredSize ?? 0) <= 0) stream.pause();
-  };
-
-  const onError = (error: Error): void => {
-    settle(() => {
-      controller?.error(error);
-    });
-  };
-
-  const onTerminate = (): void => {
-    settle(() => {
-      controller?.close();
-    });
-  };
-
-  return new ReadableStream<Uint8Array>({
-    start(streamController) {
-      controller = streamController;
-      stream.on("data", onData);
-      stream.on("error", onError);
-      stream.on("end", onTerminate);
-      stream.on("close", onTerminate);
-      stream.pause();
-    },
-    pull() {
-      if (!settled) stream.resume();
-    },
-    cancel() {
-      settle();
-      // Suppress a late `error` emitted between destroy() and `close`.
-      const ignoreError = (): void => undefined;
-      stream.on("error", ignoreError);
-      stream.once("close", () => stream.off("error", ignoreError));
-      stream.destroy();
-    },
-  });
-};
+// false pins the manual stream pump; the default switches to Readable.toWeb
+// on newer Node versions, which changes the bridge across runtimes.
+const fileBody = (
+  path: string,
+  range?: { start: number; end: number },
+): ReadableStream<Uint8Array> =>
+  range === undefined
+    ? createStreamBody(createReadStream(path), false)
+    : createStreamBody(
+        createReadStream(path, { start: range.start, end: range.end }),
+        false,
+      );
 
 type ByteRangeSpec =
   | { type: "bounded"; start: number; end: number }
@@ -82,7 +31,7 @@ type ByteRangeSpec =
 type ByteRange = { start: number; end: number };
 
 // One range like "bytes=4-11", "bytes=4-", "bytes=-8"; the "bytes=" prefix
-// and an empty (absent) value are tolerated the way serveStatic always did.
+// and an empty value are tolerated the way serveStatic always did.
 const BYTE_RANGE_PATTERN = /^(?:bytes=)?(?!-$)(\d*)-(\d*)$/;
 
 const parseByteRange = (range: string): ByteRangeSpec | undefined => {
@@ -137,10 +86,9 @@ const rangeResponse = (
     c.header("Content-Range", `bytes */${size}`);
     return c.body(null, 416);
   }
-  const { start, end } = resolved;
-  c.header("Content-Length", (end - start + 1).toString());
-  c.header("Content-Range", `bytes ${start}-${end}/${size}`);
-  return c.body(streamBody(createReadStream(path, { start, end })), 206);
+  c.header("Content-Length", (resolved.end - resolved.start + 1).toString());
+  c.header("Content-Range", `bytes ${resolved.start}-${resolved.end}/${size}`);
+  return c.body(fileBody(path, resolved), 206);
 };
 
 const fileResponse = (c: Context, path: string, size: number): Response => {
@@ -152,12 +100,12 @@ const fileResponse = (c: Context, path: string, size: number): Response => {
   const range = c.req.header("range");
   if (range !== undefined) return rangeResponse(c, path, range, size);
   c.header("Content-Length", size.toString());
-  return c.body(streamBody(createReadStream(path)), 200);
+  return c.body(fileBody(path), 200);
 };
 
-// Sends the file at an already-validated absolute path. The caller owns the
-// safety checks (containment, dotfile and symlink rules — see browse.tsx) and
-// passes the stats it validated against, so the file is never re-resolved.
+// The caller owns the safety checks (containment, dotfile and symlink rules
+// — see browse.tsx) and passes the stats it validated against, so the file
+// is never re-resolved.
 const sendFile = (c: Context, path: string, stats: Stats): Response => {
   c.header("Content-Type", getMimeType(path) ?? "application/octet-stream");
   c.header("Last-Modified", stats.mtime.toUTCString());

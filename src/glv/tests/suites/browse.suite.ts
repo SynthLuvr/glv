@@ -190,8 +190,8 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  // The vendored sendFile (from the @hono/node-server fork) served these; the
-  // local copy must keep the same wire behavior: ranges, conditionals, and
+  // The local sendFile is vendored from the @hono/node-server fork this
+  // branch dropped; these pin its wire behavior: ranges, conditionals, and
   // HEAD metadata.
   describe("browse: file delivery — ranges and conditionals", () => {
     it("serves a bounded byte range as 206 with Content-Range", async () => {

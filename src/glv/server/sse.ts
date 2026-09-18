@@ -21,9 +21,8 @@ import { renderStreamLine } from "../views/stream-line.js";
 // making writes after a client disconnect cheap no-ops. streamSse vendors
 // both, so the routes keep fork semantics on the stock package.
 type SseStream = {
-  /**
-   * The `Last-Event-ID` header an `EventSource` sends on reconnect (the id
-   * of the last event it received), or undefined on a first connect.
+  /** The `Last-Event-ID` header an EventSource sends on reconnect;
+   * undefined on a first connect.
    */
   readonly lastEventId: string | undefined;
   readonly aborted: boolean;

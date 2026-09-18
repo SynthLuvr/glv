@@ -109,39 +109,23 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
   // as Last-Event-ID, and the stream must replay only what follows it. The
   // cursor plumbing is vendored from the hono fork this project dropped.
   describe("reconnect resume", () => {
-    // Reads the first `messages` frame from a fresh connect, optionally with
-    // the Last-Event-ID header an EventSource sends on reconnect.
+    // Reads the first `messages` frame, optionally with the Last-Event-ID
+    // header an EventSource sends on reconnect.
     const firstMessagesEvent = async (
       path: string,
       lastEventId?: string,
     ): Promise<SseEvent | undefined> => {
-      const headers: Record<string, string> = {
-        accept: "text/event-stream",
-      };
+      const headers: Record<string, string> = {};
       if (lastEventId !== undefined) headers["Last-Event-ID"] = lastEventId;
-      const res = await authedFetch(env, path, { headers });
-      if (res.body === null) throw new Error("no response body");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      try {
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const frames = buf.split("\n\n");
-          buf = frames.pop() ?? "";
-          for (const frame of frames) {
-            if (!/^event: messages$/m.test(frame)) continue;
-            const data = /^data: (.*)$/m.exec(frame)?.[1];
-            if (data !== undefined)
-              return { event: "messages", data, id: undefined };
-          }
-        }
-      } finally {
-        reader.cancel().catch(() => undefined);
-      }
-      return undefined;
+      const events = await collectSse(
+        env,
+        path,
+        (evts) => evts.some((e) => e.event === "messages"),
+        10000,
+        undefined,
+        headers,
+      );
+      return events.find((e) => e.event === "messages");
     };
 
     const entryIndexes = (msg: SseEvent | undefined): number[] => {
