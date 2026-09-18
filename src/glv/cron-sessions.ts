@@ -64,8 +64,6 @@ const jobNamesFor = (
   const result = new Map<string, string>();
   if (sessionIds.length === 0) return result;
   const placeholders = sessionIds.map(() => "?").join(", ");
-  // node:sqlite hands every row over as an opaque record; each is
-  // validated by the schema below before use.
   const rows: unknown[] = db
     .prepare(
       `SELECT session_id, job_name FROM cron_sessions ` +

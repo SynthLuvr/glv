@@ -50,8 +50,8 @@ const cleanupDrag = (): void => {
 // On touch the finger hides the source, so a clone tracks the pointer.
 const createGhost = (source: HTMLElement): HTMLElement => {
   const ghost = source.cloneNode(true);
-  // Cloning an HTMLElement yields the same element type; a miss would be
-  // a DOM engine bug, and failing loudly beats downcasting on faith.
+  // cloneNode is typed as Node; an HTMLElement always clones to one, so
+  // re-prove it here rather than cast on faith.
   if (!(ghost instanceof HTMLElement))
     throw new Error("drag ghost clone is not an HTMLElement");
   ghost.classList.remove("dragging");

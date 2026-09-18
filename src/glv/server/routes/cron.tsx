@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { type } from "arktype";
 import { type Context, type Hono } from "hono";
 import { Fragment } from "hono/jsx";
 import {
@@ -54,19 +53,12 @@ const findJob = (
   name: string,
 ): CronJobConfig | undefined => jobs.find((job) => job.name === name);
 
-// Form fields: parseBody with all:true yields one string per field,
-// arrays for repeated fields, and File for uploads. A value that is not
-// a string — a stray upload, an absent field — validates to empty,
-// exactly like the missing-field case.
-const FormString = type("string");
-
 // First string value of a form field, trimmed (parseBody with all:true
-// yields arrays for repeated fields).
+// yields arrays for repeated fields, File for uploads).
 const trimmedField = (body: Record<string, unknown>, key: string): string => {
   const value = body[key];
   const candidate = Array.isArray(value) ? value[0] : value;
-  const out = FormString(candidate);
-  return out instanceof type.errors ? "" : out.trim();
+  return typeof candidate === "string" ? candidate.trim() : "";
 };
 
 // Every string value of a (repeated) form field, verbatim and in submit
@@ -75,10 +67,7 @@ const stringFields = (body: Record<string, unknown>, key: string): string[] => {
   const value = body[key];
   const values =
     value === undefined ? [] : Array.isArray(value) ? value : [value];
-  return values.flatMap((entry) => {
-    const out = FormString(entry);
-    return out instanceof type.errors ? [] : [out];
-  });
+  return values.filter((entry): entry is string => typeof entry === "string");
 };
 
 const FOLLOW_UPS_CAP_ERROR =

@@ -23,18 +23,15 @@ type CatalogModel = {
 /** provider id → models, for the configured providers only. */
 type ProviderCatalog = ReadonlyMap<string, readonly CatalogModel[]>;
 
-// One JSON-RPC reply over the ACP wire: result and error are mutually
-// exclusive by convention but travel independently here; the fields the
-// catalog reads (error.code/message) are the ones validated. Undeclared
-// keys (jsonrpc, id) pass through untouched.
+// One JSON-RPC reply over the ACP wire: id routes it to its pending
+// request; result and error are mutually exclusive by convention but
+// both optional here. Undeclared keys (jsonrpc) pass through untouched.
 const AcpReply = type({
+  "id?": "unknown",
   "result?": "unknown",
   "error?": { code: "number", message: "string" },
 });
 type AcpReply = typeof AcpReply.infer;
-
-// The only field the line demux reads before routing: the request id.
-const AcpLine = type({ "id?": "unknown" });
 
 const INIT_TIMEOUT_MS = 10_000;
 const LIST_TIMEOUT_MS = 15_000;
@@ -82,15 +79,13 @@ const startAcp = (binary: string) => {
     proc.stdin?.write(`${JSON.stringify(message)}\n`);
   };
   const onLine = (line: string): void => {
-    const parsed = parseJson(line, AcpLine);
+    // A reply that misses the schema (like a non-JSON log line) is
+    // dropped: the pending request resolves through its timeout instead.
+    const parsed = parseJson(line, AcpReply);
     if (!parsed.ok) return;
-    const msg = parsed.data;
-    if (typeof msg.id !== "number") return;
-    // A reply that misses the schema is dropped, not trusted: the
-    // pending request resolves through its timeout instead.
-    const reply = AcpReply(msg);
-    if (reply instanceof type.errors) return;
-    pending.get(msg.id)?.(reply);
+    const reply = parsed.data;
+    if (typeof reply.id !== "number") return;
+    pending.get(reply.id)?.(reply);
   };
   if (proc.stdout !== undefined)
     createInterface({ input: proc.stdout }).on("line", onLine);

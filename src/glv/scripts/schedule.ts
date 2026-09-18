@@ -103,9 +103,8 @@ document.addEventListener("DOMContentLoaded", validateAll);
 // target's value didn't move, and one fired on the field would make
 // the combobox re-open its popup for the just-picked zone.)
 document.addEventListener("auto-complete-change", (e) => {
-  // The combobox dispatches its own event subclass carrying the field as
-  // relatedTarget; instanceof both narrows the event and re-proves the
-  // element type at runtime.
+  // The combobox dispatches its own event subclass carrying the field
+  // as relatedTarget; instanceof narrows both at runtime.
   if (!(e instanceof AutoCompleteEvent)) return;
   const input = e.relatedTarget;
   if (!(input instanceof HTMLInputElement) || !input.matches(TIMEZONE_FIELD))
@@ -164,8 +163,8 @@ const newStepBlock = (): HTMLElement => {
   const template = document.createElement("template");
   template.innerHTML = STEP_BLOCK_HTML;
   const block = template.content.firstElementChild;
-  // STEP_BLOCK_HTML is a constant whose root is a <div>; a miss here is
-  // a programming error in that constant, not a runtime possibility.
+  // STEP_BLOCK_HTML's root is a <div>; anything else is a bug in that
+  // constant, so fail loudly rather than cast.
   if (!(block instanceof HTMLElement))
     throw new Error("step block template did not yield an element");
   return block;
