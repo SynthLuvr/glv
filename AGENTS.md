@@ -219,7 +219,7 @@ biome, oxlint (+ tsgolint), ast-grep, jscpd, and the codemods, and ships
 the canonical `biome.json`, `tsconfig`, and vitest presets this repo
 extends (`sgconfig.yml` points bare `ast-grep scan` and editor
 integrations at its rules). The repo-specific checks remain local:
-`lint:mirrored` and `lint:cross-tree` (see below).
+`lint:mirrored`, `lint:cross-tree`, and `lint:casts` (see below).
 
 ## Project Structure
 
@@ -256,3 +256,21 @@ code fragment shared between them belongs once in `src/glv/`, and the
 cross-tree clone check enforces that. The transitional exemption lists
 that tracked the consolidation were deleted when they emptied; the rule
 is absolute.
+
+## No unsafe casts (enforced)
+
+Product code must not assert a type with `as` — a cast makes a runtime
+claim nothing checked. Runtime data is validated instead: ArkType
+schemas at data boundaries (JSON payloads, form bodies, wire frames,
+PRAGMA/jscpd output, third-party globals), `typeof`/`instanceof`
+narrowing for DOM and similar values. `as const` is allowed (it is
+compile-time literal tightening with no runtime claim). The rule is
+`lint:casts` (`scripts/no-unsafe-casts.mts` running the ast-grep rules
+in `rules/`, also listed in `sgconfig.yml` for editor integrations), as
+part of `pnpm lint`. It scopes to `src/` and `scripts/` excluding the
+tests directories: suites deliberately read server-owned SQLite rows and
+response JSON through narrow casts, and the shared contract suites cover
+those paths end to end against the running server. When a
+legitimate-looking cast seems unavoidable, the fix is usually a
+cast-free narrowing (`instanceof` guard, ArkType predicate, explicit
+annotation from an already-typed value) — not a rule exemption.
