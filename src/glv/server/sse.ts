@@ -13,48 +13,21 @@ import {
 import { renderStreamLine } from "../views/stream-line.js";
 
 // A raw-response SSE channel. Fastify hands us the Node response via
-// reply.hijack(); this wraps it with the tiny surface the stream routes
-// used from hono/streaming: writeSSE (silently a no-op once the client
-// is gone), sleep, aborted, and lastEventId for resume.
+// reply.hijack(); this wraps the tiny surface the stream routes need:
+// writeSSE (a silent no-op once the client is gone), sleep, aborted, and
+// lastEventId for resume.
 class SseStream {
   readonly lastEventId: string | undefined;
-  readonly sleep: (ms: number) => Promise<void>;
-  readonly writeSSE: (message: {
-    event?: string;
-    data: string;
-    id?: string;
-  }) => Promise<void>;
-  readonly res: ServerResponse;
+  #res: ServerResponse;
   #aborted = false;
 
   constructor(req: IncomingMessage, res: ServerResponse) {
-    this.res = res;
+    this.#res = res;
     const header = req.headers["last-event-id"];
     this.lastEventId = Array.isArray(header) ? header[0] : header;
-    this.sleep = (ms: number) =>
-      new Promise((resolve) => {
-        setTimeout(resolve, ms);
-      });
-    this.writeSSE = async ({ event, data, id }) => {
-      if (this.#aborted || res.writableEnded) return;
-      // Writes one SSE frame. Multi-line data fans out across data:
-      // lines per the SSE wire format; a write after disconnect is
-      // dropped, so emissions need no abort guarding.
-      let frame = "";
-      if (event !== undefined) frame += `event: ${event}\n`;
-      if (id !== undefined) frame += `id: ${id}\n`;
-      for (const line of data.split("\n")) frame += `data: ${line}\n`;
-      frame += "\n";
-      await new Promise<void>((resolve, reject) => {
-        res.write(frame, "utf8", (err) => {
-          if (err !== null && err !== undefined) reject(err);
-          else resolve();
-        });
-      });
-    };
     // The request 'close' event fires when the connection tears down —
     // client disconnect, socket error, or server shutdown destroying the
-    // socket — which is exactly the abort signal the poll loops check.
+    // socket — exactly the abort signal the poll loops check.
     req.on("close", () => {
       this.#aborted = true;
     });
@@ -64,8 +37,38 @@ class SseStream {
     return this.#aborted;
   }
 
+  sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  // Multi-line data fans out across `data:` lines per the SSE wire format.
+  async writeSSE({
+    event,
+    data,
+    id,
+  }: {
+    event?: string;
+    data: string;
+    id?: string;
+  }): Promise<void> {
+    if (this.#aborted || this.#res.writableEnded) return;
+    let frame = "";
+    if (event !== undefined) frame += `event: ${event}\n`;
+    if (id !== undefined) frame += `id: ${id}\n`;
+    for (const line of data.split("\n")) frame += `data: ${line}\n`;
+    frame += "\n";
+    await new Promise<void>((resolve, reject) => {
+      this.#res.write(frame, "utf8", (err) => {
+        if (err !== null && err !== undefined) reject(err);
+        else resolve();
+      });
+    });
+  }
+
   close(): void {
-    if (!this.res.writableEnded) this.res.end();
+    if (!this.#res.writableEnded) this.#res.end();
   }
 }
 

@@ -69,6 +69,8 @@ const verifyAndRespond = async (
   fallbackError: string,
   verify: () => Promise<VerifyResult>,
 ): Promise<FastifyReply> => {
+  // The let keeps finishAuth outside the try: finishAuth sends the
+  // reply, and a send failure must not be re-answered by the catch.
   let result: VerifyResult;
   try {
     result = await verify();

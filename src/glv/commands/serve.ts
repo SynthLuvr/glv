@@ -171,35 +171,28 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  // Fastify only creates the underlying socket server during listen, so
-  // connection tracking (and the socket reap on shutdown) binds once
-  // listening has actually started.
-  let destroyConnections = (): void => {
-    // Replaced with real socket tracking once listening starts.
+  // Fastify only creates the socket server during listen, so connection
+  // tracking (and the socket reap on shutdown) binds once listening has
+  // actually started.
+  let reapConnections: (() => void) | undefined;
+  const onListening = (): void => {
+    reapConnections = trackConnections(app.server);
+    const address = app.server.address();
+    const port =
+      typeof address === "object" && address !== null
+        ? address.port
+        : opts.port;
+    console.log(`glv-${opts.profile.id} web viewer → http://localhost:${port}`);
+    // Enumerating the model catalogue can spawn the agent binary, which
+    // takes seconds; warm it now so the first New Session render is
+    // instant. Best-effort only: a failure degrades the picker, never
+    // the server.
+    void opts.models?.choices();
   };
-  void app.listen({ port: opts.port }).then(
-    () => {
-      destroyConnections = trackConnections(app.server);
-      const address = app.server.address();
-      const port =
-        typeof address === "object" && address !== null
-          ? address.port
-          : opts.port;
-      console.log(
-        `glv-${opts.profile.id} web viewer → http://localhost:${port}`,
-      );
-      // Enumerating the model catalogue can spawn the agent binary, which
-      // takes seconds; warm it now so the first New Session render is
-      // instant. Best-effort only: a failure degrades the picker, never
-      // the server.
-      void opts.models?.choices();
-    },
-    // A listen failure (port in use) surfaces as an unhandled rejection,
-    // which the crash handler in registerShutdown turns into shutdown(1).
-    (err: unknown) => {
-      throw err;
-    },
-  );
+  // A listen failure (e.g. port in use) deliberately stays unhandled
+  // here: it surfaces as an unhandled rejection, which the crash handler
+  // in registerShutdown turns into shutdown(1).
+  void app.listen({ port: opts.port }).then(onListening);
 
   const closeDbs = (): void => {
     opts.closeStore();
@@ -218,7 +211,7 @@ const runServe = (sessions: SessionStore, opts: ServeOpts): void => {
 
   const shutdown = createShutdown({
     server: app,
-    destroyConnections: () => destroyConnections(),
+    destroyConnections: () => reapConnections?.(),
     stopCron: cron.stop,
     stopProcesses: () => stopAll(runner),
     closeDbs,

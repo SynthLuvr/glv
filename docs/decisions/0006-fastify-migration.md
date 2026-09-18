@@ -38,14 +38,14 @@ point), so each one needed an equivalent:
 |----|----|----|
 | HTTP server | forked `@hono/node-server` | Fastify itself (Node-first) |
 | JSX → string | `hono/jsx` + `hono/jsx/dom/server` | `preact` + `preact-render-to-string` (+ 30-line type shim in `src/glv/jsx.ts`) |
-| SSE | forked `hono/streaming` | ~85-line `SseStream` over `reply.raw` (`reply.hijack()`) |
+| SSE | forked `hono/streaming` | ~55-line `SseStream` over `reply.raw` (`reply.hijack()`) |
 | Cookies | `hono/cookie` | `@fastify/cookie` |
 | Form/multipart parsing | `Request.formData()` via `parseBody` | `@fastify/formbody` + ~50-line `parseForm` preserving repeated-field array semantics |
 | Auth gate | `app.use` middleware | `preHandler` hook |
 | File delivery | forked `send-file` | ~60-line ranged sender + MIME table in `browse.tsx` |
 | Status-code typing | `ContentfulStatusCode` | local `StatusCode` union |
 
-Net: **+1367/−528 lines across 32 files**; roughly 300 lines of new
+Net: **+1602/−538 lines across 39 files**; roughly 300 lines of new
 owned plumbing (SSE framing, form normalization, ranges, MIME) that Hono
 shipped built-in.
 

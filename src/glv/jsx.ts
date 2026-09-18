@@ -1,9 +1,9 @@
 import type { ComponentChild, HTMLAttributes } from "preact";
 import { Fragment } from "preact";
 
-// The JSX layer for server-rendered markup. Views are pure synchronous
-// components rendered to strings; Fragment/Child/PropsWithChildren mirror
-// the hono/jsx surface this codebase was written against.
+// The JSX layer for server-rendered markup: views are pure synchronous
+// components rendered to strings. Child and PropsWithChildren are the
+// prop-shape aliases the views were written against.
 type Child = ComponentChild;
 
 type PropsWithChildren<P = Record<string, never>> = P & {

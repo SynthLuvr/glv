@@ -1,10 +1,18 @@
 import type {} from "@fastify/multipart";
 import type { FastifyRequest } from "fastify";
 
-// Mirrors hono's parseBody({ all: true }): a record of field values where
-// a repeated field name yields an array and a single occurrence yields the
-// value itself. Multipart bodies (file uploads) are consumed part by part;
-// urlencoded and JSON bodies arrive already parsed on req.body.
+// Multipart file parts buffer into a File so the upload pipeline (size
+// caps, sanitized names) sees the shape it was built for.
+const toFile = (
+  part: { filename: string; mimetype: string },
+  buffer: Buffer,
+): File =>
+  new File([new Uint8Array(buffer)], part.filename, {
+    type: part.mimetype,
+  });
+
+// Adds a field occurrence: a repeated name yields an array, a single
+// occurrence yields the value itself.
 const pushField = (
   body: Record<string, unknown>,
   name: string,
@@ -16,18 +24,17 @@ const pushField = (
   else body[name] = value;
 };
 
+// Form fields as a record. Multipart bodies (file uploads) are consumed
+// part by part; urlencoded and JSON bodies arrive already parsed on
+// req.body.
 const parseForm = async (
   req: FastifyRequest,
 ): Promise<Record<string, unknown>> => {
   if (req.isMultipart()) {
     const body: Record<string, unknown> = {};
     for await (const part of req.parts()) {
-      // File parts buffer into a File so the existing upload pipeline
-      // (size caps, sanitized names) sees the same shape hono produced.
       const value =
-        part.type === "file"
-          ? await part.toBuffer().then((buffer) => toFile(part, buffer))
-          : part.value;
+        part.type === "file" ? toFile(part, await part.toBuffer()) : part.value;
       pushField(body, part.fieldname, value);
     }
     return body;
@@ -37,13 +44,5 @@ const parseForm = async (
     ? (body as Record<string, unknown>)
     : {};
 };
-
-const toFile = (
-  part: { filename: string; mimetype: string },
-  buffer: Buffer,
-): File =>
-  new File([new Uint8Array(buffer)], part.filename, {
-    type: part.mimetype,
-  });
 
 export { parseForm };

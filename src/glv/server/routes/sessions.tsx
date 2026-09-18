@@ -5,7 +5,6 @@ import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { removeMember } from "../../groups/db.js";
-import { Fragment } from "../../jsx.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
 import { modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
@@ -407,10 +406,10 @@ const registerSessionRoutes = (
     if (!isHtmxRequest(req)) return renderSession(req, reply, id, updated);
     return sendHtml(
       reply,
-      <Fragment>
+      <>
         <SessionTitleWrap session={updated} />
         {sessionList(sessions, true)}
-      </Fragment>,
+      </>,
     );
   });
 

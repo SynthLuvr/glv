@@ -430,19 +430,22 @@ const firstForwardedValue = (
   return first === undefined || first === "" ? undefined : first;
 };
 
+// Node types headers as string | string[]; forwarded headers are
+// single-valued strings, so anything else reads as absent.
+const headerValue = (req: FastifyRequest, name: string): string | undefined => {
+  const value = req.headers[name];
+  return typeof value === "string" ? value : undefined;
+};
+
 const resolveRequestUrl = (req: FastifyRequest): URL => {
   const host = req.headers.host ?? "localhost";
   const url = new URL(req.raw.url ?? "/", `http://${host}`);
   const forwardedHost = firstForwardedValue(
-    typeof req.headers["x-forwarded-host"] === "string"
-      ? req.headers["x-forwarded-host"]
-      : undefined,
+    headerValue(req, "x-forwarded-host"),
   );
   if (forwardedHost !== undefined) url.host = forwardedHost;
   const forwardedProto = firstForwardedValue(
-    typeof req.headers["x-forwarded-proto"] === "string"
-      ? req.headers["x-forwarded-proto"]
-      : undefined,
+    headerValue(req, "x-forwarded-proto"),
   );
   if (forwardedProto !== undefined) url.protocol = `${forwardedProto}:`;
   return url;

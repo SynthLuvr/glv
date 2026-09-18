@@ -26,16 +26,14 @@ const serveAsset = (
     .code(200)
     .send(body);
 
-// The hono c.html() equivalent: render a JSX node and send it as HTML.
-// Always the last call in a handler; returns the reply so callers can
-// `return sendHtml(...)` like they returned a Response before.
+// Render a JSX node and send it as HTML. A string node passes through
+// untouched (fragment endpoints reply with "" so htmx clears slots).
+// Returns the reply so handlers can `return sendHtml(...)`.
 const sendHtml = (
   reply: FastifyReply,
   node: ComponentChild,
   status?: StatusCode,
 ): FastifyReply => {
-  // Strings pass through untouched (fragment endpoints reply with "" so
-  // htmx clears slots); JSX nodes render to markup.
   const html =
     typeof node === "string"
       ? node

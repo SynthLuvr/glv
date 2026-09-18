@@ -3,7 +3,7 @@ import { type CronJobConfig, listCronJobs } from "../cron-jobs.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
-import { type Child, Fragment, type PropsWithChildren } from "../jsx.js";
+import { type Child, type PropsWithChildren } from "../jsx.js";
 import { modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import type { SessionRow } from "../sessions.js";
@@ -141,7 +141,7 @@ const render = (
   if (isHtmxRequest(req))
     return sendHtml(
       reply,
-      <Fragment>
+      <>
         {detail}
         {refreshSidebar && (
           <SessionList
@@ -152,7 +152,7 @@ const render = (
             count={sessions.length}
           />
         )}
-      </Fragment>,
+      </>,
       status,
     );
   return sendHtml(

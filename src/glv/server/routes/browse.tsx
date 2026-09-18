@@ -131,25 +131,23 @@ const serveBrowseFile = (
   }
   const type = contentTypeForFile(target.abs);
   const size = statSync(target.abs).size;
-  const rangeHeader = req.headers.range;
-  if (typeof rangeHeader === "string" && rangeHeader !== "") {
-    const range = parseByteRange(rangeHeader, size);
-    if (range === "unsatisfiable")
-      return reply
-        .code(416)
-        .header("Content-Range", `bytes */${size}`)
-        .send("");
-    if (range !== "invalid")
-      return reply
-        .code(206)
-        .header("Content-Range", `bytes ${range.start}-${range.end}/${size}`)
-        .header("Accept-Ranges", "bytes")
-        .header("Content-Length", String(range.end - range.start + 1))
-        .type(type)
-        .send(
-          createReadStream(target.abs, { start: range.start, end: range.end }),
-        );
-  }
+  const header = req.headers.range;
+  const range =
+    typeof header === "string" && header !== ""
+      ? parseByteRange(header, size)
+      : undefined;
+  if (range === "unsatisfiable")
+    return reply.code(416).header("Content-Range", `bytes */${size}`).send("");
+  if (range !== undefined && range !== "invalid")
+    return reply
+      .code(206)
+      .header("Content-Range", `bytes ${range.start}-${range.end}/${size}`)
+      .header("Accept-Ranges", "bytes")
+      .header("Content-Length", String(range.end - range.start + 1))
+      .type(type)
+      .send(
+        createReadStream(target.abs, { start: range.start, end: range.end }),
+      );
   return reply
     .header("Accept-Ranges", "bytes")
     .header("Content-Length", String(size))
