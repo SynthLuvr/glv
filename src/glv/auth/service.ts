@@ -458,7 +458,7 @@ const resolveRequestUrl = (request: FastifyRequest): URL => {
 const authMiddleware =
   (auth: AuthService) =>
   async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const path = request.raw.url?.split("?")[0] ?? request.url;
+    const path = request.url.split("?")[0];
     if (isPublicPath(path)) return;
     const token = auth.readSessionCookie(request);
     if (token !== undefined && auth.isValidSession(token)) {

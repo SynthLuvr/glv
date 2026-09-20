@@ -22,7 +22,7 @@ import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
 import { ServerContext, VIEWER_FILTER } from "../context.js";
-import { parseForm } from "../forms.js";
+import { fieldString, parseForm } from "../forms.js";
 import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
 import { expandHome } from "../paths.js";
 import {
@@ -193,14 +193,14 @@ const registerSessionRoutes = (
   app.post("/sessions", async (request, reply) => {
     const sessions = sessionsAll();
     const body = await parseForm(request);
-    const fieldString = (key: string): string => firstString(body[key]);
+    const bodyField = (key: string): string => firstString(body[key]);
 
-    const prompt = fieldString("prompt");
-    const promptId = fieldString("prompt_id");
-    const sessionMode = fieldString("session_mode");
-    const modelProvider = fieldString("model_provider");
+    const prompt = bodyField("prompt");
+    const promptId = bodyField("prompt_id");
+    const sessionMode = bodyField("session_mode");
+    const modelProvider = bodyField("model_provider");
     const submittedWorkingDir = canonicalWorkingDir(
-      expandHome(fieldString("working_dir")),
+      expandHome(bodyField("working_dir")),
     );
 
     const files = collectFiles(body.uploads);
@@ -408,7 +408,7 @@ const registerSessionRoutes = (
     async (request, reply) => {
       const id = request.params.id;
       const body = await parseForm(request);
-      const name = typeof body.name === "string" ? body.name : "";
+      const name = fieldString(body, "name");
       const from = body.from === "sidebar" ? "sidebar" : "header";
       ctx.sessions.renameSession(id, name);
       const updated = ctx.sessions.getSession(id);

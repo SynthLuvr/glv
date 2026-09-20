@@ -141,7 +141,7 @@ const rangeResponse = (
   };
   const resolved = resolveByteRange(spec, size);
   if (resolved === undefined)
-    return sendHead(reply, 416, {
+    return sendHeadOnly(reply, 416, {
       ...headers,
       "Content-Range": `bytes */${size}`,
     });
@@ -160,7 +160,7 @@ const rangeResponse = (
 // Body-less responses (HEAD/OPTIONS/304/416) bypass Fastify's serializer —
 // it would turn a null payload into a JSON "null" body with an
 // application/json content type — and write the exact wire bytes instead.
-const sendHead = (
+const sendHeadOnly = (
   reply: FastifyReply,
   status: number,
   headers: Record<string, string>,
@@ -184,7 +184,7 @@ const fileResponse = (
   };
   const method = reply.request.method;
   if (method === "HEAD" || method === "OPTIONS")
-    return sendHead(reply, 200, headers);
+    return sendHeadOnly(reply, 200, headers);
 
   const range = headerValue(reply.request.headers.range);
   if (range !== undefined) return rangeResponse(reply, path, range, size, meta);
@@ -216,7 +216,7 @@ const sendFile = (
     (method === "GET" || method === "HEAD") &&
     isNotModifiedSince(ifModifiedSince, stats.mtimeMs)
   )
-    return sendHead(reply, 304, { "Last-Modified": meta.lastModified });
+    return sendHeadOnly(reply, 304, { "Last-Modified": meta.lastModified });
 
   return fileResponse(reply, path, stats.size, meta);
 };

@@ -4,7 +4,7 @@ import { BrowseDetail, BrowseError } from "../../views/Browse.js";
 import { listBrowseDir, resolveBrowsePath } from "../browse.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
-import { sendNotFound } from "../http.js";
+import { sendNotFound, sendText } from "../http.js";
 import { render } from "../render.js";
 import { sendFile } from "../send-file.js";
 
@@ -65,11 +65,7 @@ const renderBrowse = (
 const serveBrowseFile = (reply: FastifyReply, sub: string): FastifyReply => {
   const home = homedir();
   const target = resolveBrowsePath(home, sub);
-  if (!target.ok)
-    return reply
-      .status(target.status)
-      .type("text/plain; charset=utf-8")
-      .send("Not found\n");
+  if (!target.ok) return sendText(reply, "Not found\n", target.status);
   if (!target.stat.isFile()) return sendNotFound(reply);
   return sendFile(reply, target.abs, target.stat);
 };

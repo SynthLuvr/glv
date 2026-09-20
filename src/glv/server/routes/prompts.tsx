@@ -17,7 +17,7 @@ import {
 } from "../../views/prompt-library.js";
 import type { ServerContext } from "../context.js";
 import { fieldString, parseForm } from "../forms.js";
-import { queryValue, sendHtml, sendNotFound } from "../http.js";
+import { queryValue, sendHtml, sendNotFound, sendText } from "../http.js";
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
 
@@ -66,7 +66,7 @@ const registerPromptRoutes = (
       .map((id) => id.trim())
       .filter((id) => id !== "");
     if (ids.length > 0) reorderPrompts(prompts, ids);
-    return reply.status(200).type("text/plain; charset=utf-8").send("");
+    return sendText(reply, "");
   });
 
   // Inline save form, loaded into the save slot on demand.
@@ -148,7 +148,7 @@ const registerPromptRoutes = (
   // Empty body + outerHTML swap removes the card from the DOM.
   app.delete<{ Params: { id: string } }>("/prompts/:id", (request, reply) => {
     deletePrompt(prompts, request.params.id);
-    return reply.status(200).type("text/plain; charset=utf-8").send("");
+    return sendText(reply, "");
   });
 };
 

@@ -14,7 +14,7 @@ import { type MessageEntry, sessionEventData } from "../../sse-events.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
-import { queryValue } from "../http.js";
+import { queryValue, sendText } from "../http.js";
 import {
   emit,
   emitMeta,
@@ -231,10 +231,7 @@ const registerStreamRoutes = (
       const id = request.params.id;
       const initial = ctx.sessions.getSession(id);
       if (initial === undefined)
-        return reply
-          .status(404)
-          .type("text/plain; charset=utf-8")
-          .send("Session not found");
+        return sendText(reply, "Session not found", 404);
 
       return streamSse(reply, async (stream) => {
         const cursor = resumeCursor(

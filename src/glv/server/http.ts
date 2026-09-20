@@ -7,14 +7,14 @@ import { renderToString } from "hono/jsx/dom/server";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const isHtmxRequest = (request: FastifyRequest): boolean =>
-  request.headers["hx-request"] === "true";
-
 // Node collects repeated headers into arrays; every header read is a
 // single-value read, so take the first.
 const headerValue = (
   value: string | string[] | undefined,
 ): string | undefined => (Array.isArray(value) ? value[0] : value);
+
+const isHtmxRequest = (request: FastifyRequest): boolean =>
+  headerValue(request.headers["hx-request"]) === "true";
 
 // Fastify's default query parser yields strings and string arrays (repeated
 // keys); route code always wants the first value, like Hono's req.query().
@@ -59,9 +59,16 @@ const sendHtml = (
     .type("text/html; charset=utf-8")
     .send(renderToString(child));
 
+const sendText = (
+  reply: FastifyReply,
+  body: string,
+  status = 200,
+): FastifyReply =>
+  reply.status(status).type("text/plain; charset=utf-8").send(body);
+
 // Byte-parity with the framework's previous plain-text 404 body.
 const sendNotFound = (reply: FastifyReply): FastifyReply =>
-  reply.status(404).type("text/plain; charset=utf-8").send("404 Not Found");
+  sendText(reply, "404 Not Found", 404);
 
 export {
   extractIds,
@@ -71,5 +78,6 @@ export {
   queryValue,
   sendHtml,
   sendNotFound,
+  sendText,
   serveAsset,
 };
