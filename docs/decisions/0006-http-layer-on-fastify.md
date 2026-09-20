@@ -37,16 +37,16 @@ HTML the SSE contract tests pin).
   (`c.html(el)`, `c.json(obj, 400)`, `c.redirect(...)`) to mutating
   Fastify replies (`sendHtml(reply, el, 422)`, `reply.status(400)`,
   `reply.redirect(...)`).
-- `hono/streaming`’s `streamSSE` is replaced by **`@fastify/sse`** (routes
-  opt in with `sse: "only"`): the plugin serializes frames, honors
-  backpressure, and closes the response when the handler resolves.
-  `server/sse.ts` remains only as a thin facade over `reply.sse`,
-  preserving the fork semantics this project depends on — the
-  `Last-Event-ID` reconnect cursor and writes-after-disconnect becoming
-  no-ops. Heartbeats are disabled (the poll loops bound their own
-  lifetimes, and a heartbeat comment would be wire bytes this app has
-  never sent) and the serializer is the identity because payloads arrive
-  pre-serialized and validated by `sse-events`.
+- `hono/streaming`’s `streamSSE` is replaced by **`@fastify/sse`**
+  (routes opt in with `sse: "only"`): the plugin serializes frames,
+  honors backpressure, and closes the response when the handler
+  resolves. `server/sse.ts` remains only as a thin facade over
+  `reply.sse`, preserving the fork semantics this project depends on —
+  the `Last-Event-ID` reconnect cursor and writes-after-disconnect
+  becoming no-ops. Heartbeats are disabled (the poll loops bound their
+  own lifetimes, and a heartbeat comment would be wire bytes this app
+  has never sent) and the serializer is the identity because payloads
+  arrive pre-serialized and validated by `sse-events`.
 - `parseBody({ all: true })` is replaced by `server/forms.ts`, which
   normalizes `@fastify/formbody` and `@fastify/multipart`
   (attachFieldsToBody) output into the same string/File record shape the
