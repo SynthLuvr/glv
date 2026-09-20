@@ -1,4 +1,4 @@
-import { type Context, type Hono } from "hono";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   AuthService,
   RpConfig,
@@ -13,9 +13,14 @@ import {
   RegisterPage,
 } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
+import { sendHtml } from "../http.js";
+import { parseAuthentication, parseRegistration } from "../webauthn-json.js";
 
-const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
-  const url = resolveRequestUrl(c);
+const rpFromRequest = (
+  request: FastifyRequest,
+  ctx: ServerContext,
+): RpConfig => {
+  const url = resolveRequestUrl(request);
   return {
     rpName: ctx.rpName ?? "GLV",
     rpID: ctx.rpIdOverride ?? (url.hostname || "localhost"),
@@ -24,86 +29,113 @@ const rpFromContext = (c: Context, ctx: ServerContext): RpConfig => {
 };
 
 const finishAuth = (
-  c: Context,
+  request: FastifyRequest,
+  reply: FastifyReply,
   auth: AuthService,
   result: VerifyResult,
   fallbackError: string,
-) => {
+): FastifyReply => {
   if (result.verified && result.token !== undefined) {
-    auth.setSessionCookie(c, result.token);
-    return c.json({ verified: true });
+    auth.setSessionCookie(request, reply, result.token);
+    return reply.send({ verified: true });
   }
-  return c.json({ verified: false, error: result.error ?? fallbackError }, 400);
+  return reply
+    .status(400)
+    .send({ verified: false, error: result.error ?? fallbackError });
 };
 
 // Route failures become structured JSON instead of an opaque 500: malformed
 // verify bodies are client input (400), while option generation is server-side
 // (500).
-const jsonOrError = async <T,>(c: Context, run: () => Promise<T>) => {
+const jsonOrError = async <T,>(
+  reply: FastifyReply,
+  run: () => Promise<T>,
+): Promise<FastifyReply> => {
   try {
-    return c.json(await run());
+    const payload = await run();
+    return await reply.send(payload);
   } catch (err) {
-    return c.json({ error: errorMessage(err) }, 500);
+    return reply.status(500).send({ error: errorMessage(err) });
   }
 };
 
 const verifyAndRespond = async (
-  c: Context,
+  request: FastifyRequest,
+  reply: FastifyReply,
   auth: AuthService,
   fallbackError: string,
   verify: () => Promise<VerifyResult>,
-) => {
+): Promise<FastifyReply> => {
   try {
-    return finishAuth(c, auth, await verify(), fallbackError);
+    const result = await verify();
+    return await finishAuth(request, reply, auth, result, fallbackError);
   } catch (err) {
-    return c.json({ verified: false, error: errorMessage(err) }, 400);
+    return reply
+      .status(400)
+      .send({ verified: false, error: errorMessage(err) });
   }
 };
 
-const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
+// A body the structural guards in webauthn-json.ts reject is a client
+// error, reported like a failed ceremony.
+const malformedBody = (reply: FastifyReply): FastifyReply =>
+  reply.status(400).send({ verified: false, error: "Malformed request." });
+
+const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
   const auth = ctx.auth;
   if (auth === undefined) return;
 
-  app.get("/auth/register", (c) => {
-    if (auth.isClaimed()) return c.redirect("/auth/login", 302);
-    return c.html(<RegisterPage agentName={ctx.profile.agentName} />);
+  app.get("/auth/register", (_request, reply) => {
+    if (auth.isClaimed()) return reply.redirect("/auth/login");
+    return sendHtml(reply, <RegisterPage agentName={ctx.profile.agentName} />);
   });
 
-  app.get("/auth/login", (c) => {
-    if (!auth.isClaimed()) return c.redirect("/auth/register", 302);
-    return c.html(<LoginPage agentName={ctx.profile.agentName} />);
+  app.get("/auth/login", (_request, reply) => {
+    if (!auth.isClaimed()) return reply.redirect("/auth/register");
+    return sendHtml(reply, <LoginPage agentName={ctx.profile.agentName} />);
   });
 
-  app.get("/auth/register/options", async (c) => {
+  app.get("/auth/register/options", async (request, reply) => {
     if (auth.isClaimed())
-      return c.json({ error: "Registration is closed." }, 403);
-    return jsonOrError(c, () =>
-      auth.registrationOptions(rpFromContext(c, ctx)),
+      return reply.status(403).send({ error: "Registration is closed." });
+    return jsonOrError(reply, () =>
+      auth.registrationOptions(rpFromRequest(request, ctx)),
     );
   });
 
-  app.post("/auth/register/verify", async (c) => {
+  app.post("/auth/register/verify", async (request, reply) => {
     if (auth.isClaimed())
-      return c.json({ verified: false, error: "Registration is closed." }, 403);
-    return verifyAndRespond(c, auth, "Verification failed.", async () =>
-      auth.verifyRegistration(rpFromContext(c, ctx), await c.req.json()),
+      return reply
+        .status(403)
+        .send({ verified: false, error: "Registration is closed." });
+    const body = parseRegistration(request.body);
+    if (body === undefined) return malformedBody(reply);
+    return verifyAndRespond(
+      request,
+      reply,
+      auth,
+      "Verification failed.",
+      async () => auth.verifyRegistration(rpFromRequest(request, ctx), body),
     );
   });
 
-  app.get("/auth/login/options", async (c) =>
-    jsonOrError(c, () => auth.loginOptions(rpFromContext(c, ctx))),
+  app.get("/auth/login/options", async (request, reply) =>
+    jsonOrError(reply, () => auth.loginOptions(rpFromRequest(request, ctx))),
   );
 
-  app.post("/auth/login/verify", (c) =>
-    verifyAndRespond(c, auth, "Login failed.", async () =>
-      auth.verifyLogin(rpFromContext(c, ctx), await c.req.json()),
-    ),
-  );
+  app.post("/auth/login/verify", async (request, reply) => {
+    const body = parseAuthentication(request.body);
+    if (body === undefined) return malformedBody(reply);
+    return verifyAndRespond(request, reply, auth, "Login failed.", async () =>
+      auth.verifyLogin(rpFromRequest(request, ctx), body),
+    );
+  });
 
   // Owner-only passkey management. The auth middleware gates these (they are
   // excluded from isPublicPath), so reaching a handler implies a valid session.
-  app.get("/auth/devices", (c) =>
-    c.html(
+  app.get("/auth/devices", (_request, reply) =>
+    sendHtml(
+      reply,
       <DevicesPage
         credentials={auth.listCredentialSummaries()}
         agentName={ctx.profile.agentName}
@@ -111,13 +143,14 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
     ),
   );
 
-  app.post("/auth/devices", (c) => {
+  app.post("/auth/devices", (request, reply) => {
     const token = auth.issueEnrollmentToken();
     const enrollUrl =
       token === undefined
         ? undefined
-        : `${resolveRequestUrl(c).origin}/auth/enroll/${token}`;
-    return c.html(
+        : `${resolveRequestUrl(request).origin}/auth/enroll/${token}`;
+    return sendHtml(
+      reply,
       <DevicesPage
         agentName={ctx.profile.agentName}
         credentials={auth.listCredentialSummaries()}
@@ -130,46 +163,66 @@ const registerAuthRoutes = (app: Hono, ctx: ServerContext): void => {
   // Token-gated enrollment: the owner redeems a link on a different origin to
   // add a passkey bound to that origin's RP ID. Stays public (no session) but
   // every step re-checks the bearer token.
-  app.get("/auth/enroll/:token", (c) => {
-    const token = c.req.param("token");
-    if (!auth.isEnrollmentTokenValid(token))
-      return c.redirect("/auth/login", 302);
-    return c.html(
-      <EnrollPage token={token} agentName={ctx.profile.agentName} />,
-    );
-  });
-
-  app.get("/auth/enroll/:token/options", async (c) => {
-    const token = c.req.param("token");
-    if (!auth.isEnrollmentTokenValid(token))
-      return c.json({ error: "Enrollment link expired or already used." }, 403);
-    return jsonOrError(c, () =>
-      auth.registrationOptions(rpFromContext(c, ctx)),
-    );
-  });
-
-  app.post("/auth/enroll/:token/verify", async (c) => {
-    const token = c.req.param("token");
-    if (!auth.isEnrollmentTokenValid(token))
-      return c.json(
-        { verified: false, error: "Enrollment link expired or already used." },
-        400,
+  app.get<{ Params: { token: string } }>(
+    "/auth/enroll/:token",
+    (request, reply) => {
+      const token = request.params.token;
+      if (!auth.isEnrollmentTokenValid(token))
+        return reply.redirect("/auth/login");
+      return sendHtml(
+        reply,
+        <EnrollPage token={token} agentName={ctx.profile.agentName} />,
       );
-    return verifyAndRespond(c, auth, "Enrollment failed.", async () => {
-      const result = await auth.verifyEnrollment(
-        rpFromContext(c, ctx),
-        await c.req.json(),
-      );
-      // Burn the link only after a successful enroll so a cancelled or failed
-      // ceremony can be retried with the same link.
-      if (result.verified) auth.consumeEnrollmentToken(token);
-      return result;
-    });
-  });
+    },
+  );
 
-  app.post("/auth/logout", (c) => {
-    auth.logout(c);
-    return c.redirect("/auth/login", 302);
+  app.get<{ Params: { token: string } }>(
+    "/auth/enroll/:token/options",
+    async (request, reply) => {
+      const token = request.params.token;
+      if (!auth.isEnrollmentTokenValid(token))
+        return reply
+          .status(403)
+          .send({ error: "Enrollment link expired or already used." });
+      return jsonOrError(reply, () =>
+        auth.registrationOptions(rpFromRequest(request, ctx)),
+      );
+    },
+  );
+
+  app.post<{ Params: { token: string } }>(
+    "/auth/enroll/:token/verify",
+    async (request, reply) => {
+      const token = request.params.token;
+      if (!auth.isEnrollmentTokenValid(token))
+        return reply.status(400).send({
+          verified: false,
+          error: "Enrollment link expired or already used.",
+        });
+      const body = parseRegistration(request.body);
+      if (body === undefined) return malformedBody(reply);
+      return verifyAndRespond(
+        request,
+        reply,
+        auth,
+        "Enrollment failed.",
+        async () => {
+          const result = await auth.verifyEnrollment(
+            rpFromRequest(request, ctx),
+            body,
+          );
+          // Burn the link only after a successful enroll so a cancelled or failed
+          // ceremony can be retried with the same link.
+          if (result.verified) auth.consumeEnrollmentToken(token);
+          return result;
+        },
+      );
+    },
+  );
+
+  app.post("/auth/logout", (request, reply) => {
+    auth.logout(request, reply);
+    return reply.redirect("/auth/login");
   });
 };
 

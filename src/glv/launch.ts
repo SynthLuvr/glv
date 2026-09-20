@@ -1,10 +1,9 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ModelSelection } from "./models.js";
 import type { SessionRow } from "./sessions.js";
 
 type EstablishOutcome =
   | { ok: true; sessionId: string; session: SessionRow }
-  | { ok: false; status: ContentfulStatusCode; error: string };
+  | { ok: false; status: number; error: string };
 
 // The new-session strategy, implemented per flavor. goose must discover the
 // session id its agent chose (temp handle, poll, rekey); claude pre-assigns

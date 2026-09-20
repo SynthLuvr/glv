@@ -1,27 +1,80 @@
 import { createReadStream, type Stats } from "node:fs";
-import { createStreamBody } from "@hono/node-server/utils/stream";
-import { type Context } from "hono";
-import { getMimeType } from "hono/utils/mime";
+import type { FastifyReply } from "fastify";
+import { headerValue } from "./http.js";
 
-// Vendored from the @hono/node-server fork this project dropped: the stock
-// package exports no sendFile, and its serveStatic re-resolves request paths
-// and ignores If-Modified-Since. This local copy serves an already-validated
-// absolute path with the fork's wire behavior — extension-derived
-// Content-Type, Content-Length, Last-Modified, conditional 304s, HEAD/OPTIONS,
-// and single byte-range requests — streamed from disk, never buffered.
+// Vendored from @hono/node-server's serveStatic lineage (and now Fastify's
+// reply): neither framework ships a sendFile that serves an
+// already-validated absolute path with this wire behavior —
+// extension-derived Content-Type, Content-Length, Last-Modified,
+// conditional 304s, HEAD/OPTIONS, and single byte-range requests —
+// streamed from disk, never buffered.
 
-// false pins the manual stream pump; the default switches to Readable.toWeb
-// on newer Node versions, which changes the bridge across runtimes.
-const fileBody = (
-  path: string,
-  range?: { start: number; end: number },
-): ReadableStream<Uint8Array> =>
-  range === undefined
-    ? createStreamBody(createReadStream(path), false)
-    : createStreamBody(
-        createReadStream(path, { start: range.start, end: range.end }),
-        false,
-      );
+// The extension table hono/utils/mime carried, vendored so /files keeps
+// byte-identical Content-Type headers for every extension it mapped.
+const MIME_TYPES: Record<string, string> = {
+  aac: "audio/aac",
+  avi: "video/x-msvideo",
+  avif: "image/avif",
+  av1: "video/av1",
+  bin: "application/octet-stream",
+  bmp: "image/bmp",
+  css: "text/css; charset=utf-8",
+  csv: "text/csv; charset=utf-8",
+  eot: "application/vnd.ms-fontobject",
+  epub: "application/epub+zip",
+  gif: "image/gif",
+  gz: "application/gzip",
+  htm: "text/html; charset=utf-8",
+  html: "text/html; charset=utf-8",
+  ico: "image/x-icon",
+  ics: "text/calendar; charset=utf-8",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript; charset=utf-8",
+  json: "application/json",
+  jsonld: "application/ld+json",
+  map: "application/json",
+  mid: "audio/x-midi",
+  midi: "audio/x-midi",
+  mjs: "text/javascript; charset=utf-8",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  mpeg: "video/mpeg",
+  oga: "audio/ogg",
+  ogv: "video/ogg",
+  ogx: "application/ogg",
+  opus: "audio/opus",
+  otf: "font/otf",
+  pdf: "application/pdf",
+  png: "image/png",
+  rtf: "application/rtf",
+  svg: "image/svg+xml; charset=utf-8",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  ts: "video/mp2t",
+  ttf: "font/ttf",
+  txt: "text/plain; charset=utf-8",
+  wasm: "application/wasm",
+  webm: "video/webm",
+  weba: "audio/webm",
+  webmanifest: "application/manifest+json",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  xhtml: "application/xhtml+xml",
+  xml: "application/xml; charset=utf-8",
+  zip: "application/zip",
+  "3gp": "video/3gpp",
+  "3g2": "video/3gpp2",
+  gltf: "model/gltf+json",
+  glb: "model/gltf-binary",
+};
+
+const getMimeType = (path: string): string | undefined => {
+  const match = path.match(/\.([a-zA-Z0-9]+?)$/);
+  if (match === null) return undefined;
+  return MIME_TYPES[match[1].toLowerCase()];
+};
 
 type ByteRangeSpec =
   | { type: "bounded"; start: number; end: number }
@@ -70,63 +123,102 @@ const isNotModifiedSince = (
 };
 
 const rangeResponse = (
-  c: Context,
+  reply: FastifyReply,
   path: string,
   range: string,
   size: number,
-): Response => {
-  c.header("Accept-Ranges", "bytes");
+  meta: { contentType: string; lastModified: string },
+): FastifyReply => {
+  const headers: Record<string, string> = {
+    "Content-Type": meta.contentType,
+    "Last-Modified": meta.lastModified,
+    "Accept-Ranges": "bytes",
+  };
   // A malformed Range header serves the whole file, as serveStatic always did.
   const spec: ByteRangeSpec = parseByteRange(range) ?? {
     type: "open-ended",
     start: 0,
   };
   const resolved = resolveByteRange(spec, size);
-  if (resolved === undefined) {
-    c.header("Content-Range", `bytes */${size}`);
-    return c.body(null, 416);
-  }
-  c.header("Content-Length", (resolved.end - resolved.start + 1).toString());
-  c.header("Content-Range", `bytes ${resolved.start}-${resolved.end}/${size}`);
-  return c.body(fileBody(path, resolved), 206);
+  if (resolved === undefined)
+    return sendHeadOnly(reply, 416, {
+      ...headers,
+      "Content-Range": `bytes */${size}`,
+    });
+
+  const length = resolved.end - resolved.start + 1;
+  return reply
+    .status(206)
+    .headers({
+      ...headers,
+      "Content-Length": length.toString(),
+      "Content-Range": `bytes ${resolved.start}-${resolved.end}/${size}`,
+    })
+    .send(createReadStream(path, resolved));
 };
 
-const fileResponse = (c: Context, path: string, size: number): Response => {
-  if (c.req.method === "HEAD" || c.req.method === "OPTIONS") {
-    c.header("Content-Length", size.toString());
-    c.status(200);
-    return c.body(null);
-  }
-  const range = c.req.header("range");
-  if (range !== undefined) return rangeResponse(c, path, range, size);
-  c.header("Content-Length", size.toString());
-  return c.body(fileBody(path), 200);
+// Body-less responses (HEAD/OPTIONS/304/416) bypass Fastify's serializer —
+// it would turn a null payload into a JSON "null" body with an
+// application/json content type — and write the exact wire bytes instead.
+const sendHeadOnly = (
+  reply: FastifyReply,
+  status: number,
+  headers: Record<string, string>,
+): FastifyReply => {
+  reply.hijack();
+  reply.raw.writeHead(status, headers);
+  reply.raw.end();
+  return reply;
+};
+
+const fileResponse = (
+  reply: FastifyReply,
+  path: string,
+  size: number,
+  meta: { contentType: string; lastModified: string },
+): FastifyReply => {
+  const headers: Record<string, string> = {
+    "Content-Type": meta.contentType,
+    "Last-Modified": meta.lastModified,
+    "Content-Length": size.toString(),
+  };
+  const method = reply.request.method;
+  if (method === "HEAD" || method === "OPTIONS")
+    return sendHeadOnly(reply, 200, headers);
+
+  const range = headerValue(reply.request.headers.range);
+  if (range !== undefined) return rangeResponse(reply, path, range, size, meta);
+  return reply.status(200).headers(headers).send(createReadStream(path));
 };
 
 // The caller owns the safety checks (containment, dotfile and symlink rules
 // — see browse.tsx) and passes the stats it validated against, so the file
 // is never re-resolved.
-const sendFile = (c: Context, path: string, stats: Stats): Response => {
-  c.header("Content-Type", getMimeType(path) ?? "application/octet-stream");
-  c.header("Last-Modified", stats.mtime.toUTCString());
+const sendFile = (
+  reply: FastifyReply,
+  path: string,
+  stats: Stats,
+): FastifyReply => {
+  const meta = {
+    contentType: getMimeType(path) ?? "application/octet-stream",
+    lastModified: stats.mtime.toUTCString(),
+  };
+  const method = reply.request.method;
+  const ifModifiedSince = headerValue(
+    reply.request.headers["if-modified-since"],
+  );
 
   // RFC 9110: If-Modified-Since applies only to GET/HEAD and is ignored when
   // If-None-Match is present.
-  const ifModifiedSince = c.req.header("if-modified-since");
   if (
     ifModifiedSince !== undefined &&
-    c.req.header("if-none-match") === undefined &&
-    (c.req.method === "GET" || c.req.method === "HEAD") &&
+    headerValue(reply.request.headers["if-none-match"]) === undefined &&
+    (method === "GET" || method === "HEAD") &&
     isNotModifiedSince(ifModifiedSince, stats.mtimeMs)
-  ) {
-    // A 304 carries no representation metadata, so the Content-Type set
-    // above is dropped; Last-Modified stays to guide cache updates
-    // (RFC 9110 §15.4.5).
-    c.header("Content-Type", undefined);
-    return c.body(null, 304);
-  }
+  )
+    return sendHeadOnly(reply, 304, { "Last-Modified": meta.lastModified });
 
-  return fileResponse(c, path, stats.size);
+  return fileResponse(reply, path, stats.size, meta);
 };
 
 export { sendFile };

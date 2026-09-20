@@ -16,8 +16,8 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { type } from "arktype";
-import { type Context, type MiddlewareHandler } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { headerValue } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
   addCredential,
@@ -77,10 +77,14 @@ type AuthService = {
   isEnrollmentTokenValid: (token: string) => boolean;
   consumeEnrollmentToken: (token: string) => string | undefined;
   listCredentialSummaries: () => CredentialSummary[];
-  readSessionCookie: (c: Context) => string | undefined;
-  setSessionCookie: (c: Context, token: string) => void;
+  readSessionCookie: (request: FastifyRequest) => string | undefined;
+  setSessionCookie: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    token: string,
+  ) => void;
   isValidSession: (token: string | undefined) => boolean;
-  logout: (c: Context) => void;
+  logout: (request: FastifyRequest, reply: FastifyReply) => void;
 };
 
 // Stored transports are plain strings; validate each against the WebAuthn
@@ -345,24 +349,28 @@ const makeAuthService = (
     return true;
   };
 
-  const readSessionCookie = (c: Context): string | undefined =>
-    getCookie(c, cookieName);
+  const readSessionCookie = (request: FastifyRequest): string | undefined =>
+    request.cookies[cookieName];
 
-  const setSessionCookie = (c: Context, token: string): void => {
-    const url = resolveRequestUrl(c);
-    setCookie(c, cookieName, token, {
+  const setSessionCookie = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    token: string,
+  ): void => {
+    const url = resolveRequestUrl(request);
+    reply.setCookie(cookieName, token, {
       httpOnly: true,
-      sameSite: "Strict",
+      sameSite: "strict",
       secure: url.protocol === "https:",
       path: "/",
       maxAge: SESSION_TTL_SECONDS,
     });
   };
 
-  const logout = (c: Context): void => {
-    const token = getCookie(c, cookieName);
+  const logout = (request: FastifyRequest, reply: FastifyReply): void => {
+    const token = request.cookies[cookieName];
     if (token !== undefined && token !== "") deleteSession(authDb, token);
-    deleteCookie(c, cookieName, { path: "/" });
+    reply.clearCookie(cookieName, { path: "/" });
   };
 
   const issueEnrollmentToken = (): string | undefined => {
@@ -423,35 +431,44 @@ const isPublicPath = (path: string): boolean =>
 // proxy sends them; the app is passkey-gated, so a spoofed origin cannot forge
 // an assertion (the authenticator still enforces the RP binding).
 const firstForwardedValue = (
-  header: string | undefined,
+  header: string | string[] | undefined,
 ): string | undefined => {
-  if (header === undefined || header === "") return undefined;
-  const first = header.split(",")[0]?.trim();
-  return first === undefined || first === "" ? undefined : first;
+  const first = headerValue(header)?.split(",")[0]?.trim();
+  return first === "" ? undefined : first;
 };
 
-const resolveRequestUrl = (c: Context): URL => {
-  const url = new URL(c.req.url);
-  const host = firstForwardedValue(c.req.header("x-forwarded-host"));
-  if (host !== undefined) url.host = host;
-  const proto = firstForwardedValue(c.req.header("x-forwarded-proto"));
+const resolveRequestUrl = (request: FastifyRequest): URL => {
+  // The Host header carries the port (localhost:3457); Fastify's
+  // request.hostname does not, and a portless origin would fail WebAuthn
+  // origin verification on every non-standard port.
+  const host = headerValue(request.headers.host) ?? "localhost";
+  const url = new URL(request.raw.url ?? "/", `http://${host}`);
+  const forwardedHost = firstForwardedValue(
+    request.headers["x-forwarded-host"],
+  );
+  if (forwardedHost !== undefined) url.host = forwardedHost;
+  const proto = firstForwardedValue(request.headers["x-forwarded-proto"]);
   if (proto !== undefined) url.protocol = `${proto}:`;
   return url;
 };
 
+// Fastify onRequest hook; registered inside the route scope so it runs
+// after @fastify/cookie's root-level parse hook. Every non-public request
+// must carry a valid session before any route handler runs.
 const authMiddleware =
-  (auth: AuthService): MiddlewareHandler =>
-  async (c, next) => {
-    if (isPublicPath(c.req.path)) return next();
-    const token = auth.readSessionCookie(c);
+  (auth: AuthService) =>
+  async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const path = request.url.split("?")[0];
+    if (isPublicPath(path)) return;
+    const token = auth.readSessionCookie(request);
     if (token !== undefined && auth.isValidSession(token)) {
       // Sliding window: re-issue the cookie so the browser expiry tracks
       // the just-refreshed DB session rather than the original login.
-      auth.setSessionCookie(c, token);
-      return next();
+      auth.setSessionCookie(request, reply, token);
+      return;
     }
     const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
-    return c.redirect(dest, 302);
+    await reply.redirect(dest);
   };
 
 export type { AuthService, CredentialSummary, RpConfig, VerifyResult };

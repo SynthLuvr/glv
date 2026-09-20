@@ -1,4 +1,4 @@
-import { type Hono } from "hono";
+import type { FastifyInstance } from "fastify";
 import type { ServerContext } from "../context.js";
 import { serveAsset } from "../http.js";
 
@@ -7,7 +7,10 @@ const contentTypeFor = (path: string): string =>
     ? "text/css; charset=utf-8"
     : "application/javascript; charset=utf-8";
 
-const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
+const registerAssetRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+): void => {
   const a = ctx.assets;
   const routes = [
     { path: "/assets/htmx.min.js", body: a.htmx },
@@ -24,7 +27,9 @@ const registerAssetRoutes = (app: Hono, ctx: ServerContext): void => {
     { path: "/assets/schedule.js", body: a.schedule },
   ];
   for (const { path, body } of routes)
-    app.get(path, (c) => serveAsset(c, body, contentTypeFor(path)));
+    app.get(path, (_request, reply) =>
+      serveAsset(reply, body, contentTypeFor(path)),
+    );
 };
 
 export { registerAssetRoutes };

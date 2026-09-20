@@ -1,9 +1,4 @@
-import { type Context } from "hono";
-import {
-  type SSEMessage,
-  type SSEStreamingApi,
-  streamSSE,
-} from "hono/streaming";
+import type { FastifyReply } from "fastify";
 import { fmtRelative, type ToolRun } from "../format/index.js";
 import type { StreamEnvelope } from "../profile.js";
 import type { LineBuffer, RunHandle } from "../runner/index.js";
@@ -16,52 +11,78 @@ import {
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
 
-// The registry hono build lacks the SSE lifecycle fixes this project used to
-// consume from a fork (honojs/hono#5289): exposing the reconnect cursor and
-// making writes after a client disconnect cheap no-ops. streamSse vendors
-// both, so the routes keep fork semantics on the stock package.
+// SSE framing is @fastify/sse's job (registered in server/index.tsx, which
+// also pulls in the reply.sse type augmentation; routes opt in with the
+// `sse: "only"` option): the plugin serializes frames, honors backpressure,
+// and closes the response when the handler resolves. What this facade adds
+// back is the lifecycle contract this project relied on — the reconnect
+// cursor, and writes after a client disconnect resolving as cheap no-ops,
+// so emission sites need no abort guarding.
+type SseMessage = {
+  event: SessionEventName | FeedEventName;
+  data: string;
+  id?: string;
+};
+
 type SseStream = {
-  /** The `Last-Event-ID` header an EventSource sends on reconnect;
+  /**
+   * The `Last-Event-ID` header an EventSource sends on reconnect;
    * undefined on a first connect.
    */
   readonly lastEventId: string | undefined;
   readonly aborted: boolean;
   sleep: (ms: number) => Promise<unknown>;
-  writeSSE: (message: SSEMessage) => Promise<void>;
+  writeSSE: (message: SseMessage) => Promise<void>;
 };
 
-const wrapSse = (
-  api: SSEStreamingApi,
-  lastEventId: string | undefined,
-): SseStream => ({
-  lastEventId,
-  get aborted() {
-    return api.aborted;
-  },
-  sleep: (ms) => api.sleep(ms),
-  writeSSE: async (message) => {
-    // After the client disconnects the writable is torn down; depending on
-    // the runtime, writing to it throws or hangs. Checking aborted first
-    // keeps emissions no-ops, exactly as the fork did.
-    if (api.aborted) return;
-    await api.writeSSE(message);
-  },
-});
+// The plugin rejects a send that loses the race between its own connection
+// gate and the socket closing; both of its close errors — the typed
+// FST_ERR_SSE_CONNECTION_CLOSED and the plain Error off the write path —
+// mean the client is gone, which this facade reports as a no-op write.
+const isDisconnect = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  if (err.message === "SSE connection is closed") return true;
+  return (
+    "code" in err &&
+    typeof err.code === "string" &&
+    err.code === "FST_ERR_SSE_CONNECTION_CLOSED"
+  );
+};
 
-// streamSSE with the vendored lifecycle fixes applied (see SseStream).
+// Runs a stream body over reply.sse. The poll loop owns the connection's
+// lifetime: @fastify/sse closes the response when this promise settles, so
+// the handler returns it rather than hijacking the reply. Errors surface on
+// stderr instead of killing the process — the handler must resolve, never
+// throw, once frames are on the wire.
 const streamSse = (
-  c: Context,
+  reply: FastifyReply,
   run: (stream: SseStream) => Promise<void>,
-): Response => {
-  const lastEventId = c.req.header("Last-Event-ID");
-  return streamSSE(c, async (api) => {
-    await run(wrapSse(api, lastEventId));
+): Promise<void> => {
+  const sse = reply.sse;
+  const stream: SseStream = {
+    lastEventId: sse.lastEventId ?? undefined,
+    get aborted() {
+      return !sse.isConnected;
+    },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    writeSSE: async (message) => {
+      if (!sse.isConnected) return;
+      try {
+        await sse.send(message);
+      } catch (err) {
+        if (!isDisconnect(err)) throw err;
+      }
+    },
+  };
+
+  return run(stream).catch((err: unknown) => {
+    console.error("sse stream failed:", err);
   });
 };
 
 // The optional `id` sets the SSE event id so EventSource can resume via
 // Last-Event-ID on transient reconnect. writeSSE is a no-op after the client
-// disconnects (wrapSse), so emissions need no abort guarding.
+// disconnects, so emissions need no abort guarding.
 const emit = (
   stream: SseStream,
   event: SessionEventName | FeedEventName,
