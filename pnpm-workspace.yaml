@@ -15,4 +15,5 @@ minimumReleaseAgeExclude:
   - jscpd-windows-arm64-msvc@5.2.0
   - jscpd-windows-x64-msvc@5.2.0
   - jscpd@5.2.0
+  - tsx@4.23.15
 scriptShell: bash

@@ -8,7 +8,7 @@
     "glv-claude": "bin/glv-claude.mjs"
   },
   "type": "module",
-  "packageManager": "pnpm@11.22.0",
+  "packageManager": "pnpm@12.5.1",
   "engines": {
     "node": "26"
   },
@@ -33,19 +33,19 @@
     "@tailwindcss/cli": "^4.3.3",
     "@types/humanize-duration": "^3.27.4",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^26.5.0",
+    "@types/node": "^26.6.2",
     "@types/which": "^3.0.4",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-v8": "^5.0.1",
     "ast-v8-to-istanbul": "^1.0.6",
     "esbuild": "^0.28.2",
-    "jscpd": "^5.2.0",
+    "jscpd": "^5.3.0",
     "npm-run-all2": "^9.0.3",
     "tailwindcss": "^4.3.3",
-    "ts-canon": "^0.1.7",
-    "tsx": "^4.23.13",
+    "ts-canon": "^0.1.8",
+    "tsx": "^4.23.15",
     "type-a-bin": "^0.1.7",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "dependencies": {
     "@breejs/later": "^4.2.0",
@@ -55,24 +55,24 @@
     "@fastify/sse": "^0.6.0",
     "@github/auto-complete-element": "^3.8.0",
     "@simplewebauthn/browser": "^14.0.0",
-    "@simplewebauthn/server": "^14.0.1",
+    "@simplewebauthn/server": "^14.0.2",
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "croner": "github:SynthLuvr/croner#dist/fix-clock-step-skip",
-    "cronstrue": "^3.25.0",
+    "croner": "github:SynthLuvr/croner#e6ebadbf63113f055445b23f4cd51b2e7821ad83",
+    "cronstrue": "^3.27.0",
     "dompurify": "^3.4.15",
     "execa": "^10.0.1",
     "fastify": "^5.12.5",
     "hono": "^4.13.8",
     "htmx.org": "2.0.10",
-    "humanize-duration": "^3.34.1",
-    "jsdom": "^30.0.1",
-    "marked": "^18.0.12",
+    "humanize-duration": "^3.35.0",
+    "jsdom": "^30.1.0",
+    "marked": "^18.0.13",
     "p-queue": "^9.3.3",
     "pretty-ms": "^9.3.1",
     "ts-handling": "^0.2.6",
     "which": "^7.0.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   }
 }
