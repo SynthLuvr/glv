@@ -3,7 +3,7 @@ allowBuilds:
   '@parcel/watcher': true
   esbuild: true
 minimumReleaseAgeExclude:
-  - ts-canon@0.1.4
+  - ts-canon@0.2.0
   - type-a-bin@0.1.7
   - cronstrue@3.25.0
   - jscpd-darwin-arm64@5.2.0

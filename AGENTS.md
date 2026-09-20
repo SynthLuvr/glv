@@ -219,7 +219,7 @@ biome, oxlint (+ tsgolint), ast-grep, jscpd, and the codemods, and ships
 the canonical `biome.json`, `tsconfig`, and vitest presets this repo
 extends (`sgconfig.yml` points bare `ast-grep scan` and editor
 integrations at its rules). The repo-specific checks remain local:
-`lint:mirrored`, `lint:cross-tree`, and `lint:casts` (see below).
+`lint:mirrored` and `lint:cross-tree` (see below).
 
 ## Project Structure
 
@@ -265,12 +265,14 @@ schemas at data boundaries (JSON payloads, form bodies, wire frames,
 PRAGMA/jscpd output, third-party globals), `typeof`/`instanceof`
 narrowing for DOM and similar values. `as const` is allowed (it is
 compile-time literal tightening with no runtime claim). The rule is
-`lint:casts` (`scripts/no-unsafe-casts.mts` running the ast-grep rules
-in `rules/`, also listed in `sgconfig.yml` for editor integrations), as
-part of `pnpm lint`. It scopes to `src/` and `scripts/` excluding the
-tests directories: suites deliberately read server-owned SQLite rows and
-response JSON through narrow casts, and the shared contract suites cover
-those paths end to end against the running server. When a
-legitimate-looking cast seems unavoidable, the fix is usually a
-cast-free narrowing (`instanceof` guard, ArkType predicate, explicit
-annotation from an already-typed value) — not a rule exemption.
+`no-unsafe-cast`, shipped with ts-canon and run by `ts-canon lint` as
+part of `pnpm lint` — it flags `value as T` and old-style `<T>value`
+assertions. The repo scopes it via `ts-canon.json` to `src/` and
+`scripts/` excluding the tests directories: suites deliberately read
+server-owned SQLite rows and response JSON through narrow casts, and the
+shared contract suites cover those paths end to end against the running
+server. When a legitimate-looking cast seems unavoidable, the fix is
+usually a cast-free narrowing (`instanceof` guard, ArkType predicate,
+explicit annotation from an already-typed value) — not a rule exemption
+(per-line `// ast-grep-ignore: no-unsafe-cast` comments exist, but a
+narrowing beats a suppression).

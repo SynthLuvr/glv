@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "no-unsafe-cast": {
+      "files": ["src/**", "scripts/**"],
+      "ignores": ["**/tests/**", "**/*.test.ts"]
+    }
+  }
+}
