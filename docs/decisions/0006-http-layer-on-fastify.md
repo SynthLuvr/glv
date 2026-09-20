@@ -20,8 +20,8 @@ trade-off concretely rather than in the abstract.
 ## Decision
 
 Serve HTTP with **Fastify** (v5), with `@fastify/cookie`,
-`@fastify/formbody`, and `@fastify/multipart` for the pieces Hono ships
-in the core package.
+`@fastify/formbody`, `@fastify/multipart`, and `@fastify/sse` for the
+pieces Hono ships in the core package.
 
 **Keep `hono/jsx` as the view renderer.** Hono’s HTTP server is gone;
 `hono/jsx` (with `hono/jsx/dom/server`’s `renderToString`) remains the
@@ -37,10 +37,16 @@ HTML the SSE contract tests pin).
   (`c.html(el)`, `c.json(obj, 400)`, `c.redirect(...)`) to mutating
   Fastify replies (`sendHtml(reply, el, 422)`, `reply.status(400)`,
   `reply.redirect(...)`).
-- `hono/streaming`’s `streamSSE` is replaced by a hand-rolled SSE writer
-  over a hijacked reply (`server/sse.ts`), preserving the fork semantics
-  this project depends on: the `Last-Event-ID` reconnect cursor and
-  writes-after-disconnect becoming no-ops.
+- `hono/streaming`’s `streamSSE` is replaced by **`@fastify/sse`** (routes
+  opt in with `sse: "only"`): the plugin serializes frames, honors
+  backpressure, and closes the response when the handler resolves.
+  `server/sse.ts` remains only as a thin facade over `reply.sse`,
+  preserving the fork semantics this project depends on — the
+  `Last-Event-ID` reconnect cursor and writes-after-disconnect becoming
+  no-ops. Heartbeats are disabled (the poll loops bound their own
+  lifetimes, and a heartbeat comment would be wire bytes this app has
+  never sent) and the serializer is the identity because payloads arrive
+  pre-serialized and validated by `sse-events`.
 - `parseBody({ all: true })` is replaced by `server/forms.ts`, which
   normalizes `@fastify/formbody` and `@fastify/multipart`
   (attachFieldsToBody) output into the same string/File record shape the
@@ -70,9 +76,7 @@ Positive:
 
 Negative:
 
-- Four dependencies (fastify + three plugins) replace one; SSE now
-  requires hijacking the reply and hand-writing the wire format, where
-  Hono provided it.
+- Five dependencies (fastify + four plugins) replace one.
 - The Response-object style is gone: handlers are coupled to Fastify’s
   reply API, and the app can no longer run on non-Node runtimes
   (workers/deno/bun) the way Hono’s Web-standard handlers could.

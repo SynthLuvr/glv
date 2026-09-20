@@ -10,14 +10,14 @@ import {
   type ToolEventPayload,
 } from "../sse-events.js";
 import { renderStreamLine } from "../views/stream-line.js";
-import { headerValue } from "./http.js";
 
-// Fastify has no first-class SSE helper, so the response is hijacked and
-// the wire format written by hand. The lifecycle contract this project
-// relied on (the reconnect cursor, and writes after a client disconnect
-// becoming cheap no-ops — the semantics the dropped hono fork carried) is
-// preserved: lastEventId exposes the Last-Event-ID header, and writeSSE
-// checks the abort flag before every write.
+// SSE framing is @fastify/sse's job (registered in server/index.tsx, which
+// also pulls in the reply.sse type augmentation; routes opt in with the
+// `sse: "only"` option): the plugin serializes frames, honors backpressure,
+// and closes the response when the handler resolves. What this facade adds
+// back is the lifecycle contract this project relied on — the reconnect
+// cursor, and writes after a client disconnect resolving as cheap no-ops,
+// so emission sites need no abort guarding.
 type SseMessage = {
   event: SessionEventName | FeedEventName;
   data: string;
@@ -35,78 +35,49 @@ type SseStream = {
   writeSSE: (message: SseMessage) => Promise<void>;
 };
 
-// The exact frame serialization hono's streamSSE used: event, then
-// multi-line-safe data, then id — separated by newlines, terminated by a
-// blank line.
-const serialize = (message: SseMessage): string =>
-  [
-    `event: ${message.event}`,
-    ...message.data.split("\n").map((line) => `data: ${line}`),
-    ...(message.id !== undefined && message.id !== ""
-      ? [`id: ${message.id}`]
-      : []),
-  ].join("\n") + "\n\n";
+// The plugin rejects a send that loses the race between its own connection
+// gate and the socket closing; both of its close errors — the typed
+// FST_ERR_SSE_CONNECTION_CLOSED and the plain Error off the write path —
+// mean the client is gone, which this facade reports as a no-op write.
+const isDisconnect = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  if (err.message === "SSE connection is closed") return true;
+  return (
+    "code" in err &&
+    typeof err.code === "string" &&
+    err.code === "FST_ERR_SSE_CONNECTION_CLOSED"
+  );
+};
 
+// Runs a stream body over reply.sse. The poll loop owns the connection's
+// lifetime: @fastify/sse closes the response when this promise settles, so
+// the handler returns it rather than hijacking the reply. Errors surface on
+// stderr instead of killing the process — the handler must resolve, never
+// throw, once frames are on the wire.
 const streamSse = (
   reply: FastifyReply,
   run: (stream: SseStream) => Promise<void>,
-): FastifyReply => {
-  reply.hijack();
-  const raw = reply.raw;
-  const request = reply.request;
-  let aborted = false;
-  // The incoming request emits close when the client disconnects; after
-  // the loop ends normally it fires again harmlessly.
-  request.raw.on("close", () => {
-    aborted = true;
-  });
-
-  // Honors backpressure: resolves on drain when the kernel buffer is full.
-  const write = (chunk: string): Promise<void> =>
-    new Promise((resolve, reject) => {
-      if (raw.writableEnded || raw.destroyed) {
-        aborted = true;
-        resolve();
-        return;
-      }
-      const flushed = raw.write(chunk, (err) => {
-        if (err !== null && err !== undefined) reject(err);
-      });
-      if (flushed) resolve();
-      else raw.once("drain", () => resolve());
-    });
-
+): Promise<void> => {
+  const sse = reply.sse;
   const stream: SseStream = {
-    get lastEventId() {
-      return headerValue(request.headers["last-event-id"]);
-    },
+    lastEventId: sse.lastEventId ?? undefined,
     get aborted() {
-      return aborted;
+      return !sse.isConnected;
     },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     writeSSE: async (message) => {
-      if (aborted || raw.writableEnded) return;
-      await write(serialize(message));
+      if (!sse.isConnected) return;
+      try {
+        await sse.send(message);
+      } catch (err) {
+        if (!isDisconnect(err)) throw err;
+      }
     },
   };
 
-  raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
+  return run(stream).catch((err: unknown) => {
+    console.error("sse stream failed:", err);
   });
-
-  // The response ends when the run completes (tests bound the poll count)
-  // or fails; errors surface on stderr instead of killing the process.
-  void run(stream)
-    .catch((err: unknown) => {
-      console.error("sse stream failed:", err);
-    })
-    .finally(() => {
-      aborted = true;
-      if (!raw.writableEnded) raw.end();
-    });
-  return reply;
 };
 
 // The optional `id` sets the SSE event id so EventSource can resume via

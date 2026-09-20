@@ -20,6 +20,9 @@ importers:
       '@fastify/multipart':
         specifier: ^10.1.1
         version: 10.1.1
+      '@fastify/sse':
+        specifier: ^0.6.0
+        version: 0.6.0(fastify@5.12.5)
       '@github/auto-complete-element':
         specifier: ^3.8.0
         version: 3.8.0
@@ -529,6 +532,12 @@ packages:
 
   '@fastify/proxy-addr@5.1.1':
     resolution: {integrity: sha512-zv07Y9GEuDsJPegZoDFd4SDWaZOW8N2pa0GSrYmKpId/tjt1Hgo3BjZBVjdVpfVrHaA+Qv5jawtS2O50J5xM9g==}
+
+  '@fastify/sse@0.6.0':
+    resolution: {integrity: sha512-+5g8zBbSN8ioKEfll2p6TXe75peq3uJ3/z44SakK5gNr9u6YqbOAHfTSRfXfvnUFzG97+3E055l360ruzsvgcQ==}
+    engines: {node: '>=20.20.2'}
+    peerDependencies:
+      fastify: ^5.x
 
   '@github/auto-complete-element@3.8.0':
     resolution: {integrity: sha512-rS2Uj38V1BsenLvrIswV5IXfiYH2/KUhz6inot+JXho/fFOO+01tsW1HxqSdIXqh5EDuoY0f/GQsztZcH22AXQ==}
@@ -2556,6 +2565,12 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
+
+  '@fastify/sse@0.6.0(fastify@5.12.5)':
+    dependencies:
+      '@fastify/error': 4.2.0
+      fastify: 5.12.5
+      fastify-plugin: 6.0.0
 
   '@github/auto-complete-element@3.8.0':
     dependencies:

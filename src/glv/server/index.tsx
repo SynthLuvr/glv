@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie";
 import formbody from "@fastify/formbody";
 import multipart from "@fastify/multipart";
+import sse from "@fastify/sse";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authMiddleware } from "../auth/service.js";
 import type { SessionLauncher } from "../launch.js";
@@ -89,6 +90,17 @@ const createApp = (
       files: 20,
       fields: 200,
     },
+  });
+
+  // SSE framing for the two event-stream routes (`sse: "only"`). The
+  // heartbeat is off — the poll loops bound their own lifetimes, and a
+  // comment frame would be wire bytes this app has never sent — and the
+  // serializer is the identity because payloads arrive pre-serialized:
+  // sse-events validates and stringifies before the wire, so the plugin's
+  // default JSON.stringify would double-quote every frame.
+  app.register(sse, {
+    heartbeatInterval: 0,
+    serializer: (data) => (typeof data === "string" ? data : String(data)),
   });
 
   // Registered inside a scope so the auth gate — an onRequest hook — runs

@@ -18,7 +18,7 @@ const registerEventsRoutes = (
   app: FastifyInstance,
   ctx: ServerContext,
 ): void => {
-  app.get("/events/status", (_request, reply) =>
+  app.get("/events/status", { sse: "only" }, (_request, reply) =>
     streamSse(reply, async (stream) => {
       let last = activeStatuses(ctx.runner);
       // The agent renames a session mid-run, so track names to push updates.

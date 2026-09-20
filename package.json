@@ -52,6 +52,7 @@
     "@fastify/cookie": "^11.1.2",
     "@fastify/formbody": "^9.0.0",
     "@fastify/multipart": "^10.1.1",
+    "@fastify/sse": "^0.6.0",
     "@github/auto-complete-element": "^3.8.0",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.1",

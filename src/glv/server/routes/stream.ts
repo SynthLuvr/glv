@@ -226,6 +226,7 @@ const registerStreamRoutes = (
   // open until the client disconnects.
   app.get<{ Params: { id: string } }>(
     "/sessions/:id/events",
+    { sse: "only" },
     (request, reply) => {
       const id = request.params.id;
       const initial = ctx.sessions.getSession(id);
