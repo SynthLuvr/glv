@@ -93,6 +93,19 @@ before and after when reworking existing UI, one shot of the new surface
 when introducing UI. A UI PR without screenshots is incomplete;
 reviewers must not have to check the branch out to see what changed.
 
+### Capture them locally with `pnpm shots`
+
+`pnpm shots` builds the assets, boots a real `glv-goose serve` against
+the mock goose agent with a seeded session (same harness the integration
+tests use), drives the UI with Playwright, and writes PNGs to
+`pr-shots/` (gitignored). Feature-specific states: extend
+`scripts/shots.mts` on your branch, or drive the same fixture by hand.
+Some hosts cannot rasterize headlessly (WSL2 + Chrome 153: the headless
+compositor never produces a frame, so DevTools screenshot capture hangs
+forever); the script probes for this and automatically falls back to a
+headed launch under Xvfb, so it works locally everywhere Xvfb is
+installed — no temporary CI workflows needed.
+
 - **Never commit image assets to the repo** — no screenshots, PNGs,
   JPGs, GIFs, or video in the tree, in any PR. They live in the PR
   description only.

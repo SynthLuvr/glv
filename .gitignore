@@ -3,3 +3,4 @@ dist
 *.js
 coverage
 report
+pr-shots/
