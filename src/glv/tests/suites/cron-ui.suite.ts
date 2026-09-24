@@ -888,6 +888,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(jobByName("morning-sweep")?.scheduleInput).toBeUndefined();
       const cronEdit = await authedFetch(env, "/cron/morning-sweep/edit");
       expect(await cronEdit.text()).toContain('value="0 10 * * 1-5"');
+
+      // The suite's later tests count the section's jobs (the final
+      // one deletes everything and expects the empty state), so this
+      // job removes itself before then.
+      const del = await authedFetch(env, "/cron/morning-sweep", {
+        method: "DELETE",
+        headers: { "HX-Request": "true" },
+      });
+      expect(del.status).toBe(200);
+      expect(jobByName("morning-sweep")).toBeUndefined();
     });
 
     it("edits a job's timezone through the form, and clears it", async () => {
