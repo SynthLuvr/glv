@@ -24,6 +24,7 @@ const registerAssetRoutes = (
     { path: "/assets/groups.js", body: a.groups },
     { path: "/assets/passkey.js", body: a.passkey },
     { path: "/assets/uploads.js", body: a.uploads },
+    { path: "/assets/location.js", body: a.location },
     { path: "/assets/schedule.js", body: a.schedule },
   ];
   for (const { path, body } of routes)

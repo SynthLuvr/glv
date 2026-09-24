@@ -39,6 +39,7 @@ const CLIENT_ENTRY_NAMES = [
   "prompts",
   "passkey",
   "uploads",
+  "location",
   "schedule",
 ];
 
