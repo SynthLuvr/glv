@@ -1,28 +1,31 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { type Browser, chromium, type Page } from "@playwright/test";
+import {
+  type Browser,
+  type BrowserContext,
+  chromium,
+  type Page,
+} from "@playwright/test";
+import which from "which";
+import type { IntegrationEnv } from "../src/glv/tests/harness.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
-// Local PR-screenshot capture: boots a real `glv-goose serve` against the
-// mock goose agent (exactly like the integration harness), seeds a session,
-// drives the UI with Playwright, and writes PNGs into pr-shots/ (gitignored
-// — never commit them; upload to GitHub user-attachments instead).
+// Local PR-screenshot capture: boots a real `glv-goose serve` on the
+// integration-test fixture (mock goose agent, seeded session), drives the UI
+// with Playwright, and writes PNGs into pr-shots/ (gitignored — upload them
+// to GitHub user-attachments, never commit them).
 //
-// Some hosts cannot rasterize headlessly: on WSL2 with Chrome 153 the
-// headless compositor never produces a frame, so Page.captureScreenshot
-// hangs forever (even fromSurface:false has nothing to read back), on both
-// the full Chrome binary and the headless shell, with every GL flag tried.
-// The CLI --screenshot mode works because it drives BeginFrames itself, but
-// DevTools-driven capture — what Playwright uses — does not. A *headed*
-// launch under Xvfb rasterizes normally, so this script probes headless
-// rasterization first and falls back to a script-managed Xvfb when needed;
-// on hosts where headless works (CI runners, macOS) the probe is a no-op.
+// Some hosts cannot rasterize headless pages: on WSL2 + Chrome 153 the
+// headless compositor never produces a frame, so DevTools-driven capture —
+// what Playwright uses — hangs forever (Chrome's own --screenshot mode
+// escapes it only by driving BeginFrames itself). A headed launch under Xvfb
+// rasterizes normally, so probe headless capture once up front and fall back
+// to a script-managed Xvfb when the probe times out.
 
 const OUT = "pr-shots";
 const DESKTOP = { width: 1280, height: 800 };
 const MOBILE = { width: 390, height: 844 };
-const RASTER_PROBE_TIMEOUT_MS = 8000;
 const SESSION_ID = "shots-1";
 
 const sleep = (ms: number): Promise<void> =>
@@ -38,7 +41,7 @@ const headlessRasterWorks = async (): Promise<boolean> => {
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.setContent("<!doctype html><p>raster probe</p>");
-    await page.screenshot({ timeout: RASTER_PROBE_TIMEOUT_MS });
+    await page.screenshot({ timeout: 8000 });
     return true;
   } catch {
     return false;
@@ -47,9 +50,13 @@ const headlessRasterWorks = async (): Promise<boolean> => {
   }
 };
 
-const findFreeDisplay = (): string => {
-  for (let n = 99; n <= 120; n += 1)
-    if (!existsSync(`/tmp/.X${n}-lock`)) return `:${n}`;
+// Xvfb claims a display by creating /tmp/.X<n>-lock; the first number
+// without one wins.
+const findFreeDisplay = (): { display: string; lock: string } => {
+  for (let n = 99; n <= 120; n += 1) {
+    const lock = `/tmp/.X${n}-lock`;
+    if (!existsSync(lock)) return { display: `:${n}`, lock };
+  }
   throw new Error("no free X display number between :99 and :120");
 };
 
@@ -57,16 +64,15 @@ const startHeadedDisplay = async (): Promise<{
   display: string;
   xvfb: ChildProcess;
 }> => {
-  if (!existsSync("/usr/bin/Xvfb") && !existsSync("/usr/local/bin/Xvfb"))
+  if (which.sync("Xvfb", { nothrow: true }) === null)
     throw new Error(
       "headless rasterization is unavailable on this host and Xvfb is " +
         "not installed — install it (e.g. `sudo apt install xvfb`) and retry",
     );
-  const display = findFreeDisplay();
+  const { display, lock } = findFreeDisplay();
   const xvfb = spawn("Xvfb", [display, "-screen", "0", "1600x1000x24"], {
     stdio: "ignore",
   });
-  const lock = `/tmp/.X${display.slice(1)}-lock`;
   for (let i = 0; i < 50 && !existsSync(lock); i += 1) await sleep(100);
   if (!existsSync(lock)) {
     xvfb.kill("SIGTERM");
@@ -75,19 +81,14 @@ const startHeadedDisplay = async (): Promise<{
   return { display, xvfb };
 };
 
-const launchRasterBrowser = async (): Promise<{
+// The teardown kills the fallback Xvfb; in headless mode there is nothing
+// extra to stop.
+const launchBrowser = async (): Promise<{
   browser: Browser;
-  stop: () => Promise<void>;
+  teardown: () => void;
 }> => {
-  if (await headlessRasterWorks()) {
-    const browser = await chromium.launch();
-    return {
-      browser,
-      stop: async () => {
-        await browser.close();
-      },
-    };
-  }
+  if (await headlessRasterWorks())
+    return { browser: await chromium.launch(), teardown: () => undefined };
   console.log(
     "headless rasterization unavailable on this host — " +
       "falling back to a headed launch under Xvfb",
@@ -97,13 +98,7 @@ const launchRasterBrowser = async (): Promise<{
     headless: false,
     env: { ...process.env, DISPLAY: display },
   });
-  return {
-    browser,
-    stop: async () => {
-      await browser.close();
-      xvfb.kill("SIGTERM");
-    },
-  };
+  return { browser, teardown: () => xvfb.kill("SIGTERM") };
 };
 
 const capture = async (
@@ -117,9 +112,9 @@ const capture = async (
   console.log(`captured ${path}`);
 };
 
-// The mobile layout boots with the sidebar pane in front; switch to the
-// detail pane before shooting whatever the detail pane shows. The toggle
-// only appears once the viewport is small enough, so give it a beat.
+// The mobile layout opens with the sidebar pane in front; switch to the
+// detail pane before shooting it. The toggle only appears once the viewport
+// is narrow, so wait briefly and skip when it never shows.
 const showDetailPaneOnMobile = async (page: Page): Promise<void> => {
   const toggle = page.locator('.mobile-pane-btn[data-pane="detail"]');
   await toggle
@@ -128,36 +123,17 @@ const showDetailPaneOnMobile = async (page: Page): Promise<void> => {
   if (await toggle.isVisible()) await toggle.click();
 };
 
-const env = await gooseFixture.startEnv("glv-shots-");
-const workDir = join(env.scratchDir, "project");
-mkdirSync(workDir, { recursive: true });
-mkdirSync(OUT, { recursive: true });
-gooseFixture.seedSessions(env, [
-  { id: SESSION_ID, name: "Screenshot Session", workingDir: workDir },
-]);
-gooseFixture.seedMessages(env, SESSION_ID, [
-  {
-    role: "user",
-    content: [{ type: "text", text: "Draft a release note for v1.4" }],
-  },
-  {
-    role: "assistant",
-    content: [
-      {
-        type: "text",
-        text: "Sure — here is a draft release note for v1.4, ready to paste.",
-      },
-    ],
-  },
-]);
-
-const { browser, stop } = await launchRasterBrowser();
-try {
-  const context = await browser.newContext({ viewport: DESKTOP });
+// The fixture's own browser context is headless, which cannot rasterize on
+// the fallback path — this script launches its own browser, so its context
+// must carry the auth cookie itself.
+const addSessionCookie = async (
+  context: BrowserContext,
+  env: IntegrationEnv,
+): Promise<void> => {
   await context.addCookies([
     {
       name: env.cookieName,
-      value: env.cookie.slice(env.cookieName.length + 1),
+      value: env.dbs.token,
       domain: "localhost",
       path: "/",
       httpOnly: true,
@@ -165,6 +141,40 @@ try {
       sameSite: "Lax",
     },
   ]);
+};
+
+const startSeededEnv = async (): Promise<IntegrationEnv> => {
+  const env = await gooseFixture.startEnv("glv-shots-");
+  const workingDir = join(env.scratchDir, "project");
+  mkdirSync(workingDir, { recursive: true });
+  mkdirSync(OUT, { recursive: true });
+  gooseFixture.seedSessions(env, [
+    { id: SESSION_ID, name: "Screenshot Session", workingDir },
+  ]);
+  gooseFixture.seedMessages(env, SESSION_ID, [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Draft a release note for v1.4" }],
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Sure — here is a draft release note for v1.4, ready to paste.",
+        },
+      ],
+    },
+  ]);
+  return env;
+};
+
+const captureViews = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
   const page = await context.newPage();
 
   await page.goto(env.baseUrl);
@@ -187,10 +197,16 @@ try {
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
 
-  await page.close();
   await context.close();
+};
+
+const env = await startSeededEnv();
+const { browser, teardown } = await launchBrowser();
+try {
+  await captureViews(browser, env);
 } finally {
-  await stop();
+  await browser.close();
+  teardown();
   await env.cleanup();
 }
 
