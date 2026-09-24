@@ -53,6 +53,10 @@ await page.locator("form.new-session-form").screenshot({
 await page.screenshot({ path: `${OUT}/new-session-after-full.png` });
 
 await page.setViewportSize({ width: 390, height: 844 });
+// The New Session page boots with the sidebar pane active on mobile;
+// switch to the detail pane before shooting the form.
+await page.locator('.mobile-pane-btn[data-pane="detail"]').click();
+await page.locator("form.new-session-form").waitFor();
 await page.locator("form.new-session-form").screenshot({
   path: `${OUT}/new-session-mobile.png`,
 });
