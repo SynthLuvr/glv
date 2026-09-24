@@ -16,6 +16,13 @@ import { positiveEnvNumber } from "./util.js";
 type CronJobConfig = {
   name: string;
   schedule: string;
+  // The schedule exactly as last typed when `schedule` holds its
+  // translation: English input becomes cron at save time, and this
+  // keeps the English spelling so the edit form prefills the same
+  // human-readable text the user wrote. Absent when the schedule
+  // column is already what was typed (cron, one-shot) — or when the
+  // row predates the column.
+  scheduleInput?: string;
   prompt: string;
   workingDir: string;
   timezone?: string;
@@ -45,6 +52,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cron_jobs (
   name           TEXT PRIMARY KEY,
   schedule       TEXT NOT NULL,
+  schedule_input TEXT,
   prompt         TEXT NOT NULL,
   working_dir    TEXT NOT NULL,
   timezone       TEXT,
@@ -73,6 +81,13 @@ const cronJobColumns = (db: DatabaseSync): string[] => {
       `PRAGMA table_info(cron_jobs) returned unexpected rows: ${rows.summary}`,
     );
   return rows.map((row) => row.name);
+};
+
+// Databases created before the typed-schedule memory have no
+// schedule_input column; add it in place. Idempotent.
+const ensureScheduleInputColumn = (db: DatabaseSync): void => {
+  if (!cronJobColumns(db).includes("schedule_input"))
+    db.exec("ALTER TABLE cron_jobs ADD COLUMN schedule_input TEXT");
 };
 
 // Databases created before chained sessions existed have no follow_ups
@@ -105,6 +120,7 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
+  ensureScheduleInputColumn(db);
   ensureFollowUpsColumn(db);
   ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
@@ -117,6 +133,7 @@ const openCronDb = (dbPath: string): DatabaseSync => {
 const JobRow = type({
   name: "string",
   schedule: "string",
+  schedule_input: "string | null",
   prompt: "string",
   working_dir: "string",
   timezone: "string | null",
@@ -130,8 +147,8 @@ const JobRow = type({
 type JobRow = typeof JobRow.infer;
 
 const JOB_COLS =
-  "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model, follow_ups, last_fired_at";
+  "name, schedule, schedule_input, prompt, working_dir, timezone, " +
+  "enabled, model_provider, model, follow_ups, last_fired_at";
 
 // follow_ups holds a JSON array of follow-on prompts, read as strictly
 // as the rest of the row: anything but an array of strings — trimmed,
@@ -166,6 +183,7 @@ const parseFollowUps = (name: string, raw: string): string[] => {
 const mapRow = (row: JobRow): CronJobRecord => ({
   name: row.name,
   schedule: row.schedule,
+  ...(row.schedule_input === null ? {} : { scheduleInput: row.schedule_input }),
   prompt: row.prompt,
   workingDir: row.working_dir,
   ...(row.timezone === null ? {} : { timezone: row.timezone }),
@@ -194,6 +212,7 @@ const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
 const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.name,
   job.schedule,
+  job.scheduleInput ?? null,
   job.prompt,
   job.workingDir,
   job.timezone ?? null,
@@ -205,7 +224,7 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
     : null,
 ];
 
-const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 // Appends a job. The marker seeds to now: a job cannot have been missed
 // before it existed, so occurrences earlier than its creation are not
@@ -227,9 +246,9 @@ const updateCronJob = (
   db
     .prepare(
       `UPDATE cron_jobs
-         SET name = ?, schedule = ?, prompt = ?, working_dir = ?,
-             timezone = ?, enabled = ?, model_provider = ?, model = ?,
-             follow_ups = ?, updated_at = datetime('now')
+         SET name = ?, schedule = ?, schedule_input = ?, prompt = ?,
+             working_dir = ?, timezone = ?, enabled = ?, model_provider = ?,
+             model = ?, follow_ups = ?, updated_at = datetime('now')
          WHERE name = ?`,
     )
     .run(...jobParams(job), currentName).changes > 0;

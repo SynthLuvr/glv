@@ -574,6 +574,10 @@ const defaultDataDir = (home: string, dataDirName: string): string =>
 type CronJobRow = {
   name: string;
   schedule: string;
+  /** The typed schedule as last submitted, when the row stores its
+   * translated cron (English input); absent when the schedule column
+   * is what was typed. */
+  scheduleInput?: string;
   prompt: string;
   workingDir: string;
   timezone?: string;
@@ -602,8 +606,8 @@ const openServerDb = (dbPath: string): DatabaseSync => {
 // The cron database's columns, in one spelling shared by the read and
 // seed statements below.
 const JOB_COLS =
-  "name, schedule, prompt, working_dir, timezone, enabled, " +
-  "model_provider, model, follow_ups, last_fired_at";
+  "name, schedule, schedule_input, prompt, working_dir, timezone, " +
+  "enabled, model_provider, model, follow_ups, last_fired_at";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerDb(dbPath);
@@ -614,6 +618,9 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
     return rows.map((row) => ({
       name: row.name as string,
       schedule: row.schedule as string,
+      ...(row.schedule_input === null || row.schedule_input === undefined
+        ? {}
+        : { scheduleInput: row.schedule_input as string }),
       prompt: row.prompt as string,
       workingDir: row.working_dir as string,
       ...(row.timezone === null ? {} : { timezone: row.timezone as string }),

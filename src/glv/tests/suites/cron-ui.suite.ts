@@ -346,13 +346,15 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("cron-job-card");
       expect(html).toContain("Run the nightly build");
 
-      // English is CONVERTED to a cron pattern — the row stores cron.
+      // English is CONVERTED to a cron pattern — the row stores cron,
+      // with the typed English kept beside it for the edit form.
       // The marker seeds to the insert's now (a new job cannot have
       // been missed before it existed).
       expect(readCronJobRows(env.dbs.cronDb)).toEqual([
         {
           name: "Weekly build",
           schedule: "0 9 * * 1-5",
+          scheduleInput: "every weekday at 9:00",
           prompt: "Run the nightly build",
           workingDir,
           enabled: true,
@@ -822,6 +824,70 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("already exists");
       expect(jobByName("friday-eu")).toBeDefined();
+    });
+
+    it("edits an English-created job in English, not cron", async () => {
+      // A job created with a human-readable schedule: the row stores
+      // the translated cron plus the typed spelling.
+      const res = await authedFetch(env, "/cron", {
+        method: "POST",
+        body: new URLSearchParams({
+          job_name: "morning-sweep",
+          schedule: "every weekday at 9:00",
+          prompt: "Morning sweep",
+          working_dir: workA,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const created = jobByName("morning-sweep");
+      expect(created?.schedule).toBe("0 9 * * 1-5");
+      expect(created?.scheduleInput).toBe("every weekday at 9:00");
+
+      // The edit form prefills the English the user typed — the input
+      // field carries it, not the cron pattern the row stores.
+      const edit = await authedFetch(env, "/cron/morning-sweep/edit");
+      const editHtml = await edit.text();
+      expect(edit.status).toBe(200);
+      expect(editHtml).toContain('value="every weekday at 9:00"');
+      expect(editHtml).not.toContain('value="0 9 * * 1-5"');
+
+      // An edit tweaks the English in place; the row keeps both the
+      // new cron and the new typed spelling.
+      const put = await authedFetch(env, "/cron/morning-sweep", {
+        method: "PUT",
+        body: new URLSearchParams({
+          job_name: "morning-sweep",
+          schedule: "every weekday at 10:00",
+          prompt: "Morning sweep",
+          working_dir: workA,
+        }),
+        headers: { "HX-Request": "true" },
+      });
+      expect(put.status).toBe(200);
+      const edited = jobByName("morning-sweep");
+      expect(edited?.schedule).toBe("0 10 * * 1-5");
+      expect(edited?.scheduleInput).toBe("every weekday at 10:00");
+      // …and the next edit still prefills the English.
+      const again = await authedFetch(env, "/cron/morning-sweep/edit");
+      const againHtml = await again.text();
+      expect(againHtml).toContain('value="every weekday at 10:00"');
+
+      // Typing the canonical spelling outright drops the memory: the
+      // edit form then prefills the cron as typed.
+      const cronPut = await authedFetch(env, "/cron/morning-sweep", {
+        method: "PUT",
+        body: new URLSearchParams({
+          job_name: "morning-sweep",
+          schedule: "0 10 * * 1-5",
+          prompt: "Morning sweep",
+          working_dir: workA,
+        }),
+        headers: { "HX-Request": "true" },
+      });
+      expect(cronPut.status).toBe(200);
+      expect(jobByName("morning-sweep")?.scheduleInput).toBeUndefined();
+      const cronEdit = await authedFetch(env, "/cron/morning-sweep/edit");
+      expect(await cronEdit.text()).toContain('value="0 10 * * 1-5"');
     });
 
     it("edits a job's timezone through the form, and clears it", async () => {

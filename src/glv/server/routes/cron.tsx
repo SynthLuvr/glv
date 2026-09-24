@@ -224,10 +224,13 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
     // English becomes its cron pattern here — the database stores one
-    // canonical spelling.
+    // canonical spelling, with the typed text kept beside it so the
+    // edit form can prefill the same human-readable input.
+    const canonical = parsed.info.cron ?? schedule;
     const job: CronJobConfig = {
       name: jobName,
-      schedule: parsed.info.cron ?? schedule,
+      schedule: canonical,
+      ...(canonical === schedule ? {} : { scheduleInput: schedule }),
       prompt,
       workingDir,
       ...(timezone === "" ? {} : { timezone }),
@@ -362,7 +365,11 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       // own fields are overwritten. Where the picker is exposed, the
       // submitted value replaces the stored pin — empty clears it. The
       // follow-ons follow the marker: submitted values replace the stored
-      // steps, no marker keeps them.
+      // steps, no marker keeps them. The schedule's typed spelling is
+      // owned by this submit alone: kept beside the canonical one when
+      // it differs (the edit form prefills it), dropped when it is the
+      // canonical one — a stale memory must not outlive a cron-typed
+      // edit.
       const {
         modelProvider,
         model,
@@ -370,6 +377,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         followUps: keptFollowUps,
         ...kept
       } = existing;
+      const canonical = parsed.info.cron ?? schedule;
       const timezone = timezonePresent
         ? submittedTimezone || undefined
         : keptTimezone;
@@ -380,7 +388,8 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           pickerExposed ? picked : jobModelSelection({ modelProvider, model }),
         ),
         name,
-        schedule: parsed.info.cron ?? schedule,
+        schedule: canonical,
+        scheduleInput: canonical === schedule ? undefined : schedule,
         prompt,
         workingDir,
         ...(timezone === undefined ? {} : { timezone }),

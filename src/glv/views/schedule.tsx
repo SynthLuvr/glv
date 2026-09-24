@@ -461,8 +461,12 @@ const FollowOnSteps = ({ steps }: { steps: readonly string[] }) => (
 );
 
 // Edit form reusing the typed-schedule controls, pre-filled from the
-// job. Fields the form doesn't expose (e.g. a paused job's `enabled`)
-// are preserved by the PUT route.
+// job. The schedule field prefills the spelling the user last typed —
+// the remembered English when the row stores its translated cron — so
+// an English-created job edits in English (and live validation
+// re-translates as it always did); cron and one-shot spellings
+// prefill as themselves. Fields the form doesn't expose (e.g. a
+// paused job's `enabled`) are preserved by the PUT route.
 const ScheduleJobEditForm = ({
   job,
   schedule,
@@ -510,7 +514,7 @@ const ScheduleJobEditForm = ({
           />
         </label>
         <ScheduleControls
-          schedule={schedule ?? job.schedule}
+          schedule={schedule ?? job.scheduleInput ?? job.schedule}
           timezone={timezone ?? job.timezone ?? ""}
           timezoneId="cron-edit-timezones"
         />
