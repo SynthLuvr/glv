@@ -24,6 +24,7 @@ import { PromptBar, Transcript } from "../../views/transcript.js";
 import { ServerContext, VIEWER_FILTER } from "../context.js";
 import { fieldString, parseForm } from "../forms.js";
 import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
+import { buildLocationContext, parseSharedLocation } from "../location.js";
 import { expandHome } from "../paths.js";
 import {
   modelPicker,
@@ -204,6 +205,9 @@ const registerSessionRoutes = (
     );
 
     const files = collectFiles(body.uploads);
+    // Location share from the form's hidden field, validated before any
+    // directory or session is created.
+    const location = parseSharedLocation(bodyField("location"));
 
     // Every rejection re-renders the form with the submitted prompt and
     // schedule values restored — scheduling is an alternate submit, and
@@ -226,6 +230,9 @@ const registerSessionRoutes = (
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
+
+    if (location !== undefined && !location.ok)
+      return rejectForm(location.error, 422);
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case goose's config changed since the form was served.
@@ -257,6 +264,10 @@ const registerSessionRoutes = (
       } catch (err) {
         return rejectForm(uploadErrorMessage(err), 422);
       }
+
+    // Append the shared location after the upload section so both
+    // attachments read as one context block.
+    if (location?.ok) fullPrompt += buildLocationContext(location.value);
 
     // Pre-tag cleanup for a failed attempt: these dirs are untagged, so
     // the archive-time sweep would never collect them.
@@ -457,6 +468,12 @@ const registerSessionRoutes = (
         } catch (err) {
           uploadError = uploadErrorMessage(err);
         }
+
+      // A location share appends the same way; a malformed one surfaces as
+      // the bar's error hint so the user can retry, matching uploads.
+      const location = parseSharedLocation(firstString(body.location));
+      if (location !== undefined && !location.ok) uploadError = location.error;
+      else if (location?.ok) fullPrompt += buildLocationContext(location.value);
 
       // Render the submitted prompt only when it started right away; queued
       // prompts surface as QueuedPrompt cards via the handle, so passing the

@@ -13,6 +13,7 @@ import type { SavedPrompt } from "../../glv/prompts/db.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
 import { CronChip, PrChip } from "../../glv/views/chips.js";
+import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { SessionTitleWrap } from "../../glv/views/Rename.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
@@ -346,6 +347,7 @@ const PromptBar = ({
         </p>
       )}
       <UploadFields />
+      <LocationFields />
       <div class="prompt-input-row">
         <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
@@ -356,6 +358,7 @@ const PromptBar = ({
           aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
         />
         <PaperclipButton compact />
+        <LocationButton compact />
         {busy ? (
           <>
             <button type="submit" class="queue-btn">

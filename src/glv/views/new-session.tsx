@@ -1,6 +1,7 @@
 import { shortenHome } from "../../glv/format/index.js";
 import type { ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
+import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
 import type { CronJobConfig } from "../cron-jobs.js";
 import { PromptLibrarySection } from "./prompt-library.js";
@@ -217,9 +218,11 @@ const NewSessionForm = ({
         </textarea>
       </label>
       <UploadFields />
+      <LocationFields />
       <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
       <div class="form-actions upload-actions">
         <PaperclipButton />
+        <LocationButton />
         <button type="submit" class="send-btn">
           Start session
         </button>

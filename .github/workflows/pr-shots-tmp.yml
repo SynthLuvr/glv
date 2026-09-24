@@ -1,0 +1,41 @@
+name: PR screenshots (temporary)
+
+# TEMPORARY: captures PR-description screenshots for the share-location
+# feature on this branch only. Removed once the images are uploaded.
+
+on:
+  push:
+    branches: [feat/share-location]
+  workflow_dispatch:
+
+jobs:
+  shots:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build assets
+        run: pnpm build:assets
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+
+      - name: Capture screenshots
+        run: pnpm exec tsx scripts/pr-shots-tmp.mts
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: pr-shots
+          path: pr-shots/

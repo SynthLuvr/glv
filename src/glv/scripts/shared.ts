@@ -1,5 +1,15 @@
 import { htmxSwapTarget } from "./htmx.js";
 
+// The session id a prompt bar posts to, read from its hx-post attribute;
+// undefined for the New Session form (which posts to /sessions) or a
+// malformed action.
+const sessionOfBar = (bar: Element): string | undefined => {
+  const match = /^\/sessions\/([^/]+)\/prompt$/.exec(
+    bar.getAttribute("hx-post") ?? "",
+  );
+  return match === null ? undefined : match[1];
+};
+
 // `.value =` doesn't fire `input`; dispatch it so the autogrow listener
 // (ui.ts) resizes multi-line prompts instead of leaving them clipped.
 const fillPromptInput = (
@@ -24,4 +34,4 @@ const onSessionListSwap = (apply: () => void): void => {
     });
 };
 
-export { fillPromptInput, onSessionListSwap };
+export { fillPromptInput, onSessionListSwap, sessionOfBar };

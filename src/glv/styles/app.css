@@ -1573,7 +1573,8 @@ pre::-webkit-scrollbar-thumb {
   align-items: flex-end;
 }
 /* Sized to match the saved-prompt picker so the prompt-bar row stays compact. */
-.prompt-input-row .paperclip-btn {
+.prompt-input-row .paperclip-btn,
+.prompt-input-row .location-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1777,7 +1778,8 @@ select.form-input {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.paperclip-btn {
+.paperclip-btn,
+.location-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -1796,13 +1798,29 @@ select.form-input {
     border-color 0.12s ease,
     background 0.12s ease;
 }
-.paperclip-btn:hover {
+.paperclip-btn:hover,
+.location-btn:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
-.paperclip-btn svg {
+.paperclip-btn svg,
+.location-btn svg {
   flex-shrink: 0;
+}
+/* The pin pulses while the browser resolves the device position — the fix
+   can take several seconds behind the permission prompt. */
+.location-btn.is-locating {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.location-btn.is-locating svg {
+  animation: location-pulse 1s ease-in-out infinite;
+}
+@keyframes location-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 .upload-error {
   margin: 0;
@@ -1833,12 +1851,14 @@ select.form-input {
   color: var(--color-faint);
   cursor: progress;
 }
-.upload-chips {
+.upload-chips,
+.location-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
-.upload-chip {
+.upload-chip,
+.location-chip {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1850,7 +1870,8 @@ select.form-input {
   background: var(--color-surface-2);
   transition: border-color 0.1s ease;
 }
-.upload-chip:hover {
+.upload-chip:hover,
+.location-chip:hover {
   border-color: var(--color-accent);
 }
 .chip-thumb {

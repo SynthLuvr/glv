@@ -13,6 +13,7 @@ type AssetBundle = {
   readonly groups: string;
   readonly passkey: string;
   readonly uploads: string;
+  readonly location: string;
   readonly schedule: string;
 };
 
@@ -38,6 +39,7 @@ const buildAssetBundle = (flavor: string): AssetBundle => ({
   groups: readAsset(`../../../dist/${flavor}/groups.js`),
   passkey: readAsset(`../../../dist/${flavor}/passkey.js`),
   uploads: readAsset(`../../../dist/${flavor}/uploads.js`),
+  location: readAsset(`../../../dist/${flavor}/location.js`),
   schedule: readAsset(`../../../dist/${flavor}/schedule.js`),
 });
 

@@ -1,4 +1,5 @@
 import { htmxSwapTarget } from "./htmx.js";
+import { sessionOfBar } from "./shared.js";
 
 const UPLOADS_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — mirrors server limit
 
@@ -24,13 +25,6 @@ let pastedImageCount = 0;
 // wireForm, so files never leak into another session's or the New Session
 // form.
 let carrySessionId: string | undefined;
-
-const sessionOfBar = (bar: Element): string | undefined => {
-  const match = /^\/sessions\/([^/]+)\/prompt$/.exec(
-    bar.getAttribute("hx-post") ?? "",
-  );
-  return match === null ? undefined : match[1];
-};
 
 const imageExtByType: Record<string, string> = {
   "image/jpeg": "jpg",
