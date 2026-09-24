@@ -44,11 +44,11 @@ const runLocationSuite = (fx: FlavorFixture): void => {
   };
 
   beforeAll(async () => {
+    capturePath = join(tmpdir(), `glv-loc-cap-${process.pid}.txt`);
     env = await fx.startEnv("glv-loc-", {
       sessionName: SESSION_NAME,
-      captureStdin: join(tmpdir(), `glv-loc-cap-${process.pid}.txt`),
+      captureStdin: capturePath,
     });
-    capturePath = join(tmpdir(), `glv-loc-cap-${process.pid}.txt`);
     workDir = join(env.scratchDir, "project");
     mkdirSync(workDir, { recursive: true });
 
@@ -72,7 +72,6 @@ const runLocationSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("form.new-session-form")).toBeVisible();
         const bar = page.locator("form.new-session-form .location-btn");
         await expect(bar).toBeVisible();
-        // The paperclip comes first; the share button sits right after it.
         await expect(bar).toHaveCount(1);
         await expect(
           page.locator("form.new-session-form .paperclip-btn"),
@@ -112,7 +111,6 @@ const runLocationSuite = (fx: FlavorFixture): void => {
         await expect(chip).toContainText(LAT_FMT);
         await expect(chip).toContainText("Current location");
 
-        // The hidden field carries the payload the server will parse.
         const hiddenValue = await page
           .locator('form.new-session-form input[name="location"]')
           .inputValue();

@@ -1,5 +1,9 @@
-import { htmxSwapTarget } from "./htmx.js";
-import { sessionOfBar } from "./shared.js";
+import {
+  createAttachmentChip,
+  sessionOfBar,
+  showError,
+  wireUploadForms,
+} from "./shared.js";
 
 // "Share my location" flow for any form carrying LocationFields (the New
 // Session form and the in-session prompt bar). The browser Geolocation API
@@ -23,24 +27,8 @@ type StagedLocation = {
 
 const pinIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>';
-const removeIcon =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
 let staged: StagedLocation | undefined;
-
-// A busy/idle prompt-bar swap replaces the form node while the user may be
-// composing a follow-up; the staged share must survive it (uploads.ts
-// carries its chips the same way).
-let carrySessionId: string | undefined;
-
-const showError = (container: HTMLElement | null, message: string): void => {
-  if (container === null) return;
-  container.textContent = message;
-  container.style.display = "block";
-  window.setTimeout(() => {
-    if (container.textContent === message) container.style.display = "none";
-  }, 5000);
-};
 
 const geoErrorMessage = (err: GeolocationPositionError): string => {
   if (err.code === err.PERMISSION_DENIED)
@@ -70,51 +58,28 @@ const coordsOf = (coords: GeolocationCoordinates): StagedLocation => {
   return loc;
 };
 
-const createChip = (loc: StagedLocation, onRemove: () => void): HTMLElement => {
-  const chip = document.createElement("div");
-  chip.className = "location-chip";
-
+const pinThumb = (): HTMLElement => {
   const thumb = document.createElement("span");
   thumb.className = "chip-thumb chip-thumb-icon";
   thumb.innerHTML = pinIcon;
-  chip.appendChild(thumb);
-
-  const info = document.createElement("div");
-  info.className = "chip-info";
-
-  const name = document.createElement("span");
-  name.className = "chip-name";
-  name.textContent = "Current location";
-  info.appendChild(name);
-
-  const detail = document.createElement("span");
-  detail.className = "chip-size";
-  detail.textContent = fmtSummary(loc);
-  info.appendChild(detail);
-
-  chip.appendChild(info);
-
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "chip-remove";
-  remove.setAttribute("aria-label", "Remove shared location");
-  remove.innerHTML = removeIcon;
-  remove.addEventListener("click", () => {
-    onRemove();
-  });
-  chip.appendChild(remove);
-
-  return chip;
+  return thumb;
 };
 
 const renderChip = (container: HTMLElement, input: HTMLInputElement): void => {
   container.innerHTML = "";
   if (staged !== undefined)
     container.appendChild(
-      createChip(staged, () => {
-        staged = undefined;
-        input.value = "";
-        renderChip(container, input);
+      createAttachmentChip({
+        className: "location-chip",
+        thumb: pinThumb(),
+        name: "Current location",
+        detail: fmtSummary(staged),
+        removeLabel: "Remove shared location",
+        onRemove: () => {
+          staged = undefined;
+          input.value = "";
+          renderChip(container, input);
+        },
       }),
     );
   container.style.display = staged !== undefined ? "flex" : "none";
@@ -130,14 +95,10 @@ const stage = (
   if (container !== null) renderChip(container, input);
 };
 
-const setLocating = (button: HTMLButtonElement, on: boolean): void => {
-  if (on) {
-    button.classList.add("is-locating");
-    button.setAttribute("aria-busy", "true");
-  } else {
-    button.classList.remove("is-locating");
-    button.removeAttribute("aria-busy");
-  }
+const setLocating = (button: HTMLButtonElement, locating: boolean): void => {
+  button.classList.toggle("is-locating", locating);
+  if (locating) button.setAttribute("aria-busy", "true");
+  else button.removeAttribute("aria-busy");
 };
 
 const wireForm = (form: HTMLFormElement): void => {
@@ -148,20 +109,19 @@ const wireForm = (form: HTMLFormElement): void => {
 
   if (input === null || button === null) return;
 
-  // A fresh form node starts empty — unless it is the same session's
-  // prompt bar re-rendered by a busy/idle swap, which inherits the staged
-  // share captured by the beforeSwap listener below.
+  // A fresh form node starts empty — unless it is the same session's prompt
+  // bar re-rendered by a busy/idle swap, which inherits the staged share
+  // (see wireUploadForms).
   const sessionId = sessionOfBar(form);
-  const inheritStaged = sessionId !== undefined && sessionId === carrySessionId;
-  carrySessionId = undefined;
-  if (inheritStaged && staged !== undefined) {
-    input.value = JSON.stringify(staged);
-    if (chipsContainer !== null) renderChip(chipsContainer, input);
-  } else {
+  const carried = takeCarriedSession();
+  const inherit =
+    staged !== undefined && sessionId !== undefined && sessionId === carried;
+  if (inherit) input.value = JSON.stringify(staged);
+  else {
     staged = undefined;
     input.value = "";
-    if (chipsContainer !== null) renderChip(chipsContainer, input);
   }
+  if (chipsContainer !== null) renderChip(chipsContainer, input);
 
   button.addEventListener("click", () => {
     if (button.classList.contains("is-locating")) return;
@@ -184,38 +144,4 @@ const wireForm = (form: HTMLFormElement): void => {
   });
 };
 
-// Identity-keyed: a form that survives a swap isn't re-wired, but a freshly
-// swapped node (new identity) is.
-const wired = new WeakSet<HTMLFormElement>();
-
-const initLocationForms = (): void => {
-  for (const form of document.querySelectorAll<HTMLFormElement>(
-    "[data-upload-form]",
-  )) {
-    if (wired.has(form)) continue;
-    wired.add(form);
-    wireForm(form);
-  }
-};
-
-document.addEventListener("DOMContentLoaded", initLocationForms);
-
-// Capture which session's prompt bar is about to be swapped so the fresh
-// node can inherit the staged share (see wireForm).
-document.body.addEventListener("htmx:beforeSwap", (e) => {
-  const target = htmxSwapTarget(e);
-  if (target?.hasAttribute("data-prompt-bar"))
-    carrySessionId = sessionOfBar(target);
-});
-
-// A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
-// transition) both bring a fresh form node to wire.
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  const target = htmxSwapTarget(e);
-  if (target?.id === "detail-pane") {
-    carrySessionId = undefined;
-    initLocationForms();
-    return;
-  }
-  if (target?.hasAttribute("data-prompt-bar")) initLocationForms();
-});
+const takeCarriedSession = wireUploadForms(wireForm);

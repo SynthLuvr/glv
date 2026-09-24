@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { Err, Ok, type Result } from "ts-handling";
 import { parseJson } from "../parse.js";
 
 // Wire shape of the client's location share: the Geolocation API's
@@ -12,13 +13,6 @@ const SharedLocationSchema = type({
 
 type SharedLocation = typeof SharedLocationSchema.infer;
 
-// Reading the form field yields one of three outcomes: nothing was shared,
-// a valid share, or a malformed share the route must reject so the user
-// can retry instead of the agent receiving garbage coordinates.
-type ParsedLocation =
-  | { readonly ok: true; readonly value: SharedLocation }
-  | { readonly ok: false; readonly error: string };
-
 const LOCATION_READ_ERROR =
   "That location could not be read — remove the chip and share again.";
 
@@ -27,14 +21,21 @@ const LOCATION_READ_ERROR =
 const inRange = (value: number, min: number, max: number): boolean =>
   Number.isFinite(value) && value >= min && value <= max;
 
-const parseSharedLocation = (raw: string): ParsedLocation | undefined => {
+// undefined — nothing shared; Ok — a share the route appends to the
+// prompt; Err — a malformed share the route rejects so the user can retry
+// instead of the agent receiving garbage coordinates.
+const parseSharedLocation = (
+  raw: string,
+): Result<SharedLocation, string> | undefined => {
   if (raw === "") return undefined;
   const parsed = parseJson(raw, SharedLocationSchema);
-  if (!parsed.ok) return { ok: false, error: LOCATION_READ_ERROR };
-  const { latitude, longitude } = parsed.data;
-  if (!inRange(latitude, -90, 90) || !inRange(longitude, -180, 180))
-    return { ok: false, error: LOCATION_READ_ERROR };
-  return { ok: true, value: parsed.data };
+  if (
+    parsed.ok &&
+    inRange(parsed.data.latitude, -90, 90) &&
+    inRange(parsed.data.longitude, -180, 180)
+  )
+    return Ok(parsed.data);
+  return Err(LOCATION_READ_ERROR);
 };
 
 // Five decimals is ~1 m of ground distance — far finer than phone GPS, and

@@ -205,8 +205,7 @@ const registerSessionRoutes = (
     );
 
     const files = collectFiles(body.uploads);
-    // Location share from the form's hidden field, validated before any
-    // directory or session is created.
+    // Validated before any directory or session is created.
     const location = parseSharedLocation(bodyField("location"));
 
     // Every rejection re-renders the form with the submitted prompt and
@@ -265,9 +264,9 @@ const registerSessionRoutes = (
         return rejectForm(uploadErrorMessage(err), 422);
       }
 
-    // Append the shared location after the upload section so both
-    // attachments read as one context block.
-    if (location?.ok) fullPrompt += buildLocationContext(location.value);
+    // After the upload section, so both attachments read as one context
+    // block.
+    if (location?.ok) fullPrompt += buildLocationContext(location.data);
 
     // Pre-tag cleanup for a failed attempt: these dirs are untagged, so
     // the archive-time sweep would never collect them.
@@ -469,11 +468,11 @@ const registerSessionRoutes = (
           uploadError = uploadErrorMessage(err);
         }
 
-      // A location share appends the same way; a malformed one surfaces as
-      // the bar's error hint so the user can retry, matching uploads.
+      // A malformed share surfaces as the bar's error hint so the user can
+      // retry, matching uploads.
       const location = parseSharedLocation(firstString(body.location));
       if (location !== undefined && !location.ok) uploadError = location.error;
-      else if (location?.ok) fullPrompt += buildLocationContext(location.value);
+      else if (location?.ok) fullPrompt += buildLocationContext(location.data);
 
       // Render the submitted prompt only when it started right away; queued
       // prompts surface as QueuedPrompt cards via the handle, so passing the

@@ -1,5 +1,9 @@
-import { htmxSwapTarget } from "./htmx.js";
-import { sessionOfBar } from "./shared.js";
+import {
+  createAttachmentChip,
+  sessionOfBar,
+  showError,
+  wireUploadForms,
+} from "./shared.js";
 
 const UPLOADS_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — mirrors server limit
 
@@ -11,20 +15,11 @@ const formatFileSize = (bytes: number): string => {
 
 const isImage = (file: File): boolean => file.type.startsWith("image/");
 
-const removeIcon =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 const fileIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/></svg>';
 
 let selectedFiles: File[] = [];
 let pastedImageCount = 0;
-
-// A busy/idle prompt-bar swap replaces the form node while the user may be
-// composing a follow-up; the staged chips must survive it. The bar's session
-// id is captured just before the swap and matched against the fresh node in
-// wireForm, so files never leak into another session's or the New Session
-// form.
-let carrySessionId: string | undefined;
 
 const imageExtByType: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -44,11 +39,10 @@ const addFiles = (
 ): void => {
   for (const file of incoming)
     if (file.size > UPLOADS_MAX_FILE_SIZE) {
-      if (errorEl !== null)
-        showError(
-          errorEl,
-          `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(UPLOADS_MAX_FILE_SIZE)}.`,
-        );
+      showError(
+        errorEl,
+        `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(UPLOADS_MAX_FILE_SIZE)}.`,
+      );
       return;
     }
 
@@ -97,41 +91,16 @@ const createChip = (
   file: File,
   index: number,
   onRemove: (index: number) => void,
-): HTMLElement => {
-  const chip = document.createElement("div");
-  chip.className = "upload-chip";
-
-  const thumb = createThumbnail(file);
-  chip.appendChild(thumb);
-
-  const info = document.createElement("div");
-  info.className = "chip-info";
-
-  const name = document.createElement("span");
-  name.className = "chip-name";
-  name.textContent = file.name;
-  name.title = file.name;
-  info.appendChild(name);
-
-  const size = document.createElement("span");
-  size.className = "chip-size";
-  size.textContent = formatFileSize(file.size);
-  info.appendChild(size);
-
-  chip.appendChild(info);
-
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "chip-remove";
-  remove.setAttribute("aria-label", `Remove ${file.name}`);
-  remove.innerHTML = removeIcon;
-  remove.addEventListener("click", () => {
-    onRemove(index);
+): HTMLElement =>
+  createAttachmentChip({
+    className: "upload-chip",
+    thumb: createThumbnail(file),
+    name: file.name,
+    nameTitle: file.name,
+    detail: formatFileSize(file.size),
+    removeLabel: `Remove ${file.name}`,
+    onRemove: () => onRemove(index),
   });
-  chip.appendChild(remove);
-
-  return chip;
-};
 
 const renderChips = (container: HTMLElement, input: HTMLInputElement): void => {
   container.innerHTML = "";
@@ -145,14 +114,6 @@ const renderChips = (container: HTMLElement, input: HTMLInputElement): void => {
     );
   });
   container.style.display = selectedFiles.length > 0 ? "flex" : "none";
-};
-
-const showError = (container: HTMLElement, message: string): void => {
-  container.textContent = message;
-  container.style.display = "block";
-  window.setTimeout(() => {
-    if (container.textContent === message) container.style.display = "none";
-  }, 5000);
 };
 
 const collectPastedImages = (dt: DataTransfer): File[] => {
@@ -172,8 +133,6 @@ const collectPastedImages = (dt: DataTransfer): File[] => {
   return images;
 };
 
-// Module-level chip state persists across swaps; reset so a fresh form
-// starts empty.
 const wireForm = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>('input[type="file"]');
   const button = form.querySelector<HTMLButtonElement>(".paperclip-btn");
@@ -184,13 +143,13 @@ const wireForm = (form: HTMLFormElement): void => {
 
   // A fresh form node starts empty — unless it is the same session's prompt
   // bar re-rendered by a busy/idle swap, which inherits the staged chips
-  // (captured by the beforeSwap listener below).
+  // (see wireUploadForms).
   const sessionId = sessionOfBar(form);
+  const carried = takeCarriedSession();
   const inheritStaged =
+    selectedFiles.length > 0 &&
     sessionId !== undefined &&
-    sessionId === carrySessionId &&
-    selectedFiles.length > 0;
-  carrySessionId = undefined;
+    sessionId === carried;
   if (inheritStaged && chipsContainer !== null) {
     renderChips(chipsContainer, input);
     syncInput(input);
@@ -234,40 +193,4 @@ const wireForm = (form: HTMLFormElement): void => {
   form.addEventListener("submit", () => syncInput(input));
 };
 
-// Identity-keyed: a form that survives a swap isn't re-wired, but a freshly
-// swapped node (new identity) is.
-const wired = new WeakSet<HTMLFormElement>();
-
-const initUploadForms = (): void => {
-  for (const form of document.querySelectorAll<HTMLFormElement>(
-    "[data-upload-form]",
-  )) {
-    if (wired.has(form)) continue;
-    wired.add(form);
-    wireForm(form);
-  }
-};
-
-document.addEventListener("DOMContentLoaded", initUploadForms);
-
-// Capture which session's prompt bar is about to be swapped so the fresh
-// node can inherit the staged chips (see wireForm).
-document.body.addEventListener("htmx:beforeSwap", (e) => {
-  const target = htmxSwapTarget(e);
-  if (target?.hasAttribute("data-prompt-bar"))
-    carrySessionId = sessionOfBar(target);
-});
-
-// A detail-pane swap (navigation/submit) or a prompt-bar swap (busy/idle
-// transition) both bring a fresh form node to wire.
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  const target = htmxSwapTarget(e);
-  if (target?.id === "detail-pane") {
-    // Navigation replaced the whole pane; a captured carry must not leak
-    // into whatever form the new pane brings.
-    carrySessionId = undefined;
-    initUploadForms();
-    return;
-  }
-  if (target?.hasAttribute("data-prompt-bar")) initUploadForms();
-});
+const takeCarriedSession = wireUploadForms(wireForm);

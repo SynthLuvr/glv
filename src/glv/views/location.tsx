@@ -16,10 +16,10 @@ const MapPinIcon = () => (
   </svg>
 );
 
-// Fields backing the "share my location" action: the hidden `location`
-// input carrying the share payload and the chip surface the client script
-// renders into. Errors reuse the upload form's .upload-error element so the
-// two attachment flows read as one UI.
+// The hidden `location` input carries the share payload the server
+// parses; the client script renders its chip into .location-chips. Errors
+// reuse the upload form's .upload-error so the two attachment flows read
+// as one UI.
 const LocationFields = () => (
   <>
     <input type="hidden" name="location" class="location-input-hidden" />
