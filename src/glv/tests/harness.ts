@@ -574,9 +574,7 @@ const defaultDataDir = (home: string, dataDirName: string): string =>
 type CronJobRow = {
   name: string;
   schedule: string;
-  /** The typed schedule as last submitted, when the row stores its
-   * translated cron (English input); absent when the schedule column
-   * is what was typed. */
+  /** The schedule as last typed, when the row stores its translated cron. */
   scheduleInput?: string;
   prompt: string;
   workingDir: string;
@@ -618,7 +616,7 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
     return rows.map((row) => ({
       name: row.name as string,
       schedule: row.schedule as string,
-      ...(row.schedule_input === null || row.schedule_input === undefined
+      ...(row.schedule_input === null
         ? {}
         : { scheduleInput: row.schedule_input as string }),
       prompt: row.prompt as string,

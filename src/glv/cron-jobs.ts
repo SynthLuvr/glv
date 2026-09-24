@@ -16,12 +16,10 @@ import { positiveEnvNumber } from "./util.js";
 type CronJobConfig = {
   name: string;
   schedule: string;
-  // The schedule exactly as last typed when `schedule` holds its
-  // translation: English input becomes cron at save time, and this
-  // keeps the English spelling so the edit form prefills the same
-  // human-readable text the user wrote. Absent when the schedule
-  // column is already what was typed (cron, one-shot) — or when the
-  // row predates the column.
+  // The schedule exactly as last typed, kept when `schedule` holds its
+  // translated cron so the edit form prefills the human-readable text
+  // the user wrote; absent when the schedule column is itself what was
+  // typed.
   scheduleInput?: string;
   prompt: string;
   workingDir: string;
@@ -83,18 +81,11 @@ const cronJobColumns = (db: DatabaseSync): string[] => {
   return rows.map((row) => row.name);
 };
 
-// Databases created before the typed-schedule memory have no
-// schedule_input column; add it in place. Idempotent.
-const ensureScheduleInputColumn = (db: DatabaseSync): void => {
-  if (!cronJobColumns(db).includes("schedule_input"))
-    db.exec("ALTER TABLE cron_jobs ADD COLUMN schedule_input TEXT");
-};
-
-// Databases created before chained sessions existed have no follow_ups
-// column; add it in place. The PRAGMA probe makes this idempotent.
-const ensureFollowUpsColumn = (db: DatabaseSync): void => {
-  if (!cronJobColumns(db).includes("follow_ups"))
-    db.exec("ALTER TABLE cron_jobs ADD COLUMN follow_ups TEXT");
+// Databases created before a nullable column existed lack it; add it
+// in place. The PRAGMA probe makes this idempotent.
+const ensureColumn = (db: DatabaseSync, column: string): void => {
+  if (!cronJobColumns(db).includes(column))
+    db.exec(`ALTER TABLE cron_jobs ADD COLUMN ${column} TEXT`);
 };
 
 // Databases created before missed-run catch-up have no last_fired_at
@@ -120,8 +111,8 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
-  ensureScheduleInputColumn(db);
-  ensureFollowUpsColumn(db);
+  ensureColumn(db, "schedule_input");
+  ensureColumn(db, "follow_ups");
   ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;

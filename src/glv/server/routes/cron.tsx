@@ -76,6 +76,22 @@ const FOLLOW_UPS_CAP_ERROR =
   `A scheduled run may have at most ${MAX_CRON_STEPS - 1} follow-on ` +
   `steps — ${MAX_CRON_STEPS} steps in total, the first prompt included.`;
 
+// The schedule pair every save writes: English input becomes its cron
+// pattern here, with the typed text kept beside it when it differs so
+// the edit form prefills what the user wrote. scheduleInput is always
+// set — undefined clears any stale memory when the submit itself
+// spelled the canonical form.
+const scheduleFields = (
+  schedule: string,
+  cron: string | undefined,
+): Pick<CronJobConfig, "schedule" | "scheduleInput"> => {
+  const canonical = cron ?? schedule;
+  return {
+    schedule: canonical,
+    scheduleInput: canonical === schedule ? undefined : schedule,
+  };
+};
+
 // The section's job list, or an empty list with the read error surfaced
 // when the store is unreadable (it was valid at boot, so something
 // external broke it); shown instead of a 500.
@@ -223,14 +239,9 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     if (existing.some((job) => job.name === jobName))
       return reject(`A scheduled run named "${jobName}" already exists.`);
 
-    // English becomes its cron pattern here — the database stores one
-    // canonical spelling, with the typed text kept beside it so the
-    // edit form can prefill the same human-readable input.
-    const canonical = parsed.info.cron ?? schedule;
     const job: CronJobConfig = {
       name: jobName,
-      schedule: canonical,
-      ...(canonical === schedule ? {} : { scheduleInput: schedule }),
+      ...scheduleFields(schedule, parsed.info.cron),
       prompt,
       workingDir,
       ...(timezone === "" ? {} : { timezone }),
@@ -365,11 +376,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       // own fields are overwritten. Where the picker is exposed, the
       // submitted value replaces the stored pin — empty clears it. The
       // follow-ons follow the marker: submitted values replace the stored
-      // steps, no marker keeps them. The schedule's typed spelling is
-      // owned by this submit alone: kept beside the canonical one when
-      // it differs (the edit form prefills it), dropped when it is the
-      // canonical one — a stale memory must not outlive a cron-typed
-      // edit.
+      // steps, no marker keeps them.
       const {
         modelProvider,
         model,
@@ -377,7 +384,6 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         followUps: keptFollowUps,
         ...kept
       } = existing;
-      const canonical = parsed.info.cron ?? schedule;
       const timezone = timezonePresent
         ? submittedTimezone || undefined
         : keptTimezone;
@@ -388,8 +394,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           pickerExposed ? picked : jobModelSelection({ modelProvider, model }),
         ),
         name,
-        schedule: canonical,
-        scheduleInput: canonical === schedule ? undefined : schedule,
+        ...scheduleFields(schedule, parsed.info.cron),
         prompt,
         workingDir,
         ...(timezone === undefined ? {} : { timezone }),
