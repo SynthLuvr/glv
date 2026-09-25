@@ -95,3 +95,12 @@ updates it, and a marker-only change must not reschedule anything.
 - No staleness window (a one-shot missed by days still fires late; the
   log line names the scheduled instant so a surprised user can see why)
   and no opt-out flag in v1; both are cheap to add later.
+
+## Update — 2026-09-25: the in-place column migration is removed
+
+The pragma-guarded `ALTER TABLE` that added `last_fired_at` to databases
+created before catch-up, and the one-time seed that marked existing rows
+as served, are gone: every store already carries the column, and new
+databases get it from the create-table schema. The marker’s semantics
+are unchanged — inserts still seed it to now, and only the scheduler’s
+fire path (`recordCronFire`) updates it.

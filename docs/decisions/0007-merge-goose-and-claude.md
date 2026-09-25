@@ -209,3 +209,13 @@ PR that CI tests, and UI changes carry screenshots.
 - `FlavorProfile.dataDirName` survives as the legacy-directory name the
   migration reads and as the suffix of per-agent environment overrides;
   new glv-owned defaults collapse into the shared `glv` directory.
+
+## Update — 2026-09-25: the one-time adoption is removed
+
+The adoption did its job and is gone. serve no longer looks for
+`glv-goose` / `glv-claude`: `runLegacyMigration`, its CLI wiring, and
+the `FlavorProfile.dataDirName` field it read are deleted. Installs that
+completed the adoption keep everything it produced — namespaced ids, the
+adopted passkey, uploads and temp dirs. A leftover `.migrated` directory
+is inert and can be deleted; a legacy directory that never migrated is
+no longer adopted, and current glv simply does not read it.

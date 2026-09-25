@@ -69,46 +69,6 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 );
 `;
 
-// Column names of the existing cron_jobs table. PRAGMA rows carry more
-// fields (cid, type, …), all ignored; a row without a string name means
-// the store is broken, and failing the migration loudly beats silently
-// skipping it.
-const PragmaColumn = type({ name: "string" });
-
-const cronJobColumns = (db: DatabaseSync): string[] => {
-  const rows = PragmaColumn.array()(
-    db.prepare("PRAGMA table_info(cron_jobs)").all(),
-  );
-  if (rows instanceof type.errors)
-    throw new Error(
-      `PRAGMA table_info(cron_jobs) returned unexpected rows: ${rows.summary}`,
-    );
-  return rows.map((row) => row.name);
-};
-
-// Databases created before a nullable column existed lack it; add it
-// in place. The PRAGMA probe makes this idempotent.
-const ensureColumn = (db: DatabaseSync, column: string): void => {
-  if (!cronJobColumns(db).includes(column))
-    db.exec(`ALTER TABLE cron_jobs ADD COLUMN ${column} TEXT`);
-};
-
-// Databases created before missed-run catch-up have no last_fired_at
-// column; add it in place and seed existing rows to now — occurrences
-// the pre-upgrade process already served count as served, so the first
-// upgraded boot does not fire every job retroactively. Idempotent, and
-// the seed runs only when the column was just added: a row inserted
-// without a marker afterwards is a new job (an external writer's), not
-// an old one, and is not seeded retroactively behind its creator's
-// back.
-const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
-  if (cronJobColumns(db).includes("last_fired_at")) return;
-  db.exec("ALTER TABLE cron_jobs ADD COLUMN last_fired_at TEXT");
-  db.prepare(
-    "UPDATE cron_jobs SET last_fired_at = ? WHERE last_fired_at IS NULL",
-  ).run(new Date().toISOString());
-};
-
 // One database file, two tables: the schedule itself and the
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
@@ -119,10 +79,6 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
-  ensureColumn(db, "schedule_input");
-  ensureColumn(db, "follow_ups");
-  ensureColumn(db, "agent");
-  ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;
 };

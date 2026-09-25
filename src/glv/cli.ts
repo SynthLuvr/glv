@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { type } from "arktype";
 import { Command } from "commander";
 import which from "which";
@@ -25,9 +24,7 @@ import { type AgentServeSpec, runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
 import { prefixedInvocation } from "./composite-launcher.js";
 import { createCompositeSessionStore } from "./composite-store.js";
-import { dataRoot, resolveDataPath } from "./db-path.js";
-import { runLegacyMigration } from "./migrate.js";
-import { resolveTempBase, resolveUploadsBase } from "./server/uploads.js";
+import { resolveDataPath } from "./db-path.js";
 import { openMetaDb } from "./session-meta.js";
 import type { SessionFilter, SessionStore } from "./sessions.js";
 
@@ -121,40 +118,6 @@ const glvDbPaths = (globals: GlvDataOverrides) => ({
     "claude-meta.db",
   ),
 });
-
-const anyDbOverride = (globals: GlvDataOverrides): boolean =>
-  globals.authDb !== undefined ||
-  globals.promptsDb !== undefined ||
-  globals.groupsDb !== undefined ||
-  globals.cronDb !== undefined ||
-  globals.metaDb !== undefined;
-
-// The one-time adoption of the per-flavor data directories. Skipped
-// entirely while any glv-owned database is overridden (tests, custom
-// setups): those databases are not the unified defaults, so migrating
-// into them would be a surprise.
-const migrateLegacyDirs = (globals: GlvDataOverrides): void => {
-  if (anyDbOverride(globals)) return;
-  const paths = glvDbPaths(globals);
-  const { adopted, notices } = runLegacyMigration(
-    [
-      { agent: gooseProfile.id, dataDirName: gooseProfile.dataDirName },
-      { agent: claudeProfile.id, dataDirName: claudeProfile.dataDirName },
-    ],
-    {
-      authDb: paths.authDbPath,
-      promptsDb: paths.promptsDbPath,
-      groupsDb: paths.groupsDbPath,
-      cronDb: paths.cronDbPath,
-      claudeMetaDb: paths.claudeMetaDbPath,
-      uploadsDir: resolveUploadsBase(DATA_DIR),
-      tempDir: resolveTempBase(DATA_DIR),
-    },
-  );
-  for (const name of adopted)
-    console.log(`glv: adopted legacy data directory ${join(dataRoot(), name)}`);
-  for (const notice of notices) console.log(`glv: ${notice}`);
-};
 
 const gooseSpec = (
   gooseBinary: string,
@@ -282,8 +245,6 @@ serveCmd.action((opts: Record<string, unknown>) => {
   const claudeBinary = cli.optString(opts, "claudeBinary", "claude");
   const permissionMode = cli.optString(opts, "permissionMode", "inherit");
   const available = resolveAgents(gooseBinary, claudeBinary, globals);
-
-  migrateLegacyDirs(globals);
 
   const specs: AgentServeSpec[] = [];
   if (available.goose) specs.push(gooseSpec(gooseBinary, globals.gooseDb));

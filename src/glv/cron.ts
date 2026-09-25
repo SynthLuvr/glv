@@ -154,7 +154,7 @@ const validateJob = (job: ResolvedJob, deps: SchedulerDeps): void => {
         `follow-on prompts (the cap is ${MAX_CRON_STEPS} steps in total)`,
     );
   // The job's agent must be one this server serves — a row naming a
-  // disabled or unknown agent (an edit, a migration glitch) fails
+  // disabled or unknown agent (an edit, a hand-edited store) fails
   // named rather than firing through a launcher that would reject it.
   const agentInfo = deps.agents?.find((entry) => entry.id === job.agent);
   if (deps.agents !== undefined && agentInfo === undefined)

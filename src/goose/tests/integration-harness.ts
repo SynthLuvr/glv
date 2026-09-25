@@ -240,7 +240,6 @@ export {
   gooseMockScriptPath,
   insertMessages,
   insertSessions,
-  mockGoose,
   SESSIONS_SCHEMA,
   startIntegrationEnv,
 };
