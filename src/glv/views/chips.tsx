@@ -182,8 +182,7 @@ const PrChip = ({
   );
 };
 
-// The agent a scheduled run belongs to ("goose", "claude") — cron cards
-// render it; session rows and transcript headers name no agent.
+// The agent a scheduled run belongs to ("goose", "claude").
 const AgentChip = ({ agent }: { agent: string }) => (
   <span class="agent-chip" data-agent={agent}>
     {agent}

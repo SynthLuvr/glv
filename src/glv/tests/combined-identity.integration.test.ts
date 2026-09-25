@@ -71,8 +71,6 @@ describe("combined viewer — sidebar", () => {
     const html = await res.text();
     expect(html).toContain("Goose Alpha");
     expect(html).toContain("Claude Beta");
-    // The sidebar names no agent — rows read the same regardless of which
-    // agent owns the session.
     expect(html).not.toContain("data-agent=");
     expect(html).toContain('data-session-id="goose:alpha"');
     expect(html).toContain('data-session-id="claude:beta"');
@@ -117,7 +115,6 @@ describe("combined viewer — transcripts and streams", () => {
     const claudeRes = await authedFetch(env, "/sessions/claude:beta");
     const claudeHtml = await claudeRes.text();
     expect(claudeHtml).toContain("claude reply");
-    // Neither the header meta chips nor the sidebar rows name the agent.
     expect(claudeHtml).not.toContain("data-agent=");
   });
 
@@ -183,8 +180,6 @@ describe("combined viewer — new session model picker", () => {
     const html = await res.text();
     // The transcript that lands is the claude one the mock created, under
     // the claude namespace, and the run carried the claude model flag.
-    // Nothing on the page names the agent — sidebar rows and transcript
-    // headers carry no chip.
     expect(html).toContain('data-session-id="claude:');
     expect(html).not.toContain("data-agent=");
     const args = await waitForArgs(argsPath);
