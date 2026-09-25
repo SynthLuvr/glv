@@ -21,7 +21,10 @@ import * as cli from "./cli-shared.js";
 import { runList } from "./commands/list.js";
 import { type AgentServeSpec, runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import { createCompositeSessionStore } from "./composite-store.js";
+import {
+  createCompositeSessionStore,
+} from "./composite-store.js";
+import { prefixedInvocation } from "./composite-launcher.js";
 import { dataRoot, resolveDataPath } from "./db-path.js";
 import { runLegacyMigration } from "./migrate.js";
 import { resolveTempBase, resolveUploadsBase } from "./server/uploads.js";
@@ -205,7 +208,10 @@ const gooseSpec = (
   dbWritable.exec("PRAGMA busy_timeout=5000");
   const db = openGooseDb(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
-  const invocation = makeGooseAgent(gooseBinary);
+  const invocation = prefixedInvocation(
+    makeGooseAgent(gooseBinary),
+    gooseProfile.id,
+  );
   return {
     agent: gooseProfile.id,
     spec: {
@@ -236,7 +242,10 @@ const claudeSpec = (
 ): { readonly agent: string; readonly spec: AgentServeSpec } => {
   const root = resolveProjectsRoot(globals.projectsDir);
   const meta = openMetaDb(glvDbPaths(globals).claudeMetaDbPath);
-  const invocation = makeClaudeAgent(claudeBinary, permissionMode);
+  const invocation = prefixedInvocation(
+    makeClaudeAgent(claudeBinary, permissionMode),
+    claudeProfile.id,
+  );
   const store = createClaudeStore(root, meta);
   return {
     agent: claudeProfile.id,
