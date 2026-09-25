@@ -182,9 +182,12 @@ describe("combined viewer — new session model picker", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     // The transcript that lands is the claude one the mock created, under
-    // the claude namespace, and the run carried the claude model flag.
+    // the claude namespace, and the run carried the claude model flag. The
+    // page names no agent — sidebar rows stopped tagging rows, and the
+    // freshly established row renders its header chip only after a reload
+    // re-reads the store.
     expect(html).toContain('data-session-id="claude:');
-    expect(html).toContain('data-agent="claude"');
+    expect(html).not.toContain("data-agent=");
     const args = await waitForArgs(argsPath);
     expect(flagValue(args, "--model")).toBe("sonnet");
   }, 60000);
