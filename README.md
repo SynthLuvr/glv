@@ -104,27 +104,27 @@ glv is a single Node.js process built on the
 node scripts/setup.mjs
 ```
 
-This installs dependencies and installs the `glv` launcher onto
-your PATH (`~/.local/bin/glv` on macOS/Linux,
-`%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh`
-remains as a thin Unix wrapper. Re-running is safe.
+This installs dependencies and installs the `glv` launcher onto your
+PATH (`~/.local/bin/glv` on macOS/Linux,
+`%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh` remains as
+a thin Unix wrapper. Re-running is safe.
 
 One `glv` command now serves **both** agents: `glv serve` shows goose
 and claude sessions in one sidebar, behind one login and one schedule
 (see `docs/decisions/0007-merge-goose-and-claude.md`). The per-flavor
-commands `glv-goose` and `glv-claude` remain as compatibility shims
-for `glv --agent goose` / `glv --agent claude`, and retire after a
-deprecation window. On the first start, glv adopts the legacy
-per-flavor data directories (`~/.local/share/glv-goose`,
-`glv-claude`) into the unified `~/.local/share/glv` — re-keying ids
-with their agent prefix, adopting one passkey, and renaming the legacy
-directories `.migrated` (never deleting them).
+commands `glv-goose` and `glv-claude` remain as compatibility shims for
+`glv --agent goose` / `glv --agent claude`, and retire after a
+deprecation window. On the first start, glv adopts the legacy per-flavor
+data directories (`~/.local/share/glv-goose`, `glv-claude`) into the
+unified `~/.local/share/glv` — re-keying ids with their agent prefix,
+adopting one passkey, and renaming the legacy directories `.migrated`
+(never deleting them).
 
 ### Windows
 
 `node scripts\setup.mjs` does the same on Windows: it installs
-dependencies and writes a `%USERPROFILE%\.local\bin\glv.cmd` shim.
-If setup warns that the folder is not on your `PATH`, add it (Settings →
+dependencies and writes a `%USERPROFILE%\.local\bin\glv.cmd` shim. If
+setup warns that the folder is not on your `PATH`, add it (Settings →
 System → About → Advanced system settings → Environment Variables) and
 open a new terminal; `glv serve` then works from anywhere.
 
@@ -147,8 +147,8 @@ Windows notes:
   glv at a different file with `--goose-db <path>` or the
   `GOOSE_SESSIONS_DB` environment variable; claude’s transcripts root is
   `--projects-dir <path>`.
-- glv-owned data (the auth database, prompt library, scheduled runs,
-  and uploads) lives under `%APPDATA%\glv` (`~/.local/share/glv` on
+- glv-owned data (the auth database, prompt library, scheduled runs, and
+  uploads) lives under `%APPDATA%\glv` (`~/.local/share/glv` on
   Linux/macOS). All of it is overridable — see the flags below.
 
 ### Prerequisites
@@ -218,11 +218,10 @@ its current offset; the field stays free-typing (any IANA name is
 accepted), and left empty it means the server’s local time; the section
 lists every job with pause, edit, and delete). The jobs live in the
 **cron database** — a glv-owned SQLite file at
-`~/.local/share/glv/cron.db` on Linux/macOS
-(`%APPDATA%\glv\cron.db` on Windows), alongside the
-job-started-session tags that badge fired runs. Override with
-`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
-running server picks changes up live, no restart needed.
+`~/.local/share/glv/cron.db` on Linux/macOS (`%APPDATA%\glv\cron.db` on
+Windows), alongside the job-started-session tags that badge fired runs.
+Override with `--cron-db <path>` or the `GLV_CRON_DB` environment
+variable. The running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
 retired config file were migrated into the cron database by the first
@@ -315,9 +314,9 @@ back in at any time with a quick passkey tap.
 
 - **Auth database** — passkey credentials and login sessions live in a
   separate SQLite database at `~/.local/share/glv/auth.db` on
-  Linux/macOS (`%APPDATA%\glv\auth.db` on Windows), fully
-  independent of the goose sessions database. Override with
-  `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
+  Linux/macOS (`%APPDATA%\glv\auth.db` on Windows), fully independent of
+  the goose sessions database. Override with `--auth-db <path>` or the
+  `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once
   an owner exists.

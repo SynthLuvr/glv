@@ -17,14 +17,14 @@ about 1K lines of adapters per flavor tree.
 The *product*, however, is still two things. `package.json` ships two
 binaries, each a separate process with a separate identity:
 
-- `glv-goose serve` reads goose's sessions DB, writes viewer metadata
+- `glv-goose serve` reads goose’s sessions DB, writes viewer metadata
   into that DB, and keeps everything glv-owned under
   `~/.local/share/glv-goose`.
-- `glv-claude serve` reads claude's JSONL transcripts, keeps viewer
+- `glv-claude serve` reads claude’s JSONL transcripts, keeps viewer
   metadata in its own meta sidecar, and keeps everything glv-owned under
   `~/.local/share/glv-claude`.
 
-Because every glv-owned artifact is namespaced by the flavor's data
+Because every glv-owned artifact is namespaced by the flavor’s data
 directory name (the `dataDirName` field of `FlavorProfile`, consumed
 through `resolveDataPath` in `src/glv/db-path.ts`), the two products
 share nothing at runtime: two passkey databases (two enrollments, two
@@ -36,8 +36,8 @@ a claude user has a second, manual install path.
 The seam ADR 0002 created — one `SessionStore`, one `SessionLauncher`,
 one `Runner`, one optional `ModelSource`, and one `FlavorProfile` per
 `ServerContext` (`src/glv/server/context.ts`) — is exactly what makes a
-real merge cheap now, but it also hard-codes "one agent per server
-process" in every route.
+real merge cheap now, but it also hard-codes “one agent per server
+process” in every route.
 
 ## Decision
 
@@ -61,10 +61,10 @@ login, one sidebar, and one schedule.
   (goose-only today) appears for agents that declare a `ModelSource`.
   Sidebar rows and transcript headers gain an agent chip.
 - Cron jobs gain an `agent` column; a job fires through the launcher of
-  its agent, and the existing "model pins only where the agent supports
-  them" validation generalizes from "claude" to "any agent without a
-  model source".
-- Per ADR 0002's rules, the flavor directories survive as adapters. The
+  its agent, and the existing “model pins only where the agent supports
+  them” validation generalizes from “claude” to “any agent without a
+  model source”.
+- Per ADR 0002’s rules, the flavor directories survive as adapters. The
   merge composes adapters; it does not push `if flavor === ...` branches
   into the core.
 
@@ -82,7 +82,7 @@ concentrated in:
   stores (list = merge both, sort by `updated_at`, cap at the filter
   limit; mutations = dispatch by prefix),
 - a `CompositeLauncher` dispatching `startNew`/`awaitNew`/`establish` to
-  the child launcher named by the handle's agent, and
+  the child launcher named by the handle’s agent, and
 - a one-time migration rewriting persisted ids in the legacy
   `groups.db`, `cron.db`, and uploads tags with their flavor prefix
   (which legacy directory a row came from determines the prefix).
@@ -93,20 +93,20 @@ the doubt and makes every persisted row self-describing.
 
 ### Server context
 
-`ServerContext`'s single-agent fields become a registry:
+`ServerContext`’s single-agent fields become a registry:
 `agents: Record<FlavorId, AgentRuntime>` where `AgentRuntime` bundles
 the profile, store, launcher, and optional model source. Routes that are
 per-session (`stream`, transcript, rename, archive, delete) resolve the
 agent from the id prefix; routes that are per-request (new session, cron
 forms) resolve it from the submitted agent. The runner stays a single
 shared queue — one concurrency pool (default 6) across both agents,
-matching today's "six concurrent runs" semantics; per-agent caps are
+matching today’s “six concurrent runs” semantics; per-agent caps are
 deferred until someone needs them.
 
 ### CLI
 
 One commander program: `glv serve`, `glv sessions [--agent ...]`,
-`glv view <id>`, and goose's `logs` (available when the goose agent is
+`glv view <id>`, and goose’s `logs` (available when the goose agent is
 enabled). Flavor-specific serve flags keep their names
 (`--goose-binary`, `--claude-binary`, `--permission-mode`) and apply to
 their agent. The two legacy binaries become two-line shims.
@@ -116,11 +116,11 @@ their agent. The two legacy binaries become two-line shims.
 First `glv serve` start against an empty `glv` data directory:
 
 1.  Adopt `glv-goose/prompts.db`, `groups.db`, `cron.db` rows, then
-    merge `glv-claude`'s (re-keying ids as above; row conflicts resolve
+    merge `glv-claude`’s (re-keying ids as above; row conflicts resolve
     in favor of goose, matching the config-file migration precedent).
 2.  Auth: adopt a legacy auth database wholesale when exactly one of the
     two has an owner — the common single-flavor user keeps their passkey
-    with zero action. When both have owners, adopt goose's and log a
+    with zero action. When both have owners, adopt goose’s and log a
     notice that the claude credential was retired (re-enroll via
     `/auth/devices`); merging two independent WebAuthn credential sets
     under one single-occupancy user is not worth the ambiguity.
@@ -139,8 +139,8 @@ platform exclusions carry over unchanged.
 ## Rationale
 
 - The user-visible cost of the split is paid daily: two logins for one
-  machine's work, two tabs, schedules split across two databases, and no
-  way to see "what did all my agents do today" in one place.
+  machine’s work, two tabs, schedules split across two databases, and no
+  way to see “what did all my agents do today” in one place.
 - Operationally, one process replaces two (one systemd unit, one port,
   one log stream), and setup installs one command.
 - The codebase is ready: ADR 0002 already located every genuine
@@ -159,12 +159,12 @@ platform exclusions carry over unchanged.
   lockstep only through discipline.
 - **Code-only merge (shared CLI factory, still two binaries).** Cheap
   (collapses the last ~170-line structural twin in the two `cli.ts`) but
-  changes nothing a user can feel; subsumed by this proposal's stage 0.
+  changes nothing a user can feel; subsumed by this proposal’s stage 0.
 - **Front the two servers with a reverse proxy.** Two auth realms and
   two UIs remain; a proxy cannot merge a sidebar or a cron store.
 - **Protocol-level unification (ACP for both agents).** A far larger
   lift that would trade per-agent fidelity (claude transcript shapes,
-  permission modes; goose's ACP catalogue is explicitly unstable) for an
+  permission modes; goose’s ACP catalogue is explicitly unstable) for an
   abstraction neither agent fully honors. Revisited only if a third
   ACP-native agent arrives.
 
@@ -199,7 +199,7 @@ PR that CI tests, and UI changes carry screenshots.
   spawn cannot starve the other beyond the pool bound, which is the same
   bound single-agent users accept today.
 - Two small honest losses: the `--db`/`--projects-dir` global options
-  become per-agent (`--goose-db`, `--projects-dir` stays claude's), and
+  become per-agent (`--goose-db`, `--projects-dir` stays claude’s), and
   users with both legacy auth databases enroll once more.
 - `FlavorProfile.dataDirName` survives as the legacy-directory name the
   migration reads and as the suffix of per-agent environment overrides;

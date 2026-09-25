@@ -21,10 +21,8 @@ import * as cli from "./cli-shared.js";
 import { runList } from "./commands/list.js";
 import { type AgentServeSpec, runServe } from "./commands/serve.js";
 import { runView } from "./commands/view.js";
-import {
-  createCompositeSessionStore,
-} from "./composite-store.js";
 import { prefixedInvocation } from "./composite-launcher.js";
+import { createCompositeSessionStore } from "./composite-store.js";
 import { dataRoot, resolveDataPath } from "./db-path.js";
 import { runLegacyMigration } from "./migrate.js";
 import { resolveTempBase, resolveUploadsBase } from "./server/uploads.js";
