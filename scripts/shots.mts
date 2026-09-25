@@ -169,6 +169,40 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
   return env;
 };
 
+const captureProxy413 = async (
+  page: Page,
+  workingDir: string,
+): Promise<void> => {
+  // The proxy-413 error state: nginx rejects the upload body before glv
+  // sees it, and the client replaces the raw proxy page with an
+  // explanatory banner. No proxy runs locally, so the network edge is
+  // answered the way the upload-413 suite answers it.
+  await page.route("**/sessions", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return route.fulfill({
+      status: 413,
+      contentType: "text/html; charset=utf-8",
+      body: `<html>
+<head><title>413 Request Entity Too Large</title></head>
+<body>
+<center><h1>413 Request Entity Too Large</h1></center>
+<hr><center>nginx/1.28.3 (Ubuntu)</center>
+</body>
+</html>
+`,
+    });
+  });
+  await page
+    .locator('textarea[name="prompt"]')
+    .fill("Read the attached screenshot");
+  await page.locator('input[name="working_dir"]').fill(workingDir);
+  await page.locator("button.send-btn").click();
+  await page.locator(".proxy-413-hint").waitFor();
+  await capture(page, "proxy-413-desktop.png", "form.new-session-form");
+  // Drop the interception so later captures hit the real server.
+  await page.unroute("**/sessions");
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -180,6 +214,8 @@ const captureViews = async (
   await page.goto(env.baseUrl);
   await page.locator("form.new-session-form").waitFor();
   await capture(page, "new-session-desktop.png", "form.new-session-form");
+
+  await captureProxy413(page, join(env.scratchDir, "project"));
 
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);

@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
 const UI_TITLE_SUFFIX = " \u2014 GLV";
@@ -27,6 +28,59 @@ if (htmx !== undefined)
     { code: "[23]..", swap: true },
     { code: "[45]..", swap: true, error: true },
   ];
+
+// A 413 never originates in this app: glv's own body limit sits above the
+// upload checks, so its over-limit answers are JSON, and reverse proxies
+// answer with their own error pages (nginx rejects bodies over 1 MB by
+// default — most photos and phone screenshots die right there). With 4xx
+// swapping enabled above, that foreign page lands raw in the target. The
+// body holds nothing glv rendered — the rejection happened before the app
+// could echo the form back — so cancel the swap, keep the form (and
+// everything typed into it), and pin an explanatory banner to it. The
+// README's reverse-proxy note documents the matching proxy setting.
+const BODY_TOO_LARGE_HINT =
+  "Upload rejected before GLV could read it (HTTP 413): a reverse " +
+  "proxy's body-size limit is likely below GLV's upload limits (50 MB " +
+  "per file, 100 MB total). Raise it — for nginx, " +
+  "client_max_body_size 110m;";
+
+const FORM_413_HINT = "proxy-413-hint";
+
+// The beforeSwap detail slice the 413 handler reads; htmx has no runtime
+// types, so every field is validated before use.
+const BodyTooLargeDetail = type({
+  "xhr?": "unknown",
+  shouldSwap: "boolean",
+  "target?": "unknown",
+  "requestConfig?": { "elt?": "unknown" },
+});
+
+// Cancels the swap for a 413 and shows the hint on the submitting form,
+// falling back to the swap target when no form started the request.
+const onBodyTooLarge = (e: Event): void => {
+  if (!(e instanceof CustomEvent)) return;
+  const detail = BodyTooLargeDetail(e.detail);
+  if (detail instanceof type.errors) return;
+  if (!(detail.xhr instanceof XMLHttpRequest) || detail.xhr.status !== 413)
+    return;
+  detail.shouldSwap = false;
+  const elt = detail.requestConfig?.elt;
+  const form = elt instanceof Element ? elt.closest("form") : null;
+  const host =
+    form instanceof HTMLFormElement
+      ? form
+      : detail.target instanceof Element
+        ? detail.target
+        : null;
+  if (host === null) return;
+  host.querySelector(`.${FORM_413_HINT}`)?.remove();
+  const hint = document.createElement("p");
+  hint.className = `status-hint error ${FORM_413_HINT}`;
+  hint.textContent = BODY_TOO_LARGE_HINT;
+  host.prepend(hint);
+};
+
+document.body.addEventListener("htmx:beforeSwap", onBodyTooLarge);
 
 // htmx swaps only the detail pane, so the server-set <title> grows stale;
 // re-derive it from the rendered heading on every swap.

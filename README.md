@@ -345,11 +345,16 @@ retry with the same URL until one succeeds.
 
 > **Behind a reverse proxy.** When the viewer sits behind a
 > TLS-terminating proxy, forward the original request details so
-> WebAuthn computes the correct RP origin and cookie flags:
+> WebAuthn computes the correct RP origin and cookie flags, and raise
+> the proxy’s body-size limit to match glv’s upload limits (50 MB per
+> file, 100 MB total) — proxies apply their own much smaller default
+> (nginx: 1 MB) and reject larger uploads with a bare 413 before glv
+> sees the request:
 >
 >     proxy_set_header Host $host;
 >     proxy_set_header X-Forwarded-Host $host;
 >     proxy_set_header X-Forwarded-Proto $scheme;
+>     client_max_body_size 110m;
 
 ## Development
 
