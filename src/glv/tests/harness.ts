@@ -39,7 +39,6 @@ import {
 } from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
 import {
-  type CronJobConfig,
   deleteCronJob,
   insertCronJob,
   openCronDb,
@@ -689,22 +688,10 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // whichever flavor's server opens the database next backfills it with
 // its own default, exactly like a pre-agent-column row would be.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
-  const { lastFiredAt, agent, ...rest } = job;
-  const db = openCronDb(dbPath, "goose");
+  const { lastFiredAt, ...storeJob } = job;
+  const db = openCronDb(dbPath);
   try {
-    const storeJob: CronJobConfig = {
-      ...rest,
-      ...(agent === undefined ? {} : { agent }),
-    };
-    if (!updateCronJob(db, job.name, storeJob, "__seed_none__"))
-      insertCronJob(db, storeJob, "__seed_none__");
-    // A NULL agent survives the seed only because the sentinel default
-    // above writes nothing into the column for unset agents — pin it
-    // back to NULL for that case.
-    if (agent === undefined)
-      db.prepare("UPDATE cron_jobs SET agent = NULL WHERE name = ?").run(
-        job.name,
-      );
+    if (!updateCronJob(db, job.name, storeJob)) insertCronJob(db, storeJob);
     if (lastFiredAt !== undefined)
       db.prepare("UPDATE cron_jobs SET last_fired_at = ? WHERE name = ?").run(
         lastFiredAt,
@@ -716,7 +703,7 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
 };
 
 const removeCronJobRow = (dbPath: string, name: string): void => {
-  const db = openCronDb(dbPath, "goose");
+  const db = openCronDb(dbPath);
   try {
     deleteCronJob(db, name);
   } finally {

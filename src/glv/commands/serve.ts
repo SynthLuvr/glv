@@ -10,6 +10,7 @@ import {
 import { createCompositeSessionStore } from "../composite-store.js";
 import { startCronScheduler } from "../cron.js";
 import {
+  backfillCronAgents,
   deleteCronJob,
   listCronJobs,
   openCronDb,
@@ -203,7 +204,8 @@ const runServe = (opts: ServeOpts): void => {
   // The cron database: the job schedule and the job-started-session
   // tags (the sidebar badges), one handle shared by the scheduler, the
   // routes, and the badge reads.
-  const cronDb = openCronDb(opts.cronDbPath, defaultAgent.id);
+  const cronDb = openCronDb(opts.cronDbPath);
+  backfillCronAgents(cronDb, defaultAgent.id);
   // Scheduled runs from the cron database: an invalid job set fails
   // startup loudly; later database edits reload the schedule live.
   const cron = startCronScheduler({

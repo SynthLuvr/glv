@@ -263,9 +263,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       agent: agentId,
       ...modelPinFields(picked),
     };
-    const writeError = writeJobsOr(ctx, (db) =>
-      insertCronJob(db, job, ctx.defaultAgent.id),
-    );
+    const writeError = writeJobsOr(ctx, (db) => insertCronJob(db, job));
     if (writeError !== undefined)
       return reject(`Could not save the scheduled run: ${writeError}`);
     // Confirmation inline in the slot; the grid and count swap out of
@@ -454,7 +452,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           : {}),
       };
       const writeError = writeJobsOr(ctx, (db) =>
-        updateCronJob(db, currentName, updated, ctx.defaultAgent.id),
+        updateCronJob(db, currentName, updated),
       );
       if (writeError !== undefined)
         return reject(

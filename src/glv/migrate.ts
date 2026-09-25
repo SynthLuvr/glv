@@ -199,7 +199,7 @@ const runLegacyMigration = (
   // before rows copy into them.
   const promptsDb = openPromptsDb(targets.promptsDb);
   const groupsDb = openGroupsDb(targets.groupsDb);
-  const cronDb = openCronDb(targets.cronDb, "goose");
+  const cronDb = openCronDb(targets.cronDb);
   try {
     for (const { legacy, dir } of pending) {
       const prefix = (id: string): string => namespacedId(legacy.agent, id);

@@ -112,11 +112,11 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 // One database file, two tables: the schedule itself and the
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
-// the badges — exactly like every other glv-owned open.
-// `defaultAgent` names the agent rows written before the agent column
-// existed (or hand-edited back to NULL) belong to; it backfills them on
-// open, so every read sees a concrete agent.
-const openCronDb = (dbPath: string, defaultAgent: string): DatabaseSync => {
+// the badges — exactly like every other glv-owned open. Rows keep a
+// NULL agent until the server (which knows its sole default) backfills
+// them on its own open, so external writers and test seeds never see
+// an agent minted for them.
+const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   ensureColumn(db, "schedule_input");
@@ -124,10 +124,16 @@ const openCronDb = (dbPath: string, defaultAgent: string): DatabaseSync => {
   ensureColumn(db, "agent");
   ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
+  return db;
+};
+
+// The server-open backfill: rows written before the agent column
+// existed (or hand-edited back to NULL) belong to the server's sole
+// agent on a single-agent server. Idempotent.
+const backfillCronAgents = (db: DatabaseSync, defaultAgent: string): void => {
   db.prepare("UPDATE cron_jobs SET agent = ? WHERE agent IS NULL").run(
     defaultAgent,
   );
-  return db;
 };
 
 // node:sqlite widens everything it can; the row shape pins what the
@@ -217,10 +223,7 @@ const listCronJobs = (
 // full row (the UI never patches single columns), optionals nulled,
 // enabled defaulted on — with last_fired_at supplied by the caller
 // (the insert seeds it; updates never write it).
-const jobParams = (
-  job: CronJobConfig,
-  defaultAgent: string,
-): (string | number | null)[] => [
+const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.name,
   job.schedule,
   job.scheduleInput ?? null,
@@ -228,7 +231,7 @@ const jobParams = (
   job.workingDir,
   job.timezone ?? null,
   job.enabled === false ? 0 : 1,
-  job.agent ?? defaultAgent,
+  job.agent ?? null,
   job.modelProvider ?? null,
   job.model ?? null,
   job.followUps !== undefined && job.followUps.length > 0
@@ -243,15 +246,8 @@ const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?
 // its to catch up. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
-const insertCronJob = (
-  db: DatabaseSync,
-  job: CronJobConfig,
-  defaultAgent: string,
-): void => {
-  db.prepare(INSERT_SQL).run(
-    ...jobParams(job, defaultAgent),
-    new Date().toISOString(),
-  );
+const insertCronJob = (db: DatabaseSync, job: CronJobConfig): void => {
+  db.prepare(INSERT_SQL).run(...jobParams(job), new Date().toISOString());
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -261,7 +257,6 @@ const updateCronJob = (
   db: DatabaseSync,
   currentName: string,
   job: CronJobConfig,
-  defaultAgent: string,
 ): boolean =>
   db
     .prepare(
@@ -272,7 +267,7 @@ const updateCronJob = (
              updated_at = datetime('now')
          WHERE name = ?`,
     )
-    .run(...jobParams(job, defaultAgent), currentName).changes > 0;
+    .run(...jobParams(job), currentName).changes > 0;
 
 // Pause/resume without touching anything else the form never exposes.
 const setCronJobEnabled = (
@@ -326,6 +321,7 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 
 export type { CronJobConfig };
 export {
+  backfillCronAgents,
   deleteCronJob,
   insertCronJob,
   listCronJobs,
