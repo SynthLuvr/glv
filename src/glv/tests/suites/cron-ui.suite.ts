@@ -358,6 +358,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Run the nightly build",
           workingDir,
           enabled: true,
+          agent: fx.name,
           lastFiredAt: expect.any(String),
         },
       ]);

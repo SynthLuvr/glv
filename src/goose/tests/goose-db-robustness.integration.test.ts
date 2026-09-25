@@ -83,6 +83,11 @@ describe("goose sessions db robustness", () => {
           String(port),
           "--goose-db",
           dbPath,
+          // The merged CLI gates the default agent set on the binary
+          // being resolvable; node exists everywhere and this test
+          // never spawns an agent.
+          "--goose-binary",
+          process.execPath,
           ...dbOverrideArgs(dbs),
         ],
         {

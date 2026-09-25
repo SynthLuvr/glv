@@ -132,7 +132,9 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
             `.session-item[data-session-id="${fx.viewId("md-a")}"] .session-name`,
           )
           .click();
-        await expect(page).toHaveURL(`${env.baseUrl}/sessions/md-a`);
+        await expect(page).toHaveURL(
+          `${env.baseUrl}/sessions/${fx.viewId("md-a")}`,
+        );
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",
           "detail",
