@@ -3201,9 +3201,6 @@ select.form-input {
   letter-spacing: 0.04em;
   line-height: 1.4;
 }
-.session-meta .agent-chip {
-  padding: 0.15rem 0.5rem;
-}
 .cron-job-head .agent-chip {
   margin-right: 0.35rem;
 }

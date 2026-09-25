@@ -93,7 +93,7 @@ describe("combined viewer — sidebar", () => {
 });
 
 describe("combined viewer — transcripts and streams", () => {
-  it("serves each agent's transcript with its agent chip", async () => {
+  it("serves each agent's transcript without naming its agent", async () => {
     seedGooseMessages(env, "alpha", [
       { role: "user", content: "hello goose" },
       {
@@ -112,13 +112,13 @@ describe("combined viewer — transcripts and streams", () => {
     const gooseRes = await authedFetch(env, "/sessions/goose:alpha");
     const gooseHtml = await gooseRes.text();
     expect(gooseHtml).toContain("goose reply");
-    expect(gooseHtml).toContain('data-agent="goose"');
     expect(gooseHtml).toContain("goose:alpha");
 
     const claudeRes = await authedFetch(env, "/sessions/claude:beta");
     const claudeHtml = await claudeRes.text();
     expect(claudeHtml).toContain("claude reply");
-    expect(claudeHtml).toContain('data-agent="claude"');
+    // Neither the header meta chips nor the sidebar rows name the agent.
+    expect(claudeHtml).not.toContain("data-agent=");
   });
 
   it("streams each agent's session events under its namespaced id", async () => {
@@ -182,10 +182,9 @@ describe("combined viewer — new session model picker", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     // The transcript that lands is the claude one the mock created, under
-    // the claude namespace, and the run carried the claude model flag. The
-    // page names no agent — sidebar rows stopped tagging rows, and the
-    // freshly established row renders its header chip only after a reload
-    // re-reads the store.
+    // the claude namespace, and the run carried the claude model flag.
+    // Nothing on the page names the agent — sidebar rows and transcript
+    // headers carry no chip.
     expect(html).toContain('data-session-id="claude:');
     expect(html).not.toContain("data-agent=");
     const args = await waitForArgs(argsPath);
