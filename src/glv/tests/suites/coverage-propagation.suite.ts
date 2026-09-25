@@ -63,8 +63,8 @@ const profileNames = (rawDir: string): string[] =>
   readdirSync(rawDir).filter((name) => PROFILE_FILE.test(name));
 
 // The merged CLI entry must appear as a script URL in the profile —
-// it is the code under test (the legacy binaries are shims over it,
-// so both flavors' launchers run src/glv/cli.ts).
+// it is the code under test (both flavors' fixtures boot the same
+// launcher, which runs src/glv/cli.ts).
 const mentionsCli = (rawDir: string, names: readonly string[]): boolean =>
   names.some((name) =>
     readFileSync(join(rawDir, name), "utf8").includes("/src/glv/cli.ts"),

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { Command, InvalidArgumentError } from "commander";
+import { Command } from "commander";
 import which from "which";
 import { makeClaudeAgent, PERMISSION_MODES } from "../claude/agent.js";
 import { createSessionStore as createClaudeStore } from "../claude/db.js";
@@ -30,9 +30,8 @@ import { resolveTempBase, resolveUploadsBase } from "./server/uploads.js";
 import { openMetaDb } from "./session-meta.js";
 import type { SessionFilter, SessionStore } from "./sessions.js";
 
-// The merged product's composition root: one `glv` binary serving goose,
-// claude, or both behind one login, one sidebar, and one schedule.
-// `glv --agent <flavor>` is the single-agent entry point; this CLI is
+// The merged product's composition root: one `glv` binary serving both
+// agents behind one login, one sidebar, and one schedule. This CLI is
 // the only place that knows both adapters at once, so the core stays
 // free of flavor branches (ADR 0007).
 
@@ -40,20 +39,7 @@ import type { SessionFilter, SessionStore } from "./sessions.js";
 // library, one group set, one cron database, one uploads/temp root.
 const DATA_DIR = "glv";
 
-const AGENT_CHOICES = ["goose", "claude", "both"] as const;
-type AgentChoice = (typeof AGENT_CHOICES)[number];
-
-const parseAgentChoice = (value: string): AgentChoice => {
-  const found = AGENT_CHOICES.find((choice) => choice === value);
-  if (found === undefined)
-    throw new InvalidArgumentError(
-      `must be one of: ${AGENT_CHOICES.join(", ")}`,
-    );
-  return found;
-};
-
 const GlobalOpts = type({
-  "agent?": "string",
   "gooseDb?": "string",
   "projectsDir?": "string",
   "authDb?": "string",
@@ -94,37 +80,24 @@ type AvailableAgents = {
   readonly claude: boolean;
 };
 
-// Which agents to serve. An explicitly named agent only needs its
-// binary (its store is created on open, so serve works before the agent
-// has ever run); the default "both" additionally requires the agent's
-// data to exist — an agent that was never used is hidden, not fatal.
+// Which agents to serve: always both, each gated on its binary being
+// resolvable and its store existing on disk right now. An agent that was
+// never used (or whose binary is missing) is hidden, not fatal.
 const resolveAgents = (
-  requested: AgentChoice,
   gooseBinary: string,
   claudeBinary: string,
   globals: { readonly gooseDb?: string; readonly projectsDir?: string },
-): AvailableAgents => {
-  const gooseUsable = binaryAvailable(gooseBinary);
-  const claudeUsable = binaryAvailable(claudeBinary);
-  if (requested === "goose") return { goose: gooseUsable, claude: false };
-  if (requested === "claude") return { goose: false, claude: claudeUsable };
-  return {
-    goose: gooseUsable && gooseStoreExists(globals.gooseDb),
-    claude: claudeUsable && claudeStoreExists(globals.projectsDir),
-  };
-};
+): AvailableAgents => ({
+  goose: binaryAvailable(gooseBinary) && gooseStoreExists(globals.gooseDb),
+  claude:
+    binaryAvailable(claudeBinary) && claudeStoreExists(globals.projectsDir),
+});
 
 const program = new Command();
 
 program
   .name("glv")
   .description("View and drive goose and claude sessions in one place")
-  .option(
-    "--agent <agent>",
-    "serve one agent or both: goose|claude|both",
-    parseAgentChoice,
-    "both",
-  )
   .option("--goose-db <path>", "goose sessions database path")
   .option("--projects-dir <path>", "claude projects (transcripts) directory")
   .option("--auth-db <path>", "auth database path")
@@ -235,22 +208,19 @@ const claudeSpec = (
   };
 };
 
-// A read-only composite over the selected agents' stores for the listing
-// commands; ids list namespaced so `glv view` accepts them verbatim.
-// Listing never spawns an agent, so availability is store presence
-// alone: an agent whose store is missing is skipped, not fatal.
-const openListStore = (
-  requested: AgentChoice,
-  globals: {
-    readonly gooseDb?: string;
-    readonly projectsDir?: string;
-    readonly metaDb?: string;
-  },
-): { readonly sessions: SessionStore; readonly close: () => void } => {
+// A read-only composite over the available agents' stores for the
+// listing commands; ids list namespaced so `glv view` accepts them
+// verbatim. Listing never spawns an agent, so availability is store
+// presence alone: an agent whose store is missing is skipped, not fatal.
+const openListStore = (globals: {
+  readonly gooseDb?: string;
+  readonly projectsDir?: string;
+  readonly metaDb?: string;
+}): { readonly sessions: SessionStore; readonly close: () => void } => {
   const closers: (() => void)[] = [];
   const entries: { readonly agent: string; readonly store: SessionStore }[] =
     [];
-  if (requested !== "claude" && gooseStoreExists(globals.gooseDb)) {
+  if (gooseStoreExists(globals.gooseDb)) {
     const db = openGooseDb(resolveGooseDbPath(globals.gooseDb));
     closers.push(() => db.close());
     entries.push({
@@ -258,7 +228,7 @@ const openListStore = (
       store: createGooseStore(db, db),
     });
   }
-  if (requested !== "goose" && claudeStoreExists(globals.projectsDir)) {
+  if (claudeStoreExists(globals.projectsDir)) {
     const meta = openMetaDb(glvDbPaths(globals).claudeMetaDbPath);
     closers.push(() => meta.close());
     entries.push({
@@ -274,10 +244,6 @@ const openListStore = (
   };
 };
 
-// `--agent` lives on the program only: commander parses a program-level
-// option wherever it appears (`glv --agent goose serve` and `glv serve
-// --agent goose` both work), while declaring it on a command as well
-// clobbers the parsed value with the command's own default.
 const serveCmd = program
   .command("serve")
   .description("Start the local web viewer for goose and claude sessions")
@@ -311,16 +277,10 @@ cli.addServeTailOptions(serveCmd);
 
 serveCmd.action((opts: Record<string, unknown>) => {
   const globals = globalOpts();
-  const requested = parseAgentChoice(globals.agent ?? "both");
   const gooseBinary = cli.optString(opts, "gooseBinary", "goose");
   const claudeBinary = cli.optString(opts, "claudeBinary", "claude");
   const permissionMode = cli.optString(opts, "permissionMode", "inherit");
-  const available = resolveAgents(
-    requested,
-    gooseBinary,
-    claudeBinary,
-    globals,
-  );
+  const available = resolveAgents(gooseBinary, claudeBinary, globals);
 
   migrateLegacyDirs(globals);
 
@@ -371,10 +331,7 @@ program
   )
   .action((opts: { type: string; all?: boolean; limit: string }) => {
     const globals = globalOpts();
-    const store = openListStore(
-      parseAgentChoice(globals.agent ?? "both"),
-      globals,
-    );
+    const store = openListStore(globals);
     try {
       const filter: SessionFilter = {
         type: opts.type,
@@ -388,7 +345,7 @@ program
   });
 
 cli.registerViewCommand(program, (sessionId) => {
-  const store = openListStore("both", globalOpts());
+  const store = openListStore(globalOpts());
   try {
     runView(store.sessions, sessionId);
   } finally {

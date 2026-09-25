@@ -109,16 +109,16 @@ PATH (`~/.local/bin/glv` on macOS/Linux,
 `%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh` remains as
 a thin Unix wrapper. Re-running is safe.
 
-One `glv` command now serves **both** agents: `glv serve` shows goose
-and claude sessions in one sidebar, behind one login and one schedule
-(see `docs/decisions/0007-merge-goose-and-claude.md`). The per-flavor
-commands `glv-goose` and `glv-claude` remain as compatibility shims for
-`glv --agent goose` / `glv --agent claude`, and retire after a
-deprecation window. On the first start, glv adopts the legacy per-flavor
-data directories (`~/.local/share/glv-goose`, `glv-claude`) into the
-unified `~/.local/share/glv` — re-keying ids with their agent prefix,
-adopting one passkey, and renaming the legacy directories `.migrated`
-(never deleting them).
+One `glv` command serves **both** agents: `glv serve` shows goose and
+claude sessions in one sidebar, behind one login and one schedule — an
+agent whose binary or data directory is missing is hidden, not fatal
+(see `docs/decisions/0007-merge-goose-and-claude.md`). There is no
+agent-choice flag: both agents always load, and the per-flavor commands
+`glv-goose` / `glv-claude` are gone. On the first start, glv adopts the
+legacy per-flavor data directories (`~/.local/share/glv-goose`,
+`glv-claude`) into the unified `~/.local/share/glv` — re-keying ids with
+their agent prefix, adopting one passkey, and renaming the legacy
+directories `.migrated` (never deleting them).
 
 ### Windows
 
@@ -168,32 +168,43 @@ normalized to LF via `.gitattributes`, and pandoc is invoked with
 ## Running the web viewer
 
 ``` bash
-glv-goose serve
+glv serve
 ```
 
 Open the printed URL (e.g. <http://localhost:3000>). The first visitor
-is prompted to create a passkey and permanently claims the app.
+is prompted to create a passkey and permanently claims the app. Sessions
+from both agents appear in one sidebar; an agent whose binary or data
+directory is missing is simply absent.
 
 Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
 
-- `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
-  driven from the viewer (default `6`).
+- `-c, --max-concurrent <number>` — maximum concurrent agent runs driven
+  from the viewer, across both agents (default `6`).
 
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
 
-- `--db <path>` — override the goose sessions database location (or
-  `GOOSE_SESSIONS_DB`).
+- `--claude-binary <path>` — path to the `claude` binary (default
+  `claude` on `PATH`).
+
+- `--permission-mode <mode>` — claude permission mode for glv-launched
+  runs (default `inherit`, deferring to your claude settings.json).
+
+- `--goose-db <path>` — override the goose sessions database location
+  (or `GOOSE_SESSIONS_DB`).
+
+- `--projects-dir <path>` — override claude’s transcripts root (or
+  `CLAUDE_CONFIG_DIR`).
 
 - `--auth-db <path>` — override the auth database location (default
-  `~/.local/share/glv-goose/auth.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
+  `~/.local/share/glv/auth.db` on Linux/macOS (`%APPDATA%\glv\auth.db`
+  on Windows), or `GLV_AUTH_DB`).
 
 - `--cron-db <path>` — override the scheduled runs database location
-  (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
+  (default `~/.local/share/glv/cron.db` on Linux/macOS
+  (`%APPDATA%\glv\cron.db` on Windows), or `GLV_CRON_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
@@ -408,17 +419,19 @@ with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source
 compiled to `dist/<app>/app.css` by `pnpm build:assets` (see
 `src/<app>/build.ts`). Browser client scripts are written as TypeScript
 in `src/<app>/scripts/` and compiled to minified `dist/<app>/*.js` by
-the same command. The goose viewer is launched with `glv-goose` and the
-claude viewer with `glv-claude`.
+the same command. The two flavor trees remain as adapters (profile,
+store, launcher, argv builder, fixtures); the product itself — one
+server, one sidebar, one schedule serving both agents — is launched with
+`glv`.
 
 ## The CLI
 
-Everything above is driven by the `glv-goose` command, which also offers
-a few lightweight terminal commands for quick lookups without opening a
+Everything above is driven by the `glv` command, which also offers a few
+lightweight terminal commands for quick lookups without opening a
 browser:
 
 ``` bash
-glv-goose sessions      # list recent sessions
-glv-goose view <id>     # show prompts + outputs for a session
-glv-goose logs          # list --no-session runs
+glv sessions      # list recent sessions (ids namespaced per agent)
+glv view <id>     # show prompts + outputs for a session
+glv logs          # list goose --no-session runs
 ```

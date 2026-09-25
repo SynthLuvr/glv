@@ -15,7 +15,7 @@ import {
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
-// Local PR-screenshot capture: boots a real `glv-goose serve` on the
+// Local PR-screenshot capture: boots a real `glv serve` on the mock
 // integration-test fixture (mock goose agent, seeded session), drives the UI
 // with Playwright, and writes PNGs into pr-shots/ (gitignored — upload them
 // to GitHub user-attachments, never commit them).

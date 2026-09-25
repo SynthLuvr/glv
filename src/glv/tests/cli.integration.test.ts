@@ -88,17 +88,17 @@ describe("glv sessions", () => {
     expect(stdout).toContain("2 session(s) listed.");
   });
 
-  it("filters to one agent with --agent", () => {
-    const { stdout } = run([...globals(), "sessions", "--agent", "claude"]);
-    expect(stdout).toContain("claude:cli-claude");
-    expect(stdout).not.toContain("goose:cli-goose");
-    expect(stdout).toContain("1 session(s) listed.");
-  });
-
-  it("rejects an unknown agent", () => {
-    const { status, stderr } = run(["sessions", "--agent", "cursor"]);
+  it("has no agent-choice option", () => {
+    // Both agents load by default; there is no --agent flag to narrow
+    // the set, so the option must be rejected as unknown.
+    const { status, stderr } = run([
+      ...globals(),
+      "sessions",
+      "--agent",
+      "claude",
+    ]);
     expect(status).not.toBe(0);
-    expect(stderr).toContain("must be one of");
+    expect(stderr).toContain("unknown option");
   });
 
   it("skips an agent whose store is missing, without error", () => {

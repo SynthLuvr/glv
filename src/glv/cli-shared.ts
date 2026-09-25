@@ -106,11 +106,11 @@ const serveTail = (
 });
 
 // Raw argv can't decide "is there a subcommand" by sign alone: a global
-// option's *value* (`glv-goose --db /path/sessions.db`) is also a non-dash
-// token, which used to suppress the `sessions` default and fail with an
-// unknown-command error. Skip the values of value-taking global options
-// instead; the flag list comes from the program itself, so each flavor's
-// globals are covered without a hardcoded list. (commander's `required`
+// option's *value* (`glv --goose-db /path/sessions.db`) is also a
+// non-dash token, which used to suppress the `sessions` default and fail
+// with an unknown-command error. Skip the values of value-taking global
+// options instead; the flag list comes from the program itself, so every
+// global is covered without a hardcoded list. (commander's `required`
 // means "takes a <value>", not "must be present".)
 const hasSubcommandArg = (program: Command, argv: string[]): boolean => {
   const valueFlags = new Set<string>();

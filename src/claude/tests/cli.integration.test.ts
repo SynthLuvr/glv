@@ -10,7 +10,7 @@ import {
   insertSessions,
 } from "./integration-harness.js";
 
-const GLV = resolve("bin/glv-claude.mjs");
+const GLV = resolve("bin/glv.mjs");
 
 let dir: string;
 let projectsDir: string;
@@ -63,9 +63,14 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// The listing commands read the default both-agents set: goose's store
+// override is pinned at a path that never exists so the host machine's
+// real goose data cannot leak into these assertions.
 const run = makeRunner(GLV, () => [
   "--projects-dir",
   projectsDir,
+  "--goose-db",
+  join(dir, "no-goose-sessions.db"),
   "--meta-db",
   metaDb,
 ]);
@@ -78,14 +83,14 @@ runCliSuite(claudeFixture, {
 });
 
 // claude-only: the unnamed fallback and permission-mode validation.
-describe("glv-claude sessions — unnamed", () => {
+describe("claude sessions — unnamed", () => {
   it("renders an empty-name session as (unnamed)", () => {
     const { stdout } = run(["sessions"]);
     expect(stdout).toContain("(unnamed)");
   });
 });
 
-describe("glv-claude serve argument validation — permissions", () => {
+describe("claude serve argument validation — permissions", () => {
   it("rejects an invalid --permission-mode", () => {
     const { status, stderr } = run(["serve", "--permission-mode", "yolo"]);
     expect(status).not.toBe(0);

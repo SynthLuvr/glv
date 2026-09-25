@@ -17,7 +17,7 @@ import {
 } from "../../glv/tests/harness.js";
 import { gooseFixture, SESSIONS_SCHEMA } from "./integration-harness.js";
 
-const GLV = join(ROOT, "bin", "glv-goose.mjs");
+const GLV = join(ROOT, "bin", "glv.mjs");
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,7 +33,16 @@ describe("goose sessions db robustness", () => {
       writeFileSync(dbPath, "");
       const result = spawnLauncherSync(
         GLV,
-        ["--goose-db", dbPath, "sessions"],
+        [
+          "--goose-db",
+          dbPath,
+          // Pins the other agent's store away from the host's real
+          // ~/.claude: the listing must be empty because goose's store
+          // is, not because of what the host happens to have.
+          "--projects-dir",
+          join(dir, "no-claude-projects"),
+          "sessions",
+        ],
         {
           env: { ...process.env },
           encoding: "utf-8",
@@ -83,6 +92,8 @@ describe("goose sessions db robustness", () => {
           String(port),
           "--goose-db",
           dbPath,
+          "--projects-dir",
+          join(scratch, "no-claude-projects"),
           // The merged CLI gates the default agent set on the binary
           // being resolvable; node exists everywhere and this test
           // never spawns an agent.

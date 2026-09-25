@@ -45,10 +45,12 @@ Merge the two viewers into **one product**: a single `glv` binary and
 server process that can serve goose, claude, or both at once, behind one
 login, one sidebar, and one schedule.
 
-- `glv serve [--agent goose|claude|both]`, default `both` with per-agent
-  degradation: an agent whose binary or data directory is missing is
-  hidden, not fatal. `glv-goose` and `glv-claude` remain as
-  compatibility shims that exec `glv --agent <flavor>`.
+- `glv serve` loads **both** agents, with per-agent degradation: an
+  agent whose binary or data directory is missing is hidden, not fatal.
+  There is no agent-choice option — the both-agents default is the only
+  behavior. The `glv-goose` and `glv-claude` binaries retire with the
+  cutover: with no agent choice to preserve, a shim would just duplicate
+  `glv`.
 - Session ids become **namespaced at the composite boundary** —
   `goose:<id>` and `claude:<id>` — and stay opaque to every route, SSE
   event, and client script. Per-flavor stores keep their native ids; the
@@ -105,11 +107,11 @@ deferred until someone needs them.
 
 ### CLI
 
-One commander program: `glv serve`, `glv sessions [--agent ...]`,
-`glv view <id>`, and goose’s `logs` (available when the goose agent is
-enabled). Flavor-specific serve flags keep their names
-(`--goose-binary`, `--claude-binary`, `--permission-mode`) and apply to
-their agent. The two legacy binaries become two-line shims.
+One commander program: `glv serve`, `glv sessions`, `glv view <id>`, and
+goose’s `logs` (available when goose’s store is readable).
+Flavor-specific serve flags keep their names (`--goose-binary`,
+`--claude-binary`, `--permission-mode`) and apply to their agent. The
+two legacy binaries are deleted; `glv` is the only program.
 
 ### Migration
 
@@ -180,12 +182,13 @@ PR that CI tests, and UI changes carry screenshots.
     `CompositeLauncher`, and id namespacing behind the existing
     interfaces, plus the `combined` test fixture. Single-agent serve
     behavior is unchanged (a composite of one is the identity).
-3.  **Stage 2 — merged serve.** `glv serve --agent both`, the registry
-    in `ServerContext`, agent picker and chips, unified data directory
-    with migration, cron `agent` column. This is the user-facing PR.
+3.  **Stage 2 — merged serve.** `glv serve` with both agents loaded by
+    default, the registry in `ServerContext`, agent picker and chips,
+    unified data directory with migration, cron `agent` column. This is
+    the user-facing PR.
 4.  **Stage 3 — cutover.** One `glv` binary; `glv-goose`/`glv-claude`
-    become shims; setup and README follow; per-flavor binaries retire
-    after a deprecation window.
+    retire (no shims: with both agents the default, a per-flavor entry
+    point has nothing to select); setup and README follow.
 
 ## Consequences
 

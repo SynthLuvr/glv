@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeRunner, runCliSuite } from "../../glv/tests/suites/cli.suite.js";
 import { gooseFixture } from "./integration-harness.js";
 
-const GLV = resolve("bin/glv-goose.mjs");
+const GLV = resolve("bin/glv.mjs");
 
 // Mirrors goose's sessions schema so the CLI has something to read. Seeded
 // directly because these tests drive the binary, not the server.
@@ -139,7 +139,15 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const run = makeRunner(GLV, () => ["--goose-db", dbPath]);
+// The listing commands read the default both-agents set: claude's store
+// override is pinned at a path that never exists so the host machine's
+// real ~/.claude cannot leak into these assertions.
+const run = makeRunner(GLV, () => [
+  "--goose-db",
+  dbPath,
+  "--projects-dir",
+  join(dir, "no-claude-projects"),
+]);
 
 runCliSuite(gooseFixture, {
   run,
@@ -150,7 +158,7 @@ runCliSuite(gooseFixture, {
 });
 
 // goose-only: hidden sessions stay out of listings and surface via logs.
-describe("glv-goose hidden sessions", () => {
+describe("goose hidden sessions", () => {
   it("excludes hidden sessions from the default listing", () => {
     const { stdout } = run(["sessions"]);
     expect(stdout).toContain("Beta Session");

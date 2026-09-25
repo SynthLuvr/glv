@@ -344,7 +344,7 @@ type SseEvent = { event: string; data: string; id: string | undefined };
 // What each flavor provides to the generic boot machinery.
 type FlavorAdapter = {
   readonly name: string;
-  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
+  /** Absolute path to the merged Node launcher (bin/glv.mjs). */
   readonly binPath: string;
   readonly mockBinName: string;
   readonly mockScriptPath: string;
@@ -377,10 +377,11 @@ type FlavorFixture = {
   readonly name: string;
   /** Capitalized agent name for copy assertions ("Goose", "Claude"). */
   readonly displayName: string;
+  /** The binary name in describe labels ("glv"). */
   readonly binName: string;
   /**
    * The viewer-owned data directory name the server defaults to ("glv"
-   * for the merged product behind both legacy binaries).
+   * for the merged product).
    */
   readonly dataDirName: string;
   /**
@@ -449,7 +450,7 @@ type FlavorFixture = {
   readonly resumeFlag: string;
   /** The serve flag naming the agent binary ("--goose-binary", ...). */
   readonly binaryFlag: string;
-  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
+  /** Absolute path to the merged Node launcher (bin/glv.mjs). */
   readonly binPath: string;
   /** Puts the mock agent binary on PATH; returns a restore closure. */
   readonly mockAgent: () => Promise<() => void>;
@@ -577,14 +578,19 @@ const spawnLauncherSync = (
 // Environment overrides that point os.homedir() — and, on Windows, the
 // Known Folders glv resolves its data and config dirs through — at a
 // scratch directory, so tests never touch the real profile.
+// CLAUDE_CONFIG_DIR is pinned into the fake home too: claude's
+// transcript root resolves through it, and a host that exports it (or a
+// real ~/.claude) would otherwise leak the host's sessions into any
+// server booted under a fake home.
 const fakeHomeEnv = (home: string): Record<string, string> =>
   IS_WIN
     ? {
         USERPROFILE: home,
         APPDATA: join(home, "AppData", "Roaming"),
         LOCALAPPDATA: join(home, "AppData", "Local"),
+        CLAUDE_CONFIG_DIR: join(home, ".claude"),
       }
-    : { HOME: home };
+    : { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude") };
 
 // Platform default locations for glv-owned files under a (fake) home,
 // mirroring db-path.ts: XDG-style on macOS/Linux, Known Folders on

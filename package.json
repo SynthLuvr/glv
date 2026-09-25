@@ -4,9 +4,7 @@
   "private": true,
   "description": "Self-hosted web UI that increases development speed with agentic coding",
   "bin": {
-    "glv": "bin/glv.mjs",
-    "glv-goose": "bin/glv-goose.mjs",
-    "glv-claude": "bin/glv-claude.mjs"
+    "glv": "bin/glv.mjs"
   },
   "type": "module",
   "packageManager": "pnpm@12.5.1",

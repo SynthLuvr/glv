@@ -20,11 +20,11 @@ import type {
 } from "./harness.js";
 import * as harness from "./harness.js";
 
-// The combined fixture of ADR 0007's testing plan: one `glv serve
-// --agent both` process with both mock agents, exercising the composite
-// store, the agent picker, and the namespaced id space end to end. The
-// per-flavor suites keep their single-agent bindings; this harness is
-// what the identity-sensitive combined suites boot.
+// The combined fixture of ADR 0007's testing plan: one `glv serve`
+// process with both mock agents, exercising the composite store, the
+// agent picker, and the namespaced id space end to end. The per-flavor
+// suites keep their single-agent bindings; this harness is what the
+// identity-sensitive combined suites boot.
 
 const gooseMockScriptPath = fileURLToPath(
   new URL("../../goose/tests/goose-mock-script.ts", import.meta.url),
@@ -58,8 +58,6 @@ const combinedAdapter: harness.FlavorAdapter = {
   extraMocks: [{ name: "claude", file: claudeMockScriptPath }],
   createDatabases,
   serveArgs: (dbs) => [
-    "--agent",
-    "both",
     "--goose-db",
     dbs.flavor.sessionsDb,
     "--projects-dir",
