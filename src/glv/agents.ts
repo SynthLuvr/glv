@@ -31,4 +31,10 @@ const splitNamespacedId = (
 const agentOfId = (id: string): string | undefined =>
   splitNamespacedId(id)?.agent;
 
-export { agentOfId, isAgentId, namespacedId, splitNamespacedId };
+// The spelling of a session id inside a DOM element id: a namespaced id
+// carries a colon, which is legal in an id attribute but not in a
+// querySelector — and htmx oob swaps target elements by `#<id>`. Native
+// ids are uuids, so the swap is injective in practice.
+const domIdOf = (id: string): string => id.split(SEPARATOR).join("_");
+
+export { agentOfId, domIdOf, isAgentId, namespacedId, splitNamespacedId };

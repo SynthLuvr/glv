@@ -1,3 +1,4 @@
+import { domIdOf } from "../agents.js";
 import {
   displayName,
   fmtRelative,
@@ -82,7 +83,7 @@ const SessionItem = ({
           </span>
         </a>
         <span
-          id={`sidebar-meta-${session.id}`}
+          id={`sidebar-meta-${domIdOf(session.id)}`}
           class="session-meta-tags"
         ></span>
       </div>

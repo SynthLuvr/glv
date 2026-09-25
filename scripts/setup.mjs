@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Cross-platform project setup: verifies prerequisites, installs deps, and
-// installs the `glv-goose` launcher on the PATH (symlink on Unix, .cmd shim on
+// installs the `glv` launcher on the PATH (symlink on Unix, .cmd shim on
 // Windows). Plain Node ESM — no tsx — so it runs on a fresh clone before
 // dependencies are installed. Idempotent; safe to re-run.
 import { spawnSync } from "node:child_process";
@@ -18,7 +18,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BIN_MJS = join(ROOT, "bin", "glv-goose.mjs");
+const BIN_MJS = join(ROOT, "bin", "glv.mjs");
 const IS_WIN = platform() === "win32";
 const TTY = process.stdout.isTTY === true;
 
@@ -75,7 +75,7 @@ const resolveRoot = () => {
   heading("Locate Project Root");
   if (!existsSync(join(ROOT, "package.json")) || !existsSync(BIN_MJS))
     die(
-      `Cannot find 'package.json'/'bin/glv-goose.mjs' relative to '${ROOT}'.`,
+      `Cannot find 'package.json'/'bin/glv.mjs' relative to '${ROOT}'.`,
     );
   info(`Project root: ${ROOT}`);
 };
@@ -140,7 +140,7 @@ const readlinkSafe = (target) => {
 };
 
 const installSymlink = (dir) => {
-  const target = join(dir, "glv-goose");
+  const target = join(dir, "glv");
   if (readlinkSafe(target) === BIN_MJS) {
     success(`Symlink already correct — ${target} -> ${BIN_MJS}`);
     return;
@@ -154,13 +154,13 @@ const installSymlink = (dir) => {
 };
 
 const installShim = (dir) => {
-  const target = join(dir, "glv-goose.cmd");
+  const target = join(dir, "glv.cmd");
   writeFileSync(target, `@echo off\r\nnode "${BIN_MJS}" %*\r\n`);
   success(`Shim written — ${target}`);
 };
 
 const installLauncher = () => {
-  heading("Setting Up `glv-goose` Command");
+  heading("Setting Up `glv` Command");
   const dir = binDir();
   mkdirSync(dir, { recursive: true });
   const installer = IS_WIN ? installShim : installSymlink;
@@ -175,22 +175,27 @@ const printNextSteps = () => {
   const dir = binDir();
   heading("Setup Complete!");
   console.log(
-    `\n${codes.bold}${codes.green}glv-goose is ready to use!${codes.reset}\n`,
+    `\n${codes.bold}${codes.green}glv is ready to use!${codes.reset}\n`,
   );
   console.log("  Get started:\n");
-  console.log("    glv-goose sessions      # list recent goose sessions");
   console.log(
-    "    glv-goose view <id>     # show prompts + outputs for a session",
+    "    glv serve               # one viewer for goose and claude sessions",
   );
-  console.log("    glv-goose logs          # list --no-session runs\n");
+  console.log(
+    "    glv sessions            # list recent sessions from every agent",
+  );
+  console.log(
+    "    glv view <agent:id>     # show prompts + outputs for a session",
+  );
+  console.log("    glv logs                # list goose --no-session runs\n");
   if (!dirOnPath(dir)) {
     console.log(
       `  ${codes.yellow}Note:${codes.reset} ${dir} is not on your PATH.`,
     );
     console.log(
-      "  Add it to your shell profile or invoke glv-goose via its full path:\n",
+      "  Add it to your shell profile or invoke glv via its full path:\n",
     );
-    console.log(`    ${join(dir, "glv-goose")} sessions\n`);
+    console.log(`    ${join(dir, "glv")} sessions\n`);
   }
 };
 

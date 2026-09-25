@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// Cross-platform Node launcher for the goose viewer, published via
-// package.json's "bin" field; bin/glv-goose (POSIX shell) is retained
-// for direct Unix invocation. runCliAsMain loads the CLI as this
-// process's main module (tsx first, and under subprocess coverage the
-// observer ordered above it), so signals and the exit code are the
-// CLI's own.
+// Compatibility shim for the merged product (ADR 0007 stage 3): the
+// goose-only viewer is now `glv --agent goose`. Flags pass through
+// unchanged, except the sessions database global, which the merged CLI
+// spells --goose-db.
 import { runCliAsMain } from "type-a-bin/subprocess-coverage/run-cli";
 
-await runCliAsMain(new URL("../src/goose/cli.ts", import.meta.url));
+process.argv.splice(2, 0, "--agent", "goose");
+await runCliAsMain(new URL("../src/glv/cli.ts", import.meta.url));

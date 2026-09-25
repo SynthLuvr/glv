@@ -76,8 +76,11 @@ const gooseAdapter: harness.FlavorAdapter = {
   mockScriptPath: gooseMockScriptPath,
   mockEnvPrefix: "GOOSE",
   createDatabases,
+  // The legacy binary is a shim over `glv --agent goose` (ADR 0007), so
+  // the merged CLI's flag spelling applies: the goose sessions database
+  // is --goose-db and session ids list namespaced ("goose:<id>").
   serveArgs: (dbs) => [
-    "--db",
+    "--goose-db",
     dbs.flavor.sessionsDb,
     ...harness.dbOverrideArgs(dbs),
     "--goose-binary",
@@ -140,6 +143,8 @@ const gooseFixture: harness.FlavorFixture = {
   name: "goose",
   displayName: "Goose",
   binName: "glv-goose",
+  dataDirName: "glv",
+  viewId: (id) => `goose:${id}`,
   mockReply: "mock goose reply",
   startEnv: startIntegrationEnv,
   seedSessions: (env, seeds) =>
@@ -219,7 +224,7 @@ const gooseFixture: harness.FlavorFixture = {
     sdb.exec("PRAGMA journal_mode=WAL");
     sdb.exec(SESSIONS_SCHEMA);
     sdb.close();
-    return ["--db", sessionsDb, "--goose-binary", "goose"];
+    return ["--goose-db", sessionsDb, "--goose-binary", "goose"];
   },
   defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db"],
 };

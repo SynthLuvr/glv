@@ -24,8 +24,8 @@ WIN_ROOT="$(cd "$PROJECT_ROOT" && pwd -W 2>/dev/null || true)"
 [ -n "$WIN_ROOT" ] && PROJECT_ROOT="$WIN_ROOT"
 
 cd "$PROJECT_ROOT" || {
-  echo "glv-claude: cannot cd to project root ($PROJECT_ROOT)" >&2
+  echo "glv: cannot cd to project root ($PROJECT_ROOT)" >&2
   exit 1
 }
 
-exec node --import "$PROJECT_ROOT/node_modules/tsx/dist/loader.mjs" "$PROJECT_ROOT/src/claude/cli.ts" "$@"
+exec node --import "$PROJECT_ROOT/node_modules/tsx/dist/loader.mjs" "$PROJECT_ROOT/src/glv/cli.ts" --agent claude "$@"

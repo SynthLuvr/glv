@@ -349,6 +349,17 @@ type FlavorAdapter = {
   readonly mockBinName: string;
   readonly mockScriptPath: string;
   readonly mockEnvPrefix: string;
+  /**
+   * Every mock-configuration prefix the booted server's agents read
+   * (the combined fixture configures both mocks from one MockConfig).
+   * Defaults to [mockEnvPrefix].
+   */
+  readonly mockEnvPrefixes?: readonly string[];
+  /**
+   * Additional agent binaries to mock on PATH (the combined fixture
+   * serves two agents from one process, so both need mocking).
+   */
+  readonly extraMocks?: readonly { readonly name: string; readonly file: string }[];
   /** Creates the flavor's stores under the scratch dir (auth included). */
   readonly createDatabases: (scratchDir: string) => Databases;
   /** `serve` argv beyond `serve -p <port>` (store + db overrides). */
@@ -364,6 +375,18 @@ type FlavorFixture = {
   /** Capitalized agent name for copy assertions ("Goose", "Claude"). */
   readonly displayName: string;
   readonly binName: string;
+  /**
+   * The viewer-owned data directory name the server defaults to ("glv"
+   * for the merged product behind both legacy binaries).
+   */
+  readonly dataDirName: string;
+  /**
+   * The session id the server spells for a flavor-native id — the
+   * namespaced form on the merged product ("goose:<id>", "claude:<id>"),
+   * identity for a native-id server. Suites use this to build URLs and
+   * compare server-emitted ids against the ids they seeded.
+   */
+  readonly viewId: (rawId: string) => string;
   /** Snippet of the mock agent's default reply text. */
   readonly mockReply: string;
   readonly startEnv: (
@@ -791,6 +814,9 @@ const startEnv = async (
   const restoreAgentPath =
     agentMock ??
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
+  const restoreExtraMocks = (adapter.extraMocks ?? []).map((extra) =>
+    mockBin(extra.name, { file: extra.file }),
+  );
   const restoreGhPath = await mockGh();
 
   // The live serve process and its captured output, rebindable so the
@@ -807,11 +833,16 @@ const startEnv = async (
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
-    ...mockEnv(adapter.mockEnvPrefix, mock),
+    ...Object.fromEntries(
+      (adapter.mockEnvPrefixes ?? [adapter.mockEnvPrefix]).flatMap(
+        (prefix) => Object.entries(mockEnv(prefix, mock)),
+      ),
+    ),
     ...extraEnv,
   };
   const abortBoot = (err: unknown, stderr: string): never => {
     restoreAgentPath();
+    for (const restore of restoreExtraMocks) void restore.then((r) => r());
     restoreGhPath();
     rmScratch(scratchDir);
     throw new Error(
@@ -872,6 +903,7 @@ const startEnv = async (
     await browser.close();
     if (proc !== undefined) await stopProcess(proc);
     restoreAgentPath();
+    for (const restore of restoreExtraMocks) await restore.then((r) => r());
     restoreGhPath();
     const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);

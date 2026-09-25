@@ -158,6 +158,8 @@ const claudeFixture: harness.FlavorFixture = {
   name: "claude",
   displayName: "Claude",
   binName: "glv-claude",
+  dataDirName: "glv",
+  viewId: (id) => `claude:${id}`,
   mockReply: "mock claude reply",
   startEnv: startIntegrationEnv,
   seedSessions: (env, seeds) =>
@@ -237,7 +239,13 @@ const claudeFixture: harness.FlavorFixture = {
     "--claude-binary",
     "claude",
   ],
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db", "meta.db"],
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "claude-meta.db",
+  ],
   assertNewRunArgs: (args) => {
     // The session id is pre-assigned, not discovered after the fact.
     const id = args[args.indexOf("--session-id") + 1];

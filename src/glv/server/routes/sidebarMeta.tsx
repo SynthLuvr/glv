@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { Fragment } from "hono/jsx";
+import { domIdOf } from "../../agents.js";
 import { jobNamesFor } from "../../cron-sessions.js";
 import { parseMessage } from "../../format/index.js";
 import { type GitRunner, readGitInfo } from "../../git.js";
@@ -56,7 +57,7 @@ const renderMeta = (
   cronJob: string | undefined,
 ) => (
   <span
-    id={`sidebar-meta-${session.id}`}
+    id={`sidebar-meta-${domIdOf(session.id)}`}
     class="session-meta-tags"
     hx-swap-oob="true"
   >
