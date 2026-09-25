@@ -62,7 +62,7 @@ the browser.
   form and freely editable), so a run can target any directory. Pause,
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
-  Each job can pin the model its runs use (goose).
+  Each job can pin the model its runs use (goose or a claude alias).
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -284,12 +284,11 @@ Phrasings that would fire more often than once a minute are rejected.
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
 
-- `modelProvider`/`model` (goose only, both keys together) pin every
-  fire of the job to that model — the web form’s schedule dialog has its
-  own model picker with the same options as the New Session form; omit
-  both keys to run the agent’s default. The pin is validated when you
-  save, and serve refuses to start when a job pins a model the flavor
-  can’t take (claude) or sets only one of the two keys.
+- `modelProvider`/`model` (both keys together) pin every fire of the job
+  to that model — goose takes a provider/model pair, claude an alias;
+  omit both keys to run the agent’s default. The pin is validated when
+  you save, and serve refuses to start when a job pins a model the agent
+  can’t take or sets only one of the two keys.
 
 - `name` must be unique (every stored job is named; entries migrated
   from an unnamed config-file slot get `cron-1`, `cron-2`, …);

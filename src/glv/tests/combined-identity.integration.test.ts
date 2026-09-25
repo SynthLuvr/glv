@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -9,8 +10,16 @@ import {
   seedGooseSessions,
   startCombinedEnv,
 } from "./combined-harness.js";
+import { TWO_PROVIDER_CONFIG_YAML, writeGooseConfig } from "./goose-config.js";
 import type { IntegrationEnv } from "./harness.js";
-import { authedFetch, collectSse } from "./harness.js";
+import {
+  authedFetch,
+  collectSse,
+  flagValue,
+  postNewSession,
+  waitForArgs,
+} from "./harness.js";
+import { fetchModelPicker } from "./model-picker.js";
 
 // The identity-sensitive combined suites of ADR 0007's testing plan: one
 // serve process, both agents, the composite store. Everything here would
@@ -18,13 +27,26 @@ import { authedFetch, collectSse } from "./harness.js";
 // the same suites also run per flavor through the single-agent fixtures.
 
 let env: IntegrationEnv;
+let argsDir: string;
+let argsPath: string;
+let home: string;
 
 beforeAll(async () => {
-  env = await startCombinedEnv("glv-combined-");
+  home = mkdtempSync(join(tmpdir(), "glv-combined-home-"));
+  writeGooseConfig(home, TWO_PROVIDER_CONFIG_YAML);
+  argsDir = mkdtempSync(join(tmpdir(), "glv-combined-args-"));
+  argsPath = join(argsDir, "args.json");
+  env = await startCombinedEnv(
+    "glv-combined-",
+    { captureArgs: argsPath },
+    home,
+  );
 }, 90000);
 
 afterAll(async () => {
   await env?.cleanup();
+  rmSync(argsDir, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
 });
 
 const workDir = (name: string): string => join(env.scratchDir, name);
@@ -112,33 +134,83 @@ describe("combined viewer — transcripts and streams", () => {
   });
 });
 
-describe("combined viewer — new session agent picker", () => {
-  it("renders the picker with both agents and the model picker for goose only", async () => {
+describe("combined viewer — new session model picker", () => {
+  it("renders one combined picker and no agent select", async () => {
     const res = await authedFetch(env, "/sessions/new");
     const html = await res.text();
-    expect(html).toContain('name="agent"');
-    expect(html).toContain('<option value="goose"');
-    expect(html).toContain('<option value="claude"');
-    expect(html).toContain("data-agent-select");
+    expect(html).not.toContain('name="agent"');
+    expect(html).toContain('class="form-field model-picker-slot"');
+    expect(html).toContain('hx-get="/sessions/model-picker"');
   });
 
-  it("starts a session through the submitted agent", async () => {
+  it("lists both agents in one select, default agent preselected", async () => {
+    const html = await fetchModelPicker(env);
+    expect(html).toContain('<optgroup label="goose">');
+    expect(html).toContain('<optgroup label="claude">');
+    // Each agent leads with its default entry; goose is the default
+    // agent, so its default is preselected.
+    expect(html).toContain("goose default — zai / glm-5.3");
+    expect(html).toContain('value="goose:" selected=""');
+    expect(html).toContain("claude default");
+    expect(html).toContain('value="claude:"');
+    // goose's configured providers and claude's alias list share the
+    // select, every value naming its agent.
+    expect(html).toContain("zai / glm-5.3");
+    expect(html).toContain('value="goose:zai:glm-5.3"');
+    expect(html).toContain('value="goose:anthropic:claude-sonnet-4-5"');
+    expect(html).toContain("Sonnet");
+    expect(html).toContain('value="claude:claude:sonnet"');
+  });
+
+  it("starts a claude session with the picked model", async () => {
     const dir = workDir("picker-claude");
     mkdirSync(dir, { recursive: true });
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        agent: "claude",
-        prompt: "combined picker prompt",
-        working_dir: dir,
-      }),
-    });
+    rmSync(argsPath, { force: true });
+    const res = await postNewSession(
+      env,
+      dir,
+      "combined picker prompt",
+      "claude:claude:sonnet",
+    );
     expect(res.status).toBe(200);
     const html = await res.text();
     // The transcript that lands is the claude one the mock created, under
-    // the claude namespace.
+    // the claude namespace, and the run carried the claude model flag.
     expect(html).toContain('data-session-id="claude:');
     expect(html).toContain('data-agent="claude"');
+    const args = await waitForArgs(argsPath);
+    expect(flagValue(args, "--model")).toBe("sonnet");
+  }, 60000);
+
+  it("starts a goose session with the picked provider/model", async () => {
+    const dir = workDir("picker-goose");
+    mkdirSync(dir, { recursive: true });
+    rmSync(argsPath, { force: true });
+    const res = await postNewSession(
+      env,
+      dir,
+      "combined goose pick",
+      "goose:zai:glm-5.3",
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-session-id="goose:');
+    const args = await waitForArgs(argsPath);
+    expect(flagValue(args, "--provider")).toBe("zai");
+    expect(flagValue(args, "--model")).toBe("glm-5.3");
+  }, 60000);
+
+  it("keeps the default agent on its own default when nothing is picked", async () => {
+    const dir = workDir("picker-default");
+    mkdirSync(dir, { recursive: true });
+    rmSync(argsPath, { force: true });
+    const res = await postNewSession(env, dir, "combined default pick");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-session-id="goose:');
+    const args = await waitForArgs(argsPath);
+    expect(args).not.toContain("--provider");
+    expect(args).not.toContain("--model");
   }, 60000);
 });
 
@@ -185,7 +257,7 @@ describe("combined viewer — scheduled runs carry their agent", () => {
         schedule: "0 4 * * *",
         prompt: "combined cron prompt",
         working_dir: workDir("cron"),
-        agent: "claude",
+        model: "claude:",
       }),
       headers: { "HX-Request": "true" },
     });
@@ -203,7 +275,7 @@ describe("combined viewer — scheduled runs carry their agent", () => {
         schedule: "0 4 * * *",
         prompt: "prompt",
         working_dir: workDir("cron"),
-        agent: "cursor",
+        model: "cursor:",
       }),
       headers: { "HX-Request": "true" },
     });

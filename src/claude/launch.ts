@@ -33,9 +33,16 @@ const makeClaudeLauncher = (
   const keys = launcherKeys(prefix);
   const agent = prefixedInvocation(invocation, prefix);
   return {
-    startNew: (workingDir, prompt) => {
+    startNew: (workingDir, prompt, model) => {
       const sessionId = randomUUID();
-      enqueueNewSession(runner, agent, keys.out(sessionId), prompt, workingDir);
+      enqueueNewSession(
+        runner,
+        agent,
+        keys.out(sessionId),
+        prompt,
+        workingDir,
+        model,
+      );
       return keys.out(sessionId);
     },
     // Confirms the agent actually created the pre-assigned session's data

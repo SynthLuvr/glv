@@ -204,7 +204,7 @@ const captureViews = async (
   await context.close();
 };
 
-// The merged product: one serve, both agents, the agent picker.
+// The merged product: one serve, both agents, the combined model picker.
 const captureCombined = async (browser: Browser): Promise<void> => {
   const env = await startCombinedEnv("glv-shots-combined-");
   try {

@@ -12,6 +12,8 @@ import {
   updateCronJob,
 } from "../../cron-jobs.js";
 import {
+  decodeAgentModelValue,
+  encodeAgentModelValue,
   jobModelSelection,
   jobModelValue,
   modelPinFields,
@@ -37,12 +39,7 @@ import type { ServerContext } from "../context.js";
 import { parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
 import { expandHome } from "../paths.js";
-import {
-  agentOptions,
-  anyModelPicker,
-  hasModelPicker,
-  modelPickerOpts,
-} from "../render.js";
+import { modelPickerOpts, showsModelPicker } from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which
@@ -197,13 +194,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
   // Session form at submit time — the form renders no fields of its own
   // for them.
   app.get("/cron/new", (_request, reply) =>
-    sendHtml(
-      reply,
-      <ScheduleSaveForm
-        withModels={anyModelPicker(ctx)}
-        multiAgent={ctx.agents.length > 1}
-      />,
-    ),
+    sendHtml(reply, <ScheduleSaveForm withModels={showsModelPicker(ctx)} />),
   );
 
   // Creates a job from the slot form. The New Session form itself stays
@@ -215,9 +206,11 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     const schedule = trimmedField(body, "schedule");
     const prompt = trimmedField(body, "prompt");
     const workingDirRaw = trimmedField(body, "working_dir");
-    const modelProvider = trimmedField(body, "model_provider");
     const timezone = trimmedField(body, "timezone");
-    const agentId = trimmedField(body, "agent") || ctx.defaultAgent.id;
+    // The combined pick rides in from the New Session form's model select
+    // and names both the agent and the model.
+    const pick = decodeAgentModelValue(trimmedField(body, "model"));
+    const agentId = pick.kind === "pick" ? pick.agent : ctx.defaultAgent.id;
     const runtime = ctx.agents.find((entry) => entry.id === agentId);
 
     const reject = (error: string) =>
@@ -227,8 +220,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           jobName={jobName}
           schedule={schedule}
           timezone={timezone}
-          withModels={anyModelPicker(ctx)}
-          multiAgent={ctx.agents.length > 1}
+          withModels={showsModelPicker(ctx)}
           error={error}
         />,
         422,
@@ -241,8 +233,9 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served (same rule as the New Session flow).
-    const picked = runtime.models?.resolve(modelProvider);
-    if (modelProvider !== "" && picked === undefined)
+    const modelValue = pick.kind === "pick" ? pick.modelValue : "";
+    const picked = runtime.models?.resolve(modelValue);
+    if (pick.kind === "invalid" || (modelValue !== "" && picked === undefined))
       return reject(modelUnavailableError(runtime.profile.agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     if (workingDirRaw === "")
@@ -307,17 +300,20 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       const { jobs } = readJobsOr(ctx);
       const job = findJob(jobs, request.params.name);
       if (job === undefined) return sendNotFound(reply);
-      const jobRuntime =
-        ctx.agents.find(
-          (entry) => entry.id === (job.agent ?? ctx.defaultAgent.id),
-        ) ?? ctx.defaultAgent;
       return sendHtml(
         reply,
         <ScheduleJobEditForm
           job={job}
           dirs={ctx.listDirs()}
-          agents={agentOptions(ctx)}
-          modelPicker={modelPickerOpts(jobRuntime, jobModelValue(job))}
+          modelPicker={modelPickerOpts(
+            ctx,
+            // The combined picker's spelling of the job's stored agent
+            // and pin, so the slot preselects them.
+            encodeAgentModelValue(
+              job.agent ?? ctx.defaultAgent.id,
+              jobModelValue(job),
+            ),
+          )}
         />,
       );
     },
@@ -337,14 +333,14 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       const prompt = trimmedField(body, "prompt");
       const workingDirRaw = trimmedField(body, "working_dir");
       const workingDir = resolve(expandHome(workingDirRaw));
-      // The agent select only renders when several agents are served; a
-      // body without it (single-agent server, non-browser client) keeps
-      // the stored agent.
-      const agentPresent = "agent" in body;
-      const submittedAgent = trimmedField(body, "agent");
+      // The combined model select renders whenever the form does and
+      // names both the agent and the model; a body without it (a
+      // non-browser client) keeps the stored agent and pin.
+      const modelPresent = "model" in body;
+      const pick = decodeAgentModelValue(trimmedField(body, "model"));
       const agentId =
-        agentPresent && submittedAgent !== ""
-          ? submittedAgent
+        pick.kind === "pick"
+          ? pick.agent
           : (existing.agent ?? ctx.defaultAgent.id);
       const runtime = ctx.agents.find((entry) => entry.id === agentId);
 
@@ -377,9 +373,10 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
             timezone={submittedTimezone}
             followUps={followUpsPresent ? submittedFollowUps : undefined}
             dirs={ctx.listDirs()}
-            agents={agentOptions(ctx)}
             modelPicker={
-              pickerExposed ? { submitted: submittedModel } : undefined
+              modelPresent
+                ? { submitted: trimmedField(body, "model") }
+                : undefined
             }
             error={error}
           />,
@@ -388,12 +385,12 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       if (prompt === "") return reject("A prompt is required.");
       if (runtime === undefined)
         return reject(`Agent "${agentId}" is not enabled.`);
-      // The picker is exposed only where the job's agent supports models;
-      // an unexposed field keeps whatever the row already pins.
-      const pickerExposed = hasModelPicker(runtime);
-      const submittedModel = trimmedField(body, "model_provider");
-      const picked = pickerExposed
-        ? runtime.models?.resolve(submittedModel)
+      // The picker listed render-time config; resolve the pick against a
+      // fresh read in case the agent's config changed since the form was
+      // served. An unexposed field keeps whatever the row already pins.
+      const modelValue = pick.kind === "pick" ? pick.modelValue : "";
+      const picked = modelPresent
+        ? runtime.models?.resolve(modelValue)
         : undefined;
 
       if (!NAME_RE.test(name)) return reject(NAME_ERROR);
@@ -405,7 +402,10 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       if (!parsed.ok) return reject(parsed.error);
       if (followUps.length > MAX_CRON_STEPS - 1)
         return reject(FOLLOW_UPS_CAP_ERROR);
-      if (pickerExposed && submittedModel !== "" && picked === undefined)
+      if (
+        modelPresent &&
+        (pick.kind === "invalid" || (modelValue !== "" && picked === undefined))
+      )
         return reject(modelUnavailableError(runtime.profile.agentName));
       // Renaming onto a different existing job collides.
       if (jobs.some((job) => job.name === name && job.name !== existing.name))
@@ -430,7 +430,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       const updated: CronJobConfig = {
         ...kept,
         ...modelPinFields(
-          pickerExposed ? picked : jobModelSelection({ modelProvider, model }),
+          modelPresent ? picked : jobModelSelection({ modelProvider, model }),
         ),
         name,
         ...scheduleFields(schedule, parsed.info.cron),

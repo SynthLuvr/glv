@@ -7,7 +7,7 @@ import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { removeMember } from "../../groups/db.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
-import { modelUnavailableError } from "../../models.js";
+import { decodeAgentModelValue, modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
@@ -27,7 +27,7 @@ import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
 import { buildLocationContext, parseSharedLocation } from "../location.js";
 import { expandHome } from "../paths.js";
 import {
-  modelPicker,
+  combinedModelPicker,
   newSessionDetail,
   render,
   renderNotFound,
@@ -178,23 +178,18 @@ const registerSessionRoutes = (
 
   // Lazy fragment behind the picker slot: resolving the catalogue may
   // spawn the agent binary, so the form renders instantly and swaps this in
-  // once it lands. A no-picker result still swaps a hidden placeholder —
-  // htmx skips empty response bodies, which would strand the loading slot.
+  // once it lands. One combined select — every served agent's default
+  // entry and models, the pick naming both. A no-picker result still swaps
+  // a hidden placeholder — htmx skips empty response bodies, which would
+  // strand the loading slot.
   app.get("/sessions/model-picker", async (request, reply) => {
-    // Which agent's picker the slot renders: the submitted choice, else
-    // the default. An unknown agent renders the empty placeholder — the
-    // form's picker slot is swapped, never left loading.
-    const wanted = queryValue(request, "agent") ?? ctx.defaultAgent.id;
-    const runtime = ctx.agents.find((entry) => entry.id === wanted);
-    if (runtime === undefined)
-      return sendHtml(reply, <span class="model-picker-empty" hidden />);
-    const picker = await modelPicker(runtime, queryValue(request, "submitted"));
+    const picker = await combinedModelPicker(
+      ctx,
+      queryValue(request, "submitted"),
+    );
     if (picker === undefined)
       return sendHtml(reply, <span class="model-picker-empty" hidden />);
-    return sendHtml(
-      reply,
-      <ModelSelect agentName={runtime.profile.agentName} picker={picker} />,
-    );
+    return sendHtml(reply, <ModelSelect picker={picker} />);
   });
 
   app.post("/sessions", async (request, reply) => {
@@ -205,11 +200,14 @@ const registerSessionRoutes = (
     const prompt = bodyField("prompt");
     const promptId = bodyField("prompt_id");
     const sessionMode = bodyField("session_mode");
-    const modelProvider = bodyField("model_provider");
-    const agentId = bodyField("agent") || ctx.defaultAgent.id;
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
     );
+    // The combined pick names both the agent and the model: split at the
+    // first colon, resolve the remainder against that agent's own model
+    // source.
+    const pick = decodeAgentModelValue(bodyField("model"));
+    const agentId = pick.kind === "pick" ? pick.agent : ctx.defaultAgent.id;
     const runtime = ctx.agents.find((entry) => entry.id === agentId);
 
     const files = collectFiles(body.uploads);
@@ -230,7 +228,7 @@ const registerSessionRoutes = (
           error,
           workingDir: submittedWorkingDir,
           prompt,
-          modelProvider,
+          model: bodyField("model"),
         }),
         { status, title: NEW_SESSION_TITLE },
       );
@@ -247,8 +245,9 @@ const registerSessionRoutes = (
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served.
-    const model = runtime.models?.resolve(modelProvider);
-    if (modelProvider !== "" && model === undefined)
+    const modelValue = pick.kind === "pick" ? pick.modelValue : "";
+    const model = runtime.models?.resolve(modelValue);
+    if (modelValue !== "" && model === undefined)
       return rejectForm(modelUnavailableError(runtime.profile.agentName), 422);
 
     if (

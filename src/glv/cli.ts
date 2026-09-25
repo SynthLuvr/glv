@@ -6,6 +6,7 @@ import which from "which";
 import { makeClaudeAgent, PERMISSION_MODES } from "../claude/agent.js";
 import { createSessionStore as createClaudeStore } from "../claude/db.js";
 import { makeClaudeLauncher } from "../claude/launch.js";
+import { makeClaudeModelSource } from "../claude/models.js";
 import { claudeProfile } from "../claude/profile.js";
 import { resolveProjectsRoot } from "../claude/store/working-dir.js";
 import { makeGooseAgent } from "../goose/agent.js";
@@ -194,7 +195,7 @@ const claudeSpec = (
     profile: claudeProfile,
     store,
     invocation: prefixedInvocation(rawInvocation, claudeProfile.id),
-    models: undefined,
+    models: makeClaudeModelSource(),
     makeLauncher: (runner) =>
       makeClaudeLauncher(
         root,

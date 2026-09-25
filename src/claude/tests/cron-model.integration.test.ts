@@ -2,49 +2,74 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
-import { it } from "vitest";
+import { afterAll, beforeAll, it } from "vitest";
 import {
-  expectServeRefusal,
-  fakeHomeEnv,
-  seedCronJobRow,
+  authedFetch,
+  cronJobRow,
+  flagValue,
+  type IntegrationEnv,
+  waitForArgs,
 } from "../../glv/tests/harness.js";
 import { claudeFixture } from "./integration-harness";
 
-// claude has no model surface, so a scheduled-run model pin cannot be
-// honored: serve must refuse to start, naming the job, instead of
-// silently firing it on the default model.
+// claude carries model pins like goose: a scheduled run pinned to a
+// claude model saves (agent + pin on the row), fires passing --model
+// <alias>, and a pin claude does not offer rejects at save time instead
+// of storing a broken job.
 
-it("refuses to serve a cron job with a model pin", async () => {
-  const homeDir = mkdtempSync(join(tmpdir(), "glv-claude-pin-"));
-  // A full model pin, written straight into the cron database serve
-  // will open — what an external writer or an older glv could leave
-  // behind.
-  const cronDb = join(homeDir, "cron.db");
-  seedCronJobRow(cronDb, {
-    name: "pinned",
-    schedule: "* * * * * *",
-    prompt: "Pinned nowhere",
-    workingDir: tmpdir(),
-    modelProvider: "zai",
-    model: "glm-5.3",
-    enabled: true,
+let env: IntegrationEnv;
+let argsDir: string;
+let argsPath: string;
+let workDir: string;
+
+beforeAll(async () => {
+  argsDir = mkdtempSync(join(tmpdir(), "glv-claude-pin-args-"));
+  argsPath = join(argsDir, "args.json");
+  workDir = mkdtempSync(join(tmpdir(), "glv-claude-pin-work-"));
+  env = await claudeFixture.startEnv("glv-claude-pin-", {
+    captureArgs: argsPath,
+  });
+}, 180000);
+
+afterAll(async () => {
+  await env?.cleanup();
+  rmSync(argsDir, { recursive: true, force: true });
+});
+
+it("saves a claude-pinned job and fires it with --model", async () => {
+  const res = await authedFetch(env, "/cron", {
+    method: "POST",
+    body: new URLSearchParams({
+      job_name: "pinned claude sweep",
+      schedule: "* * * * * *",
+      prompt: "Pinned claude sweep",
+      working_dir: workDir,
+      model: "claude:claude:sonnet",
+    }),
+  });
+  expect(res.status).toBe(200);
+  expect(cronJobRow(env.dbs.cronDb, "pinned claude sweep")).toMatchObject({
+    agent: "claude",
+    modelProvider: "claude",
+    model: "sonnet",
   });
 
-  // serve resolves the agent binary against PATH, which CI runners lack;
-  // the mock is never invoked — validation exits serve first. The 90s
-  // refusal wait fits under vitest's 120s default test timeout, so no
-  // per-test timeout is passed.
-  const restoreAgent = await claudeFixture.mockAgent();
-  try {
-    const stderr = await expectServeRefusal(
-      claudeFixture.binPath,
-      ["serve", ...claudeFixture.defaultServeArgs(homeDir)],
-      { ...fakeHomeEnv(homeDir), GLV_CRON_DB: cronDb },
-    );
-    expect(stderr).toContain("pinned");
-    expect(stderr).toContain("does not support model selection");
-  } finally {
-    restoreAgent();
-    rmSync(homeDir, { recursive: true, force: true });
-  }
+  const args = await waitForArgs(argsPath);
+  expect(flagValue(args, "--model")).toBe("sonnet");
+}, 60000);
+
+it("rejects a pin claude does not offer", async () => {
+  const res = await authedFetch(env, "/cron", {
+    method: "POST",
+    body: new URLSearchParams({
+      job_name: "bad claude pin",
+      schedule: "* * * * * *",
+      prompt: "Bad pin",
+      working_dir: workDir,
+      model: "claude:claude:not-a-model",
+    }),
+  });
+  expect(res.status).toBe(422);
+  expect(await res.text()).toContain("no longer available in claude");
+  expect(cronJobRow(env.dbs.cronDb, "bad claude pin")).toBeUndefined();
 });

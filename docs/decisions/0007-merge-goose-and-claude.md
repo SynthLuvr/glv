@@ -59,9 +59,11 @@ login, one sidebar, and one schedule.
   auth database (one passkey), one prompt library, one group set, one
   cron database, one uploads/temp root. A one-time migration copies and
   re-keys rows from the legacy per-flavor directories.
-- The New Session form gains an **agent picker**; the model picker
-  (goose-only today) appears for agents that declare a `ModelSource`.
-  Sidebar rows and transcript headers gain an agent chip.
+- The New Session form has **one combined model picker** instead of an
+  agent picker: every served agent declares a `ModelSource` (claude’s is
+  its alias list), and each contributes its default entry and models to
+  one select — the pick names both the agent and the model. Sidebar rows
+  and transcript headers gain an agent chip.
 - Cron jobs gain an `agent` column; a job fires through the launcher of
   its agent, and the existing “model pins only where the agent supports
   them” validation generalizes from “claude” to “any agent without a
@@ -183,9 +185,9 @@ PR that CI tests, and UI changes carry screenshots.
     interfaces, plus the `combined` test fixture. Single-agent serve
     behavior is unchanged (a composite of one is the identity).
 3.  **Stage 2 — merged serve.** `glv serve` with both agents loaded by
-    default, the registry in `ServerContext`, agent picker and chips,
-    unified data directory with migration, cron `agent` column. This is
-    the user-facing PR.
+    default, the registry in `ServerContext`, the combined model picker
+    and chips, unified data directory with migration, cron `agent`
+    column. This is the user-facing PR.
 4.  **Stage 3 — cutover.** One `glv` binary; `glv-goose`/`glv-claude`
     retire (no shims: with both agents the default, a per-flavor entry
     point has nothing to select); setup and README follow.

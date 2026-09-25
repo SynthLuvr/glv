@@ -981,14 +981,20 @@ const waitForAgentRun = async (
 };
 
 // Starts a brand-new run over HTTP (the create-session form's endpoint).
+// `model` is the combined picker's value when the test picks one.
 const postNewSession = (
   env: IntegrationEnv,
   workDir: string,
   prompt: string,
+  model?: string,
 ): Promise<Response> =>
   authedFetch(env, "/sessions", {
     method: "POST",
-    body: new URLSearchParams({ prompt, working_dir: workDir }),
+    body: new URLSearchParams({
+      prompt,
+      working_dir: workDir,
+      ...(model === undefined ? {} : { model }),
+    }),
   });
 
 // Queues a follow-up prompt on an existing session over HTTP.

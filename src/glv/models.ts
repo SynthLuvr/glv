@@ -1,40 +1,45 @@
+import { isAgentId } from "./agents.js";
+
 type ModelSelection = {
   readonly provider: string;
   readonly model: string;
 };
 
-/** One dropdown entry: a specific model offered by a configured provider. */
+/** One dropdown entry: a specific model an agent offers. */
 type ModelChoice = {
   readonly provider: string;
-  /** Dropdown label, e.g. "GLM-5.1" or a bare model id. */
+  /** Dropdown label, e.g. "GLM-5.1" or "Opus". */
   readonly label: string;
-  /** Submitted form value encoding the provider/model pair. */
+  /** Submitted form value; whatever the agent's resolve() accepts. */
   readonly value: string;
 };
 
 /**
  * The model surface a flavor exposes to the shared UI: per-run model
  * selection, threaded from the New Session form to the agent's argv.
- * Only flavors whose agent supports model overrides (goose) wire one;
- * functions read fresh state per call so a config edited while the
- * server runs is picked up without a restart.
+ * Every served flavor wires one; functions read fresh state per call so
+ * a config edited while the server runs is picked up without a restart.
  */
 type ModelSource = {
   /**
-   * Every model each configured provider offers, provider-ordered with
-   * each provider's models contiguous (the form renders one optgroup
-   * per provider). Resolving the catalogue may spawn the agent binary,
-   * so this is async; implementations cache. [] when nothing is
-   * configured.
+   * Every model the agent offers, agent-ordered (the combined form
+   * renders one optgroup per agent). Values are opaque strings —
+   * whatever this source's `resolve` accepts. Resolving the catalogue
+   * may spawn the agent binary, so this is async; implementations
+   * cache. [] when nothing is offered.
    */
   readonly choices: () => Promise<readonly ModelChoice[]>;
-  /** The agent's own default, resolved the way the agent resolves it. */
+  /**
+   * The agent's own default, resolved the way the agent resolves it —
+   * undefined when it has no readable default (the combined picker then
+   * labels the agent's default option without one).
+   */
   readonly defaultSelection: () => ModelSelection | undefined;
   /**
    * Validates a submitted form value against current config; undefined
-   * when the provider is no longer configured or the model is not one
-   * it offers. Sync on purpose: it consults only what is already cached
-   * so submitting never pays the catalogue cost.
+   * when the model is not one the agent offers. Sync on purpose: it
+   * consults only what is already cached so submitting never pays the
+   * catalogue cost.
    */
   readonly resolve: (value: string) => ModelSelection | undefined;
 };
@@ -49,6 +54,30 @@ const decodeModelValue = (value: string): ModelSelection | undefined => {
   const sep = value.indexOf(":");
   if (sep <= 0 || sep === value.length - 1) return undefined;
   return { provider: value.slice(0, sep), model: value.slice(sep + 1) };
+};
+
+// The combined picker's spelling: "<agent>:<model value>", one select
+// choosing both the agent and the model. The agent is split at the first
+// colon (agent ids never contain one); the remainder is the agent's own
+// form value, empty for "this agent on its default". A bare agent name
+// without the colon is the invalid spelling, kept distinct from "" so a
+// stale or hand-mangled submit still rejects instead of silently
+// rerouting to the default agent.
+type AgentModelPick =
+  | { kind: "empty" }
+  | { kind: "pick"; agent: string; modelValue: string }
+  | { kind: "invalid" };
+
+const encodeAgentModelValue = (agent: string, modelValue: string): string =>
+  `${agent}:${modelValue}`;
+
+const decodeAgentModelValue = (value: string): AgentModelPick => {
+  if (value === "") return { kind: "empty" };
+  const sep = value.indexOf(":");
+  if (sep <= 0) return { kind: "invalid" };
+  const agent = value.slice(0, sep);
+  if (!isAgentId(agent)) return { kind: "invalid" };
+  return { kind: "pick", agent, modelValue: value.slice(sep + 1) };
 };
 
 // A cron job's stored model pin (the cron row's modelProvider/model
@@ -89,9 +118,17 @@ const modelUnavailableError = (agentName: string): string =>
 const modelLabel = ({ provider, model }: ModelSelection): string =>
   `${provider} / ${model}`;
 
-export type { ModelChoice, ModelPin, ModelSelection, ModelSource };
+export type {
+  AgentModelPick,
+  ModelChoice,
+  ModelPin,
+  ModelSelection,
+  ModelSource,
+};
 export {
+  decodeAgentModelValue,
   decodeModelValue,
+  encodeAgentModelValue,
   encodeModelValue,
   jobModelSelection,
   jobModelValue,

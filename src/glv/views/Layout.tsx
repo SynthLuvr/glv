@@ -25,7 +25,6 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
-      <script src="/assets/agents.js" defer></script>
       <script src="/assets/rename.js" defer></script>
       <script src="/assets/actions.js" defer></script>
       <script src="/assets/ui.js" defer></script>

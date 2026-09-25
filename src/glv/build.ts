@@ -32,7 +32,6 @@ const TAILWIND_ENTRY = join(
 const CLIENT_ENTRY_NAMES = [
   "sidebar",
   "stream",
-  "agents",
   "rename",
   "actions",
   "ui",

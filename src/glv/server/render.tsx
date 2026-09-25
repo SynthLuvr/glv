@@ -4,18 +4,23 @@ import { type CronJobConfig, listCronJobs } from "../cron-jobs.js";
 import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
-import { modelLabel } from "../models.js";
+import {
+  decodeAgentModelValue,
+  encodeAgentModelValue,
+  modelLabel,
+} from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
 import {
+  type AgentModelGroup,
   type ModelPicker,
   NewSessionForm,
   NotFoundDetail,
 } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
-import type { AgentRuntime, ServerContext } from "./context.js";
+import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { isHtmxRequest, sendHtml } from "./http.js";
 import { activeSessionIds } from "./status.js";
@@ -188,58 +193,70 @@ const renderNotFound = (
     { status: 404, title: "Session not found — GLV" },
   );
 
-// The picker shows only when the agent exposes configured models and a
-// resolvable default. Resolving the catalogue may spawn the agent binary
-// (seconds), so this powers only the lazy /sessions/model-picker fragment —
-// never the New Session form, which must render instantly. `submitted`
-// carries a rejected submit's value so the selection survives.
-const modelPicker = async (
-  runtime: AgentRuntime,
+// The combined picker behind the lazy fragment: every served agent
+// contributes an optgroup (its default entry plus its catalogue).
+// Resolving a catalogue may spawn the agent binary, so this powers only
+// the fragment — never the New Session form, which must render
+// instantly. `submitted` carries a rejected submit's combined value so
+// the selection survives; a value that no longer decodes to a served
+// agent falls back to the default agent's default.
+const combinedModelPicker = async (
+  ctx: ServerContext,
   submitted: string | undefined,
 ): Promise<ModelPicker | undefined> => {
-  const source = runtime.models;
-  if (source === undefined) return undefined;
-  const defaultSelection = source.defaultSelection();
-  if (defaultSelection === undefined) return undefined;
-  const choices = await source.choices();
-  if (choices.length === 0) return undefined;
-  const value = submitted ?? "";
+  const groups = await Promise.all(
+    ctx.agents.map(async (runtime): Promise<AgentModelGroup> => {
+      const defaultSelection = runtime.models?.defaultSelection();
+      return {
+        agent: runtime.id,
+        label: runtime.profile.agentName,
+        defaultLabel:
+          defaultSelection === undefined ? "" : modelLabel(defaultSelection),
+        choices: (await runtime.models?.choices()) ?? [],
+      };
+    }),
+  );
+  // A single served agent with nothing pickable (no choices, no readable
+  // default) renders no field: the slot swaps the hidden placeholder, as
+  // a bare single-agent server always has. Several agents always pick —
+  // the default entries are the agent choice.
+  const nothingPickable = groups.every(
+    (group) => group.choices.length === 0 && group.defaultLabel === "",
+  );
+  if (nothingPickable && groups.length === 1) return undefined;
+  const pick =
+    submitted === undefined ? undefined : decodeAgentModelValue(submitted);
+  const restored =
+    submitted !== undefined &&
+    pick !== undefined &&
+    pick.kind === "pick" &&
+    ctx.agents.some((runtime) => runtime.id === pick.agent)
+      ? submitted
+      : undefined;
   return {
-    choices,
-    defaultLabel: modelLabel(defaultSelection),
-    selected: choices.some((choice) => choice.value === value) ? value : "",
+    groups,
+    selected: restored ?? encodeAgentModelValue(ctx.defaultAgent.id, ""),
   };
 };
 
-// Cheap sync gate (config read, never a spawn) deciding whether the form
-// renders the lazy slot at all: agents without model support (claude) and
-// provider-less configs get no field.
-const hasModelPicker = (runtime: AgentRuntime): boolean =>
-  runtime.models?.defaultSelection() !== undefined;
+// Cheap sync gate (config reads, never a catalogue spawn) deciding
+// whether the form renders the lazy slot at all: with several agents the
+// pick itself names one; a single agent renders a field only when it has
+// a readable default (a bare single-agent server has nothing to pick).
+const showsModelPicker = (ctx: ServerContext): boolean =>
+  ctx.agents.length > 1 ||
+  ctx.agents.some(
+    (runtime) => runtime.models?.defaultSelection() !== undefined,
+  );
 
-// The forms' `modelPicker` prop: slot options when the agent can pick
-// models, absent (the form renders no picker) otherwise. `submitted`
-// restores a rejected submit's selection.
+// The forms' `modelPicker` prop: slot options when the gate passes,
+// absent (the form renders no picker) otherwise. `submitted` restores a
+// rejected submit's selection.
 const modelPickerOpts = (
-  runtime: AgentRuntime,
+  ctx: ServerContext,
   submitted?: string,
 ): { submitted?: string } | undefined =>
-  hasModelPicker(runtime) ? { submitted } : undefined;
-
-// The agent picker options for the New Session and schedule forms;
-// undefined on single-agent servers, which render no select.
-const agentOptions = (ctx: ServerContext) =>
-  ctx.agents.length > 1
-    ? ctx.agents.map((runtime) => ({
-        id: runtime.id,
-        label: runtime.profile.agentName,
-      }))
-    : undefined;
-
-// Whether any served agent exposes a model picker — the schedule
-// forms' copy flag.
-const anyModelPicker = (ctx: ServerContext): boolean =>
-  ctx.agents.some((runtime) => hasModelPicker(runtime));
+  showsModelPicker(ctx) ? { submitted } : undefined;
 
 // Everything a rejected submit needs to re-render the form without
 // losing typed work.
@@ -247,7 +264,9 @@ type NewSessionDetailOpts = {
   error?: string;
   workingDir?: string;
   prompt?: string;
-  modelProvider?: string;
+  /** The rejected submit's combined model value, restored as the
+   * picker's preselection. */
+  model?: string;
 };
 
 // Reads the cron database's jobs for the Scheduled runs section. A
@@ -264,7 +283,7 @@ const safeCronJobs = (ctx: ServerContext): CronJobConfig[] => {
 
 const newSessionDetail = (
   ctx: ServerContext,
-  { error, workingDir, prompt = "", modelProvider }: NewSessionDetailOpts = {},
+  { error, workingDir, prompt = "", model }: NewSessionDetailOpts = {},
 ): Child => {
   const db = ctx.prompts;
   const prompts = db !== undefined ? listPrompts(db) : [];
@@ -272,28 +291,24 @@ const newSessionDetail = (
   return (
     <NewSessionForm
       agentName={ctx.agentNames}
-      agents={agentOptions(ctx)}
-      defaultAgent={ctx.defaultAgent.id}
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
       prompt={prompt}
       prompts={prompts}
       categories={categories}
-      modelPicker={modelPickerOpts(ctx.defaultAgent, modelProvider)}
+      modelPicker={modelPickerOpts(ctx, model)}
       jobs={safeCronJobs(ctx)}
     />
   );
 };
 
 export {
-  agentOptions,
-  anyModelPicker,
-  hasModelPicker,
-  modelPicker,
+  combinedModelPicker,
   modelPickerOpts,
   newSessionDetail,
   render,
   renderNotFound,
+  showsModelPicker,
   sidebarEntries,
 };
