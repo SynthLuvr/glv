@@ -17,6 +17,7 @@ const registerAssetRoutes = (
     { path: "/assets/app.css", body: a.appCss },
     { path: "/assets/sidebar.js", body: a.sidebar },
     { path: "/assets/stream.js", body: a.stream },
+    { path: "/assets/agents.js", body: a.agents },
     { path: "/assets/rename.js", body: a.rename },
     { path: "/assets/actions.js", body: a.actions },
     { path: "/assets/ui.js", body: a.ui },

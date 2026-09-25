@@ -15,7 +15,7 @@ import {
   NotFoundDetail,
 } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
-import type { ServerContext } from "./context.js";
+import type { AgentRuntime, ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { isHtmxRequest, sendHtml } from "./http.js";
 import { activeSessionIds } from "./status.js";
@@ -158,7 +158,7 @@ const render = (
   return sendHtml(
     reply,
     <Shell
-      agentName={ctx.profile.agentName}
+      agentName={ctx.agentNames}
       sessions={sessions}
       entries={entries}
       selectedId={selectedId}
@@ -188,16 +188,16 @@ const renderNotFound = (
     { status: 404, title: "Session not found — GLV" },
   );
 
-// The picker shows only when the flavor exposes configured models and a
+// The picker shows only when the agent exposes configured models and a
 // resolvable default. Resolving the catalogue may spawn the agent binary
 // (seconds), so this powers only the lazy /sessions/model-picker fragment —
 // never the New Session form, which must render instantly. `submitted`
 // carries a rejected submit's value so the selection survives.
 const modelPicker = async (
-  ctx: ServerContext,
+  runtime: AgentRuntime,
   submitted: string | undefined,
 ): Promise<ModelPicker | undefined> => {
-  const source = ctx.models;
+  const source = runtime.models;
   if (source === undefined) return undefined;
   const defaultSelection = source.defaultSelection();
   if (defaultSelection === undefined) return undefined;
@@ -212,19 +212,19 @@ const modelPicker = async (
 };
 
 // Cheap sync gate (config read, never a spawn) deciding whether the form
-// renders the lazy slot at all: flavors without model support (claude) and
+// renders the lazy slot at all: agents without model support (claude) and
 // provider-less configs get no field.
-const hasModelPicker = (ctx: ServerContext): boolean =>
-  ctx.models?.defaultSelection() !== undefined;
+const hasModelPicker = (runtime: AgentRuntime): boolean =>
+  runtime.models?.defaultSelection() !== undefined;
 
-// The forms' `modelPicker` prop: slot options when the flavor can pick
+// The forms' `modelPicker` prop: slot options when the agent can pick
 // models, absent (the form renders no picker) otherwise. `submitted`
 // restores a rejected submit's selection.
 const modelPickerOpts = (
-  ctx: ServerContext,
+  runtime: AgentRuntime,
   submitted?: string,
 ): { submitted?: string } | undefined =>
-  hasModelPicker(ctx) ? { submitted } : undefined;
+  hasModelPicker(runtime) ? { submitted } : undefined;
 
 // Everything a rejected submit needs to re-render the form without
 // losing typed work.
@@ -240,7 +240,7 @@ type NewSessionDetailOpts = {
 const safeCronJobs = (ctx: ServerContext): CronJobConfig[] => {
   if (ctx.cronDb === undefined) return [];
   try {
-    return listCronJobs(ctx.cronDb);
+    return listCronJobs(ctx.cronDb, ctx.defaultAgent.id);
   } catch (err) {
     console.error(`cron: could not read jobs for the UI: ${errorMessage(err)}`);
     return [];
@@ -256,14 +256,23 @@ const newSessionDetail = (
   const categories = db !== undefined ? listCategories(db) : [];
   return (
     <NewSessionForm
-      agentName={ctx.profile.agentName}
+      agentName={ctx.agentNames}
+      agents={
+        ctx.agents.length > 1
+          ? ctx.agents.map((runtime) => ({
+              id: runtime.id,
+              label: runtime.profile.agentName,
+            }))
+          : undefined
+      }
+      defaultAgent={ctx.defaultAgent.id}
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
       error={error}
       prompt={prompt}
       prompts={prompts}
       categories={categories}
-      modelPicker={modelPickerOpts(ctx, modelProvider)}
+      modelPicker={modelPickerOpts(ctx.defaultAgent, modelProvider)}
       jobs={safeCronJobs(ctx)}
     />
   );

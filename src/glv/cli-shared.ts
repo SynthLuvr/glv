@@ -70,21 +70,18 @@ const addServeTailOptions = (cmd: Command): Command =>
     )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
-type ServeTailOpts = {
-  rpName: string;
-  rpId?: string;
-  debug?: boolean;
-};
-
+// Serve actions receive commander's option bag as a plain record (the
+// factory cannot know a flavor's own options), so the tail is read out
+// of unknown values with the same trimming commander's parsers applied.
 const serveTail = (
-  opts: ServeTailOpts,
+  opts: Record<string, unknown>,
 ): {
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
 } => ({
-  rpName: opts.rpName,
-  rpIdOverride: opts.rpId,
+  rpName: typeof opts.rpName === "string" ? opts.rpName : "GLV",
+  rpIdOverride: typeof opts.rpId === "string" ? opts.rpId : undefined,
   debug: opts.debug === true,
 });
 

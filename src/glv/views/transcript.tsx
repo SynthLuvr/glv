@@ -178,6 +178,11 @@ const TranscriptHeader = ({
       </div>
     </div>
     <div class="session-meta">
+      {session.agent !== undefined && (
+        <span class="agent-chip" data-agent={session.agent}>
+          {session.agent}
+        </span>
+      )}
       <MetaChip label="ID" value={session.id} mono />
       {cronJob !== undefined && <CronChip jobName={cronJob} />}
       {session.model !== null && (

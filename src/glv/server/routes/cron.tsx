@@ -103,7 +103,10 @@ const readJobsOr = (
 } => {
   if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
   try {
-    return { jobs: listCronJobs(ctx.cronDb), error: undefined };
+    return {
+      jobs: listCronJobs(ctx.cronDb, ctx.defaultAgent.id),
+      error: undefined,
+    };
   } catch (err) {
     return { jobs: [], error: errorMessage(err) };
   }
@@ -185,10 +188,17 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
 
   // The inline schedule form for the section's slot (the Saved prompts
   // "Save current prompt" pattern): the composed prompt, the working
-  // directory, and the model all ride along from the New Session form at
-  // submit time — the form renders no fields of its own for them.
+  // directory, the agent, and the model all ride along from the New
+  // Session form at submit time — the form renders no fields of its own
+  // for them.
   app.get("/cron/new", (_request, reply) =>
-    sendHtml(reply, <ScheduleSaveForm withModels={hasModelPicker(ctx)} />),
+    sendHtml(
+      reply,
+      <ScheduleSaveForm
+        withModels={ctx.agents.some((runtime) => hasModelPicker(runtime))}
+        multiAgent={ctx.agents.length > 1}
+      />,
+    ),
   );
 
   // Creates a job from the slot form. The New Session form itself stays
@@ -202,6 +212,8 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     const workingDirRaw = trimmedField(body, "working_dir");
     const modelProvider = trimmedField(body, "model_provider");
     const timezone = trimmedField(body, "timezone");
+    const agentId = trimmedField(body, "agent") || ctx.defaultAgent.id;
+    const runtime = ctx.agents.find((entry) => entry.id === agentId);
 
     const reject = (error: string) =>
       sendHtml(
@@ -210,7 +222,8 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           jobName={jobName}
           schedule={schedule}
           timezone={timezone}
-          withModels={hasModelPicker(ctx)}
+          withModels={ctx.agents.some((entry) => hasModelPicker(entry))}
+          multiAgent={ctx.agents.length > 1}
           error={error}
         />,
         422,
@@ -218,12 +231,14 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
 
     if (prompt === "")
       return reject("A prompt is required — type one in the form above.");
+    if (runtime === undefined)
+      return reject(`Agent "${agentId}" is not enabled.`);
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served (same rule as the New Session flow).
-    const picked = ctx.models?.resolve(modelProvider);
+    const picked = runtime.models?.resolve(modelProvider);
     if (modelProvider !== "" && picked === undefined)
-      return reject(modelUnavailableError(ctx.profile.agentName));
+      return reject(modelUnavailableError(runtime.profile.agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     if (workingDirRaw === "")
       return reject(
@@ -245,9 +260,12 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       prompt,
       workingDir,
       ...(timezone === "" ? {} : { timezone }),
+      agent: agentId,
       ...modelPinFields(picked),
     };
-    const writeError = writeJobsOr(ctx, (db) => insertCronJob(db, job));
+    const writeError = writeJobsOr(ctx, (db) =>
+      insertCronJob(db, job, ctx.defaultAgent.id),
+    );
     if (writeError !== undefined)
       return reject(`Could not save the scheduled run: ${writeError}`);
     // Confirmation inline in the slot; the grid and count swap out of
@@ -286,12 +304,24 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       const { jobs } = readJobsOr(ctx);
       const job = findJob(jobs, request.params.name);
       if (job === undefined) return sendNotFound(reply);
+      const jobRuntime =
+        ctx.agents.find(
+          (entry) => entry.id === (job.agent ?? ctx.defaultAgent.id),
+        ) ?? ctx.defaultAgent;
       return sendHtml(
         reply,
         <ScheduleJobEditForm
           job={job}
           dirs={ctx.listDirs()}
-          modelPicker={modelPickerOpts(ctx, jobModelValue(job))}
+          agents={
+            ctx.agents.length > 1
+              ? ctx.agents.map((entry) => ({
+                  id: entry.id,
+                  label: entry.profile.agentName,
+                }))
+              : undefined
+          }
+          modelPicker={modelPickerOpts(jobRuntime, jobModelValue(job))}
         />,
       );
     },
@@ -311,6 +341,16 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       const prompt = trimmedField(body, "prompt");
       const workingDirRaw = trimmedField(body, "working_dir");
       const workingDir = resolve(expandHome(workingDirRaw));
+      // The agent select only renders when several agents are served; a
+      // body without it (single-agent server, non-browser client) keeps
+      // the stored agent.
+      const agentPresent = "agent" in body;
+      const submittedAgent = trimmedField(body, "agent");
+      const agentId =
+        agentPresent && submittedAgent !== ""
+          ? submittedAgent
+          : (existing.agent ?? ctx.defaultAgent.id);
+      const runtime = ctx.agents.find((entry) => entry.id === agentId);
 
       // The timezone field is exposed on the edit form; a body without it
       // (a non-browser client) keeps the stored override, while a
@@ -332,23 +372,23 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         .map((step) => step.trim())
         .filter((step) => step !== "");
 
-      // The picker is exposed only where the flavor supports models; an
-      // unexposed field keeps whatever the row already pins.
-      const pickerExposed = hasModelPicker(ctx);
-      const submittedModel = trimmedField(body, "model_provider");
-      const picked = pickerExposed
-        ? ctx.models?.resolve(submittedModel)
-        : undefined;
-
       const reject = (error: string) =>
         sendHtml(
           reply,
           <ScheduleJobEditForm
-            job={{ ...existing, name, prompt, workingDir }}
+            job={{ ...existing, name, prompt, workingDir, agent: agentId }}
             schedule={schedule}
             timezone={submittedTimezone}
             followUps={followUpsPresent ? submittedFollowUps : undefined}
             dirs={ctx.listDirs()}
+            agents={
+              ctx.agents.length > 1
+                ? ctx.agents.map((entry) => ({
+                    id: entry.id,
+                    label: entry.profile.agentName,
+                  }))
+                : undefined
+            }
             modelPicker={
               pickerExposed ? { submitted: submittedModel } : undefined
             }
@@ -357,6 +397,16 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         );
 
       if (prompt === "") return reject("A prompt is required.");
+      if (runtime === undefined)
+        return reject(`Agent "${agentId}" is not enabled.`);
+      // The picker is exposed only where the job's agent supports models;
+      // an unexposed field keeps whatever the row already pins.
+      const pickerExposed = hasModelPicker(runtime);
+      const submittedModel = trimmedField(body, "model_provider");
+      const picked = pickerExposed
+        ? runtime.models?.resolve(submittedModel)
+        : undefined;
+
       if (!NAME_RE.test(name)) return reject(NAME_ERROR);
       if (workingDirRaw === "")
         return reject("A working directory is required.");
@@ -367,7 +417,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       if (followUps.length > MAX_CRON_STEPS - 1)
         return reject(FOLLOW_UPS_CAP_ERROR);
       if (pickerExposed && submittedModel !== "" && picked === undefined)
-        return reject(modelUnavailableError(ctx.profile.agentName));
+        return reject(modelUnavailableError(runtime.profile.agentName));
       // Renaming onto a different existing job collides.
       if (jobs.some((job) => job.name === name && job.name !== existing.name))
         return reject(`A scheduled run named "${name}" already exists.`);
@@ -397,13 +447,14 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         ...scheduleFields(schedule, parsed.info.cron),
         prompt,
         workingDir,
+        agent: agentId,
         ...(timezone === undefined ? {} : { timezone }),
         ...(nextFollowUps !== undefined && nextFollowUps.length > 0
           ? { followUps: nextFollowUps }
           : {}),
       };
       const writeError = writeJobsOr(ctx, (db) =>
-        updateCronJob(db, currentName, updated),
+        updateCronJob(db, currentName, updated, ctx.defaultAgent.id),
       );
       if (writeError !== undefined)
         return reject(

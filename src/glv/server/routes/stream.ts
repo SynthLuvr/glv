@@ -5,6 +5,7 @@ import {
   pendingTool,
   type ToolRun,
 } from "../../format/index.js";
+import type { StreamEnvelope } from "../../profile.js";
 import {
   getHandle,
   isTerminalStatus,
@@ -167,12 +168,14 @@ const pollDb = async (
 };
 
 // Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
-// preview lines.
+// preview lines. `envelope` is the session's agent stream dialect, resolved
+// once by the caller.
 const pollRunner = async (
   stream: SseStream,
   ctx: ServerContext,
   id: string,
   state: PollState,
+  envelope: StreamEnvelope,
 ): Promise<void> => {
   const h = getHandle(ctx.runner, id);
   if (h === undefined) return;
@@ -208,7 +211,7 @@ const pollRunner = async (
       stream,
       h.output,
       state.sentLineOffset,
-      ctx.profile.streamEnvelope,
+      envelope,
       state.msgCursor,
     );
     if (isTerminalStatus(h.status)) state.flushedTerminal = true;
@@ -230,7 +233,10 @@ const registerStreamRoutes = (
     (request, reply) => {
       const id = request.params.id;
       const initial = ctx.sessions.getSession(id);
-      if (initial === undefined)
+      // A readable session always belongs to a served agent; the guard
+      // also pins the stream dialect previews parse.
+      const runtime = ctx.agentOf(id);
+      if (initial === undefined || runtime === undefined)
         return sendText(reply, "Session not found", 404);
 
       return streamSse(reply, async (stream) => {
@@ -288,7 +294,7 @@ const registerStreamRoutes = (
             stream,
             handle.output,
             0,
-            ctx.profile.streamEnvelope,
+            runtime.profile.streamEnvelope,
             state.msgCursor,
           );
 
@@ -301,7 +307,13 @@ const registerStreamRoutes = (
           if (stream.aborted) return;
           polls++;
           if (!(await pollDb(stream, ctx, id, state))) return;
-          await pollRunner(stream, ctx, id, state);
+          await pollRunner(
+            stream,
+            ctx,
+            id,
+            state,
+            runtime.profile.streamEnvelope,
+          );
         }
       });
     },

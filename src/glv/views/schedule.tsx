@@ -207,11 +207,21 @@ const RecentDirsDatalist = ({
 // The run's working directory and model are pulled the same way: the
 // form above is the page's single set of those fields, so whatever it
 // holds when "Schedule run" is clicked is exactly what the job gets.
+// One pickable agent in the schedule forms ("goose", "claude").
+type AgentOption = { readonly id: string; readonly label: string };
+
+const AgentChip = ({ agent }: { agent: string }) => (
+  <span class="agent-chip" data-agent={agent}>
+    {agent}
+  </span>
+);
+
 const ScheduleSaveForm = ({
   jobName = "",
   schedule = "",
   timezone = "",
   withModels,
+  multiAgent,
   error,
 }: {
   /** Restores a rejected submit's job name. */
@@ -222,6 +232,9 @@ const ScheduleSaveForm = ({
   timezone?: string;
   /** Copy flag: the New Session form above carries a model picker. */
   withModels: boolean;
+  /** Copy flag: several agents are served, so runs also use the form's
+   * agent picker. */
+  multiAgent?: boolean;
   error?: string;
 }) => (
   <form
@@ -230,12 +243,14 @@ const ScheduleSaveForm = ({
     hx-post="/cron"
     hx-target="#cron-save-slot"
     hx-swap="innerHTML"
-    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form select[name=model_provider]"
+    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form select[name=model_provider], .new-session-form select[name=agent]"
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
       Schedules the prompt composed in the form above. Runs use that
-      form&rsquo;s working directory{withModels ? " and model" : ""}.
+      form&rsquo;s working directory
+      {multiAgent === true ? ", agent" : ""}
+      {withModels ? " and model" : ""}.
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -288,6 +303,14 @@ const ScheduleConfirmation = ({ job }: { job: CronJobConfig }) => {
       <dl class="schedule-confirmation-grid">
         <dt>Job</dt>
         <dd>{job.name}</dd>
+        {job.agent !== undefined && (
+          <Fragment>
+            <dt>Agent</dt>
+            <dd>
+              <AgentChip agent={job.agent} />
+            </dd>
+          </Fragment>
+        )}
         <dt>Schedule</dt>
         <dd>
           {human}
@@ -344,6 +367,7 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
     <article class="cron-job-card" data-cron-job={job.name}>
       <div class="cron-job-head">
         <h4 class="cron-job-title">{job.name}</h4>
+        {job.agent !== undefined && <AgentChip agent={job.agent} />}
         <span
           class={`cron-job-status${enabled ? "" : " paused"}`}
           title={enabled ? "Enabled — fires on schedule" : "Paused"}
@@ -472,6 +496,7 @@ const ScheduleJobEditForm = ({
   timezone,
   followUps,
   dirs = [],
+  agents,
   modelPicker,
   error,
 }: {
@@ -485,6 +510,9 @@ const ScheduleJobEditForm = ({
   followUps?: readonly string[];
   /** Home directories offered as datalist suggestions. */
   dirs?: readonly string[];
+  /** Agents offered when several are served; absent keeps the stored
+   * agent (single-agent servers render no select). */
+  agents?: readonly AgentOption[];
   /** Renders the model picker slot when the flavor supports models;
    * `submitted` preselects the job's stored model (or a rejected edit's
    * pick). Without it, a stored model pin is preserved untouched. */
@@ -512,6 +540,21 @@ const ScheduleJobEditForm = ({
             autocomplete="off"
           />
         </label>
+        {agents !== undefined && agents.length > 1 && (
+          <label class="form-field">
+            <span class="form-label">Agent</span>
+            <select name="agent" class="form-input">
+              {agents.map((option) => (
+                <option
+                  value={option.id}
+                  selected={option.id === (job.agent ?? agents[0].id)}
+                >
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <ScheduleControls
           schedule={schedule ?? job.scheduleInput ?? job.schedule}
           timezone={timezone ?? job.timezone ?? ""}

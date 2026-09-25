@@ -25,6 +25,10 @@ type CronJobConfig = {
   workingDir: string;
   timezone?: string;
   enabled?: boolean;
+  // Which agent's launcher fires this job ("goose", "claude"). Required
+  // on every write; reads fall back to the store's default for rows
+  // written before the column existed.
+  agent?: string;
   // A model pin for the sessions this job starts: both keys together, or
   // neither for the agent's own default.
   modelProvider?: string;
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
   working_dir    TEXT NOT NULL,
   timezone       TEXT,
   enabled        INTEGER NOT NULL DEFAULT 1,
+  agent          TEXT,
   model_provider TEXT,
   model          TEXT,
   follow_ups     TEXT,
@@ -108,13 +113,20 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
 // the badges — exactly like every other glv-owned open.
-const openCronDb = (dbPath: string): DatabaseSync => {
+// `defaultAgent` names the agent rows written before the agent column
+// existed (or hand-edited back to NULL) belong to; it backfills them on
+// open, so every read sees a concrete agent.
+const openCronDb = (dbPath: string, defaultAgent: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   ensureColumn(db, "schedule_input");
   ensureColumn(db, "follow_ups");
+  ensureColumn(db, "agent");
   ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
+  db.prepare("UPDATE cron_jobs SET agent = ? WHERE agent IS NULL").run(
+    defaultAgent,
+  );
   return db;
 };
 
@@ -129,6 +141,7 @@ const JobRow = type({
   working_dir: "string",
   timezone: "string | null",
   enabled: "number",
+  agent: "string | null",
   model_provider: "string | null",
   model: "string | null",
   follow_ups: "string | null",
@@ -139,7 +152,7 @@ type JobRow = typeof JobRow.infer;
 
 const JOB_COLS =
   "name, schedule, schedule_input, prompt, working_dir, timezone, " +
-  "enabled, model_provider, model, follow_ups, last_fired_at";
+  "enabled, agent, model_provider, model, follow_ups, last_fired_at";
 
 // follow_ups holds a JSON array of follow-on prompts, read as strictly
 // as the rest of the row: anything but an array of strings — trimmed,
@@ -171,7 +184,7 @@ const parseFollowUps = (name: string, raw: string): string[] => {
   return steps;
 };
 
-const mapRow = (row: JobRow): CronJobRecord => ({
+const mapRow = (row: JobRow, defaultAgent: string): CronJobRecord => ({
   name: row.name,
   schedule: row.schedule,
   ...(row.schedule_input === null ? {} : { scheduleInput: row.schedule_input }),
@@ -179,6 +192,7 @@ const mapRow = (row: JobRow): CronJobRecord => ({
   workingDir: row.working_dir,
   ...(row.timezone === null ? {} : { timezone: row.timezone }),
   enabled: row.enabled !== 0,
+  agent: row.agent ?? defaultAgent,
   ...(row.model_provider === null || row.model === null
     ? {}
     : { modelProvider: row.model_provider, model: row.model }),
@@ -190,17 +204,23 @@ const mapRow = (row: JobRow): CronJobRecord => ({
 
 // Insertion order: rowid survives renames, so a renamed job keeps its
 // place in the section.
-const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
+const listCronJobs = (
+  db: DatabaseSync,
+  defaultAgent: string,
+): CronJobRecord[] =>
   validateAll(
     JobRow,
     db.prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`).all(),
-  ).map(mapRow);
+  ).map((row) => mapRow(row, defaultAgent));
 
 // The write shape every mutation shares: values in JOB_COLS order —
 // full row (the UI never patches single columns), optionals nulled,
 // enabled defaulted on — with last_fired_at supplied by the caller
 // (the insert seeds it; updates never write it).
-const jobParams = (job: CronJobConfig): (string | number | null)[] => [
+const jobParams = (
+  job: CronJobConfig,
+  defaultAgent: string,
+): (string | number | null)[] => [
   job.name,
   job.schedule,
   job.scheduleInput ?? null,
@@ -208,6 +228,7 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.workingDir,
   job.timezone ?? null,
   job.enabled === false ? 0 : 1,
+  job.agent ?? defaultAgent,
   job.modelProvider ?? null,
   job.model ?? null,
   job.followUps !== undefined && job.followUps.length > 0
@@ -215,15 +236,22 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
     : null,
 ];
 
-const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 // Appends a job. The marker seeds to now: a job cannot have been missed
 // before it existed, so occurrences earlier than its creation are not
 // its to catch up. The caller owns duplicate-name shaping of the
 // user-facing error; a colliding insert still fails loudly here (the
 // table's primary key is the backstop).
-const insertCronJob = (db: DatabaseSync, job: CronJobConfig): void => {
-  db.prepare(INSERT_SQL).run(...jobParams(job), new Date().toISOString());
+const insertCronJob = (
+  db: DatabaseSync,
+  job: CronJobConfig,
+  defaultAgent: string,
+): void => {
+  db.prepare(INSERT_SQL).run(
+    ...jobParams(job, defaultAgent),
+    new Date().toISOString(),
+  );
 };
 
 // Replaces a job's fields, rename included (name is the key, so the
@@ -233,16 +261,18 @@ const updateCronJob = (
   db: DatabaseSync,
   currentName: string,
   job: CronJobConfig,
+  defaultAgent: string,
 ): boolean =>
   db
     .prepare(
       `UPDATE cron_jobs
          SET name = ?, schedule = ?, schedule_input = ?, prompt = ?,
-             working_dir = ?, timezone = ?, enabled = ?, model_provider = ?,
-             model = ?, follow_ups = ?, updated_at = datetime('now')
+             working_dir = ?, timezone = ?, enabled = ?, agent = ?,
+             model_provider = ?, model = ?, follow_ups = ?,
+             updated_at = datetime('now')
          WHERE name = ?`,
     )
-    .run(...jobParams(job), currentName).changes > 0;
+    .run(...jobParams(job, defaultAgent), currentName).changes > 0;
 
 // Pause/resume without touching anything else the form never exposes.
 const setCronJobEnabled = (

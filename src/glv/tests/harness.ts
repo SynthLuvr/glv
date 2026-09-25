@@ -580,6 +580,8 @@ type CronJobRow = {
   workingDir: string;
   timezone?: string;
   enabled: boolean;
+  /** The agent the job fires through ("goose", "claude"). */
+  agent?: string;
   modelProvider?: string;
   model?: string;
   /** Follow-on prompts (chained steps), in run order. */
@@ -605,7 +607,7 @@ const openServerDb = (dbPath: string): DatabaseSync => {
 // seed statements below.
 const JOB_COLS =
   "name, schedule, schedule_input, prompt, working_dir, timezone, " +
-  "enabled, model_provider, model, follow_ups, last_fired_at";
+  "enabled, agent, model_provider, model, follow_ups, last_fired_at";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerDb(dbPath);
@@ -623,6 +625,9 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
       workingDir: row.working_dir as string,
       ...(row.timezone === null ? {} : { timezone: row.timezone as string }),
       enabled: row.enabled !== 0,
+      ...(row.agent === null || row.agent === undefined
+        ? {}
+        : { agent: row.agent as string }),
       ...(row.model_provider === null || row.model === null
         ? {}
         : {
@@ -655,9 +660,12 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // the missed-run marker byte for byte.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   const { lastFiredAt, ...storeJob } = job;
-  const db = openCronDb(dbPath);
+  // The seeded default agent matches what every flavor's server would
+  // backfill on its own open; suites that care set `agent` explicitly.
+  const db = openCronDb(dbPath, job.agent ?? "goose");
   try {
-    if (!updateCronJob(db, job.name, storeJob)) insertCronJob(db, storeJob);
+    if (!updateCronJob(db, job.name, storeJob, "goose"))
+      insertCronJob(db, storeJob, "goose");
     if (lastFiredAt !== undefined)
       db.prepare("UPDATE cron_jobs SET last_fired_at = ? WHERE name = ?").run(
         lastFiredAt,
@@ -669,7 +677,7 @@ const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
 };
 
 const removeCronJobRow = (dbPath: string, name: string): void => {
-  const db = openCronDb(dbPath);
+  const db = openCronDb(dbPath, "goose");
   try {
     deleteCronJob(db, name);
   } finally {

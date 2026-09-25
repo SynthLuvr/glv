@@ -39,4 +39,4 @@ const openGlvDb = (dbPath: string): DatabaseSync => {
   return db;
 };
 
-export { openGlvDb, resolveDataPath };
+export { dataRoot, openGlvDb, resolveDataPath };

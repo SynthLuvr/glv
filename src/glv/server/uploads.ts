@@ -183,6 +183,8 @@ export {
   deleteTempDir,
   deleteUploads,
   removeDir,
+  resolveTempBase,
+  resolveUploadsBase,
   saveUploads,
   tagDir,
   UploadError,

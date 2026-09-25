@@ -69,6 +69,28 @@ const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
   return groups;
 };
 
+// The agent picker for servers serving several agents: a plain select
+// whose choice rides the submit as `agent`. Changing it re-fetches the
+// model picker for the newly picked agent (agents.js swaps the wrap).
+const AgentSelect = ({
+  agents,
+  defaultAgent,
+}: {
+  agents: readonly { readonly id: string; readonly label: string }[];
+  defaultAgent: string;
+}) => (
+  <label class="form-field">
+    <span class="form-label">Agent</span>
+    <select name="agent" class="form-input" data-agent-select>
+      {agents.map((agent) => (
+        <option value={agent.id} selected={agent.id === defaultAgent}>
+          {agent.label}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
 // Stand-in rendered in place of the picker; the real <select> loads lazily
 // because resolving the catalogue can spawn the agent binary, and the form
 // must never wait on that.
@@ -157,6 +179,8 @@ const SourceToggle = () => (
 // manual edit so a hand-typed start never bumps a stale prompt.
 const NewSessionForm = ({
   agentName,
+  agents,
+  defaultAgent = "",
   workingDir,
   dirs,
   error,
@@ -167,6 +191,10 @@ const NewSessionForm = ({
   jobs = [],
 }: {
   agentName: string;
+  /** The pickable agents; absent on single-agent servers. */
+  agents?: readonly { readonly id: string; readonly label: string }[];
+  /** The preselected agent id. */
+  defaultAgent?: string;
   workingDir: string;
   dirs: string[];
   error?: string;
@@ -197,14 +225,19 @@ const NewSessionForm = ({
     >
       {error !== undefined && <p class="status-hint error">{error}</p>}
       <input type="hidden" name="prompt_id" value="" data-prompt-id />
+      {agents !== undefined && agents.length > 1 && (
+        <AgentSelect agents={agents} defaultAgent={defaultAgent} />
+      )}
       <SourceToggle />
       <div class="source-bodies" data-source-bodies>
         <WorkingDirBody workingDir={workingDir} dirs={dirs} />
         <TempDirBody />
       </div>
-      {modelPicker !== undefined && (
-        <ModelPickerSlot submitted={modelPicker.submitted} />
-      )}
+      <div class="model-picker-wrap" data-model-picker-wrap>
+        {modelPicker !== undefined && (
+          <ModelPickerSlot submitted={modelPicker.submitted} />
+        )}
+      </div>
       <label class="form-field">
         <span class="form-label">Prompt</span>
         <textarea

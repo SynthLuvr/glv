@@ -58,6 +58,11 @@ const SessionItem = ({
         >
           <span class="session-name">{displayName(session.name)}</span>
           <span class="session-sub">
+            {session.agent !== undefined && (
+              <span class="agent-chip" data-agent={session.agent}>
+                {session.agent}
+              </span>
+            )}
             <time
               datetime={toIso(session.updated_at)}
               title={session.updated_at}
