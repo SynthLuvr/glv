@@ -91,7 +91,7 @@ const runStreamDiscardSuite = (fx: FlavorFixture): void => {
     it("renders a valid NDJSON message line as a preview", async () => {
       const stream = collectSse(
         envValid,
-        "/sessions/discard-1/events",
+        `/sessions/${fx.viewId("discard-1")}/events`,
         (evs) =>
           hasStatus(evs, "completed") && evs.some((e) => e.event === "preview"),
         15000,
@@ -109,7 +109,7 @@ const runStreamDiscardSuite = (fx: FlavorFixture): void => {
       const collected: SseEvent[] = [];
       const collect = collectSse(
         envRaw,
-        "/sessions/raw-1/events",
+        `/sessions/${fx.viewId("raw-1")}/events`,
         // Never satisfy: collect every event until the timeout so a late
         // terminal-flush preview can't slip past an early resolve.
         () => false,
@@ -133,7 +133,7 @@ const runStreamDiscardSuite = (fx: FlavorFixture): void => {
       const collected: SseEvent[] = [];
       const collect = collectSse(
         envForeign,
-        "/sessions/foreign-1/events",
+        `/sessions/${fx.viewId("foreign-1")}/events`,
         // Never satisfy: collect every event until the timeout so a late
         // terminal-flush preview can't slip past an early resolve.
         () => false,

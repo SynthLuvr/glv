@@ -56,7 +56,11 @@ const runSystemFlagSuite = (fx: FlavorFixture): void => {
     it("passes the guardrails to a follow-up (resume) run too", async () => {
       // Drop the file from the prior run so waitForArgs waits for this one.
       rmSync(argsPath, { force: true });
-      const res = await postFollowUp(env, "followup-1", "follow up now");
+      const res = await postFollowUp(
+        env,
+        fx.viewId("followup-1"),
+        "follow up now",
+      );
       expect(res.status).toBe(200);
 
       const args = await waitForArgs(argsPath);

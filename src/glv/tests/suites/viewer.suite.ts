@@ -122,18 +122,26 @@ const runViewerSuite = (fx: FlavorFixture): void => {
       fx.seedMessages(env, "viewer-alpha", [
         { role: "user", content: [{ type: "text", text: "hello" }] },
       ]);
-      const res = await authedFetch(env, "/sessions/viewer-alpha", {
-        headers: { "HX-Request": "true" },
-      });
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("viewer-alpha")}`,
+        {
+          headers: { "HX-Request": "true" },
+        },
+      );
       const html = await res.text();
       expect(html).toContain("session-header");
       expect(html).not.toContain(`${fx.displayName} Sessions`);
     });
 
     it("refreshes the sidebar out-of-band when ?sidebar=1 is set", async () => {
-      const res = await authedFetch(env, "/sessions/viewer-alpha?sidebar=1", {
-        headers: { "HX-Request": "true" },
-      });
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("viewer-alpha")}?sidebar=1`,
+        {
+          headers: { "HX-Request": "true" },
+        },
+      );
       const html = await res.text();
       expect(html).toContain('id="session-list"');
       expect(html).toContain("hx-swap-oob");
@@ -142,7 +150,10 @@ const runViewerSuite = (fx: FlavorFixture): void => {
 
   describe("unknown session", () => {
     it("returns 404 with a not-found message", async () => {
-      const res = await authedFetch(env, "/sessions/does-not-exist");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("does-not-exist")}`,
+      );
       expect(res.status).toBe(404);
       expect(await res.text()).toContain("Session not found");
     });

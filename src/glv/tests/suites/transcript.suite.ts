@@ -50,7 +50,7 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
 
   const open = async (run: (page: Page) => Promise<void>): Promise<void> =>
     withPage(env.context, async (page) => {
-      await page.goto(env.baseUrl + "/sessions/t-rich");
+      await page.goto(env.baseUrl + `/sessions/${fx.viewId("t-rich")}`);
       await run(page);
     });
 

@@ -150,7 +150,7 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         await switchPane(page, "sidebar");
         await page
           .locator(
-            '.session-item[data-session-id="mobile-tall-2"] .session-name',
+            '.session-item[data-session-id="${fx.viewId("mobile-tall-2")}"] .session-name',
           )
           .click();
         // A contended auth-db busy wait can stretch the navigation past

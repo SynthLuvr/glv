@@ -82,37 +82,41 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
     it("destroys the session and every trace of it", async () => {
       // Rename first so the claude flavor has a meta sidecar row that the
       // delete must also erase; for goose it is just a row update.
-      await post("/sessions/dl-a/rename", { name: "Doomed", from: "header" });
+      await post(`/sessions/${fx.viewId("dl-a")}/rename`, {
+        name: "Doomed",
+        from: "header",
+      });
 
       // glv-owned traces: group membership, the cron job tag, and a
       // tagged temp working dir from a past run.
       const groups = openGroupsDb(env.dbs.groupsDb);
       const group = createGroup(groups, { name: "Doomed Group" });
-      addMember(groups, group.id, "dl-a");
+      // Seeded as the server spells them: namespaced ids.
+      addMember(groups, group.id, fx.viewId("dl-a"));
       groups.close();
       const cronDb = openCronSessionsDb(cronDbPath);
-      tagCronSession(cronDb, "dl-a", "nightly-job");
+      tagCronSession(cronDb, fx.viewId("dl-a"), "nightly-job");
       cronDb.close();
       const tempDir = join(env.tempDir, "tagged-run");
       mkdirSync(tempDir, { recursive: true });
-      tagDir(tempDir, "dl-a");
+      tagDir(tempDir, fx.viewId("dl-a"));
 
-      const res = await post("/sessions/dl-a/delete");
+      const res = await post(`/sessions/${fx.viewId("dl-a")}/delete`);
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("new-session-form");
 
       fx.assertSessionGone(env, "dl-a");
 
       const groupsAfter = openGroupsDb(env.dbs.groupsDb);
-      expect(groupIdOf(groupsAfter, "dl-a")).toBeUndefined();
+      expect(groupIdOf(groupsAfter, fx.viewId("dl-a"))).toBeUndefined();
       groupsAfter.close();
       const cronAfter = openCronSessionsDb(cronDbPath);
-      expect(jobNameFor(cronAfter, "dl-a")).toBeUndefined();
+      expect(jobNameFor(cronAfter, fx.viewId("dl-a"))).toBeUndefined();
       cronAfter.close();
 
       expect(existsSync(join(env.tempDir, "tagged-run"))).toBe(false);
 
-      const gone = await authedFetch(env, "/sessions/dl-a");
+      const gone = await authedFetch(env, `/sessions/${fx.viewId("dl-a")}`);
       expect(gone.status).toBe(404);
       expect(await gone.text()).toContain("Session not found");
       await withPage(env.context, async (page) => {
@@ -123,7 +127,7 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
     });
 
     it("404s when deleting an unknown session", async () => {
-      const res = await post("/sessions/nope/delete");
+      const res = await post(`/sessions/${fx.viewId("nope")}/delete`);
       expect(res.status).toBe(404);
       expect(await res.text()).toContain("Session not found");
     });
@@ -132,7 +136,7 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
   describe("delete UI", () => {
     it("takes three taps: action sheet, Delete permanently, confirm OK", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/dl-ui`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("dl-ui")}`);
         await expect(page.locator(".archive-btn")).toBeVisible();
         await expect(page.locator(".archive-btn")).toHaveText("Archive");
 
@@ -156,7 +160,7 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
 
     it("keeps the session when the confirmation dialog is cancelled", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/dl-keep`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("dl-keep")}`);
         page.on("dialog", (dialog) => {
           void dialog.dismiss();
         });
@@ -165,14 +169,14 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
         // No swap happened — the transcript is still on screen.
         await expect(page.locator(".session-header")).toContainText("UI Keep");
       });
-      const kept = await authedFetch(env, "/sessions/dl-keep");
+      const kept = await authedFetch(env, `/sessions/${fx.viewId("dl-keep")}`);
       expect(kept.status).toBe(200);
     });
 
     it("renders a bottom sheet on mobile and dismisses on Cancel / tap-outside", async () => {
       await withPage(env.context, async (page) => {
         await page.setViewportSize({ width: 400, height: 800 });
-        await page.goto(`${env.baseUrl}/sessions/dl-keep`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("dl-keep")}`);
         const panel = page.locator(".session-menu-panel");
         await expect(panel).toBeHidden();
 
@@ -214,7 +218,7 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
     it("renders a plain dropdown on desktop, closable with Escape", async () => {
       await withPage(env.context, async (page) => {
         await page.setViewportSize({ width: 1280, height: 800 });
-        await page.goto(`${env.baseUrl}/sessions/dl-keep`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("dl-keep")}`);
         await page.click(".session-menu-toggle");
         const panel = page.locator(".session-menu-panel");
         await expect(panel).toBeVisible();

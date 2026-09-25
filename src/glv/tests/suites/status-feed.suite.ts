@@ -63,7 +63,7 @@ const runStatusFeedSuite = (fx: FlavorFixture): void => {
         15000,
       );
       await delay(400);
-      await authedFetch(env, "/sessions/sf-1/prompt", {
+      await authedFetch(env, `/sessions/${fx.viewId("sf-1")}/prompt`, {
         method: "POST",
         body: new URLSearchParams({ prompt: "run it" }),
         headers: { "HX-Request": "true" },

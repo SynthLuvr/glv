@@ -82,7 +82,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
     it("emits a messages baseline and an idle status on connect", async () => {
       const events = await collectSse(
         env,
-        "/sessions/idle-1/events",
+        `/sessions/${fx.viewId("idle-1")}/events`,
         (evs) =>
           evs.some((e) => e.event === "messages") &&
           evs.some((e) => e.event === "status"),
@@ -99,7 +99,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
     it("streams running then completed with a rendered preview line", async () => {
       const stream = collectSse(
         envSlow,
-        "/sessions/rs-1/events",
+        `/sessions/${fx.viewId("rs-1")}/events`,
         (evs) =>
           hasStatus(evs, "completed") && evs.some((e) => e.event === "preview"),
         15000,
@@ -115,7 +115,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
     it(`reports an error status when ${fx.name} exits non-zero`, async () => {
       const stream = collectSse(
         envErr,
-        "/sessions/er-1/events",
+        `/sessions/${fx.viewId("er-1")}/events`,
         (evs) => hasStatus(evs, "error"),
         15000,
       );
@@ -134,7 +134,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       let seeded = false;
       const stream = collectSse(
         env,
-        "/sessions/db-1/events",
+        `/sessions/${fx.viewId("db-1")}/events`,
         (evs) => evs.some((e) => e.event === "append"),
         12000,
         (e) => {
@@ -162,7 +162,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       // the new name is the baseline and no rename delta is ever emitted.
       const events = await collectSse(
         env,
-        "/sessions/db-1/events",
+        `/sessions/${fx.viewId("db-1")}/events`,
         (evs) => evs.some((e) => e.event === "rename"),
         12000,
         (e) => {
@@ -184,7 +184,7 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
       let removed = false;
       const events = await collectSse(
         env,
-        "/sessions/del-1/events",
+        `/sessions/${fx.viewId("del-1")}/events`,
         (evs) => hasStatus(evs, "deleted"),
         12000,
         (e) => {
@@ -209,10 +209,14 @@ const runRunnerStreamSuite = (fx: FlavorFixture): void => {
 
     it("stops a running session and returns to an idle prompt bar", async () => {
       await startRun(envSlow, "rs-2", "long running");
-      const res = await authedFetch(envSlow, "/sessions/rs-2/stop", {
-        method: "POST",
-        headers: { "HX-Request": "true" },
-      });
+      const res = await authedFetch(
+        envSlow,
+        `/sessions/${fx.viewId("rs-2")}/stop`,
+        {
+          method: "POST",
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("send-btn");

@@ -130,7 +130,9 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns a not-found response for an unknown session rename", async () => {
-      const res = await post("/sessions/nope/rename", { name: "x" });
+      const res = await post(`/sessions/${fx.viewId("nope")}/rename`, {
+        name: "x",
+      });
       expect(await res.text()).toContain("Session not found");
     });
 

@@ -49,7 +49,9 @@ const runGroupsSuite = (fx: FlavorFixture): void => {
 
   describe("session groups", () => {
     it("groups two sessions and renders a collapsible group in the sidebar", async () => {
-      const res = await post("/sessions/g-a/group-with", { otherId: "g-b" });
+      const res = await post(`/sessions/${fx.viewId("g-a")}/group-with`, {
+        otherId: fx.viewId("g-b"),
+      });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('id="session-list"');
 
@@ -88,12 +90,14 @@ const runGroupsSuite = (fx: FlavorFixture): void => {
     });
 
     it("dissolves a group when a member is removed below the threshold", async () => {
-      await post("/sessions/g-c/group-with", { otherId: "g-d" });
+      await post(`/sessions/${fx.viewId("g-c")}/group-with`, {
+        otherId: fx.viewId("g-d"),
+      });
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
         await expect(page.locator(".session-group")).toHaveCount(1);
       });
-      await post("/sessions/g-c/ungroup", {});
+      await post(`/sessions/${fx.viewId("g-c")}/ungroup`, {});
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
         await expect(page.locator(".session-group")).toHaveCount(0);
@@ -101,7 +105,9 @@ const runGroupsSuite = (fx: FlavorFixture): void => {
     });
 
     it("releasing a drag on the source card itself keeps the group", async () => {
-      await post("/sessions/g-e/group-with", { otherId: "g-f" });
+      await post(`/sessions/${fx.viewId("g-e")}/group-with`, {
+        otherId: fx.viewId("g-f"),
+      });
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
         await expect(page.locator(".session-group")).toContainText("G-E");
@@ -113,7 +119,7 @@ const runGroupsSuite = (fx: FlavorFixture): void => {
           if (req.url().includes("/ungroup")) ungroupRequested = true;
         });
         const handle = page.locator(
-          "[data-session-id='g-e'] .session-drag-handle",
+          `[data-session-id='${fx.viewId("g-e")}'] .session-drag-handle`,
         );
         const box = await handle.boundingBox();
         expect(box).not.toBeNull();

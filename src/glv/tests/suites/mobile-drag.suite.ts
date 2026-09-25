@@ -126,7 +126,9 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await openMobileList(page);
         await page
-          .locator('.session-item[data-session-id="md-a"] .session-name')
+          .locator(
+            '.session-item[data-session-id="${fx.viewId("md-a")}"] .session-name',
+          )
           .click();
         await expect(page).toHaveURL(`${env.baseUrl}/sessions/md-a`);
         await expect(page.locator(".app")).toHaveAttribute(
@@ -143,7 +145,7 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
         await page.goto(env.baseUrl);
         await expect(
           page.locator(
-            '.session-item[data-session-id="md-a"] .session-drag-handle',
+            '.session-item[data-session-id="${fx.viewId("md-a")}"] .session-drag-handle',
           ),
         ).toBeVisible();
 

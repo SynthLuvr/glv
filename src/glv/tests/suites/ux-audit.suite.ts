@@ -87,8 +87,14 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
     it("keeps the Queue/Stop row from overflowing at tablet width and exposes the run", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
-        await postForm("/sessions/ux-run/prompt", { prompt: "do work" }, true);
-        const card = page.locator('.session-item[data-session-id="ux-run"]');
+        await postForm(
+          `/sessions/${fx.viewId("ux-run")}/prompt`,
+          { prompt: "do work" },
+          true,
+        );
+        const card = page.locator(
+          '.session-item[data-session-id="${fx.viewId("ux-run")}"]',
+        );
         await expect(card).toHaveAttribute("data-running", "");
 
         // A2: the running state is announced via sr-only text, not colour only.
@@ -99,7 +105,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
         // F2: the busy prompt bar (Queue + Stop) must not force a horizontal
         // scroll on the detail pane in the tablet band.
         await page.setViewportSize({ width: 750, height: 820 });
-        await page.goto(`${env.baseUrl}/sessions/ux-run`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-run")}`);
         await expect(page.locator(".queue-btn")).toBeVisible();
         const overflow = await page
           .locator("#detail-pane")
@@ -146,9 +152,9 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
   describe("A1: the open session is marked for assistive tech", () => {
     it("sets aria-current on the selected session's link", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/ux-sel`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-sel")}`);
         const link = page.locator(
-          '.session-item[data-session-id="ux-sel"] .session-link',
+          '.session-item[data-session-id="${fx.viewId("ux-sel")}"] .session-link',
         );
         await expect(link).toHaveAttribute("aria-current", "page");
       });
@@ -205,7 +211,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
           "Filter prompts",
         );
 
-        await page.goto(`${env.baseUrl}/sessions/ux-sel`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-sel")}`);
         await expect(page.locator("textarea.prompt-input")).toHaveAttribute(
           "aria-label",
           "Follow-up prompt",
@@ -220,9 +226,9 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
   describe("A5: timestamps carry a machine-readable datetime", () => {
     it("adds datetime to sidebar and message <time> elements", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/ux-sel`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-sel")}`);
         const sidebarTime = page.locator(
-          '.session-item[data-session-id="ux-sel"] time',
+          '.session-item[data-session-id="${fx.viewId("ux-sel")}"] time',
         );
         const sidebarDt = await sidebarTime.getAttribute("datetime");
         expect(sidebarDt).not.toBeNull();
@@ -251,9 +257,9 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
       ]);
       fx.backdateSession(env, "ux-old", Date.now() - 118 * 60_000);
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/ux-old`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-old")}`);
         const age = page.locator(
-          '.session-item[data-session-id="ux-old"] time',
+          '.session-item[data-session-id="${fx.viewId("ux-old")}"] time',
         );
         await expect(age).toHaveText("2h ago");
       });

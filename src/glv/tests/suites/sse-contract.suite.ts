@@ -46,7 +46,7 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
   let workDir: string;
 
   const prompt = (sessionId: string, text: string): Promise<Response> =>
-    authedFetch(env, `/sessions/${sessionId}/prompt`, {
+    authedFetch(env, `/sessions/${fx.viewId(sessionId)}/prompt`, {
       method: "POST",
       body: new URLSearchParams({ prompt: text }),
       headers: { "HX-Request": "true" },
@@ -87,7 +87,7 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
     it("emits only contract-conformant JSON payloads", async () => {
       const stream = collectSse(
         env,
-        "/sessions/sse-contract-1/events",
+        `/sessions/${fx.viewId("sse-contract-1")}/events`,
         (evs) =>
           evs.some(
             (e) => e.event === "status" && e.data.includes('"completed"'),
@@ -136,7 +136,7 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
 
     it("replays only entries after the Last-Event-ID cursor", async () => {
       const msg = await firstMessagesEvent(
-        "/sessions/sse-resume-1/events",
+        `/sessions/${fx.viewId("sse-resume-1")}/events`,
         "2",
       );
       expect(msg).toBeDefined();
@@ -145,7 +145,9 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
     });
 
     it("replays the full transcript on a first connect", async () => {
-      const msg = await firstMessagesEvent("/sessions/sse-resume-1/events");
+      const msg = await firstMessagesEvent(
+        `/sessions/${fx.viewId("sse-resume-1")}/events`,
+      );
       expect(entryIndexes(msg)).toEqual([0, 1, 2, 3]);
       expect(parseSseData(msg?.data ?? "").cursor).toBe(4);
     });

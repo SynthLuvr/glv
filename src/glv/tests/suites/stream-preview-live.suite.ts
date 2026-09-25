@@ -63,12 +63,21 @@ const runStreamPreviewLiveSuite = (fx: FlavorFixture): void => {
       const until = (evs: SseEvent[]): boolean =>
         evs.some((e) => e.event === "preview") && hasStatus(evs, "completed");
 
-      const stream = collectSse(env, "/sessions/pl-1/events", until, 15000);
-      const res = await authedFetch(env, "/sessions/pl-1/prompt", {
-        method: "POST",
-        body: new URLSearchParams({ prompt: "stream a reply" }),
-        headers: { "HX-Request": "true" },
-      });
+      const stream = collectSse(
+        env,
+        `/sessions/${fx.viewId("pl-1")}/events`,
+        until,
+        15000,
+      );
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pl-1")}/prompt`,
+        {
+          method: "POST",
+          body: new URLSearchParams({ prompt: "stream a reply" }),
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(res.ok).toBe(true);
       const events = await stream;
 

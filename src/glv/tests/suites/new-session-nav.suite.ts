@@ -39,7 +39,7 @@ const runNewSessionNavSuite = (fx: FlavorFixture): void => {
   describe("new session navigation state", () => {
     it("pushes /sessions/new when the plus button is clicked", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/nav-seed`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("nav-seed")}`);
         await expect(page.locator(".session-title")).toBeVisible();
 
         await page.locator(".new-session-btn").click();
@@ -50,7 +50,7 @@ const runNewSessionNavSuite = (fx: FlavorFixture): void => {
 
     it("pushes the new session's URL once it starts", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/new`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
         await page.locator('input[name="working_dir"]').fill(workDir);
@@ -74,7 +74,7 @@ const runNewSessionNavSuite = (fx: FlavorFixture): void => {
     it("pushes /sessions/new after archiving", async () => {
       await withPage(env.context, async (page) => {
         page.on("dialog", (dialog) => void dialog.accept());
-        await page.goto(`${env.baseUrl}/sessions/nav-seed`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("nav-seed")}`);
         await expect(page.locator("button.archive-btn")).toBeVisible();
 
         await page.locator("button.archive-btn").click();

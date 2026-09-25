@@ -40,7 +40,9 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
       },
     ]);
     // Two sessions must share a group to render a collapsible group header.
-    await post("/sessions/grp-a/group-with", { otherId: "grp-b" });
+    await post(`/sessions/${fx.viewId("grp-a")}/group-with`, {
+      otherId: fx.viewId("grp-b"),
+    });
   }, 90000);
 
   afterAll(async () => {
@@ -61,12 +63,18 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
 
         // Starting a run on one member drives both its own card and the group
         // header live, via the status feed's EventSource.
-        await post("/sessions/grp-a/prompt", { prompt: "do work" });
+        await post(`/sessions/${fx.viewId("grp-a")}/prompt`, {
+          prompt: "do work",
+        });
         await expect(
-          page.locator('.session-item[data-session-id="grp-a"]'),
+          page.locator(
+            '.session-item[data-session-id="${fx.viewId("grp-a")}"]',
+          ),
         ).toHaveAttribute("data-running", "");
         await expect(
-          page.locator('.session-item[data-session-id="grp-b"]'),
+          page.locator(
+            '.session-item[data-session-id="${fx.viewId("grp-b")}"]',
+          ),
         ).not.toHaveAttribute("data-running", "");
         await expect(header).toHaveAttribute("data-running", "");
         await expect(dot).toBeVisible();
@@ -76,7 +84,9 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
           timeout: 15000,
         });
         await expect(
-          page.locator('.session-item[data-session-id="grp-a"]'),
+          page.locator(
+            '.session-item[data-session-id="${fx.viewId("grp-a")}"]',
+          ),
         ).not.toHaveAttribute("data-running", "");
       });
     });

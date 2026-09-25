@@ -24,7 +24,7 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
   };
 
   const meta = (id: string): Promise<Response> =>
-    authedFetch(env, `/sessions/${id}/sidebar-meta`);
+    authedFetch(env, `/sessions/${fx.viewId(id)}/sidebar-meta`);
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-prchips-");
@@ -170,7 +170,10 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
     });
 
     it("resolves the branch and worktree through the git-info route", async () => {
-      const res = await authedFetch(env, "/sessions/pr-created/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pr-created")}/git-info`,
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("git-chip-branch");
@@ -179,7 +182,10 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns an empty git-info body for a session without a PR", async () => {
-      const res = await authedFetch(env, "/sessions/pr-none/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pr-none")}/git-info`,
+      );
       expect(res.status).toBe(200);
       expect((await res.text()).trim()).toBe("");
     });

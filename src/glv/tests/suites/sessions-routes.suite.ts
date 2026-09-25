@@ -75,7 +75,10 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
 
   describe("session detail routes", () => {
     it("renders the prompt bar as a standalone fragment", async () => {
-      const res = await authedFetch(env, "/sessions/sr-a/prompt-bar");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("sr-a")}/prompt-bar`,
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("prompt-bar");
@@ -83,10 +86,11 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("404s the fragment and page for unknown sessions", async () => {
-      expect((await authedFetch(env, "/sessions/nope/prompt-bar")).status).toBe(
-        404,
-      );
-      const page = await authedFetch(env, "/sessions/nope");
+      expect(
+        (await authedFetch(env, `/sessions/${fx.viewId("nope")}/prompt-bar`))
+          .status,
+      ).toBe(404);
+      const page = await authedFetch(env, `/sessions/${fx.viewId("nope")}`);
       expect(page.status).toBe(404);
       expect(await page.text()).toContain("nope");
     });
@@ -101,7 +105,7 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns the sidebar list when renaming from the sidebar", async () => {
-      const res = await postForm("/sessions/sr-a/rename", {
+      const res = await postForm(`/sessions/${fx.viewId("sr-a")}/rename`, {
         name: "Renamed Alpha",
         from: "sidebar",
       });
@@ -112,7 +116,7 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns a full page when renaming without htmx", async () => {
-      const res = await postForm("/sessions/sr-b/rename", {
+      const res = await postForm(`/sessions/${fx.viewId("sr-b")}/rename`, {
         name: "Renamed Beta",
         from: "header",
       });
@@ -124,7 +128,7 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
 
     it("returns title plus out-of-band list when renaming via htmx", async () => {
       const res = await postForm(
-        "/sessions/sr-c/rename",
+        `/sessions/${fx.viewId("sr-c")}/rename`,
         { name: "Renamed Gamma", from: "header" },
         { "HX-Request": "true" },
       );
@@ -136,13 +140,15 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("404s a rename of an unknown session", async () => {
-      const res = await postForm("/sessions/nope/rename", { name: "x" });
+      const res = await postForm(`/sessions/${fx.viewId("nope")}/rename`, {
+        name: "x",
+      });
       expect(res.status).toBe(404);
     });
 
     it("archives a multi-select in bulk", async () => {
       const res = await postForm("/sessions/archive", {
-        id: ["sr-b", "sr-c"],
+        id: ["sr-b", "sr-c"].map((id) => fx.viewId(id)),
       });
       expect(res.status).toBe(200);
       const html = await res.text();
@@ -187,7 +193,10 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("404s queue/cancel for an unknown session", async () => {
-      const res = await postForm("/sessions/nope/queue/cancel", {});
+      const res = await postForm(
+        `/sessions/${fx.viewId("nope")}/queue/cancel`,
+        {},
+      );
       expect(res.status).toBe(404);
     });
   });
