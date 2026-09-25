@@ -21,7 +21,7 @@ const runStreamDiscardSuite = (fx: FlavorFixture): void => {
     id: string,
     prompt: string,
   ): Promise<Response> =>
-    authedFetch(e, "/sessions/" + id + "/prompt", {
+    authedFetch(e, `/sessions/${fx.viewId(id)}/prompt`, {
       method: "POST",
       body: new URLSearchParams({ prompt }),
       headers: { "HX-Request": "true" },

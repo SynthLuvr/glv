@@ -127,7 +127,7 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
         await openMobileList(page);
         await page
           .locator(
-            '.session-item[data-session-id="${fx.viewId("md-a")}"] .session-name',
+            `.session-item[data-session-id="${fx.viewId("md-a")}"] .session-name`,
           )
           .click();
         await expect(page).toHaveURL(`${env.baseUrl}/sessions/md-a`);
@@ -145,7 +145,7 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
         await page.goto(env.baseUrl);
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("md-a")}"] .session-drag-handle',
+            `.session-item[data-session-id="${fx.viewId("md-a")}"] .session-drag-handle`,
           ),
         ).toBeVisible();
 

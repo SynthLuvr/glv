@@ -68,12 +68,12 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
         });
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("grp-a")}"]',
+            `.session-item[data-session-id="${fx.viewId("grp-a")}"]`,
           ),
         ).toHaveAttribute("data-running", "");
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("grp-b")}"]',
+            `.session-item[data-session-id="${fx.viewId("grp-b")}"]`,
           ),
         ).not.toHaveAttribute("data-running", "");
         await expect(header).toHaveAttribute("data-running", "");
@@ -85,7 +85,7 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
         });
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("grp-a")}"]',
+            `.session-item[data-session-id="${fx.viewId("grp-a")}"]`,
           ),
         ).not.toHaveAttribute("data-running", "");
       });

@@ -102,11 +102,11 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
         await page
-          .locator('.session-link[href=`/sessions/${fx.viewId("fix-alpha")}`]')
+          .locator(`.session-link[href='/sessions/${fx.viewId("fix-alpha")}']`)
           .click();
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("fix-alpha")}"]',
+            `.session-item[data-session-id="${fx.viewId("fix-alpha")}"]`,
           ),
         ).toHaveClass(/selected/);
 
@@ -121,7 +121,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         );
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("fix-alpha")}"]',
+            `.session-item[data-session-id="${fx.viewId("fix-alpha")}"]`,
           ),
         ).toHaveClass(/selected/);
       });
@@ -134,7 +134,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("#session-count")).toHaveText("2");
 
         await page
-          .locator('.session-link[href=`/sessions/${fx.viewId("fix-beta")}`]')
+          .locator(`.session-link[href='/sessions/${fx.viewId("fix-beta")}']`)
           .click();
         await page.locator(".archive-btn").click();
         // One archive response drives the detail-pane swap and the sidebar
@@ -146,7 +146,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         });
         await expect(
           page.locator(
-            '.session-item[data-session-id="${fx.viewId("fix-beta")}"]',
+            `.session-item[data-session-id="${fx.viewId("fix-beta")}"]`,
           ),
         ).toHaveCount(0, { timeout: 20000 });
         await expect(page.locator("#session-count")).toHaveText("1", {

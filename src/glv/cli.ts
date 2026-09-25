@@ -206,22 +206,21 @@ const gooseSpec = (
   dbWritable.exec("PRAGMA busy_timeout=5000");
   const db = openGooseDb(dbPath);
   db.exec("PRAGMA busy_timeout=5000");
-  const invocation = prefixedInvocation(
-    makeGooseAgent(gooseBinary),
-    gooseProfile.id,
-  );
+  // The runtime invocation (follow-up enqueues) strips the namespace;
+  // the launcher receives the raw one and strips it itself, once.
+  const rawInvocation = makeGooseAgent(gooseBinary);
   return {
     agent: gooseProfile.id,
     spec: {
       profile: gooseProfile,
       store: createGooseStore(db, dbWritable),
-      invocation,
+      invocation: prefixedInvocation(rawInvocation, gooseProfile.id),
       models: makeGooseModelSource(gooseBinary),
       makeLauncher: (runner) =>
         makeGooseLauncher(
           db,
           runner,
-          invocation,
+          rawInvocation,
           gooseProfile.sessionTimeoutError,
           gooseProfile.id,
         ),
@@ -240,24 +239,23 @@ const claudeSpec = (
 ): { readonly agent: string; readonly spec: AgentServeSpec } => {
   const root = resolveProjectsRoot(globals.projectsDir);
   const meta = openMetaDb(glvDbPaths(globals).claudeMetaDbPath);
-  const invocation = prefixedInvocation(
-    makeClaudeAgent(claudeBinary, permissionMode),
-    claudeProfile.id,
-  );
+  // The runtime invocation (follow-up enqueues) strips the namespace;
+  // the launcher receives the raw one and strips it itself, once.
+  const rawInvocation = makeClaudeAgent(claudeBinary, permissionMode);
   const store = createClaudeStore(root, meta);
   return {
     agent: claudeProfile.id,
     spec: {
       profile: claudeProfile,
       store,
-      invocation,
+      invocation: prefixedInvocation(rawInvocation, claudeProfile.id),
       models: undefined,
       makeLauncher: (runner) =>
         makeClaudeLauncher(
           root,
           store,
           runner,
-          invocation,
+          rawInvocation,
           claudeProfile.sessionTimeoutError,
           claudeProfile.id,
         ),

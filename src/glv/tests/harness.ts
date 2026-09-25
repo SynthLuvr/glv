@@ -39,6 +39,7 @@ import {
 } from "type-a-bin/subprocess-coverage";
 import { sessionCookieName } from "../auth/service.js";
 import {
+  type CronJobConfig,
   deleteCronJob,
   insertCronJob,
   openCronDb,
@@ -684,14 +685,26 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // path); removeCronJobRow deletes one. A lastFiredAt key (even null)
 // is written past the store's own seeding, so catch-up tests control
 // the missed-run marker byte for byte.
+// Seeds write the agent column verbatim — an unset agent stays NULL so
+// whichever flavor's server opens the database next backfills it with
+// its own default, exactly like a pre-agent-column row would be.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
-  const { lastFiredAt, ...storeJob } = job;
-  // The seeded default agent matches what every flavor's server would
-  // backfill on its own open; suites that care set `agent` explicitly.
-  const db = openCronDb(dbPath, job.agent ?? "goose");
+  const { lastFiredAt, agent, ...rest } = job;
+  const db = openCronDb(dbPath, "goose");
   try {
-    if (!updateCronJob(db, job.name, storeJob, "goose"))
-      insertCronJob(db, storeJob, "goose");
+    const storeJob: CronJobConfig = {
+      ...rest,
+      ...(agent === undefined ? {} : { agent }),
+    };
+    if (!updateCronJob(db, job.name, storeJob, "__seed_none__"))
+      insertCronJob(db, storeJob, "__seed_none__");
+    // A NULL agent survives the seed only because the sentinel default
+    // above writes nothing into the column for unset agents — pin it
+    // back to NULL for that case.
+    if (agent === undefined)
+      db.prepare("UPDATE cron_jobs SET agent = NULL WHERE name = ?").run(
+        job.name,
+      );
     if (lastFiredAt !== undefined)
       db.prepare("UPDATE cron_jobs SET last_fired_at = ? WHERE name = ?").run(
         lastFiredAt,

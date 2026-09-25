@@ -32,7 +32,8 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
   const canRunShell =
     !IS_WIN ||
     (spawnSync("sh", ["-c", "exit 0"]).status === 0 &&
-      runShell(["--help"]).stdout.includes(`Usage: glv-${fx.name}`));
+      // The legacy binaries are shims over the merged glv program.
+      runShell(["--help"]).stdout.includes("Usage: glv"));
 
   const runNode = (args: string[]): Out => {
     const result = spawnSync(process.execPath, [NODE_LAUNCHER, ...args], {
@@ -59,7 +60,7 @@ const runLauncherSuite = (fx: FlavorFixture): void => {
 
     it("prints the top-level program help", () => {
       const { stdout } = runNode(["--help"]);
-      expect(stdout).toContain(`Usage: glv-${fx.name}`);
+      expect(stdout).toContain("Usage: glv");
     });
 
     it("forwards argv and propagates a non-zero exit from commander", () => {

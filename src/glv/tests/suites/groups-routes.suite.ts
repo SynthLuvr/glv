@@ -79,7 +79,7 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
       const create = await post(`/sessions/${fx.viewId("gr-a")}/group`, {});
       expect(create.status).toBe(200);
       expect(await create.text()).toContain('id="session-list"');
-      const groupId = groupContaining("gr-a");
+      const groupId = groupContaining(fx.viewId("gr-a"));
       expect(groupId).toBeDefined();
 
       const join = await post(`/sessions/${fx.viewId("gr-b")}/group`, {
@@ -136,8 +136,13 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("GR-F");
       expect(html).toContain("GR-G");
       expect(html).toContain("GR-H");
-      const members = groupsSnapshot().get(groupContaining("gr-f") ?? "");
-      expect(members?.sort()).toEqual(["gr-f", "gr-g", "gr-h"]);
+      const members = groupsSnapshot().get(
+        groupContaining(fx.viewId("gr-f")) ?? "",
+      );
+      // Sidecar rows carry the namespaced ids the routes write.
+      expect(members?.sort()).toEqual(
+        ["gr-f", "gr-g", "gr-h"].map((id) => fx.viewId(id)),
+      );
     });
 
     it("rejects archiving an unknown group with 404", async () => {

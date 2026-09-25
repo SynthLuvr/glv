@@ -93,7 +93,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
           true,
         );
         const card = page.locator(
-          '.session-item[data-session-id="${fx.viewId("ux-run")}"]',
+          `.session-item[data-session-id="${fx.viewId("ux-run")}"]`,
         );
         await expect(card).toHaveAttribute("data-running", "");
 
@@ -154,7 +154,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-sel")}`);
         const link = page.locator(
-          '.session-item[data-session-id="${fx.viewId("ux-sel")}"] .session-link',
+          `.session-item[data-session-id="${fx.viewId("ux-sel")}"] .session-link`,
         );
         await expect(link).toHaveAttribute("aria-current", "page");
       });
@@ -228,7 +228,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-sel")}`);
         const sidebarTime = page.locator(
-          '.session-item[data-session-id="${fx.viewId("ux-sel")}"] time',
+          `.session-item[data-session-id="${fx.viewId("ux-sel")}"] time`,
         );
         const sidebarDt = await sidebarTime.getAttribute("datetime");
         expect(sidebarDt).not.toBeNull();
@@ -259,7 +259,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("ux-old")}`);
         const age = page.locator(
-          '.session-item[data-session-id="${fx.viewId("ux-old")}"] time',
+          `.session-item[data-session-id="${fx.viewId("ux-old")}"] time`,
         );
         await expect(age).toHaveText("2h ago");
       });
