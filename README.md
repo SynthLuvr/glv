@@ -371,6 +371,13 @@ retry with the same URL until one succeeds.
 >     proxy_set_header Host $host;
 >     proxy_set_header X-Forwarded-Host $host;
 >     proxy_set_header X-Forwarded-Proto $scheme;
+>
+> Raise the proxy’s body-size limit to match glv’s upload limits (50 MB
+> per file, 100 MB total), too: proxies apply their own much smaller
+> default (nginx: 1 MB) and reject larger uploads with a bare 413 before
+> glv sees the request:
+>
+>     client_max_body_size 110m;
 
 ## Development
 

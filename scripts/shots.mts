@@ -13,6 +13,7 @@ import {
   startCombinedEnv,
 } from "../src/glv/tests/combined-harness.js";
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
+import { serveNginx413 } from "../src/glv/tests/suites/upload-413.suite.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
 // Local PR-screenshot capture: boots a real `glv serve` on the mock
@@ -173,6 +174,22 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
   return env;
 };
 
+const captureProxy413 = async (
+  page: Page,
+  workingDir: string,
+): Promise<void> => {
+  await serveNginx413(page);
+  await page
+    .locator('textarea[name="prompt"]')
+    .fill("Read the attached screenshot");
+  await page.locator('input[name="working_dir"]').fill(workingDir);
+  await page.locator("button.send-btn").click();
+  await page.locator(".proxy-413-hint").waitFor();
+  await capture(page, "proxy-413-desktop.png", "form.new-session-form");
+  // Drop the interception so later captures hit the real server.
+  await page.unroute("**/sessions");
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -184,6 +201,8 @@ const captureViews = async (
   await page.goto(env.baseUrl);
   await page.locator("form.new-session-form").waitFor();
   await capture(page, "new-session-desktop.png", "form.new-session-form");
+
+  await captureProxy413(page, join(env.scratchDir, "project"));
 
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);

@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
 const UI_TITLE_SUFFIX = " \u2014 GLV";
@@ -27,6 +28,47 @@ if (htmx !== undefined)
     { code: "[23]..", swap: true },
     { code: "[45]..", swap: true, error: true },
   ];
+
+// A 413 never originates in this app (its own over-limit answers are
+// JSON): it is a reverse proxy rejecting the body — nginx allows 1 MB by
+// default — before the request arrives. With 4xx swapping enabled above,
+// the proxy's error page would land raw in the swap target, so cancel the
+// swap and pin a hint to the form instead, keeping everything typed.
+const PROXY_413_HINT =
+  "Upload rejected before GLV could read it (HTTP 413): a reverse " +
+  "proxy's body-size limit is likely below GLV's upload limits (50 MB " +
+  "per file, 100 MB total). Raise it — for nginx, " +
+  "client_max_body_size 110m;";
+const PROXY_413_HINT_CLASS = "proxy-413-hint";
+
+// The slice of htmx:beforeSwap's detail the proxy-413 handler reads.
+const Proxy413Detail = type({
+  "xhr?": "unknown",
+  shouldSwap: "boolean",
+  "requestConfig?": { "elt?": "unknown" },
+});
+
+// Cancels the swap and pins the hint to the submitting form, or to the
+// swap target when no form started the request.
+const uiOnProxy413 = (e: Event): void => {
+  if (!(e instanceof CustomEvent)) return;
+  const detail = Proxy413Detail(e.detail);
+  if (detail instanceof type.errors) return;
+  const { xhr } = detail;
+  if (!(xhr instanceof XMLHttpRequest) || xhr.status !== 413) return;
+  detail.shouldSwap = false;
+  const elt = detail.requestConfig?.elt;
+  const form = elt instanceof Element ? elt.closest("form") : null;
+  const host = form ?? htmxSwapTarget(e);
+  if (host === null) return;
+  host.querySelector(`.${PROXY_413_HINT_CLASS}`)?.remove();
+  const hint = document.createElement("p");
+  hint.className = `status-hint error ${PROXY_413_HINT_CLASS}`;
+  hint.textContent = PROXY_413_HINT;
+  host.prepend(hint);
+};
+
+document.body.addEventListener("htmx:beforeSwap", uiOnProxy413);
 
 // htmx swaps only the detail pane, so the server-set <title> grows stale;
 // re-derive it from the rendered heading on every swap.
