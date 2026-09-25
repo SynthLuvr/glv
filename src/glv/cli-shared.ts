@@ -24,6 +24,26 @@ const parsePositiveInt = (value: string): number => {
   return result;
 };
 
+// Commander option parser for a closed set of values.
+const parseChoice =
+  (choices: readonly string[]) =>
+  (value: string): string => {
+    if (!choices.includes(value))
+      throw new InvalidArgumentError(`must be one of: ${choices.join(", ")}`);
+    return value;
+  };
+
+// Reads a string option out of commander's option bag, falling back to
+// the option's default when a parser never landed a value in the record.
+const optString = (
+  opts: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string => {
+  const value = opts[key];
+  return typeof value === "string" ? value : fallback;
+};
+
 // An explicit path must exist on disk; a bare name must be found on PATH
 // (which honors PATHEXT on Windows and checks the executable bit, which
 // existence checks alone miss). The caller's spelling is kept — bare
@@ -131,6 +151,8 @@ const runMain = (program: Command): void => {
 export {
   addServeTailOptions,
   makeRunnerConfig,
+  optString,
+  parseChoice,
   parsePositiveInt,
   readGlobalOpts,
   registerViewCommand,

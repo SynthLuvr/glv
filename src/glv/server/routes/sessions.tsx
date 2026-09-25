@@ -186,11 +186,10 @@ const registerSessionRoutes = (
     // form's picker slot is swapped, never left loading.
     const wanted = queryValue(request, "agent") ?? ctx.defaultAgent.id;
     const runtime = ctx.agents.find((entry) => entry.id === wanted);
-    const picker =
-      runtime === undefined
-        ? undefined
-        : await modelPicker(runtime, queryValue(request, "submitted"));
-    if (runtime === undefined || picker === undefined)
+    if (runtime === undefined)
+      return sendHtml(reply, <span class="model-picker-empty" hidden />);
+    const picker = await modelPicker(runtime, queryValue(request, "submitted"));
+    if (picker === undefined)
       return sendHtml(reply, <span class="model-picker-empty" hidden />);
     return sendHtml(
       reply,

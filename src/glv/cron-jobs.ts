@@ -113,9 +113,9 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
 // the badges — exactly like every other glv-owned open. Rows keep a
-// NULL agent until the server (which knows its sole default) backfills
-// them on its own open, so external writers and test seeds never see
-// an agent minted for them.
+// NULL agent until the server (which knows its default) backfills them
+// on its own open, so external writers and test seeds never see an
+// agent minted for them.
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
@@ -128,8 +128,8 @@ const openCronDb = (dbPath: string): DatabaseSync => {
 };
 
 // The server-open backfill: rows written before the agent column
-// existed (or hand-edited back to NULL) belong to the server's sole
-// agent on a single-agent server. Idempotent.
+// existed (or hand-edited back to NULL) belong to the server's default
+// agent. Idempotent.
 const backfillCronAgents = (db: DatabaseSync, defaultAgent: string): void => {
   db.prepare("UPDATE cron_jobs SET agent = ? WHERE agent IS NULL").run(
     defaultAgent,

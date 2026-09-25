@@ -37,7 +37,12 @@ import type { ServerContext } from "../context.js";
 import { parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
 import { expandHome } from "../paths.js";
-import { hasModelPicker, modelPickerOpts } from "../render.js";
+import {
+  agentOptions,
+  anyModelPicker,
+  hasModelPicker,
+  modelPickerOpts,
+} from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which
@@ -195,7 +200,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     sendHtml(
       reply,
       <ScheduleSaveForm
-        withModels={ctx.agents.some((runtime) => hasModelPicker(runtime))}
+        withModels={anyModelPicker(ctx)}
         multiAgent={ctx.agents.length > 1}
       />,
     ),
@@ -222,7 +227,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
           jobName={jobName}
           schedule={schedule}
           timezone={timezone}
-          withModels={ctx.agents.some((entry) => hasModelPicker(entry))}
+          withModels={anyModelPicker(ctx)}
           multiAgent={ctx.agents.length > 1}
           error={error}
         />,
@@ -311,14 +316,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         <ScheduleJobEditForm
           job={job}
           dirs={ctx.listDirs()}
-          agents={
-            ctx.agents.length > 1
-              ? ctx.agents.map((entry) => ({
-                  id: entry.id,
-                  label: entry.profile.agentName,
-                }))
-              : undefined
-          }
+          agents={agentOptions(ctx)}
           modelPicker={modelPickerOpts(jobRuntime, jobModelValue(job))}
         />,
       );
@@ -379,14 +377,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
             timezone={submittedTimezone}
             followUps={followUpsPresent ? submittedFollowUps : undefined}
             dirs={ctx.listDirs()}
-            agents={
-              ctx.agents.length > 1
-                ? ctx.agents.map((entry) => ({
-                    id: entry.id,
-                    label: entry.profile.agentName,
-                  }))
-                : undefined
-            }
+            agents={agentOptions(ctx)}
             modelPicker={
               pickerExposed ? { submitted: submittedModel } : undefined
             }

@@ -49,7 +49,7 @@ type SchedulerDeps = {
     readonly id: string;
     readonly hasModels: boolean;
   }[];
-  /** The agent jobs without an explicit one belong to (the sole agent). */
+  /** The agent jobs without an explicit one belong to. */
   readonly defaultAgent: string;
   /**
    * Reads cron jobs from the cron database; throws while the store is
@@ -79,8 +79,8 @@ type SchedulerDeps = {
 // workingDir canonicalized and `enabled` defaulted so every later
 // reference (validation, logs, croner options) sees one spelling.
 // followUps defaulted for the same reason: a single-prompt job is a
-// chain of one. agent defaulted to the server's sole agent so direct-
-// API writes without one still fire somewhere.
+// chain of one. agent defaulted to the server's default so direct-API
+// writes without one still fire somewhere.
 type ResolvedJob = CronJobConfig & {
   readonly enabled: boolean;
   readonly followUps: readonly string[];
@@ -107,7 +107,7 @@ const sleep = (ms: number): Promise<void> =>
 // Expands ~ and canonicalizes so the spawn cwd, the per-directory create
 // lock, and the flavor's session-discovery poll all see one spelling.
 const resolveJobs = (
-  deps: Pick<SchedulerDeps, "defaultAgent">,
+  defaultAgent: string,
   jobs: readonly CronJobConfig[],
 ): readonly ResolvedJob[] =>
   jobs.map((job) => ({
@@ -115,7 +115,7 @@ const resolveJobs = (
     workingDir: resolve(expandHome(job.workingDir)),
     enabled: job.enabled !== false,
     followUps: job.followUps ?? [],
-    agent: job.agent ?? deps.defaultAgent,
+    agent: job.agent ?? defaultAgent,
   }));
 
 const invalidSchedule = (job: ResolvedJob, error: string): Error =>
@@ -582,7 +582,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   const reload = (): void => {
     let resolved: readonly ResolvedJob[];
     try {
-      resolved = resolveJobs(deps, deps.readJobs());
+      resolved = resolveJobs(deps.defaultAgent, deps.readJobs());
     } catch (err) {
       const failure = `failed: ${errorMessage(err)}`;
       if (failure !== lastOutcome) {
@@ -608,7 +608,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   };
 
   // Boot is fail-fast: an invalid job set throws out of serve startup.
-  current = applyJobs(resolveJobs(deps, deps.readJobs()));
+  current = applyJobs(resolveJobs(deps.defaultAgent, deps.readJobs()));
   if (current.length > 0)
     console.log(
       `cron: ${current.length} job(s) scheduled from the cron database`,

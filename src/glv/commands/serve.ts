@@ -5,7 +5,6 @@ import { buildAssets } from "../build.js";
 import {
   type AgentDispatchLauncher,
   createCompositeLauncher,
-  singleAgentDispatch,
 } from "../composite-launcher.js";
 import { createCompositeSessionStore } from "../composite-store.js";
 import { startCronScheduler } from "../cron.js";
@@ -21,6 +20,7 @@ import { tagCronSession } from "../cron-sessions.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
 import { setupLogging } from "../log.js";
+import type { ModelSource } from "../models.js";
 import type { FlavorProfile } from "../profile.js";
 import { openPromptsDb } from "../prompts/db.js";
 import {
@@ -29,20 +29,26 @@ import {
   type RunnerConfig,
   stopAll,
 } from "../runner/index.js";
+import type { AgentInvocation } from "../runner/types.js";
 import type { AgentRuntime } from "../server/context.js";
 import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
 
 // One agent's wiring as a serve caller provides it: the flavor adapters
 // (store, launcher factory, argv builder, optional model picker) plus
-// how to close the store on shutdown. `prefix` is the id namespace the
-// launcher composes ids under — the flavor's id on the merged server,
-// "" (native ids) on a single-flavor one.
+// how to close the store on shutdown.
 type AgentServeSpec = {
   readonly profile: FlavorProfile;
   readonly store: SessionStore;
-  readonly invocation: AgentRuntime["invocation"];
-  readonly models: AgentRuntime["models"];
+  /**
+   * The argv builder follow-up enqueues use — the prefixed view, which
+   * turns namespaced runner keys into native ids in the agent's argv.
+   * The launcher's own invocation stays raw and strips the prefix
+   * itself, once.
+   */
+  readonly invocation: AgentInvocation;
+  /** The agent's model picker; undefined hides the picker entirely. */
+  readonly models: ModelSource | undefined;
   readonly makeLauncher: (runner: Runner) => SessionLauncher;
   readonly closeStore: () => void;
 };
@@ -52,16 +58,7 @@ type ServeOpts = {
   /** One runner config: one concurrency pool across every agent. */
   runner: RunnerConfig;
   /** The agents to serve, in picker order; never empty. */
-  agents: readonly {
-    readonly agent: string;
-    readonly spec: AgentServeSpec;
-  }[];
-  /**
-   * True composes the agents (namespaced ids, agent picker); false
-   * serves the single agent exactly as the per-flavor servers always
-   * have (native ids, no picker).
-   */
-  composed: boolean;
+  agents: readonly AgentServeSpec[];
   /** Viewer-owned data directory name (uploads/temp root). */
   dataDirName: string;
   /** The dist/<name> directory the asset bundle reads. */
@@ -157,49 +154,32 @@ const registerShutdown = (
   emitter.on("unhandledRejection", onCrash);
 };
 
-// Binds the store and launcher the routes see: several agents compose
-// (every id crossing the boundary namespaced by its agent), one agent
-// passes through untouched — a composite of one is the identity.
-const assembleAgents = (
-  runtimes: readonly AgentRuntime[],
-  composed: boolean,
-): {
-  readonly sessions: SessionStore;
-  readonly launcher: AgentDispatchLauncher;
-} => {
-  if (runtimes.length === 1 && !composed)
-    return {
-      sessions: runtimes[0].store,
-      launcher: singleAgentDispatch(runtimes[0].launcher),
-    };
-  return {
-    sessions: createCompositeSessionStore(
-      runtimes.map((runtime) => ({ agent: runtime.id, store: runtime.store })),
-    ),
-    launcher: createCompositeLauncher(
-      runtimes.map((runtime) => ({
-        agent: runtime.id,
-        launcher: runtime.launcher,
-      })),
-    ),
-  };
-};
-
 const runServe = (opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.assetsFlavor);
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.
   const runner = createRunner(opts.runner);
-  const runtimes: AgentRuntime[] = opts.agents.map(({ agent, spec }) => ({
-    id: agent,
+  const runtimes: AgentRuntime[] = opts.agents.map((spec) => ({
+    id: spec.profile.id,
     profile: spec.profile,
     store: spec.store,
     launcher: spec.makeLauncher(runner),
     invocation: spec.invocation,
     models: spec.models,
   }));
-  const { sessions, launcher } = assembleAgents(runtimes, opts.composed);
+  // The store and launcher the routes see: the composites namespace
+  // every id that crosses the boundary by its agent (a composite of
+  // one agent is the identity for single-agent serving).
+  const sessions = createCompositeSessionStore(
+    runtimes.map((runtime) => ({ agent: runtime.id, store: runtime.store })),
+  );
+  const launcher: AgentDispatchLauncher = createCompositeLauncher(
+    runtimes.map((runtime) => ({
+      agent: runtime.id,
+      launcher: runtime.launcher,
+    })),
+  );
   const defaultAgent = runtimes[0];
   // The cron database: the job schedule and the job-started-session
   // tags (the sidebar badges), one handle shared by the scheduler, the
@@ -245,7 +225,7 @@ const runServe = (opts: ServeOpts): void => {
     rpIdOverride: opts.rpIdOverride,
   });
   const product =
-    opts.composed && runtimes.length > 1
+    runtimes.length > 1
       ? "glv"
       : `glv-${runtimes.map((runtime) => runtime.id).join("-")}`;
   app.listen({ port: opts.port, host: "::" }, (err, address) => {
@@ -265,7 +245,7 @@ const runServe = (opts: ServeOpts): void => {
   const destroyConnections = trackConnections(app.server);
 
   const closeDbs = (): void => {
-    for (const { spec } of opts.agents) spec.closeStore();
+    for (const spec of opts.agents) spec.closeStore();
     authDb.close();
     promptsDb.close();
     groupsDb.close();

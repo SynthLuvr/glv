@@ -66,8 +66,7 @@ type MigrationOutcome = {
 // A legacy directory that exists and has not been adopted yet.
 const pendingDir = (legacy: LegacyDir): string | undefined => {
   const dir = join(dataRoot(), legacy.dataDirName);
-  if (!existsSync(dir)) return undefined;
-  return dir;
+  return existsSync(dir) ? dir : undefined;
 };
 
 // Renames the legacy directory out of the way. A straggler legacy binary
@@ -137,14 +136,53 @@ const copyTable = (
   return copied;
 };
 
+// Opens a legacy database read-only for one copying pass, closing it
+// after; a missing file skips the pass.
+const withLegacyDb = (
+  dir: string,
+  name: string,
+  copy: (db: DatabaseSync) => void,
+): void => {
+  const path = join(dir, name);
+  if (!existsSync(path)) return;
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    copy(db);
+  } finally {
+    db.close();
+  }
+};
+
 // The marker file uploads and temp dirs carry (uploads.ts spells the
 // same name; re-declared so this module owns no server dependency).
 const SESSION_MARKER = ".glv-session-id";
 
+// Moves one marker-tagged directory into the unified base, rewriting the
+// marker to the namespaced session id.
+const moveTaggedDir = (
+  dir: string,
+  name: string,
+  toBase: string,
+  agent: string,
+): void => {
+  const markerPath = join(dir, SESSION_MARKER);
+  if (!existsSync(markerPath)) return;
+  const marker = readFileSync(markerPath, "utf-8").trim();
+  if (marker === "") return;
+  // An already-namespaced marker ids a session the merged product
+  // itself tagged; re-keying would double-prefix, so keep it.
+  const nextMarker = marker.includes(":")
+    ? marker
+    : namespacedId(agent, marker);
+  let target = join(toBase, name);
+  if (existsSync(target)) target = join(toBase, `${name}-${Date.now()}`);
+  renameSync(dir, target);
+  writeFileSync(join(target, SESSION_MARKER), nextMarker);
+};
+
 // Moves every tagged directory under a legacy uploads/tmp base into the
-// unified base, rewriting the marker to the namespaced session id.
-// Untagged directories (failed attempts) stay behind in the retired
-// legacy directory — nothing references them.
+// unified base. Untagged directories (failed attempts) stay behind in
+// the retired legacy directory — nothing references them.
 const moveTaggedDirs = (
   fromBase: string,
   toBase: string,
@@ -156,21 +194,8 @@ const moveTaggedDirs = (
   for (const entry of readdirSync(fromBase, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const dir = join(fromBase, entry.name);
-    const markerPath = join(dir, SESSION_MARKER);
-    if (!existsSync(markerPath)) continue;
     try {
-      const marker = readFileSync(markerPath, "utf-8").trim();
-      if (marker === "") continue;
-      // An already-namespaced marker ids a session the merged product
-      // itself tagged; re-keying would double-prefix, so keep it.
-      const nextMarker = marker.includes(":")
-        ? marker
-        : namespacedId(agent, marker);
-      let target = join(toBase, entry.name);
-      if (existsSync(target))
-        target = join(toBase, `${entry.name}-${Date.now()}`);
-      renameSync(dir, target);
-      writeFileSync(join(target, SESSION_MARKER), nextMarker);
+      moveTaggedDir(dir, entry.name, toBase, agent);
     } catch (err) {
       notices.push(
         `could not move ${dir}: ${err instanceof Error ? err.message : String(err)}`,
@@ -204,60 +229,36 @@ const runLegacyMigration = (
     for (const { legacy, dir } of pending) {
       const prefix = (id: string): string => namespacedId(legacy.agent, id);
 
-      const legacyDb = (name: string): DatabaseSync | undefined => {
-        const path = join(dir, name);
-        if (!existsSync(path)) return undefined;
-        return new DatabaseSync(path, { readOnly: true });
-      };
+      withLegacyDb(dir, "prompts.db", (db) =>
+        copyTable(db, promptsDb, "saved_prompts"),
+      );
 
-      const prompts = legacyDb("prompts.db");
-      if (prompts !== undefined)
-        try {
-          copyTable(prompts, promptsDb, "saved_prompts");
-        } finally {
-          prompts.close();
-        }
+      withLegacyDb(dir, "groups.db", (db) => {
+        copyTable(db, groupsDb, "session_groups");
+        copyTable(db, groupsDb, "group_members", {
+          rekey: { column: "session_id", via: prefix },
+        });
+      });
 
-      const groups = legacyDb("groups.db");
-      if (groups !== undefined)
-        try {
-          copyTable(groups, groupsDb, "session_groups");
-          copyTable(groups, groupsDb, "group_members", {
-            rekey: { column: "session_id", via: prefix },
-          });
-        } finally {
-          groups.close();
-        }
+      withLegacyDb(dir, "cron.db", (db) => {
+        copyTable(db, cronDb, "cron_jobs", { extra: { agent: legacy.agent } });
+        copyTable(db, cronDb, "cron_sessions", {
+          rekey: { column: "session_id", via: prefix },
+        });
+      });
 
-      const cron = legacyDb("cron.db");
-      if (cron !== undefined)
-        try {
-          copyTable(cron, cronDb, "cron_jobs", {
-            extra: { agent: legacy.agent },
-          });
-          copyTable(cron, cronDb, "cron_sessions", {
-            rekey: { column: "session_id", via: prefix },
-          });
-        } finally {
-          cron.close();
-        }
-
-      if (legacy.agent === "claude" && targets.claudeMetaDb !== undefined) {
-        const meta = legacyDb("meta.db");
-        if (meta !== undefined && targets.claudeMetaDb !== undefined)
+      const metaTarget = targets.claudeMetaDb;
+      if (legacy.agent === "claude" && metaTarget !== undefined)
+        withLegacyDb(dir, "meta.db", (db) => {
+          const meta = openMetaDb(metaTarget);
           try {
-            const targetMeta = openMetaDb(targets.claudeMetaDb);
-            try {
-              copyTable(meta, targetMeta, "session_meta", {
-                rekey: { column: "id", via: prefix },
-              });
-            } finally {
-              targetMeta.close();
-            }
+            copyTable(db, meta, "session_meta", {
+              rekey: { column: "id", via: prefix },
+            });
           } finally {
             meta.close();
           }
-      }
+        });
 
       moveTaggedDirs(
         join(dir, "uploads"),

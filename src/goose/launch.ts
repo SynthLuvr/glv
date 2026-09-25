@@ -25,15 +25,15 @@ const sleep = (ms: number): Promise<void> =>
 // snapshot and hide it from the discovery poll.
 //
 // Under the merged product every id that crosses the launcher boundary is
-// namespaced ("goose:<id>"); `prefix` ("goose", or "" for the standalone
-// glv-goose server) decides. Runner registry keys are namespaced too; the
-// argv builder receives native ids through the prefixed invocation view.
+// namespaced ("goose:<id>"); `prefix` ("goose") decides. Runner registry
+// keys are namespaced too; the argv builder receives native ids through
+// the prefixed invocation view.
 const makeGooseLauncher = (
   db: DatabaseSync,
   runner: Runner,
   invocation: AgentInvocation,
   timeoutError: string,
-  prefix = "",
+  prefix: string,
 ): SessionLauncher => {
   const keys = launcherKeys(prefix);
   const agent = prefixedInvocation(invocation, prefix);

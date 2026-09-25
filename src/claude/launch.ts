@@ -20,16 +20,15 @@ const sleep = (ms: number): Promise<void> =>
 // the same directory) to this run.
 //
 // Under the merged product every id that crosses the launcher boundary is
-// namespaced ("claude:<id>"); `prefix` ("claude", or "" for the standalone
-// glv-claude server) decides. The binary still receives the native uuid
-// through the prefixed invocation view.
+// namespaced ("claude:<id>"); `prefix` ("claude") decides. The binary
+// still receives the native uuid through the prefixed invocation view.
 const makeClaudeLauncher = (
   root: string,
   sessions: SessionStore,
   runner: Runner,
   invocation: AgentInvocation,
   timeoutError: string,
-  prefix = "",
+  prefix: string,
 ): SessionLauncher => {
   const keys = launcherKeys(prefix);
   const agent = prefixedInvocation(invocation, prefix);

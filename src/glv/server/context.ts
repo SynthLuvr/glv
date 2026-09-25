@@ -26,8 +26,7 @@ type AgentRuntime = {
   readonly profile: FlavorProfile;
   /** The flavor's store over native ids (the composite prefixes). */
   readonly store: SessionStore;
-  /** The flavor's launcher; ids at this boundary are already namespaced
-   * when the server composes more than one agent. */
+  /** The flavor's launcher; ids at this boundary are namespaced. */
   readonly launcher: SessionLauncher;
   /** The argv builder for follow-up prompts: registry keys carry the
    * namespace, the binary receives native ids. */
@@ -78,8 +77,8 @@ type ServerOptions = {
 type ServerContext = {
   // Storage boundary: browsing is read-only against agent-owned data;
   // viewer-managed rename/archive mutations route through the same store.
-  // One agent serves its child store (native ids); several agents serve
-  // the composite (namespaced ids).
+  // The composite namespaces every id by its agent; a single-agent
+  // server is a composite of one.
   readonly sessions: SessionStore;
   // New-session strategy, dispatching to the agent a request names.
   readonly launcher: AgentDispatchLauncher;
@@ -94,8 +93,8 @@ type ServerContext = {
   readonly defaultAgent: AgentRuntime;
   // "goose" or "goose + claude" — user-facing copy naming every agent.
   readonly agentNames: string;
-  // Viewer-owned data directory name ("glv" merged, the flavor's name
-  // on a single-flavor server): uploads and temp dirs live under it.
+  // Viewer-owned data directory name ("glv"): uploads and temp dirs
+  // live under it.
   readonly dataDirName: string;
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;

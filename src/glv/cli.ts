@@ -12,6 +12,7 @@ import { makeGooseAgent } from "../goose/agent.js";
 import {
   createSessionStore as createGooseStore,
   openDb as openGooseDb,
+  openServeDbs,
   resolveDbPath as resolveGooseDbPath,
 } from "../goose/db.js";
 import { makeGooseLauncher } from "../goose/launch.js";
@@ -30,8 +31,8 @@ import { openMetaDb } from "./session-meta.js";
 import type { SessionFilter, SessionStore } from "./sessions.js";
 
 // The merged product's composition root: one `glv` binary serving goose,
-// claude, or both behind one login, one sidebar, and one schedule. The
-// per-flavor servers remain the single-flavor entry points; this CLI is
+// claude, or both behind one login, one sidebar, and one schedule.
+// `glv --agent <flavor>` is the single-agent entry point; this CLI is
 // the only place that knows both adapters at once, so the core stays
 // free of flavor branches (ADR 0007).
 
@@ -51,14 +52,6 @@ const parseAgentChoice = (value: string): AgentChoice => {
   return found;
 };
 
-const parsePermissionMode = (value: string): string => {
-  if (!PERMISSION_MODES.includes(value))
-    throw new InvalidArgumentError(
-      `must be one of: ${PERMISSION_MODES.join(", ")}`,
-    );
-  return value;
-};
-
 const GlobalOpts = type({
   "agent?": "string",
   "gooseDb?": "string",
@@ -70,9 +63,18 @@ const GlobalOpts = type({
   "metaDb?": "string",
 });
 
+// Overrides for the glv-owned databases under the unified data directory.
+type GlvDataOverrides = {
+  readonly authDb?: string;
+  readonly promptsDb?: string;
+  readonly groupsDb?: string;
+  readonly cronDb?: string;
+  readonly metaDb?: string;
+};
+
 // A bare binary name must be found on PATH; an explicit path must exist.
-// Unlike the per-flavor CLIs this is a probe, not a parser error — the
-// default agent set hides agents whose binary is missing instead of
+// Unlike the serve binary flags this is a probe, not a parser error —
+// the default agent set hides agents whose binary is missing instead of
 // refusing to start.
 const binaryAvailable = (value: string): boolean => {
   if (value.includes("/") || value.includes("\\")) return existsSync(value);
@@ -133,15 +135,7 @@ program
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);
 
-// The glv-owned databases under the unified data directory (or the
-// caller's overrides — an override disables that piece's migration).
-const glvDbPaths = (globals: {
-  readonly authDb?: string;
-  readonly promptsDb?: string;
-  readonly groupsDb?: string;
-  readonly cronDb?: string;
-  readonly metaDb?: string;
-}) => ({
+const glvDbPaths = (globals: GlvDataOverrides) => ({
   authDbPath: cli.resolveAuthDbPath(DATA_DIR, globals.authDb),
   promptsDbPath: cli.resolvePromptsDbPath(DATA_DIR, globals.promptsDb),
   groupsDbPath: cli.resolveGroupsDbPath(DATA_DIR, globals.groupsDb),
@@ -154,13 +148,7 @@ const glvDbPaths = (globals: {
   ),
 });
 
-const anyDbOverride = (globals: {
-  readonly authDb?: string;
-  readonly promptsDb?: string;
-  readonly groupsDb?: string;
-  readonly cronDb?: string;
-  readonly metaDb?: string;
-}): boolean =>
+const anyDbOverride = (globals: GlvDataOverrides): boolean =>
   globals.authDb !== undefined ||
   globals.promptsDb !== undefined ||
   globals.groupsDb !== undefined ||
@@ -171,7 +159,7 @@ const anyDbOverride = (globals: {
 // entirely while any glv-owned database is overridden (tests, custom
 // setups): those databases are not the unified defaults, so migrating
 // into them would be a surprise.
-const migrateLegacyDirs = (globals: Parameters<typeof glvDbPaths>[0]): void => {
+const migrateLegacyDirs = (globals: GlvDataOverrides): void => {
   if (anyDbOverride(globals)) return;
   const paths = glvDbPaths(globals);
   const { adopted, notices } = runLegacyMigration(
@@ -194,40 +182,28 @@ const migrateLegacyDirs = (globals: Parameters<typeof glvDbPaths>[0]): void => {
   for (const notice of notices) console.log(`glv: ${notice}`);
 };
 
-// One agent's serve spec, or undefined when it is not available. Opening
-// goose's database writable-first keeps serve working before goose has
-// ever run (read-only mode cannot create the file).
 const gooseSpec = (
   gooseBinary: string,
   dbOverride: string | undefined,
-): { readonly agent: string; readonly spec: AgentServeSpec } => {
-  const dbPath = resolveGooseDbPath(dbOverride);
-  const dbWritable = openGooseDb(dbPath, { readOnly: false });
-  dbWritable.exec("PRAGMA busy_timeout=5000");
-  const db = openGooseDb(dbPath);
-  db.exec("PRAGMA busy_timeout=5000");
-  // The runtime invocation (follow-up enqueues) strips the namespace;
-  // the launcher receives the raw one and strips it itself, once.
+): AgentServeSpec => {
+  const { db, dbWritable } = openServeDbs(dbOverride);
   const rawInvocation = makeGooseAgent(gooseBinary);
   return {
-    agent: gooseProfile.id,
-    spec: {
-      profile: gooseProfile,
-      store: createGooseStore(db, dbWritable),
-      invocation: prefixedInvocation(rawInvocation, gooseProfile.id),
-      models: makeGooseModelSource(gooseBinary),
-      makeLauncher: (runner) =>
-        makeGooseLauncher(
-          db,
-          runner,
-          rawInvocation,
-          gooseProfile.sessionTimeoutError,
-          gooseProfile.id,
-        ),
-      closeStore: () => {
-        db.close();
-        dbWritable.close();
-      },
+    profile: gooseProfile,
+    store: createGooseStore(db, dbWritable),
+    invocation: prefixedInvocation(rawInvocation, gooseProfile.id),
+    models: makeGooseModelSource(gooseBinary),
+    makeLauncher: (runner) =>
+      makeGooseLauncher(
+        db,
+        runner,
+        rawInvocation,
+        gooseProfile.sessionTimeoutError,
+        gooseProfile.id,
+      ),
+    closeStore: () => {
+      db.close();
+      dbWritable.close();
     },
   };
 };
@@ -236,38 +212,35 @@ const claudeSpec = (
   claudeBinary: string,
   permissionMode: string,
   globals: { readonly projectsDir?: string; readonly metaDb?: string },
-): { readonly agent: string; readonly spec: AgentServeSpec } => {
+): AgentServeSpec => {
   const root = resolveProjectsRoot(globals.projectsDir);
   const meta = openMetaDb(glvDbPaths(globals).claudeMetaDbPath);
-  // The runtime invocation (follow-up enqueues) strips the namespace;
-  // the launcher receives the raw one and strips it itself, once.
   const rawInvocation = makeClaudeAgent(claudeBinary, permissionMode);
   const store = createClaudeStore(root, meta);
   return {
-    agent: claudeProfile.id,
-    spec: {
-      profile: claudeProfile,
-      store,
-      invocation: prefixedInvocation(rawInvocation, claudeProfile.id),
-      models: undefined,
-      makeLauncher: (runner) =>
-        makeClaudeLauncher(
-          root,
-          store,
-          runner,
-          rawInvocation,
-          claudeProfile.sessionTimeoutError,
-          claudeProfile.id,
-        ),
-      closeStore: () => meta.close(),
-    },
+    profile: claudeProfile,
+    store,
+    invocation: prefixedInvocation(rawInvocation, claudeProfile.id),
+    models: undefined,
+    makeLauncher: (runner) =>
+      makeClaudeLauncher(
+        root,
+        store,
+        runner,
+        rawInvocation,
+        claudeProfile.sessionTimeoutError,
+        claudeProfile.id,
+      ),
+    closeStore: () => meta.close(),
   };
 };
 
-// A read-only composite over the available agents for the listing
+// A read-only composite over the selected agents' stores for the listing
 // commands; ids list namespaced so `glv view` accepts them verbatim.
+// Listing never spawns an agent, so availability is store presence
+// alone: an agent whose store is missing is skipped, not fatal.
 const openListStore = (
-  available: AvailableAgents,
+  requested: AgentChoice,
   globals: {
     readonly gooseDb?: string;
     readonly projectsDir?: string;
@@ -277,7 +250,7 @@ const openListStore = (
   const closers: (() => void)[] = [];
   const entries: { readonly agent: string; readonly store: SessionStore }[] =
     [];
-  if (available.goose && gooseStoreExists(globals.gooseDb)) {
+  if (requested !== "claude" && gooseStoreExists(globals.gooseDb)) {
     const db = openGooseDb(resolveGooseDbPath(globals.gooseDb));
     closers.push(() => db.close());
     entries.push({
@@ -285,7 +258,7 @@ const openListStore = (
       store: createGooseStore(db, db),
     });
   }
-  if (available.claude && claudeStoreExists(globals.projectsDir)) {
+  if (requested !== "goose" && claudeStoreExists(globals.projectsDir)) {
     const meta = openMetaDb(glvDbPaths(globals).claudeMetaDbPath);
     closers.push(() => meta.close());
     entries.push({
@@ -323,7 +296,7 @@ const serveCmd = program
   .option(
     "--permission-mode <mode>",
     'claude permission mode for glv-launched runs; "inherit" defers to your claude settings.json',
-    parsePermissionMode,
+    cli.parseChoice(PERMISSION_MODES),
     "inherit",
   )
   .option("-p, --port <number>", "port to listen on", "3000")
@@ -339,12 +312,9 @@ cli.addServeTailOptions(serveCmd);
 serveCmd.action((opts: Record<string, unknown>) => {
   const globals = globalOpts();
   const requested = parseAgentChoice(globals.agent ?? "both");
-  const gooseBinary =
-    typeof opts.gooseBinary === "string" ? opts.gooseBinary : "goose";
-  const claudeBinary =
-    typeof opts.claudeBinary === "string" ? opts.claudeBinary : "claude";
-  const permissionMode =
-    typeof opts.permissionMode === "string" ? opts.permissionMode : "inherit";
+  const gooseBinary = cli.optString(opts, "gooseBinary", "goose");
+  const claudeBinary = cli.optString(opts, "claudeBinary", "claude");
+  const permissionMode = cli.optString(opts, "permissionMode", "inherit");
   const available = resolveAgents(
     requested,
     gooseBinary,
@@ -354,7 +324,7 @@ serveCmd.action((opts: Record<string, unknown>) => {
 
   migrateLegacyDirs(globals);
 
-  const specs: { readonly agent: string; readonly spec: AgentServeSpec }[] = [];
+  const specs: AgentServeSpec[] = [];
   if (available.goose) specs.push(gooseSpec(gooseBinary, globals.gooseDb));
   if (available.claude)
     specs.push(claudeSpec(claudeBinary, permissionMode, globals));
@@ -377,7 +347,6 @@ serveCmd.action((opts: Record<string, unknown>) => {
   runServe({
     port: Number(opts.port),
     agents: specs,
-    composed: true,
     dataDirName: DATA_DIR,
     assetsFlavor: "glv",
     runner: cli.makeRunnerConfig(Number(opts.maxConcurrent)),
@@ -400,36 +369,26 @@ program
     cli.parsePositiveInt,
     20,
   )
-  .action(
-    (opts: { agent: string; type: string; all?: boolean; limit: string }) => {
-      const globals = globalOpts();
-      // Listing never spawns an agent, so availability is store presence
-      // alone: whatever the selected agents' stores hold is listed.
-      const requested = parseAgentChoice(globals.agent ?? "both");
-      const store = openListStore(
-        {
-          goose: requested !== "claude" && gooseStoreExists(globals.gooseDb),
-          claude:
-            requested !== "goose" && claudeStoreExists(globals.projectsDir),
-        },
-        globals,
-      );
-      try {
-        const filter: SessionFilter = {
-          type: opts.type,
-          limit: Number(opts.limit),
-          includeArchived: opts.all === true,
-        };
-        runList(store.sessions, filter);
-      } finally {
-        store.close();
-      }
-    },
-  );
+  .action((opts: { type: string; all?: boolean; limit: string }) => {
+    const globals = globalOpts();
+    const store = openListStore(
+      parseAgentChoice(globals.agent ?? "both"),
+      globals,
+    );
+    try {
+      const filter: SessionFilter = {
+        type: opts.type,
+        limit: Number(opts.limit),
+        includeArchived: opts.all === true,
+      };
+      runList(store.sessions, filter);
+    } finally {
+      store.close();
+    }
+  });
 
 cli.registerViewCommand(program, (sessionId) => {
-  const globals = globalOpts();
-  const store = openListStore({ goose: true, claude: true }, globals);
+  const store = openListStore("both", globalOpts());
   try {
     runView(store.sessions, sessionId);
   } finally {

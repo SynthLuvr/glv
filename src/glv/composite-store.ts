@@ -21,26 +21,34 @@ const prefixedRow = (agent: string, row: SessionRow): SessionRow => ({
 // child (newest-first by updated_at, capped at the filter limit) and
 // mutations dispatch each id to the child its prefix names. Ids are
 // prefixed on the way out and stripped on the way in; everything above
-// this layer only ever sees namespaced ids.
+// this layer only ever sees namespaced ids. A raw or unknown-agent id
+// routes nowhere — every composite consumer spells prefixed ids.
 const createCompositeSessionStore = (
   entries: readonly CompositeStoreEntry[],
 ): SessionStore => {
-  const childOf = (agent: string): CompositeStoreEntry | undefined =>
-    entries.find((entry) => entry.agent === agent);
+  const route = (
+    id: string,
+  ):
+    | { readonly entry: CompositeStoreEntry; readonly nativeId: string }
+    | undefined => {
+    const split = splitNamespacedId(id);
+    if (split === undefined) return undefined;
+    const entry = entries.find((candidate) => candidate.agent === split.agent);
+    return entry === undefined ? undefined : { entry, nativeId: split.id };
+  };
 
-  // Groups ids by their agent prefix; a raw id (no prefix) matches
-  // nothing — every composite consumer spells prefixed ids.
+  // Groups ids by their agent prefix; ids that route nowhere are
+  // dropped from every mutation.
   const byAgent = (
     ids: readonly string[],
   ): Map<CompositeStoreEntry, string[]> => {
     const groups = new Map<CompositeStoreEntry, string[]>();
     for (const id of ids) {
-      const split = splitNamespacedId(id);
-      const entry = split === undefined ? undefined : childOf(split.agent);
-      if (entry === undefined || split === undefined) continue;
-      const bucket = groups.get(entry);
-      if (bucket === undefined) groups.set(entry, [split.id]);
-      else bucket.push(split.id);
+      const target = route(id);
+      if (target === undefined) continue;
+      const bucket = groups.get(target.entry);
+      if (bucket === undefined) groups.set(target.entry, [target.nativeId]);
+      else bucket.push(target.nativeId);
     }
     return groups;
   };
@@ -84,18 +92,19 @@ const createCompositeSessionStore = (
       ),
 
     getSession: (id) => {
-      const split = splitNamespacedId(id);
-      const entry = split === undefined ? undefined : childOf(split.agent);
-      if (entry === undefined || split === undefined) return undefined;
-      const row = entry.store.getSession(split.id);
-      return row === undefined ? undefined : prefixedRow(entry.agent, row);
+      const target = route(id);
+      if (target === undefined) return undefined;
+      const row = target.entry.store.getSession(target.nativeId);
+      return row === undefined
+        ? undefined
+        : prefixedRow(target.entry.agent, row);
     },
 
     listMessages: (id) => {
-      const split = splitNamespacedId(id);
-      const entry = split === undefined ? undefined : childOf(split.agent);
-      if (entry === undefined || split === undefined) return [];
-      return entry.store.listMessages(split.id);
+      const target = route(id);
+      return target === undefined
+        ? []
+        : target.entry.store.listMessages(target.nativeId);
     },
 
     archiveSessions: (ids) => {
@@ -104,10 +113,9 @@ const createCompositeSessionStore = (
     },
 
     renameSession: (id, rawName) => {
-      const split = splitNamespacedId(id);
-      const entry = split === undefined ? undefined : childOf(split.agent);
-      if (entry !== undefined && split !== undefined)
-        entry.store.renameSession(split.id, rawName);
+      const target = route(id);
+      if (target !== undefined)
+        target.entry.store.renameSession(target.nativeId, rawName);
     },
 
     deleteSessions: (ids) => {

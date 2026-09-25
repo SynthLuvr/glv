@@ -226,6 +226,21 @@ const modelPickerOpts = (
 ): { submitted?: string } | undefined =>
   hasModelPicker(runtime) ? { submitted } : undefined;
 
+// The agent picker options for the New Session and schedule forms;
+// undefined on single-agent servers, which render no select.
+const agentOptions = (ctx: ServerContext) =>
+  ctx.agents.length > 1
+    ? ctx.agents.map((runtime) => ({
+        id: runtime.id,
+        label: runtime.profile.agentName,
+      }))
+    : undefined;
+
+// Whether any served agent exposes a model picker — the schedule
+// forms' copy flag.
+const anyModelPicker = (ctx: ServerContext): boolean =>
+  ctx.agents.some((runtime) => hasModelPicker(runtime));
+
 // Everything a rejected submit needs to re-render the form without
 // losing typed work.
 type NewSessionDetailOpts = {
@@ -257,14 +272,7 @@ const newSessionDetail = (
   return (
     <NewSessionForm
       agentName={ctx.agentNames}
-      agents={
-        ctx.agents.length > 1
-          ? ctx.agents.map((runtime) => ({
-              id: runtime.id,
-              label: runtime.profile.agentName,
-            }))
-          : undefined
-      }
+      agents={agentOptions(ctx)}
       defaultAgent={ctx.defaultAgent.id}
       workingDir={workingDir ?? process.cwd()}
       dirs={ctx.listDirs()}
@@ -279,6 +287,8 @@ const newSessionDetail = (
 };
 
 export {
+  agentOptions,
+  anyModelPicker,
   hasModelPicker,
   modelPicker,
   modelPickerOpts,

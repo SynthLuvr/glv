@@ -1,8 +1,8 @@
 const refetchPicker = (select: HTMLSelectElement): void => {
-  const form = select.closest("form");
-  const wrap = form?.querySelector<HTMLElement>("[data-model-picker-wrap]");
+  const form = select.form;
   if (form === null || form === undefined) return;
-  if (wrap === null || wrap === undefined) return;
+  const wrap = form.querySelector<HTMLElement>("[data-model-picker-wrap]");
+  if (wrap === null) return;
   const query = new URLSearchParams({ agent: select.value });
   const submitted = form.querySelector<HTMLSelectElement>(
     "select[name=model_provider]",

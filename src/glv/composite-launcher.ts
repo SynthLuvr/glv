@@ -1,4 +1,4 @@
-import { namespacedId, splitNamespacedId } from "./agents.js";
+import { agentOfId, namespacedId } from "./agents.js";
 import type { EstablishOutcome, SessionLauncher } from "./launch.js";
 import type { ModelSelection } from "./models.js";
 import { type Runner, stop } from "./runner/index.js";
@@ -51,6 +51,10 @@ const createCompositeLauncher = (
 ): AgentDispatchLauncher => {
   const childOf = (agent: string): SessionLauncher | undefined =>
     entries.find((entry) => entry.agent === agent)?.launcher;
+  const childForHandle = (handle: string): SessionLauncher | undefined => {
+    const agent = agentOfId(handle);
+    return agent === undefined ? undefined : childOf(agent);
+  };
   return {
     startNewFor: (agent, workingDir, prompt, model) => {
       const child = childOf(agent);
@@ -59,50 +63,41 @@ const createCompositeLauncher = (
       return child.startNew(workingDir, prompt, model);
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {
-      const split = splitNamespacedId(handle);
-      const child = split === undefined ? undefined : childOf(split.agent);
-      if (child === undefined || split === undefined) return undefined;
-      return child.awaitNew(handle, workingDir, timeoutMs);
+      const child = childForHandle(handle);
+      return child === undefined
+        ? undefined
+        : child.awaitNew(handle, workingDir, timeoutMs);
     },
     establish: (handle, sessionId, conflictError) => {
-      const split = splitNamespacedId(handle);
-      const child = split === undefined ? undefined : childOf(split.agent);
-      if (child === undefined || split === undefined)
-        return {
-          ok: false,
-          status: 404,
-          error: `agent "${split?.agent ?? handle}" is not enabled`,
-        };
-      return child.establish(handle, sessionId, conflictError);
+      const child = childForHandle(handle);
+      if (child !== undefined)
+        return child.establish(handle, sessionId, conflictError);
+      return {
+        ok: false,
+        status: 404,
+        error: `agent "${agentOfId(handle) ?? handle}" is not enabled`,
+      };
     },
   };
 };
 
-// The single-agent identity: one launcher, one agent id. Ids and handles
-// pass through untouched (they may be raw — the legacy per-flavor
-// servers) or already namespaced (glv serving one agent).
-const singleAgentDispatch = (
-  launcher: SessionLauncher,
-): AgentDispatchLauncher => ({
-  startNewFor: (_agent, workingDir, prompt, model) =>
-    launcher.startNew(workingDir, prompt, model),
-  awaitNew: (handle, workingDir, timeoutMs) =>
-    launcher.awaitNew(handle, workingDir, timeoutMs),
-  establish: (handle, sessionId, conflictError) =>
-    launcher.establish(handle, sessionId, conflictError),
+// Key translation for a child launcher: runner keys and every id that
+// crosses the boundary are namespaced; the flavor's own store and binary
+// see native ids.
+const launcherKeys = (prefix: string) => ({
+  out: (nativeId: string): string => namespacedId(prefix, nativeId),
+  native: (key: string): string => key.slice(prefix.length + 1),
 });
 
 // The argv-building view of an agent for a namespaced runner: registry
 // keys carry the prefix, but the agent binary must receive native ids
 // (claude's --session-id is a real transcript name), so the key is
-// stripped before the flavor builds argv. The empty prefix is the
-// identity — the legacy single-flavor servers pass raw keys throughout.
+// stripped before the flavor builds argv.
 const prefixedInvocation = (
   invocation: AgentInvocation,
   prefix: string,
 ): AgentInvocation => {
-  if (prefix === "") return invocation;
-  const native = (key: string): string => key.slice(prefix.length + 1);
+  const native = launcherKeys(prefix).native;
   return {
     ...invocation,
     newSession: (prompt, key, model) =>
@@ -129,21 +124,10 @@ const establishSession = (
   return { ok: true, sessionId, session: { ...session, id: sessionId } };
 };
 
-// Key translation for a child launcher: runner keys and every id that
-// crosses the boundary are namespaced; the flavor's own store and binary
-// see native ids. The empty prefix is the identity.
-const launcherKeys = (prefix: string) => ({
-  out: (nativeId: string): string =>
-    prefix === "" ? nativeId : namespacedId(prefix, nativeId),
-  native: (key: string): string =>
-    prefix === "" ? key : key.slice(prefix.length + 1),
-});
-
 export type { AgentDispatchLauncher, CompositeLauncherEntry };
 export {
   createCompositeLauncher,
   establishSession,
   launcherKeys,
   prefixedInvocation,
-  singleAgentDispatch,
 };
