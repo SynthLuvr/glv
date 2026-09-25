@@ -1569,6 +1569,11 @@ pre::-webkit-scrollbar-thumb {
 }
 .prompt-input-row {
   display: flex;
+  /* Wrap instead of overflowing: on a phone the row's fixed-size tenants
+     (picker, attach, location, Queue/Stop) can exceed the viewport, and
+     without wrap the only shrinkable item — the textarea — absorbed the
+     whole deficit and collapsed to a couple of characters. */
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: flex-end;
 }
@@ -1586,9 +1591,12 @@ pre::-webkit-scrollbar-thumb {
 /* flex:1 is scoped to the row so the textarea fills the space between the
    picker and the action button. It must NOT apply to the new-session form,
    whose textarea lives in a column flex container — there flex-basis:0 would
-   override the `height` property and break autogrow. */
+   override the `height` property and break autogrow. The 12rem basis keeps
+   that fill while giving the input a floor: when the row's buttons leave
+   less than that, the input wraps to its own full-width line (see the
+   720px media query) instead of shrinking into unreadability. */
 .prompt-input-row .prompt-input {
-  flex: 1;
+  flex: 1 1 12rem;
 }
 .prompt-input {
   /* min-width:0 lets this flex item shrink within .prompt-input-row instead
@@ -2111,6 +2119,13 @@ select.form-input {
   }
   .detail-inner {
     padding: 1.5rem 1.25rem 3rem;
+  }
+
+  /* A phone cannot fit the textarea and its five row-mates on one line, so
+     give the input a whole row to itself and let the buttons share the row
+     below (the row wraps via .prompt-input-row above). */
+  .prompt-input-row .prompt-input {
+    flex-basis: 100%;
   }
 
   /* The session action menu becomes a bottom sheet: the panel detaches to
