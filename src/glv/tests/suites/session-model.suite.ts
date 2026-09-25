@@ -59,7 +59,7 @@ const runSessionModelSuite = (fx: FlavorFixture, expected: string): void => {
     run: (page: Page) => Promise<void>,
   ): Promise<void> =>
     withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/${id}`);
+      await page.goto(`${env.baseUrl}/sessions/${fx.viewId(id)}`);
       await run(page);
     });
 

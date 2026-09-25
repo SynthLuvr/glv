@@ -59,7 +59,9 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
     targetId: string,
   ): Promise<void> => {
     const { x, y } = await handleCenter(page, sourceId);
-    const target = page.locator(`.session-item[data-session-id="${targetId}"]`);
+    const target = page.locator(
+      `.session-item[data-session-id="${fx.viewId(targetId)}"]`,
+    );
     const drop = await target.boundingBox();
     if (drop === null) throw new Error("drop target not found");
     await page.mouse.move(x, y);

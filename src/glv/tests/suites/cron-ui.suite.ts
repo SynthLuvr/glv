@@ -512,7 +512,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
     it("validates the typed schedule live and schedules without losing the prompt", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
+        await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
         // One submit in the form; the section below carries scheduling.
@@ -585,7 +585,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
 
     it("validates the timezone live and schedules with it", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
+        await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
         await page.getByRole("button", { name: "🕒 Schedule…" }).click();
         await expect(page.locator("#cron-save-slot form")).toBeVisible();
@@ -648,7 +648,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     it("schedules with the New Session form's working directory", async () => {
       const otherDir = mkdtempSync(join(tmpdir(), "glv-cronui-od-"));
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
+        await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
         // "Schedule…" loads the inline form; it renders no working

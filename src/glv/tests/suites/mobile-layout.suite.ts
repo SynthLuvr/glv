@@ -46,7 +46,7 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     id = "mobile-tall",
   ): Promise<void> => {
     await page.setViewportSize(VIEWPORT);
-    await page.goto(`${env.baseUrl}/sessions/${id}`);
+    await page.goto(`${env.baseUrl}/sessions/${fx.viewId(id)}`);
     await expect(page.locator("#detail-pane")).toBeVisible();
   };
 

@@ -31,7 +31,7 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
 
   const openDetail = async (page: Page, id = "mp-a"): Promise<void> => {
     await page.setViewportSize(VIEWPORT);
-    await page.goto(`${env.baseUrl}/sessions/${id}`);
+    await page.goto(`${env.baseUrl}/sessions/${fx.viewId(id)}`);
     await expect(page.locator("#detail-pane")).toBeVisible();
   };
 
@@ -44,7 +44,9 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
 
   const selectSession = async (page: Page, id: string): Promise<void> => {
     await page
-      .locator(`.session-item[data-session-id="${id}"] .session-name`)
+      .locator(
+        `.session-item[data-session-id="${fx.viewId(id)}"] .session-name`,
+      )
       .click();
   };
 

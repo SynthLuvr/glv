@@ -21,7 +21,7 @@ const runCoveragePropagationSuite = (fx: FlavorFixture): void => {
   describe("subprocess coverage propagation", () => {
     it("leaves remappable raw profiles and transforms for the served process", async () => {
       const { rawDir } = await serveWithScratchCoverage(fx, "glv-covprop-");
-      assertRawProfiles(rawDir, fx.name);
+      assertRawProfiles(rawDir);
       assertTransforms(rawDir);
     });
 
@@ -30,7 +30,7 @@ const runCoveragePropagationSuite = (fx: FlavorFixture): void => {
         fx,
         "glv-covprop-pid-",
       );
-      assertLauncherRanCli(rawDir, fx.name, serverPid);
+      assertLauncherRanCli(rawDir, serverPid);
     });
   });
 };
@@ -62,23 +62,20 @@ const serveWithScratchCoverage = async (
 const profileNames = (rawDir: string): string[] =>
   readdirSync(rawDir).filter((name) => PROFILE_FILE.test(name));
 
-// The flavor's CLI entry must appear as a script URL in the profile —
-// it is the code under test.
-const mentionsCli = (
-  rawDir: string,
-  flavor: string,
-  names: readonly string[],
-): boolean =>
+// The merged CLI entry must appear as a script URL in the profile —
+// it is the code under test (the legacy binaries are shims over it,
+// so both flavors' launchers run src/glv/cli.ts).
+const mentionsCli = (rawDir: string, names: readonly string[]): boolean =>
   names.some((name) =>
-    readFileSync(join(rawDir, name), "utf8").includes(`/src/${flavor}/cli.ts`),
+    readFileSync(join(rawDir, name), "utf8").includes("/src/glv/cli.ts"),
   );
 
 // The server must flush a raw V8 profile on exit, and that profile
 // must describe the code under test.
-const assertRawProfiles = (rawDir: string, flavor: string): void => {
+const assertRawProfiles = (rawDir: string): void => {
   const profiles = profileNames(rawDir);
   expect(profiles.length).toBeGreaterThan(0);
-  expect(mentionsCli(rawDir, flavor, profiles)).toBe(true);
+  expect(mentionsCli(rawDir, profiles)).toBe(true);
 };
 
 // The launcher loads the CLI in its own process, so the profile
@@ -87,7 +84,6 @@ const assertRawProfiles = (rawDir: string, flavor: string): void => {
 // .mjs wrapper.
 const assertLauncherRanCli = (
   rawDir: string,
-  flavor: string,
   serverPid: number | undefined,
 ): void => {
   expect(serverPid).toBeDefined();
@@ -95,7 +91,7 @@ const assertLauncherRanCli = (
     name.startsWith(`coverage-${serverPid}-`),
   );
   expect(own.length).toBeGreaterThan(0);
-  expect(mentionsCli(rawDir, flavor, own)).toBe(true);
+  expect(mentionsCli(rawDir, own)).toBe(true);
 };
 
 type RecordedTransform = {

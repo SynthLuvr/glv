@@ -50,7 +50,7 @@ const runNewSessionNavSuite = (fx: FlavorFixture): void => {
 
     it("pushes the new session's URL once it starts", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
+        await page.goto(`${env.baseUrl}/sessions/new`);
         await expect(page.locator("form.new-session-form")).toBeVisible();
 
         await page.locator('input[name="working_dir"]').fill(workDir);

@@ -80,7 +80,7 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
 
   describe(`${fx.binName} view`, () => {
     it("shows prompts and outputs, skipping tool/thinking messages", () => {
-      const { status, stdout } = run(["view", "alpha"]);
+      const { status, stdout } = run(["view", fx.viewId("alpha")]);
       expect(status).toBe(0);
       expect(stdout).toContain(`Hello ${fx.name}`);
       expect(stdout).toContain("Hi there");
@@ -89,15 +89,15 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
     });
 
     it("surfaces the session header with id, name and dir", () => {
-      const { stdout } = run(["view", "alpha"]);
-      expect(stdout).toContain("alpha");
+      const { stdout } = run(["view", fx.viewId("alpha")]);
+      expect(stdout).toContain(fx.viewId("alpha"));
       expect(stdout).toContain("Alpha Session");
       expect(stdout).toContain("/tmp/alpha");
       assertViewHeader?.(stdout);
     });
 
     it("exits non-zero for an unknown session", () => {
-      const { status } = run(["view", "no-such-session"]);
+      const { status } = run(["view", fx.viewId("no-such-session")]);
       expect(status).not.toBe(0);
     });
   });

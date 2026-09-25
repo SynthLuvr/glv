@@ -257,7 +257,7 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
 
       it("adds and removes step blocks client-side and saves them", async () => {
         await withPage(env.context, async (page) => {
-          await page.goto(`${env.baseUrl}/sessions/${fx.viewId("new")}`);
+          await page.goto(`${env.baseUrl}/sessions/new`);
           await expect(page.locator("form.new-session-form")).toBeVisible();
 
           // Open the edit form for the renamed job (htmx swap — the
