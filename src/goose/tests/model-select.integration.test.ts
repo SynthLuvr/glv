@@ -14,7 +14,11 @@ import {
   withPage,
 } from "../../glv/tests/harness.js";
 import { gooseConfigPath } from "../models.js";
-import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
+import {
+  gooseFixture,
+  insertSessions,
+  startIntegrationEnv,
+} from "./integration-harness.js";
 
 // goose's provider config, as `goose configure` writes it: one configured
 // model per provider. Includes entries the picker must NOT offer (disabled
@@ -269,7 +273,11 @@ describe("new-session model picker (goose)", () => {
     // The follow-up bar has no model picker; a resumed run must keep the
     // session's model, not inherit goose's current default.
     rmSync(argsPath, { force: true });
-    const res = await postFollowUp(env, "resume-target", "and then summarize");
+    const res = await postFollowUp(
+      env,
+      gooseFixture.viewId("resume-target"),
+      "and then summarize",
+    );
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);

@@ -64,8 +64,9 @@ describe("compacted-summary categorization", () => {
   });
 
   it("tags user-role thinking summaries as SUMMARY, not PROMPT", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-summary")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-summary`);
+      await page.goto(url);
       const summaries = page.locator("article.message.summary");
       await expect(summaries).toHaveCount(2);
       await expect(summaries.first().locator(".tag")).toHaveText("◌ SUMMARY");
@@ -76,8 +77,9 @@ describe("compacted-summary categorization", () => {
   });
 
   it("keeps the summary text visible with thinking collapsed inside", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-summary")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-summary`);
+      await page.goto(url);
       const first = page.locator("article.message.summary").first();
       await expect(first.locator(".message-text").first()).toContainText(
         "A shell command checked the git repository state",
@@ -92,8 +94,9 @@ describe("compacted-summary categorization", () => {
   });
 
   it("orders the transcript prompt, summaries, then output", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-summary")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-summary`);
+      await page.goto(url);
       const articles = page.locator("article.message");
       await expect(articles).toHaveCount(4);
       await expect(articles.nth(0)).toHaveClass(/prompt/);

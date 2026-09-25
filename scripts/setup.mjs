@@ -74,9 +74,7 @@ const checkPlatform = () => {
 const resolveRoot = () => {
   heading("Locate Project Root");
   if (!existsSync(join(ROOT, "package.json")) || !existsSync(BIN_MJS))
-    die(
-      `Cannot find 'package.json'/'bin/glv.mjs' relative to '${ROOT}'.`,
-    );
+    die(`Cannot find 'package.json'/'bin/glv.mjs' relative to '${ROOT}'.`);
   info(`Project root: ${ROOT}`);
 };
 

@@ -296,14 +296,13 @@ const openListStore = (
   };
 };
 
+// `--agent` lives on the program only: commander parses a program-level
+// option wherever it appears (`glv --agent goose serve` and `glv serve
+// --agent goose` both work), while declaring it on a command as well
+// clobbers the parsed value with the command's own default.
 const serveCmd = program
   .command("serve")
   .description("Start the local web viewer for goose and claude sessions")
-  .option(
-    "--agent <agent>",
-    "serve one agent or both: goose|claude|both",
-    parseAgentChoice,
-  )
   .option(
     "--goose-binary <path>",
     "path to the goose binary",
@@ -334,11 +333,7 @@ cli.addServeTailOptions(serveCmd);
 
 serveCmd.action((opts: Record<string, unknown>) => {
   const globals = globalOpts();
-  // The serve-level flag wins, then the global (the compatibility shims
-  // prepend it there), then the default: both.
-  const requested = parseAgentChoice(
-    typeof opts.agent === "string" ? opts.agent : (globals.agent ?? "both"),
-  );
+  const requested = parseAgentChoice(globals.agent ?? "both");
   const gooseBinary =
     typeof opts.gooseBinary === "string" ? opts.gooseBinary : "goose";
   const claudeBinary =
@@ -392,12 +387,6 @@ serveCmd.action((opts: Record<string, unknown>) => {
 program
   .command("sessions")
   .description("List sessions from every served agent")
-  .option(
-    "--agent <agent>",
-    "list one agent only: goose|claude|both",
-    parseAgentChoice,
-    "both",
-  )
   .option("--type <type>", "session type: user|hidden|sub_agent|all", "user")
   .option("--all", "include archived sessions")
   .option(
@@ -409,12 +398,17 @@ program
   .action(
     (opts: { agent: string; type: string; all?: boolean; limit: string }) => {
       const globals = globalOpts();
-      // Listing never spawns an agent, so a missing binary only narrows
-      // the default set — an explicit --agent lists whatever its store
-      // holds.
-      const requested = parseAgentChoice(opts.agent);
-      const available = resolveAgents(requested, "goose", "claude", globals);
-      const store = openListStore(available, globals);
+      // Listing never spawns an agent, so availability is store presence
+      // alone: whatever the selected agents' stores hold is listed.
+      const requested = parseAgentChoice(globals.agent ?? "both");
+      const store = openListStore(
+        {
+          goose: requested !== "claude" && gooseStoreExists(globals.gooseDb),
+          claude:
+            requested !== "goose" && claudeStoreExists(globals.projectsDir),
+        },
+        globals,
+      );
       try {
         const filter: SessionFilter = {
           type: opts.type,

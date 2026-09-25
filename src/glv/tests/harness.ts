@@ -359,7 +359,10 @@ type FlavorAdapter = {
    * Additional agent binaries to mock on PATH (the combined fixture
    * serves two agents from one process, so both need mocking).
    */
-  readonly extraMocks?: readonly { readonly name: string; readonly file: string }[];
+  readonly extraMocks?: readonly {
+    readonly name: string;
+    readonly file: string;
+  }[];
   /** Creates the flavor's stores under the scratch dir (auth included). */
   readonly createDatabases: (scratchDir: string) => Databases;
   /** `serve` argv beyond `serve -p <port>` (store + db overrides). */
@@ -814,9 +817,13 @@ const startEnv = async (
   const restoreAgentPath =
     agentMock ??
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
-  const restoreExtraMocks = (adapter.extraMocks ?? []).map((extra) =>
-    mockBin(extra.name, { file: extra.file }),
-  );
+  // Awaited, not fired-and-forgotten: mockBin prepends its directory to
+  // PATH only once its promise resolves, and the server spawn below
+  // snapshots process.env — an unawaited extra mock would miss the
+  // snapshot and its agent would resolve to a real binary (or nothing).
+  const restoreExtraMocks: (() => void)[] = [];
+  for (const extra of adapter.extraMocks ?? [])
+    restoreExtraMocks.push(await mockBin(extra.name, { file: extra.file }));
   const restoreGhPath = await mockGh();
 
   // The live serve process and its captured output, rebindable so the
@@ -834,15 +841,15 @@ const startEnv = async (
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
     ...Object.fromEntries(
-      (adapter.mockEnvPrefixes ?? [adapter.mockEnvPrefix]).flatMap(
-        (prefix) => Object.entries(mockEnv(prefix, mock)),
+      (adapter.mockEnvPrefixes ?? [adapter.mockEnvPrefix]).flatMap((prefix) =>
+        Object.entries(mockEnv(prefix, mock)),
       ),
     ),
     ...extraEnv,
   };
   const abortBoot = (err: unknown, stderr: string): never => {
     restoreAgentPath();
-    for (const restore of restoreExtraMocks) void restore.then((r) => r());
+    for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
     rmScratch(scratchDir);
     throw new Error(
@@ -903,7 +910,7 @@ const startEnv = async (
     await browser.close();
     if (proc !== undefined) await stopProcess(proc);
     restoreAgentPath();
-    for (const restore of restoreExtraMocks) await restore.then((r) => r());
+    for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
     const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);

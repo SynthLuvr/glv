@@ -9,7 +9,12 @@ import {
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { namespacedId } from "./agents.js";
-import { dataRoot, openGlvDb } from "./db-path.js";
+import { openAuthDb } from "./auth/db.js";
+import { openCronDb } from "./cron-jobs.js";
+import { dataRoot } from "./db-path.js";
+import { openGroupsDb } from "./groups/db.js";
+import { openPromptsDb } from "./prompts/db.js";
+import { openMetaDb } from "./session-meta.js";
 
 // The one-time migration from the per-flavor data directories
 // (~/.local/share/glv-goose, glv-claude) into the unified glv directory:
@@ -190,9 +195,11 @@ const runLegacyMigration = (
     );
   if (pending.length === 0) return { adopted, notices };
 
-  const promptsDb = openGlvDb(targets.promptsDb);
-  const groupsDb = openGlvDb(targets.groupsDb);
-  const cronDb = openGlvDb(targets.cronDb);
+  // Opened through each store's own open so the target schemas exist
+  // before rows copy into them.
+  const promptsDb = openPromptsDb(targets.promptsDb);
+  const groupsDb = openGroupsDb(targets.groupsDb);
+  const cronDb = openCronDb(targets.cronDb, "goose");
   try {
     for (const { legacy, dir } of pending) {
       const prefix = (id: string): string => namespacedId(legacy.agent, id);
@@ -237,18 +244,10 @@ const runLegacyMigration = (
 
       if (legacy.agent === "claude" && targets.claudeMetaDb !== undefined) {
         const meta = legacyDb("meta.db");
-        if (meta !== undefined)
+        if (meta !== undefined && targets.claudeMetaDb !== undefined)
           try {
-            const targetMeta = openGlvDb(targets.claudeMetaDb);
+            const targetMeta = openMetaDb(targets.claudeMetaDb);
             try {
-              targetMeta.exec(
-                `CREATE TABLE IF NOT EXISTS session_meta (
-                   id TEXT PRIMARY KEY,
-                   name TEXT NOT NULL DEFAULT '',
-                   user_set_name INTEGER NOT NULL DEFAULT 0,
-                   archived_at TEXT
-                 )`,
-              );
               copyTable(meta, targetMeta, "session_meta", {
                 rekey: { column: "id", via: prefix },
               });
@@ -294,36 +293,8 @@ const adoptAuthDb = (
   targets: MigrationTargets,
   notices: string[],
 ): void => {
-  const auth = openGlvDb(targets.authDb);
+  const auth = openAuthDb(targets.authDb);
   try {
-    auth.exec(
-      `CREATE TABLE IF NOT EXISTS users (
-         id          TEXT PRIMARY KEY,
-         username    TEXT NOT NULL DEFAULT 'owner',
-         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-       );
-       CREATE TABLE IF NOT EXISTS credentials (
-         id          TEXT PRIMARY KEY,
-         user_id     TEXT NOT NULL REFERENCES users(id),
-         public_key  BLOB NOT NULL,
-         counter     INTEGER NOT NULL,
-         transports  TEXT,
-         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-       );
-       CREATE TABLE IF NOT EXISTS sessions (
-         id          TEXT PRIMARY KEY,
-         user_id     TEXT NOT NULL REFERENCES users(id),
-         expires_at  TEXT NOT NULL,
-         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-       );
-       CREATE TABLE IF NOT EXISTS enrollment_tokens (
-         id          TEXT PRIMARY KEY,
-         user_id     TEXT NOT NULL REFERENCES users(id),
-         expires_at  TEXT NOT NULL,
-         used_at     TEXT,
-         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-       );`,
-    );
     const owned = (dir: string): boolean => {
       const path = join(dir, "auth.db");
       if (!existsSync(path)) return false;

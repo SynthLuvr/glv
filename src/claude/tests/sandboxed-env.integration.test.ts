@@ -68,7 +68,11 @@ describe("sandboxed env — trust gate bypassed for unseen directories", () => {
   it("sets CLAUDE_CODE_SANDBOXED on a follow-up (resume) run too", async () => {
     // Drop the file from the prior run so the wait below sees this one.
     rmSync(envPath, { force: true });
-    const res = await postFollowUp(env, "resume-1", "follow up now");
+    const res = await postFollowUp(
+      env,
+      claudeFixture.viewId("resume-1"),
+      "follow up now",
+    );
     expect(res.status).toBe(200);
 
     const claudeEnv = await waitForJsonFile(envPath, isEnv);

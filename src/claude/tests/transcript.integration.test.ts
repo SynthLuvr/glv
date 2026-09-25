@@ -46,7 +46,8 @@ describe("transcript re-reads", () => {
         content: [{ type: "text", text: "rich text alpha" }],
       },
     ]);
-    const first = await authedFetch(env, "/sessions/t-cache");
+    const url = `/sessions/${claudeFixture.viewId("t-cache")}`;
+    const first = await authedFetch(env, url);
     expect(await first.text()).toContain("rich text alpha");
 
     // Same-length rewrite plus an explicit mtime bump: the parse cache is
@@ -64,7 +65,7 @@ describe("transcript re-reads", () => {
     writeFileSync(file, readFileSync(file, "utf8").replace("alpha", "bravo"));
     utimesSync(file, bumped, bumped);
 
-    const second = await authedFetch(env, "/sessions/t-cache");
+    const second = await authedFetch(env, url);
     const html = await second.text();
     expect(html).toContain("rich text bravo");
     expect(html).not.toContain("rich text alpha");
@@ -108,7 +109,8 @@ describe("transcript BOM", () => {
         "\n",
     );
 
-    const res = await authedFetch(env, "/sessions/t-bom");
+    const url = `/sessions/${claudeFixture.viewId("t-bom")}`;
+    const res = await authedFetch(env, url);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("first prompt survives a bom");
   });

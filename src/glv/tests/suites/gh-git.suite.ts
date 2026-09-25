@@ -76,7 +76,8 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
     ])("renders the $label PR-state badge", async ({ url, cls, label }) => {
       const res = await authedFetch(
         env,
-        `/sessions/plain-sess/pr-state?url=${encodeURIComponent(url)}`,
+        `/sessions/${fx.viewId("plain-sess")}/pr-state` +
+          `?url=${encodeURIComponent(url)}`,
       );
       expect(res.status).toBe(200);
       const html = await res.text();
@@ -87,7 +88,8 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
     it("returns an empty body for a non-PR url", async () => {
       const res = await authedFetch(
         env,
-        "/sessions/plain-sess/pr-state?url=https://evil.example/x",
+        `/sessions/${fx.viewId("plain-sess")}/pr-state` +
+          "?url=https://evil.example/x",
       );
       expect(res.status).toBe(200);
       expect((await res.text()).trim()).toBe("");
@@ -96,7 +98,10 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
 
   describe("git-info endpoint with mocked gh and real git", () => {
     it("resolves the branch via gh and the worktree via git", async () => {
-      const res = await authedFetch(env, "/sessions/git-sess/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("git-sess")}/git-info`,
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain(GIT_BRANCH);
@@ -111,7 +116,10 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns an empty body for a session without a PR", async () => {
-      const res = await authedFetch(env, "/sessions/repo-sess/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("repo-sess")}/git-info`,
+      );
       expect(res.status).toBe(200);
       expect((await res.text()).trim()).toBe("");
     });

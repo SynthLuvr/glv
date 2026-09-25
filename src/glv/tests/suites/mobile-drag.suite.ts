@@ -31,7 +31,8 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
     sourceId: string,
   ): Promise<{ x: number; y: number }> => {
     const handle = page.locator(
-      `.session-item[data-session-id="${sourceId}"] .session-drag-handle`,
+      `.session-item[data-session-id="${fx.viewId(sourceId)}"]` +
+        " .session-drag-handle",
     );
     const box = await handle.boundingBox();
     if (box === null) throw new Error("drag handle not found");

@@ -9,7 +9,11 @@ import {
   withPage,
 } from "../../glv/tests/harness.js";
 import { gooseConfigPath } from "../models.js";
-import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
+import {
+  gooseFixture,
+  insertSessions,
+  startIntegrationEnv,
+} from "./integration-harness.js";
 
 // Regression: /sessions/new used to await the model catalogue, which
 // spawns `goose acp` and can stall for seconds — the whole form blocked on
@@ -60,9 +64,10 @@ describe("new session with a slow model catalogue (goose)", () => {
   });
 
   it("renders the form while the catalogue is still stalled", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("slow-seed")}`;
     await withPage(env.context, async (page) => {
       await page.setViewportSize({ width: 400, height: 800 });
-      await page.goto(`${env.baseUrl}/sessions/slow-seed`);
+      await page.goto(url);
       await expect(page.locator(".session-title")).toBeVisible();
 
       // The user-reported gesture: back to the list, then the plus button.

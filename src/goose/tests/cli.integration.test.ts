@@ -139,7 +139,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const run = makeRunner(GLV, () => ["--db", dbPath]);
+const run = makeRunner(GLV, () => ["--goose-db", dbPath]);
 
 runCliSuite(gooseFixture, {
   run,

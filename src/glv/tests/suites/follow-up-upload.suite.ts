@@ -69,7 +69,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
   describe("follow-up upload — attach button and chips", () => {
     it("renders the attach button and file input on the prompt bar", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-1`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-1")}`);
         await expect(page.locator("form.prompt-bar")).toBeVisible();
         await expect(
           page.locator("form.prompt-bar .paperclip-btn"),
@@ -82,7 +82,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
 
     it("shows a chip when a file is attached to a follow-up and removes it", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-1`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-1")}`);
 
         await page
           .locator("form.prompt-bar input[type=file]")
@@ -100,7 +100,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
   describe("follow-up upload — submitting with attachments", () => {
     it(`saves files to private storage and passes their paths to ${fx.name}`, async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-1`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-1")}`);
 
         await page
           .locator("form.prompt-bar input[type=file]")
@@ -142,7 +142,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
 
     it("deletes follow-up uploads when the session is archived", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-2`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-2")}`);
 
         const beforeDirs = readdirSync(env.uploadsDir, {
           withFileTypes: true,
@@ -173,7 +173,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
         // deterministically.
         const archiveRes = await authedFetch(
           env,
-          "/sessions/followup-2/archive",
+          `/sessions/${fx.viewId("followup-2")}/archive`,
           { method: "POST" },
         );
         expect(archiveRes.status).toBe(200);
@@ -225,7 +225,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
   describe("follow-up upload — paste images into the prompt bar", () => {
     it("attaches a pasted image as a chip with a thumbnail", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-1`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-1")}`);
 
         await pasteIntoPromptBar(page, PASTED_PNG);
 
@@ -239,7 +239,7 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
 
     it("lets plain-text paste through to the textarea without a chip", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/followup-1`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("followup-1")}`);
 
         await page.locator('form.prompt-bar textarea[name="prompt"]').focus();
         await pasteIntoPromptBar(page, {
