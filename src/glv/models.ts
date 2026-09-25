@@ -80,6 +80,16 @@ const decodeAgentModelValue = (value: string): AgentModelPick => {
   return { kind: "pick", agent, modelValue: value.slice(sep + 1) };
 };
 
+// Whether a submitted pick fails resolution: a malformed spelling, or a
+// model the agent no longer offers. The default entry (empty model
+// value) never fails — it resolves to no pin on purpose.
+const pickUnresolved = (
+  pick: AgentModelPick,
+  resolved: ModelSelection | undefined,
+): boolean =>
+  pick.kind === "invalid" ||
+  (pick.kind === "pick" && pick.modelValue !== "" && resolved === undefined);
+
 // A cron job's stored model pin (the cron row's modelProvider/model
 // pair): both keys together, or neither for the agent's own default.
 type ModelPin = {
@@ -135,4 +145,5 @@ export {
   modelLabel,
   modelPinFields,
   modelUnavailableError,
+  pickUnresolved,
 };

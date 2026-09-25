@@ -5,6 +5,7 @@ import { listGroups } from "../groups/db.js";
 import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import {
+  type AgentModelPick,
   decodeAgentModelValue,
   encodeAgentModelValue,
   modelLabel,
@@ -20,7 +21,7 @@ import {
   NotFoundDetail,
 } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
-import type { ServerContext } from "./context.js";
+import type { AgentRuntime, ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";
 import { isHtmxRequest, sendHtml } from "./http.js";
 import { activeSessionIds } from "./status.js";
@@ -193,6 +194,32 @@ const renderNotFound = (
     { status: 404, title: "Session not found — GLV" },
   );
 
+// Splits a submitted combined model value ("<agent>:<model value>") into
+// the agent it names and that agent's runtime. A value that decodes to
+// no agent — absent, empty, or malformed — falls back to `fallbackAgent`
+// (the server default, or the stored row's own agent). `runtime` is
+// undefined when the named agent is not served; `modelValue` is the
+// remainder for the agent's own model source to resolve.
+const resolveAgentPick = (
+  ctx: ServerContext,
+  submitted: string,
+  fallbackAgent: string,
+): {
+  readonly pick: AgentModelPick;
+  readonly agentId: string;
+  readonly runtime: AgentRuntime | undefined;
+  readonly modelValue: string;
+} => {
+  const pick = decodeAgentModelValue(submitted);
+  const agentId = pick.kind === "pick" ? pick.agent : fallbackAgent;
+  return {
+    pick,
+    agentId,
+    runtime: ctx.agents.find((entry) => entry.id === agentId),
+    modelValue: pick.kind === "pick" ? pick.modelValue : "",
+  };
+};
+
 // The combined picker behind the lazy fragment: every served agent
 // contributes an optgroup (its default entry plus its catalogue).
 // Resolving a catalogue may spawn the agent binary, so this powers only
@@ -224,18 +251,17 @@ const combinedModelPicker = async (
     (group) => group.choices.length === 0 && group.defaultLabel === "",
   );
   if (nothingPickable && groups.length === 1) return undefined;
-  const pick =
-    submitted === undefined ? undefined : decodeAgentModelValue(submitted);
-  const restored =
-    submitted !== undefined &&
-    pick !== undefined &&
-    pick.kind === "pick" &&
-    ctx.agents.some((runtime) => runtime.id === pick.agent)
-      ? submitted
-      : undefined;
+  const { pick, runtime } = resolveAgentPick(
+    ctx,
+    submitted ?? "",
+    ctx.defaultAgent.id,
+  );
   return {
     groups,
-    selected: restored ?? encodeAgentModelValue(ctx.defaultAgent.id, ""),
+    selected:
+      pick.kind === "pick" && runtime !== undefined
+        ? encodeAgentModelValue(pick.agent, pick.modelValue)
+        : encodeAgentModelValue(ctx.defaultAgent.id, ""),
   };
 };
 
@@ -309,6 +335,7 @@ export {
   newSessionDetail,
   render,
   renderNotFound,
+  resolveAgentPick,
   showsModelPicker,
   sidebarEntries,
 };

@@ -12,12 +12,12 @@ import {
   updateCronJob,
 } from "../../cron-jobs.js";
 import {
-  decodeAgentModelValue,
   encodeAgentModelValue,
   jobModelSelection,
   jobModelValue,
   modelPinFields,
   modelUnavailableError,
+  pickUnresolved,
 } from "../../models.js";
 import { fmtDateTime, MAX_CRON_STEPS, parseSchedule } from "../../schedule.js";
 import {
@@ -39,7 +39,11 @@ import type { ServerContext } from "../context.js";
 import { parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
 import { expandHome } from "../paths.js";
-import { modelPickerOpts, showsModelPicker } from "../render.js";
+import {
+  modelPickerOpts,
+  resolveAgentPick,
+  showsModelPicker,
+} from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which
@@ -209,9 +213,11 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     const timezone = trimmedField(body, "timezone");
     // The combined pick rides in from the New Session form's model select
     // and names both the agent and the model.
-    const pick = decodeAgentModelValue(trimmedField(body, "model"));
-    const agentId = pick.kind === "pick" ? pick.agent : ctx.defaultAgent.id;
-    const runtime = ctx.agents.find((entry) => entry.id === agentId);
+    const { pick, agentId, runtime, modelValue } = resolveAgentPick(
+      ctx,
+      trimmedField(body, "model"),
+      ctx.defaultAgent.id,
+    );
 
     const reject = (error: string) =>
       sendHtml(
@@ -233,9 +239,8 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served (same rule as the New Session flow).
-    const modelValue = pick.kind === "pick" ? pick.modelValue : "";
     const picked = runtime.models?.resolve(modelValue);
-    if (pick.kind === "invalid" || (modelValue !== "" && picked === undefined))
+    if (pickUnresolved(pick, picked))
       return reject(modelUnavailableError(runtime.profile.agentName));
     if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     if (workingDirRaw === "")
@@ -337,12 +342,12 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       // names both the agent and the model; a body without it (a
       // non-browser client) keeps the stored agent and pin.
       const modelPresent = "model" in body;
-      const pick = decodeAgentModelValue(trimmedField(body, "model"));
-      const agentId =
-        pick.kind === "pick"
-          ? pick.agent
-          : (existing.agent ?? ctx.defaultAgent.id);
-      const runtime = ctx.agents.find((entry) => entry.id === agentId);
+      const submittedModel = trimmedField(body, "model");
+      const { pick, agentId, runtime, modelValue } = resolveAgentPick(
+        ctx,
+        submittedModel,
+        existing.agent ?? ctx.defaultAgent.id,
+      );
 
       // The timezone field is exposed on the edit form; a body without it
       // (a non-browser client) keeps the stored override, while a
@@ -374,9 +379,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
             followUps={followUpsPresent ? submittedFollowUps : undefined}
             dirs={ctx.listDirs()}
             modelPicker={
-              modelPresent
-                ? { submitted: trimmedField(body, "model") }
-                : undefined
+              modelPresent ? { submitted: submittedModel } : undefined
             }
             error={error}
           />,
@@ -388,7 +391,6 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       // The picker listed render-time config; resolve the pick against a
       // fresh read in case the agent's config changed since the form was
       // served. An unexposed field keeps whatever the row already pins.
-      const modelValue = pick.kind === "pick" ? pick.modelValue : "";
       const picked = modelPresent
         ? runtime.models?.resolve(modelValue)
         : undefined;
@@ -402,10 +404,7 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       if (!parsed.ok) return reject(parsed.error);
       if (followUps.length > MAX_CRON_STEPS - 1)
         return reject(FOLLOW_UPS_CAP_ERROR);
-      if (
-        modelPresent &&
-        (pick.kind === "invalid" || (modelValue !== "" && picked === undefined))
-      )
+      if (modelPresent && pickUnresolved(pick, picked))
         return reject(modelUnavailableError(runtime.profile.agentName));
       // Renaming onto a different existing job collides.
       if (jobs.some((job) => job.name === name && job.name !== existing.name))

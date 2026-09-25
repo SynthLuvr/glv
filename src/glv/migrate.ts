@@ -40,6 +40,12 @@ type LegacyDir = {
   readonly dataDirName: string;
 };
 
+// One legacy directory that exists on disk and awaits adoption.
+type PendingDir = {
+  readonly legacy: LegacyDir;
+  readonly dir: string;
+};
+
 // Where the unified server keeps its databases; every path is one the
 // caller resolved through the same helpers the server opens with, so an
 // override target is migrated into exactly what serve will read.
@@ -214,10 +220,7 @@ const runLegacyMigration = (
   const notices: string[] = [];
   const pending = flavors
     .map((legacy) => ({ legacy, dir: pendingDir(legacy) }))
-    .filter(
-      (entry): entry is { legacy: LegacyDir; dir: string } =>
-        entry.dir !== undefined,
-    );
+    .filter((entry): entry is PendingDir => entry.dir !== undefined);
   if (pending.length === 0) return { adopted, notices };
 
   // Opened through each store's own open so the target schemas exist
@@ -290,52 +293,57 @@ const runLegacyMigration = (
 // under one single-occupancy user is not worth the ambiguity. A unified
 // database that already has an owner is never overwritten.
 const adoptAuthDb = (
-  pending: readonly { legacy: LegacyDir; dir: string }[],
+  pending: readonly PendingDir[],
   targets: MigrationTargets,
   notices: string[],
 ): void => {
   const auth = openAuthDb(targets.authDb);
   try {
-    const owned = (dir: string): boolean => {
-      const path = join(dir, "auth.db");
-      if (!existsSync(path)) return false;
-      const db = new DatabaseSync(path, { readOnly: true });
-      try {
-        const row = db.prepare("SELECT 1 FROM users LIMIT 1").get();
-        return row !== undefined;
-      } finally {
-        db.close();
-      }
-    };
     if (auth.prepare("SELECT 1 FROM users LIMIT 1").get() !== undefined) return;
-    const owners = pending.filter((entry) => owned(entry.dir));
-    if (owners.length === 0) return;
-    const winner =
-      owners.length > 1
-        ? (owners.find((entry) => entry.legacy.agent === "goose") ?? owners[0])
-        : owners[0];
-    for (const other of owners)
-      if (other !== winner)
-        notices.push(
-          `the ${other.legacy.agent} passkey was retired — re-enroll it via /auth/devices`,
-        );
-    const legacyAuth = new DatabaseSync(join(winner.dir, "auth.db"), {
-      readOnly: true,
+    const winner = pickAuthWinner(pending, notices);
+    if (winner === undefined) return;
+    withLegacyDb(winner.dir, "auth.db", (db) => {
+      for (const table of AUTH_TABLES) copyTable(db, auth, table);
     });
-    try {
-      for (const table of [
-        "users",
-        "credentials",
-        "sessions",
-        "enrollment_tokens",
-      ])
-        copyTable(legacyAuth, auth, table);
-    } finally {
-      legacyAuth.close();
-    }
   } finally {
     auth.close();
   }
+};
+
+// The tables an auth database owns, copied wholesale on adoption.
+const AUTH_TABLES = ["users", "credentials", "sessions", "enrollment_tokens"];
+
+// Whether a legacy directory's auth database exists and has an owner.
+const legacyAuthOwned = (dir: string): boolean => {
+  const path = join(dir, "auth.db");
+  if (!existsSync(path)) return false;
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return db.prepare("SELECT 1 FROM users LIMIT 1").get() !== undefined;
+  } finally {
+    db.close();
+  }
+};
+
+// Picks whose credentials survive: goose's when both flavors have
+// owners (matching the config-file migration precedent), the sole
+// owner's otherwise. The losers are retired with a notice.
+const pickAuthWinner = (
+  pending: readonly PendingDir[],
+  notices: string[],
+): PendingDir | undefined => {
+  const owners = pending.filter((entry) => legacyAuthOwned(entry.dir));
+  if (owners.length === 0) return undefined;
+  const winner =
+    owners.length > 1
+      ? (owners.find((entry) => entry.legacy.agent === "goose") ?? owners[0])
+      : owners[0];
+  for (const other of owners)
+    if (other !== winner)
+      notices.push(
+        `the ${other.legacy.agent} passkey was retired — re-enroll it via /auth/devices`,
+      );
+  return winner;
 };
 
 export type { LegacyDir, MigrationOutcome, MigrationTargets };

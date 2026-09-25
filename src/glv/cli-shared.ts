@@ -79,8 +79,8 @@ const registerViewCommand = (
     .description("Show prompts and final outputs for a session")
     .action((sessionId: string) => run(sessionId));
 
-// The serve options every flavor shares, appended after the
-// flavor-specific binary/permission flags.
+// The serve options every program shares, appended after serve's own
+// agent binary/permission flags.
 const addServeTailOptions = (cmd: Command): Command =>
   cmd
     .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
@@ -90,9 +90,9 @@ const addServeTailOptions = (cmd: Command): Command =>
     )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
-// Serve actions receive commander's option bag as a plain record (the
-// factory cannot know a flavor's own options), so the tail is read out
-// of unknown values with the same trimming commander's parsers applied.
+// Commander hands the action a plain option bag, so the tail is read
+// out of unknown values with the same defaults commander's parsers
+// applied — narrowed, not cast.
 const serveTail = (
   opts: Record<string, unknown>,
 ): {

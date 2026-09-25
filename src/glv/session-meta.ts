@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
-import { openGlvDb, resolveDataPath } from "./db-path.js";
+import { openGlvDb } from "./db-path.js";
 import { placeholders } from "./query.js";
 
 // Viewer-owned sidecar for rename/archive metadata. Agents that only
@@ -24,9 +24,6 @@ const MetaRow = type({
 });
 
 type MetaRow = typeof MetaRow.infer;
-
-const resolveMetaDbPath = (dataDirName: string, override?: string): string =>
-  resolveDataPath(override, "GLV_META_DB", dataDirName, "meta.db");
 
 // Writable by design: glv owns every table in here, so it always creates
 // the schema on open (safe to run before the agent has ever written
@@ -99,5 +96,4 @@ export {
   listMeta,
   openMetaDb,
   renameSession,
-  resolveMetaDbPath,
 };

@@ -8,7 +8,7 @@ import {
   SERVER_TIMEZONE,
   type TimezoneSuggestion,
 } from "../timezones.js";
-import { CLOCK_ICON } from "./chips.js";
+import { AgentChip, CLOCK_ICON } from "./chips.js";
 import { ModelPickerSlot } from "./new-session.js";
 
 // Views for scheduling: the inline form with its typed schedule field
@@ -274,13 +274,6 @@ const ScheduleSaveForm = ({
       </button>
     </div>
   </form>
-);
-
-// A job's agent, rendered as a chip on cards and confirmations.
-const AgentChip = ({ agent }: { agent: string }) => (
-  <span class="agent-chip" data-agent={agent}>
-    {agent}
-  </span>
 );
 
 // Success state rendered into the detail pane after a job is saved: the

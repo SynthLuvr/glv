@@ -64,18 +64,13 @@ type AgentModelGroup = {
   readonly choices: readonly ModelChoice[];
 };
 
-// A choice's combined form value: the agent prefix plus whatever the
-// agent's own resolve() accepts.
-const combinedChoiceValue = (group: AgentModelGroup, choice: ModelChoice) =>
-  encodeAgentModelValue(group.agent, choice.value);
-
 // With several providers behind one agent, a bare model label loses the
 // provider context the old per-provider optgroups carried — prefix
 // labels only when the agent actually spans providers.
 const groupChoices = (group: AgentModelGroup) => {
   const providers = new Set(group.choices.map((choice) => choice.provider));
   return group.choices.map((choice) => ({
-    value: combinedChoiceValue(group, choice),
+    value: encodeAgentModelValue(group.agent, choice.value),
     label:
       providers.size > 1
         ? `${choice.provider} / ${choice.label}`

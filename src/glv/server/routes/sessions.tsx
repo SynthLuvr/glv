@@ -7,7 +7,7 @@ import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { pullRepo } from "../../git.js";
 import { removeMember } from "../../groups/db.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
-import { decodeAgentModelValue, modelUnavailableError } from "../../models.js";
+import { modelUnavailableError } from "../../models.js";
 import type { SavedPrompt } from "../../prompts/db.js";
 import { bumpUsage, listPrompts } from "../../prompts/db.js";
 import {
@@ -31,6 +31,7 @@ import {
   newSessionDetail,
   render,
   renderNotFound,
+  resolveAgentPick,
   sidebarEntries,
 } from "../render.js";
 import { activeRunPrompt } from "../session.js";
@@ -203,12 +204,11 @@ const registerSessionRoutes = (
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
     );
-    // The combined pick names both the agent and the model: split at the
-    // first colon, resolve the remainder against that agent's own model
-    // source.
-    const pick = decodeAgentModelValue(bodyField("model"));
-    const agentId = pick.kind === "pick" ? pick.agent : ctx.defaultAgent.id;
-    const runtime = ctx.agents.find((entry) => entry.id === agentId);
+    const { agentId, runtime, modelValue } = resolveAgentPick(
+      ctx,
+      bodyField("model"),
+      ctx.defaultAgent.id,
+    );
 
     const files = collectFiles(body.uploads);
     // Validated before any directory or session is created.
@@ -245,7 +245,6 @@ const registerSessionRoutes = (
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
     // served.
-    const modelValue = pick.kind === "pick" ? pick.modelValue : "";
     const model = runtime.models?.resolve(modelValue);
     if (modelValue !== "" && model === undefined)
       return rejectForm(modelUnavailableError(runtime.profile.agentName), 422);
