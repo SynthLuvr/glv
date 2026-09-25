@@ -59,7 +59,7 @@ describe("combined viewer — sidebar", () => {
     expect(stdout).not.toContain("glv-claude");
   });
 
-  it("merges both agents' sessions, newest first, with agent chips", async () => {
+  it("merges both agents' sessions, newest first, without agent chips", async () => {
     seedGooseSessions(env, [
       { id: "alpha", name: "Goose Alpha", workingDir: workDir("alpha") },
     ]);
@@ -71,9 +71,9 @@ describe("combined viewer — sidebar", () => {
     const html = await res.text();
     expect(html).toContain("Goose Alpha");
     expect(html).toContain("Claude Beta");
-    // Both sessions carry their agent chip; ids carry their namespace.
-    expect(html).toContain('data-agent="goose"');
-    expect(html).toContain('data-agent="claude"');
+    // The sidebar names no agent — rows read the same regardless of which
+    // agent owns the session.
+    expect(html).not.toContain("data-agent=");
     expect(html).toContain('data-session-id="goose:alpha"');
     expect(html).toContain('data-session-id="claude:beta"');
     // Claude was seeded last, so it lists first.
