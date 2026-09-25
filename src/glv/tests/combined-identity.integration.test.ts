@@ -52,6 +52,13 @@ afterAll(async () => {
 const workDir = (name: string): string => join(env.scratchDir, name);
 
 describe("combined viewer — sidebar", () => {
+  it("announces one glv product naming both agents", () => {
+    const stdout = env.serverStdout();
+    expect(stdout).toContain("glv web viewer (goose + claude) → ");
+    expect(stdout).not.toContain("glv-goose");
+    expect(stdout).not.toContain("glv-claude");
+  });
+
   it("merges both agents' sessions, newest first, with agent chips", async () => {
     seedGooseSessions(env, [
       { id: "alpha", name: "Goose Alpha", workingDir: workDir("alpha") },

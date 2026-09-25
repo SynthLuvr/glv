@@ -20,6 +20,15 @@ const runViewerSuite = (fx: FlavorFixture): void => {
   });
 
   describe("web viewer shell", () => {
+    it("announces one glv product naming the served agents", () => {
+      // The merged product has one name; single-agent machines must not
+      // see the retired glv-goose/glv-claude product names.
+      const stdout = env.serverStdout();
+      expect(stdout).toContain(`glv web viewer (${fx.name}) → `);
+      expect(stdout).not.toContain("glv-goose");
+      expect(stdout).not.toContain("glv-claude");
+    });
+
     it("shows an empty state and the new-session form when there are no sessions", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);

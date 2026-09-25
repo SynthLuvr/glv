@@ -224,17 +224,20 @@ const runServe = (opts: ServeOpts): void => {
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
-  const product =
-    runtimes.length > 1
-      ? "glv"
-      : `glv-${runtimes.map((runtime) => runtime.id).join("-")}`;
+  // One banner for one product: the served agents ride along in
+  // parentheses (the same spelling as ctx.agentNames) instead of
+  // reviving the retired glv-goose/glv-claude product names on
+  // single-agent machines.
+  const agentNames = runtimes
+    .map((runtime) => runtime.profile.agentName)
+    .join(" + ");
   app.listen({ port: opts.port, host: "::" }, (err, address) => {
     if (err !== null) {
       console.error(err);
       process.exit(1);
     }
     console.log(
-      `${product} web viewer → ${address.replace("[::]", "localhost")}`,
+      `glv web viewer (${agentNames}) → ${address.replace("[::]", "localhost")}`,
     );
     // Enumerating a model catalogue can spawn the agent binary, which
     // takes seconds; warm every picker now so the first New Session
