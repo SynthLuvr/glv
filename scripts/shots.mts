@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 import which from "which";
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
+import { serveNginx413 } from "../src/glv/tests/suites/upload-413.suite.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
 // Local PR-screenshot capture: boots a real `glv-goose serve` on the
@@ -173,25 +174,7 @@ const captureProxy413 = async (
   page: Page,
   workingDir: string,
 ): Promise<void> => {
-  // The proxy-413 error state: nginx rejects the upload body before glv
-  // sees it, and the client replaces the raw proxy page with an
-  // explanatory banner. No proxy runs locally, so the network edge is
-  // answered the way the upload-413 suite answers it.
-  await page.route("**/sessions", (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return route.fulfill({
-      status: 413,
-      contentType: "text/html; charset=utf-8",
-      body: `<html>
-<head><title>413 Request Entity Too Large</title></head>
-<body>
-<center><h1>413 Request Entity Too Large</h1></center>
-<hr><center>nginx/1.28.3 (Ubuntu)</center>
-</body>
-</html>
-`,
-    });
-  });
+  await serveNginx413(page);
   await page
     .locator('textarea[name="prompt"]')
     .fill("Read the attached screenshot");
