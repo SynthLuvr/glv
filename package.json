@@ -4,8 +4,7 @@
   "private": true,
   "description": "Self-hosted web UI that increases development speed with agentic coding",
   "bin": {
-    "glv-goose": "bin/glv-goose.mjs",
-    "glv-claude": "bin/glv-claude.mjs"
+    "glv": "bin/glv.mjs"
   },
   "type": "module",
   "packageManager": "pnpm@12.5.1",
@@ -15,9 +14,10 @@
   "scripts": {
     "build": "npm-run-all build:typecheck build:assets",
     "build:typecheck": "tsc",
-    "build:assets": "npm-run-all build:assets:goose build:assets:claude",
+    "build:assets": "npm-run-all build:assets:glv build:assets:goose build:assets:claude",
     "build:assets:goose": "tsx src/goose/build.ts",
     "build:assets:claude": "tsx src/claude/build.ts",
+    "build:assets:glv": "tsx src/glv/build-product.ts",
     "format": "ts-canon format",
     "lint": "npm-run-all lint:canon lint:mirrored lint:cross-tree",
     "lint:canon": "ts-canon lint",

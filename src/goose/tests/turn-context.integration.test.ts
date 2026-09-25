@@ -82,8 +82,9 @@ describe("turn-context categorization", () => {
   });
 
   it("tags a standalone turn-context block as CONTEXT, not PROMPT", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-ctx")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      await page.goto(url);
       const context = page.locator("article.message.context");
       await expect(context).toHaveCount(2);
       await expect(context.first().locator(".tag")).toHaveText("◇ CONTEXT");
@@ -92,8 +93,9 @@ describe("turn-context categorization", () => {
   });
 
   it("collapses turn-context blocks by default, like tool activity", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-ctx")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      await page.goto(url);
       const block = page
         .locator("article.message.context details.block.context")
         .first();
@@ -110,8 +112,9 @@ describe("turn-context categorization", () => {
   });
 
   it("renders the prompt ahead of the context goose appends after it", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-ctx")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      await page.goto(url);
       const articles = page.locator("article.message");
       await expect(articles.nth(0)).toHaveClass(/prompt/);
       await expect(articles.nth(1)).toHaveClass(/context/);
@@ -124,8 +127,9 @@ describe("turn-context categorization", () => {
   });
 
   it("keeps prompts that merely mention the tag as PROMPT", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-ctx")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-ctx`);
+      await page.goto(url);
       const prompts = page.locator("article.message.prompt");
       await expect(prompts).toHaveCount(2);
       await expect(prompts.first()).toContainText(

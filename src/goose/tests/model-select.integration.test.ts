@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { writeGooseConfig } from "../../glv/tests/goose-config.js";
 import {
   authedFetch,
-  fakeHomeEnv,
   flagValue,
   type IntegrationEnv,
   postFollowUp,
@@ -13,8 +13,17 @@ import {
   waitForArgs,
   withPage,
 } from "../../glv/tests/harness.js";
-import { gooseConfigPath } from "../models.js";
-import { insertSessions, startIntegrationEnv } from "./integration-harness.js";
+import { fetchModelPicker } from "../../glv/tests/model-picker.js";
+import {
+  gooseFixture,
+  insertSessions,
+  startIntegrationEnv,
+} from "./integration-harness.js";
+
+// The model picker is one combined select: every entry — including which
+// agent runs — is spelled "<agent>:<model value>". On this single-agent
+// fixture every value carries the "goose:" prefix; the combined fixture
+// covers the cross-agent picks.
 
 // goose's provider config, as `goose configure` writes it: one configured
 // model per provider. Includes entries the picker must NOT offer (disabled
@@ -83,12 +92,6 @@ const ACP_SUPPORTED_MODELS = JSON.stringify({
   "claude-acp": ["default", "sonnet", "claude-fable-5[1m]", "opus", "haiku"],
 });
 
-const writeGooseConfig = (home: string): void => {
-  const configYaml = gooseConfigPath(fakeHomeEnv(home));
-  mkdirSync(dirname(configYaml), { recursive: true });
-  writeFileSync(configYaml, CONFIG_YAML);
-};
-
 describe("new-session model picker (goose)", () => {
   let env: IntegrationEnv;
   let bareEnv: IntegrationEnv;
@@ -100,7 +103,7 @@ describe("new-session model picker (goose)", () => {
 
   beforeAll(async () => {
     const home = mkdtempSync(join(tmpdir(), "glv-model-home-"));
-    writeGooseConfig(home);
+    writeGooseConfig(home, CONFIG_YAML);
     argsDir = mkdtempSync(join(tmpdir(), "glv-model-args-"));
     argsPath = join(argsDir, "args.json");
 
@@ -132,7 +135,7 @@ describe("new-session model picker (goose)", () => {
     // answers "method not found", so the picker must fall back to the one
     // configured model per provider.
     const legacyHome = mkdtempSync(join(tmpdir(), "glv-model-legacy-"));
-    writeGooseConfig(legacyHome);
+    writeGooseConfig(legacyHome, CONFIG_YAML);
     legacyEnv = await startIntegrationEnv("glv-model-legacy-", {}, legacyHome);
   }, 180000);
 
@@ -149,34 +152,36 @@ describe("new-session model picker (goose)", () => {
     expect(res.status).toBe(200);
     // The picker itself is not in the initial HTML: resolving the catalogue
     // can spawn the agent binary, and the form must never block on that.
-    expect(html).not.toContain('name="model_provider"');
+    // The agent select is gone entirely — the pick names the agent.
+    expect(html).not.toContain('name="agent"');
+    expect(html).not.toContain('name="model"');
     expect(html).toContain('class="form-field model-picker-slot"');
     expect(html).toContain('hx-get="/sessions/model-picker"');
     expect(html).toContain('hx-trigger="load"');
   });
 
   it("lists every model each configured provider offers", async () => {
-    const res = await authedFetch(env, "/sessions/model-picker");
-    const html = await res.text();
-    expect(res.status).toBe(200);
-    expect(html).toContain('name="model_provider"');
+    const html = await fetchModelPicker(env);
+    expect(html).toContain('name="model"');
+    expect(html).toContain('<optgroup label="goose">');
     expect(html).toContain("goose default — zai / glm-5.3");
-    expect(html).toContain('value="" selected=""');
-    // Static catalogue models, grouped per provider, submitted as pairs.
-    expect(html).toContain('<optgroup label="zai">');
-    expect(html).toContain('value="zai:glm-5.1"');
-    expect(html).toContain("GLM-5.1");
-    expect(html).toContain('value="zai:glm-5.3[1m]"');
-    expect(html).toContain('<optgroup label="anthropic">');
-    expect(html).toContain('value="anthropic:claude-opus-4-6"');
+    expect(html).toContain('value="goose:" selected=""');
+    // Static catalogue models, submitted as agent-prefixed provider/model
+    // pairs. Several providers sit behind one agent, so labels carry the
+    // provider the old per-provider optgroups named.
+    expect(html).toContain("zai / GLM-5.1");
+    expect(html).toContain('value="goose:zai:glm-5.1"');
+    expect(html).toContain('value="goose:zai:glm-5.3[1m]"');
+    expect(html).toContain("anthropic / Claude Opus 4.6");
+    expect(html).toContain('value="goose:anthropic:claude-opus-4-6"');
     // claude-acp has no static catalogue: its models come from the live
     // supported-models query, with the configured model appended.
-    expect(html).toContain('<optgroup label="claude-acp">');
-    expect(html).toContain('value="claude-acp:opus"');
-    expect(html).toContain('value="claude-acp:current"');
+    expect(html).toContain("claude-acp / opus");
+    expect(html).toContain('value="goose:claude-acp:opus"');
+    expect(html).toContain('value="goose:claude-acp:current"');
     // A provider absent from the catalogue still shows its configured model.
-    expect(html).toContain('<optgroup label="grok">');
-    expect(html).toContain('value="grok:grok-4"');
+    expect(html).toContain("grok / grok-4");
+    expect(html).toContain('value="goose:grok:grok-4"');
     // Unusable entries never appear.
     expect(html).not.toContain("hidden-model");
     expect(html).not.toContain("disabled-prov");
@@ -184,14 +189,12 @@ describe("new-session model picker (goose)", () => {
   });
 
   it("starts the run with --provider/--model for a picked model", async () => {
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "inspect the project",
-        working_dir: workDir,
-        model_provider: "zai:glm-5.1",
-      }),
-    });
+    const res = await postNewSession(
+      env,
+      workDir,
+      "inspect the project",
+      "goose:zai:glm-5.1",
+    );
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
@@ -203,14 +206,12 @@ describe("new-session model picker (goose)", () => {
     // Drop the prior run's capture so waitForArgs waits for this run —
     // a leftover file resolves instantly with its stale flags.
     rmSync(argsPath, { force: true });
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "use the claude adapter",
-        working_dir: workDir,
-        model_provider: "claude-acp:opus",
-      }),
-    });
+    const res = await postNewSession(
+      env,
+      workDir,
+      "use the claude adapter",
+      "goose:claude-acp:opus",
+    );
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
@@ -218,9 +219,14 @@ describe("new-session model picker (goose)", () => {
     expect(flagValue(args, "--model")).toBe("opus");
   });
 
-  it("passes no model flags when the default is kept", async () => {
+  it("passes no model flags when a default entry is kept", async () => {
     rmSync(argsPath, { force: true });
-    const res = await postNewSession(env, workDir, "run with the default");
+    const res = await postNewSession(
+      env,
+      workDir,
+      "run with the default",
+      "goose:",
+    );
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
@@ -228,18 +234,27 @@ describe("new-session model picker (goose)", () => {
     expect(args).not.toContain("--model");
   });
 
-  it("rejects a provider that is no longer configured", async () => {
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "use a ghost provider",
-        working_dir: workDir,
-        model_provider: "ghost:whatever",
-      }),
-    });
+  it("passes no model flags when the field is absent entirely", async () => {
+    rmSync(argsPath, { force: true });
+    const res = await postNewSession(env, workDir, "plain submit");
+    expect(res.status).toBe(200);
+
+    const args = await waitForArgs(argsPath);
+    expect(args).not.toContain("--provider");
+    expect(args).not.toContain("--model");
+  });
+
+  it("rejects a pick naming an agent that is not served", async () => {
+    const res = await postNewSession(
+      env,
+      workDir,
+      "use a ghost agent",
+      "ghost:whatever",
+    );
     expect(res.status).toBe(422);
     const html = await res.text();
-    expect(html).toContain("no longer available in goose");
+    expect(html).toContain("not enabled");
+    expect(html).toContain("ghost");
     // The form re-renders rather than leaking a broken selection: the lazy
     // slot comes back carrying the submitted value so the picker restores it.
     expect(html).toContain('class="form-field model-picker-slot"');
@@ -249,19 +264,17 @@ describe("new-session model picker (goose)", () => {
   });
 
   it("rejects a model the provider does not offer", async () => {
-    const res = await authedFetch(env, "/sessions", {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "use a ghost model",
-        working_dir: workDir,
-        model_provider: "zai:not-a-glm",
-      }),
-    });
+    const res = await postNewSession(
+      env,
+      workDir,
+      "use a ghost model",
+      "goose:zai:not-a-glm",
+    );
     expect(res.status).toBe(422);
     const html = await res.text();
     expect(html).toContain("no longer available in goose");
     expect(html).toContain(
-      'hx-get="/sessions/model-picker?submitted=zai%3Anot-a-glm"',
+      'hx-get="/sessions/model-picker?submitted=goose%3Azai%3Anot-a-glm"',
     );
   });
 
@@ -269,7 +282,11 @@ describe("new-session model picker (goose)", () => {
     // The follow-up bar has no model picker; a resumed run must keep the
     // session's model, not inherit goose's current default.
     rmSync(argsPath, { force: true });
-    const res = await postFollowUp(env, "resume-target", "and then summarize");
+    const res = await postFollowUp(
+      env,
+      gooseFixture.viewId("resume-target"),
+      "and then summarize",
+    );
     expect(res.status).toBe(200);
 
     const args = await waitForArgs(argsPath);
@@ -290,7 +307,7 @@ describe("new-session model picker (goose)", () => {
       await expect(pasteHints.first()).toHaveText(/^Tip: paste images with /);
       const modelHint = page.locator("form.new-session-form .model-hint");
       await expect(modelHint).toHaveCount(1);
-      await expect(modelHint).toHaveText(/Providers configured in goose/);
+      await expect(modelHint).toHaveText(/Each agent lists the models/);
     });
   });
 
@@ -299,14 +316,12 @@ describe("new-session model picker (goose)", () => {
     const formHtml = await form.text();
     expect(form.status).toBe(200);
     expect(formHtml).not.toContain("model-picker-slot");
-    expect(formHtml).not.toContain('name="model_provider"');
+    expect(formHtml).not.toContain('name="model"');
     // The fragment answers with a hidden placeholder: an empty body would
     // make htmx skip the swap and strand the loading slot forever.
-    const frag = await authedFetch(bareEnv, "/sessions/model-picker");
-    const fragHtml = await frag.text();
-    expect(frag.status).toBe(200);
+    const fragHtml = await fetchModelPicker(bareEnv);
     expect(fragHtml).toContain("model-picker-empty");
-    expect(fragHtml).not.toContain('name="model_provider"');
+    expect(fragHtml).not.toContain('name="model"');
   });
 
   it("falls back to configured models when the agent can't list them", async () => {
@@ -314,15 +329,13 @@ describe("new-session model picker (goose)", () => {
     const formHtml = await form.text();
     expect(form.status).toBe(200);
     expect(formHtml).toContain('class="form-field model-picker-slot"');
-    const res = await authedFetch(legacyEnv, "/sessions/model-picker");
-    const html = await res.text();
-    expect(res.status).toBe(200);
+    const html = await fetchModelPicker(legacyEnv);
     // One option per provider — the configured model — and no catalogue
     // entries, but still a working picker.
-    expect(html).toContain('name="model_provider"');
-    expect(html).toContain('<optgroup label="zai">');
-    expect(html).toContain('value="zai:glm-5.3"');
+    expect(html).toContain('name="model"');
+    expect(html).toContain('<optgroup label="goose">');
+    expect(html).toContain('value="goose:zai:glm-5.3"');
     expect(html).not.toContain("glm-5.1");
-    expect(html).toContain('value="claude-acp:current"');
+    expect(html).toContain('value="goose:claude-acp:current"');
   });
 });

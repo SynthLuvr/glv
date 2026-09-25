@@ -25,6 +25,10 @@ type CronJobConfig = {
   workingDir: string;
   timezone?: string;
   enabled?: boolean;
+  // Which agent's launcher fires this job ("goose", "claude"). Required
+  // on every write; reads fall back to the store's default for rows
+  // written before the column existed.
+  agent?: string;
   // A model pin for the sessions this job starts: both keys together, or
   // neither for the agent's own default.
   modelProvider?: string;
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
   working_dir    TEXT NOT NULL,
   timezone       TEXT,
   enabled        INTEGER NOT NULL DEFAULT 1,
+  agent          TEXT,
   model_provider TEXT,
   model          TEXT,
   follow_ups     TEXT,
@@ -107,15 +112,28 @@ const ensureLastFiredAtColumn = (db: DatabaseSync): void => {
 // One database file, two tables: the schedule itself and the
 // job-started-session tags the sidebar badges read. Opening creates
 // both so serve's single handle serves the scheduler, the routes, and
-// the badges — exactly like every other glv-owned open.
+// the badges — exactly like every other glv-owned open. Rows keep a
+// NULL agent until the server (which knows its default) backfills them
+// on its own open, so external writers and test seeds never see an
+// agent minted for them.
 const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   ensureColumn(db, "schedule_input");
   ensureColumn(db, "follow_ups");
+  ensureColumn(db, "agent");
   ensureLastFiredAtColumn(db);
   db.exec(CRON_SESSIONS_SCHEMA);
   return db;
+};
+
+// The server-open backfill: rows written before the agent column
+// existed (or hand-edited back to NULL) belong to the server's default
+// agent. Idempotent.
+const backfillCronAgents = (db: DatabaseSync, defaultAgent: string): void => {
+  db.prepare("UPDATE cron_jobs SET agent = ? WHERE agent IS NULL").run(
+    defaultAgent,
+  );
 };
 
 // node:sqlite widens everything it can; the row shape pins what the
@@ -129,6 +147,7 @@ const JobRow = type({
   working_dir: "string",
   timezone: "string | null",
   enabled: "number",
+  agent: "string | null",
   model_provider: "string | null",
   model: "string | null",
   follow_ups: "string | null",
@@ -139,7 +158,7 @@ type JobRow = typeof JobRow.infer;
 
 const JOB_COLS =
   "name, schedule, schedule_input, prompt, working_dir, timezone, " +
-  "enabled, model_provider, model, follow_ups, last_fired_at";
+  "enabled, agent, model_provider, model, follow_ups, last_fired_at";
 
 // follow_ups holds a JSON array of follow-on prompts, read as strictly
 // as the rest of the row: anything but an array of strings — trimmed,
@@ -171,7 +190,7 @@ const parseFollowUps = (name: string, raw: string): string[] => {
   return steps;
 };
 
-const mapRow = (row: JobRow): CronJobRecord => ({
+const mapRow = (row: JobRow, defaultAgent: string): CronJobRecord => ({
   name: row.name,
   schedule: row.schedule,
   ...(row.schedule_input === null ? {} : { scheduleInput: row.schedule_input }),
@@ -179,6 +198,7 @@ const mapRow = (row: JobRow): CronJobRecord => ({
   workingDir: row.working_dir,
   ...(row.timezone === null ? {} : { timezone: row.timezone }),
   enabled: row.enabled !== 0,
+  agent: row.agent ?? defaultAgent,
   ...(row.model_provider === null || row.model === null
     ? {}
     : { modelProvider: row.model_provider, model: row.model }),
@@ -190,11 +210,14 @@ const mapRow = (row: JobRow): CronJobRecord => ({
 
 // Insertion order: rowid survives renames, so a renamed job keeps its
 // place in the section.
-const listCronJobs = (db: DatabaseSync): CronJobRecord[] =>
+const listCronJobs = (
+  db: DatabaseSync,
+  defaultAgent: string,
+): CronJobRecord[] =>
   validateAll(
     JobRow,
     db.prepare(`SELECT ${JOB_COLS} FROM cron_jobs ORDER BY rowid`).all(),
-  ).map(mapRow);
+  ).map((row) => mapRow(row, defaultAgent));
 
 // The write shape every mutation shares: values in JOB_COLS order —
 // full row (the UI never patches single columns), optionals nulled,
@@ -208,6 +231,7 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
   job.workingDir,
   job.timezone ?? null,
   job.enabled === false ? 0 : 1,
+  job.agent ?? null,
   job.modelProvider ?? null,
   job.model ?? null,
   job.followUps !== undefined && job.followUps.length > 0
@@ -215,7 +239,7 @@ const jobParams = (job: CronJobConfig): (string | number | null)[] => [
     : null,
 ];
 
-const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO cron_jobs (${JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 // Appends a job. The marker seeds to now: a job cannot have been missed
 // before it existed, so occurrences earlier than its creation are not
@@ -238,8 +262,9 @@ const updateCronJob = (
     .prepare(
       `UPDATE cron_jobs
          SET name = ?, schedule = ?, schedule_input = ?, prompt = ?,
-             working_dir = ?, timezone = ?, enabled = ?, model_provider = ?,
-             model = ?, follow_ups = ?, updated_at = datetime('now')
+             working_dir = ?, timezone = ?, enabled = ?, agent = ?,
+             model_provider = ?, model = ?, follow_ups = ?,
+             updated_at = datetime('now')
          WHERE name = ?`,
     )
     .run(...jobParams(job), currentName).changes > 0;
@@ -296,6 +321,7 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
 
 export type { CronJobConfig };
 export {
+  backfillCronAgents,
   deleteCronJob,
   insertCronJob,
   listCronJobs,

@@ -1,3 +1,4 @@
+import { domIdOf } from "../agents.js";
 import {
   displayName,
   fmtRelative,
@@ -6,6 +7,7 @@ import {
   truncateMiddle,
 } from "../format/index.js";
 import type { SessionRow } from "../sessions.js";
+import { AgentChip } from "./chips.js";
 import { icon, RenameWrap } from "./Rename.js";
 
 const SessionItem = ({
@@ -58,6 +60,7 @@ const SessionItem = ({
         >
           <span class="session-name">{displayName(session.name)}</span>
           <span class="session-sub">
+            {session.agent !== undefined && <AgentChip agent={session.agent} />}
             <time
               datetime={toIso(session.updated_at)}
               title={session.updated_at}
@@ -77,7 +80,7 @@ const SessionItem = ({
           </span>
         </a>
         <span
-          id={`sidebar-meta-${session.id}`}
+          id={`sidebar-meta-${domIdOf(session.id)}`}
           class="session-meta-tags"
         ></span>
       </div>

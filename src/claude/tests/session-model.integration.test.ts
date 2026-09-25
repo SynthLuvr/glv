@@ -48,7 +48,9 @@ describe("synthetic assistant turns", () => {
 
   it("keeps the real model when the transcript ends with a synthetic turn", async () => {
     await withPage(env.context, async (page: Page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-synthetic`);
+      await page.goto(
+        `${env.baseUrl}/sessions/${claudeFixture.viewId("t-synthetic")}`,
+      );
       await expect(modelChip(page).locator(".meta-value")).toHaveText(
         "claude-sonnet-4-5",
       );

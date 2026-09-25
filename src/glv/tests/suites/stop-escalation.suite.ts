@@ -47,21 +47,29 @@ const runStopEscalationSuite = (fx: FlavorFixture): void => {
 
   describe("stop escalation", () => {
     it(`kills ${fx.name} even when it ignores SIGINT/SIGTERM and goes silent`, async () => {
-      const res = await authedFetch(env, "/sessions/esc-1/prompt", {
-        method: "POST",
-        body: new URLSearchParams({ prompt: "hang silently" }),
-        headers: { "HX-Request": "true" },
-      });
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("esc-1")}/prompt`,
+        {
+          method: "POST",
+          body: new URLSearchParams({ prompt: "hang silently" }),
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(res.status).toBe(200);
 
       const pid = (await waitForAgentRun(env, fx.resumeFlag))?.pid ?? 0;
       expect(pid).toBeGreaterThan(0);
       expect(isAlive(pid)).toBe(true);
 
-      const stopRes = await authedFetch(env, "/sessions/esc-1/stop", {
-        method: "POST",
-        headers: { "HX-Request": "true" },
-      });
+      const stopRes = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("esc-1")}/stop`,
+        {
+          method: "POST",
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(stopRes.status).toBe(200);
 
       // stop() sends SIGINT (ignored by the trap); the ladder escalates to

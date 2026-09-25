@@ -31,7 +31,8 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
     sourceId: string,
   ): Promise<{ x: number; y: number }> => {
     const handle = page.locator(
-      `.session-item[data-session-id="${sourceId}"] .session-drag-handle`,
+      `.session-item[data-session-id="${fx.viewId(sourceId)}"]` +
+        " .session-drag-handle",
     );
     const box = await handle.boundingBox();
     if (box === null) throw new Error("drag handle not found");
@@ -58,7 +59,9 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
     targetId: string,
   ): Promise<void> => {
     const { x, y } = await handleCenter(page, sourceId);
-    const target = page.locator(`.session-item[data-session-id="${targetId}"]`);
+    const target = page.locator(
+      `.session-item[data-session-id="${fx.viewId(targetId)}"]`,
+    );
     const drop = await target.boundingBox();
     if (drop === null) throw new Error("drop target not found");
     await page.mouse.move(x, y);
@@ -125,9 +128,13 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await openMobileList(page);
         await page
-          .locator('.session-item[data-session-id="md-a"] .session-name')
+          .locator(
+            `.session-item[data-session-id="${fx.viewId("md-a")}"] .session-name`,
+          )
           .click();
-        await expect(page).toHaveURL(`${env.baseUrl}/sessions/md-a`);
+        await expect(page).toHaveURL(
+          `${env.baseUrl}/sessions/${fx.viewId("md-a")}`,
+        );
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",
           "detail",
@@ -142,7 +149,7 @@ const runMobileDragSuite = (fx: FlavorFixture): void => {
         await page.goto(env.baseUrl);
         await expect(
           page.locator(
-            '.session-item[data-session-id="md-a"] .session-drag-handle',
+            `.session-item[data-session-id="${fx.viewId("md-a")}"] .session-drag-handle`,
           ),
         ).toBeVisible();
 

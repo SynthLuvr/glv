@@ -15,9 +15,9 @@ import {
   stopProcess,
   waitForHttp,
 } from "../../glv/tests/harness.js";
-import { SESSIONS_SCHEMA } from "./integration-harness.js";
+import { gooseFixture, SESSIONS_SCHEMA } from "./integration-harness.js";
 
-const GLV = join(ROOT, "bin", "glv-goose.mjs");
+const GLV = join(ROOT, "bin", "glv.mjs");
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,10 +31,23 @@ describe("goose sessions db robustness", () => {
     try {
       const dbPath = join(dir, "sessions.db");
       writeFileSync(dbPath, "");
-      const result = spawnLauncherSync(GLV, ["--db", dbPath, "sessions"], {
-        env: { ...process.env },
-        encoding: "utf-8",
-      });
+      const result = spawnLauncherSync(
+        GLV,
+        [
+          "--goose-db",
+          dbPath,
+          // Pins the other agent's store away from the host's real
+          // ~/.claude: the listing must be empty because goose's store
+          // is, not because of what the host happens to have.
+          "--projects-dir",
+          join(dir, "no-claude-projects"),
+          "sessions",
+        ],
+        {
+          env: { ...process.env },
+          encoding: "utf-8",
+        },
+      );
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("No sessions found.");
     } finally {
@@ -73,7 +86,21 @@ describe("goose sessions db robustness", () => {
       // never spawns an agent anyway.
       proc = spawnLauncher(
         GLV,
-        ["serve", "-p", String(port), "--db", dbPath, ...dbOverrideArgs(dbs)],
+        [
+          "serve",
+          "-p",
+          String(port),
+          "--goose-db",
+          dbPath,
+          "--projects-dir",
+          join(scratch, "no-claude-projects"),
+          // The merged CLI gates the default agent set on the binary
+          // being resolvable; node exists everywhere and this test
+          // never spawns an agent.
+          "--goose-binary",
+          process.execPath,
+          ...dbOverrideArgs(dbs),
+        ],
         {
           cwd: ROOT,
           stdio: ["ignore", "pipe", "pipe"],
@@ -105,7 +132,7 @@ describe("goose sessions db robustness", () => {
 
       const res = await pending;
       expect(res.status).toBe(200);
-      expect(await res.text()).toContain("busy-1");
+      expect(await res.text()).toContain(gooseFixture.viewId("busy-1"));
     }, 15000);
   });
 });

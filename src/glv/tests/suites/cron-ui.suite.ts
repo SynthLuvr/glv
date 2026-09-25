@@ -112,7 +112,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).not.toContain('name="working_dir"');
       expect(html).not.toContain("data-schedule-dir");
       expect(html).toContain(".new-session-form input[name=working_dir]");
-      expect(html).toContain(".new-session-form select[name=model_provider]");
+      expect(html).toContain(".new-session-form select[name=model]");
       expect(html).toContain("Schedule run");
     });
 
@@ -358,6 +358,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           prompt: "Run the nightly build",
           workingDir,
           enabled: true,
+          agent: fx.name,
           lastFiredAt: expect.any(String),
         },
       ]);
@@ -458,7 +459,7 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
           schedule: "every weekday at 9:00",
           prompt: "Model pick",
           working_dir: workingDir,
-          model_provider: "ghost/nowhere",
+          model: "ghost/nowhere",
         }),
       });
       expect(res.status).toBe(422);

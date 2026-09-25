@@ -8,7 +8,7 @@ import {
   SERVER_TIMEZONE,
   type TimezoneSuggestion,
 } from "../timezones.js";
-import { CLOCK_ICON } from "./chips.js";
+import { AgentChip, CLOCK_ICON } from "./chips.js";
 import { ModelPickerSlot } from "./new-session.js";
 
 // Views for scheduling: the inline form with its typed schedule field
@@ -204,9 +204,10 @@ const RecentDirsDatalist = ({
 // "Schedule…" (the Saved prompts save-form pattern). The prompt comes
 // from the New Session form above — hx-include pulls that textarea at
 // submit time, so the latest typing is scheduled and never duplicated.
-// The run's working directory and model are pulled the same way: the
-// form above is the page's single set of those fields, so whatever it
-// holds when "Schedule run" is clicked is exactly what the job gets.
+// The run's working directory and model (whose pick names the agent)
+// are pulled the same way: the form above is the page's single set of
+// those fields, so whatever it holds when "Schedule run" is clicked is
+// exactly what the job gets.
 const ScheduleSaveForm = ({
   jobName = "",
   schedule = "",
@@ -230,12 +231,13 @@ const ScheduleSaveForm = ({
     hx-post="/cron"
     hx-target="#cron-save-slot"
     hx-swap="innerHTML"
-    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form select[name=model_provider]"
+    hx-include="find input, .new-session-form textarea[name=prompt], .new-session-form input[name=working_dir], .new-session-form select[name=model]"
   >
     {error !== undefined && <p class="status-hint error">{error}</p>}
     <p class="schedule-mode-note">
       Schedules the prompt composed in the form above. Runs use that
-      form&rsquo;s working directory{withModels ? " and model" : ""}.
+      form&rsquo;s working directory
+      {withModels ? " and model" : ""}.
     </p>
     <label class="form-field">
       <span class="form-label">Job name</span>
@@ -288,6 +290,14 @@ const ScheduleConfirmation = ({ job }: { job: CronJobConfig }) => {
       <dl class="schedule-confirmation-grid">
         <dt>Job</dt>
         <dd>{job.name}</dd>
+        {job.agent !== undefined && (
+          <Fragment>
+            <dt>Agent</dt>
+            <dd>
+              <AgentChip agent={job.agent} />
+            </dd>
+          </Fragment>
+        )}
         <dt>Schedule</dt>
         <dd>
           {human}
@@ -344,6 +354,7 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
     <article class="cron-job-card" data-cron-job={job.name}>
       <div class="cron-job-head">
         <h4 class="cron-job-title">{job.name}</h4>
+        {job.agent !== undefined && <AgentChip agent={job.agent} />}
         <span
           class={`cron-job-status${enabled ? "" : " paused"}`}
           title={enabled ? "Enabled — fires on schedule" : "Paused"}
@@ -485,9 +496,9 @@ const ScheduleJobEditForm = ({
   followUps?: readonly string[];
   /** Home directories offered as datalist suggestions. */
   dirs?: readonly string[];
-  /** Renders the model picker slot when the flavor supports models;
-   * `submitted` preselects the job's stored model (or a rejected edit's
-   * pick). Without it, a stored model pin is preserved untouched. */
+  /** Renders the combined model picker slot; `submitted` preselects the
+   * job's stored agent and model (or a rejected edit's pick). Without
+   * it, a stored pin is preserved untouched. */
   modelPicker?: { submitted?: string };
   error?: string;
 }) => {

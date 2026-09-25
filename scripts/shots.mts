@@ -8,10 +8,14 @@ import {
   type Page,
 } from "@playwright/test";
 import which from "which";
+import {
+  seedClaudeSessions,
+  startCombinedEnv,
+} from "../src/glv/tests/combined-harness.js";
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
-// Local PR-screenshot capture: boots a real `glv-goose serve` on the
+// Local PR-screenshot capture: boots a real `glv serve` on the mock
 // integration-test fixture (mock goose agent, seeded session), drives the UI
 // with Playwright, and writes PNGs into pr-shots/ (gitignored — upload them
 // to GitHub user-attachments, never commit them).
@@ -187,7 +191,7 @@ const captureViews = async (
   await capture(page, "new-session-mobile.png", "form.new-session-form");
 
   await page.setViewportSize(DESKTOP);
-  await page.goto(`${env.baseUrl}/sessions/${SESSION_ID}`);
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-desktop.png");
   await capture(page, "prompt-bar-desktop.png", "form.prompt-bar");
@@ -200,10 +204,40 @@ const captureViews = async (
   await context.close();
 };
 
+// The merged product: one serve, both agents, the combined model picker.
+const captureCombined = async (browser: Browser): Promise<void> => {
+  const env = await startCombinedEnv("glv-shots-combined-");
+  try {
+    const workingDir = join(env.scratchDir, "project");
+    mkdirSync(workingDir, { recursive: true });
+    gooseFixture.seedSessions(env, [
+      { id: SESSION_ID, name: "Screenshot Session", workingDir },
+    ]);
+    seedClaudeSessions(env, [
+      { id: "shots-claude", name: "Claude Session", workingDir },
+    ]);
+    const context = await browser.newContext({ viewport: DESKTOP });
+    await addSessionCookie(context, env);
+    const page = await context.newPage();
+    await page.goto(env.baseUrl);
+    await page.locator("form.new-session-form").waitFor();
+    await capture(
+      page,
+      "combined-new-session-desktop.png",
+      "form.new-session-form",
+    );
+    await capture(page, "combined-desktop.png");
+    await context.close();
+  } finally {
+    await env.cleanup();
+  }
+};
+
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
   await captureViews(browser, env);
+  await captureCombined(browser);
 } finally {
   await browser.close();
   teardown();

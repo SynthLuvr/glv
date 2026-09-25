@@ -3187,6 +3187,29 @@ select.form-input {
   font-weight: 650;
   overflow-wrap: anywhere;
 }
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.session-sub .agent-chip {
+  margin-right: 0.35rem;
+}
+.session-meta .agent-chip {
+  padding: 0.15rem 0.5rem;
+}
+.cron-job-head .agent-chip {
+  margin-right: 0.35rem;
+}
 .cron-job-status {
   flex: 0 0 auto;
   padding: 0.15rem 0.5rem;

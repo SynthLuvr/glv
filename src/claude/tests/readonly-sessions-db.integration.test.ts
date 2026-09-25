@@ -51,13 +51,15 @@ describe("agent-owned transcripts stay untouched", () => {
     const before = transcriptOf("ro-agent");
     expect(before).toBeDefined();
 
-    const renameRes = await authedFetch(env, "/sessions/ro-agent/rename", {
+    const renameUrl = `/sessions/${claudeFixture.viewId("ro-agent")}/rename`;
+    const renameRes = await authedFetch(env, renameUrl, {
       method: "POST",
       body: new URLSearchParams({ name: "Renamed Safe", from: "header" }),
       headers: { "HX-Request": "true" },
     });
     expect(renameRes.status).toBe(200);
-    const archiveRes = await authedFetch(env, "/sessions/ro-agent/archive", {
+    const archiveUrl = `/sessions/${claudeFixture.viewId("ro-agent")}/archive`;
+    const archiveRes = await authedFetch(env, archiveUrl, {
       method: "POST",
       body: new URLSearchParams({}),
       headers: { "HX-Request": "true" },

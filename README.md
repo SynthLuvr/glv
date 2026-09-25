@@ -62,7 +62,7 @@ the browser.
   form and freely editable), so a run can target any directory. Pause,
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
-  Each job can pin the model its runs use (goose).
+  Each job can pin the model its runs use (goose or a claude alias).
 - **Session management.** Rename sessions, and archive them one at a
   time or in bulk.
 - **Dark and light themes.**
@@ -104,24 +104,35 @@ glv is a single Node.js process built on the
 node scripts/setup.mjs
 ```
 
-This installs dependencies and installs the `glv-goose` launcher onto
-your PATH (`~/.local/bin/glv-goose` on macOS/Linux,
-`%USERPROFILE%\.local\bin\glv-goose.cmd` on Windows). `./setup.sh`
-remains as a thin Unix wrapper. Re-running is safe.
+This installs dependencies and installs the `glv` launcher onto your
+PATH (`~/.local/bin/glv` on macOS/Linux,
+`%USERPROFILE%\.local\bin\glv.cmd` on Windows). `./setup.sh` remains as
+a thin Unix wrapper. Re-running is safe.
+
+One `glv` command serves **both** agents: `glv serve` shows goose and
+claude sessions in one sidebar, behind one login and one schedule — an
+agent whose binary or data directory is missing is hidden, not fatal
+(see `docs/decisions/0007-merge-goose-and-claude.md`). There is no
+agent-choice flag: both agents always load, and the per-flavor commands
+`glv-goose` / `glv-claude` are gone. On the first start, glv adopts the
+legacy per-flavor data directories (`~/.local/share/glv-goose`,
+`glv-claude`) into the unified `~/.local/share/glv` — re-keying ids with
+their agent prefix, adopting one passkey, and renaming the legacy
+directories `.migrated` (never deleting them).
 
 ### Windows
 
 `node scripts\setup.mjs` does the same on Windows: it installs
-dependencies and writes a `%USERPROFILE%\.local\bin\glv-goose.cmd` shim.
-If setup warns that the folder is not on your `PATH`, add it (Settings →
+dependencies and writes a `%USERPROFILE%\.local\bin\glv.cmd` shim. If
+setup warns that the folder is not on your `PATH`, add it (Settings →
 System → About → Advanced system settings → Environment Variables) and
-open a new terminal; `glv-goose serve` then works from anywhere.
+open a new terminal; `glv serve` then works from anywhere.
 
 You can also skip the shim and invoke the launcher with Node directly —
 this is exactly what the shim runs:
 
 ``` powershell
-node bin\glv-goose.mjs serve -p 3001
+node bin\glv.mjs serve -p 3001
 ```
 
 Windows notes:
@@ -133,11 +144,12 @@ Windows notes:
 - glv reads goose’s sessions database from goose’s own platform-default
   location: `%APPDATA%\Block\goose\data\sessions\sessions.db` on Windows
   and `~/.local/share/goose/sessions/sessions.db` on Linux/macOS. Point
-  glv at a different file with `--db <path>` or the `GOOSE_SESSIONS_DB`
-  environment variable.
-- glv-owned data (the auth database, prompt library, and uploads) lives
-  under `%APPDATA%\glv-goose`. All of it is overridable — see the flags
-  below.
+  glv at a different file with `--goose-db <path>` or the
+  `GOOSE_SESSIONS_DB` environment variable; claude’s transcripts root is
+  `--projects-dir <path>`.
+- glv-owned data (the auth database, prompt library, scheduled runs, and
+  uploads) lives under `%APPDATA%\glv` (`~/.local/share/glv` on
+  Linux/macOS). All of it is overridable — see the flags below.
 
 ### Prerequisites
 
@@ -156,32 +168,43 @@ normalized to LF via `.gitattributes`, and pandoc is invoked with
 ## Running the web viewer
 
 ``` bash
-glv-goose serve
+glv serve
 ```
 
 Open the printed URL (e.g. <http://localhost:3000>). The first visitor
-is prompted to create a passkey and permanently claims the app.
+is prompted to create a passkey and permanently claims the app. Sessions
+from both agents appear in one sidebar; an agent whose binary or data
+directory is missing is simply absent.
 
 Options:
 
 - `-p, --port <number>` — port to listen on (default `3000`).
 
-- `-c, --max-concurrent <number>` — maximum concurrent `goose` runs
-  driven from the viewer (default `6`).
+- `-c, --max-concurrent <number>` — maximum concurrent agent runs driven
+  from the viewer, across both agents (default `6`).
 
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
 
-- `--db <path>` — override the goose sessions database location (or
-  `GOOSE_SESSIONS_DB`).
+- `--claude-binary <path>` — path to the `claude` binary (default
+  `claude` on `PATH`).
+
+- `--permission-mode <mode>` — claude permission mode for glv-launched
+  runs (default `inherit`, deferring to your claude settings.json).
+
+- `--goose-db <path>` — override the goose sessions database location
+  (or `GOOSE_SESSIONS_DB`).
+
+- `--projects-dir <path>` — override claude’s transcripts root (or
+  `CLAUDE_CONFIG_DIR`).
 
 - `--auth-db <path>` — override the auth database location (default
-  `~/.local/share/glv-goose/auth.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\auth.db` on Windows), or `GLV_AUTH_DB`).
+  `~/.local/share/glv/auth.db` on Linux/macOS (`%APPDATA%\glv\auth.db`
+  on Windows), or `GLV_AUTH_DB`).
 
 - `--cron-db <path>` — override the scheduled runs database location
-  (default `~/.local/share/glv-goose/cron.db` on Linux/macOS
-  (`%APPDATA%\glv-goose\cron.db` on Windows), or `GLV_CRON_DB`).
+  (default `~/.local/share/glv/cron.db` on Linux/macOS
+  (`%APPDATA%\glv\cron.db` on Windows), or `GLV_CRON_DB`).
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
@@ -206,11 +229,10 @@ its current offset; the field stays free-typing (any IANA name is
 accepted), and left empty it means the server’s local time; the section
 lists every job with pause, edit, and delete). The jobs live in the
 **cron database** — a glv-owned SQLite file at
-`~/.local/share/glv-goose/cron.db` on Linux/macOS
-(`%APPDATA%\glv-goose\cron.db` on Windows), alongside the
-job-started-session tags that badge fired runs. Override with
-`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
-running server picks changes up live, no restart needed.
+`~/.local/share/glv/cron.db` on Linux/macOS (`%APPDATA%\glv\cron.db` on
+Windows), alongside the job-started-session tags that badge fired runs.
+Override with `--cron-db <path>` or the `GLV_CRON_DB` environment
+variable. The running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
 retired config file were migrated into the cron database by the first
@@ -262,12 +284,11 @@ Phrasings that would fire more often than once a minute are rejected.
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
 
-- `modelProvider`/`model` (goose only, both keys together) pin every
-  fire of the job to that model — the web form’s schedule dialog has its
-  own model picker with the same options as the New Session form; omit
-  both keys to run the agent’s default. The pin is validated when you
-  save, and serve refuses to start when a job pins a model the flavor
-  can’t take (claude) or sets only one of the two keys.
+- `modelProvider`/`model` (both keys together) pin every fire of the job
+  to that model — goose takes a provider/model pair, claude an alias;
+  omit both keys to run the agent’s default. The pin is validated when
+  you save, and serve refuses to start when a job pins a model the agent
+  can’t take or sets only one of the two keys.
 
 - `name` must be unique (every stored job is named; entries migrated
   from an unnamed config-file slot get `cron-1`, `cron-2`, …);
@@ -302,10 +323,10 @@ subsequent registration attempt is blocked. The authorized user can log
 back in at any time with a quick passkey tap.
 
 - **Auth database** — passkey credentials and login sessions live in a
-  separate SQLite database at `~/.local/share/glv-goose/auth.db` on
-  Linux/macOS (`%APPDATA%\glv-goose\auth.db` on Windows), fully
-  independent of the goose sessions database. Override with
-  `--auth-db <path>` or the `GLV_AUTH_DB` environment variable.
+  separate SQLite database at `~/.local/share/glv/auth.db` on
+  Linux/macOS (`%APPDATA%\glv\auth.db` on Windows), fully independent of
+  the goose sessions database. Override with `--auth-db <path>` or the
+  `GLV_AUTH_DB` environment variable.
 - **Single-occupancy model** — a `users` table with at most one row
   enforces “first user wins.” Registration endpoints return `403` once
   an owner exists.
@@ -397,17 +418,19 @@ with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source
 compiled to `dist/<app>/app.css` by `pnpm build:assets` (see
 `src/<app>/build.ts`). Browser client scripts are written as TypeScript
 in `src/<app>/scripts/` and compiled to minified `dist/<app>/*.js` by
-the same command. The goose viewer is launched with `glv-goose` and the
-claude viewer with `glv-claude`.
+the same command. The two flavor trees remain as adapters (profile,
+store, launcher, argv builder, fixtures); the product itself — one
+server, one sidebar, one schedule serving both agents — is launched with
+`glv`.
 
 ## The CLI
 
-Everything above is driven by the `glv-goose` command, which also offers
-a few lightweight terminal commands for quick lookups without opening a
+Everything above is driven by the `glv` command, which also offers a few
+lightweight terminal commands for quick lookups without opening a
 browser:
 
 ``` bash
-glv-goose sessions      # list recent sessions
-glv-goose view <id>     # show prompts + outputs for a session
-glv-goose logs          # list --no-session runs
+glv sessions      # list recent sessions (ids namespaced per agent)
+glv view <id>     # show prompts + outputs for a session
+glv logs          # list goose --no-session runs
 ```

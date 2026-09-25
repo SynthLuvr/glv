@@ -41,7 +41,7 @@ const runCopyWorkingDirSuite = (fx: FlavorFixture): void => {
 
   const open = async (run: (page: Page) => Promise<void>): Promise<void> =>
     withPage(env.context, async (page) => {
-      await page.goto(env.baseUrl + "/sessions/t-copy-dir");
+      await page.goto(env.baseUrl + "/sessions/" + fx.viewId("t-copy-dir"));
       await run(page);
     });
 

@@ -1,43 +1,29 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
+  TWO_PROVIDER_CONFIG_YAML,
+  writeGooseConfig,
+} from "../../glv/tests/goose-config.js";
+import {
   authedFetch,
   cronJobRow,
-  fakeHomeEnv,
   flagValue,
   type IntegrationEnv,
   waitForArgs,
   withPage,
 } from "../../glv/tests/harness.js";
-import { gooseConfigPath } from "../models.js";
 import { startIntegrationEnv } from "./integration-harness.js";
 
 // Scheduled-run model selection: the New Session form's picker (which
 // scheduled runs inherit — the schedule form renders no picker of its
 // own), the cron database's modelProvider/model pair, and the flags
-// each fire actually passes to the agent. goose-only, like the New
-// Session picker it shares the catalogue with (claude has no model
-// surface).
+// each fire actually passes to the agent.
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
-
-// Mirrors the model-select suite's goose config: zai active with
-// glm-5.3 configured, plus a static catalogue below offering more.
-const CONFIG_YAML = `active_provider: zai
-providers:
-  zai:
-    enabled: true
-    model: glm-5.3
-    configured: true
-  anthropic:
-    enabled: true
-    model: claude-sonnet-4-5
-    configured: true
-`;
 
 const ACP_PROVIDERS = JSON.stringify({
   entries: [
@@ -60,14 +46,6 @@ const ACP_PROVIDERS = JSON.stringify({
   ],
 });
 
-// goose resolves its config under APPDATA on Windows and ~/.config
-// elsewhere; fakeHomeEnv spells the fake home the same way for both.
-const writeGooseConfig = (home: string): void => {
-  const configYaml = gooseConfigPath(fakeHomeEnv(home));
-  mkdirSync(dirname(configYaml), { recursive: true });
-  writeFileSync(configYaml, CONFIG_YAML);
-};
-
 describe("scheduled-run model picker (goose)", () => {
   let env: IntegrationEnv;
   let homeDir: string;
@@ -76,7 +54,7 @@ describe("scheduled-run model picker (goose)", () => {
 
   beforeAll(async () => {
     homeDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-home-"));
-    writeGooseConfig(homeDir);
+    writeGooseConfig(homeDir, TWO_PROVIDER_CONFIG_YAML);
     const argsDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-args-"));
     argsPath = join(argsDir, "args.json");
     workDir = mkdtempSync(join(tmpdir(), "glv-cronmodel-work-"));
@@ -114,8 +92,8 @@ describe("scheduled-run model picker (goose)", () => {
     // single model picker, and the submit pulls its select the same way
     // it pulls the composed prompt (and the working directory).
     expect(html).not.toContain("model-picker-slot");
-    expect(html).not.toContain('name="model_provider"');
-    expect(html).toContain(".new-session-form select[name=model_provider]");
+    expect(html).not.toContain('name="model"');
+    expect(html).toContain(".new-session-form select[name=model]");
     expect(html).toContain(".new-session-form input[name=working_dir]");
     // The copy says the run inherits the form above's picks.
     expect(html).toContain("working directory and model");
@@ -127,7 +105,7 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "every weekday at 9:00",
       prompt: "Run the nightly build",
       working_dir: workDir,
-      model_provider: "zai:glm-5.1",
+      model: "goose:zai:glm-5.1",
     });
     expect(status).toBe(200);
     // The confirmation names the pin, and the card carries it too.
@@ -156,16 +134,17 @@ describe("scheduled-run model picker (goose)", () => {
     expect(job?.model).toBeUndefined();
   });
 
-  it("rejects a provider that is no longer configured", async () => {
+  it("rejects a pick naming an agent that is not served", async () => {
     const { status, html } = await postJob({
       job_name: "ghost-job",
       schedule: "every weekday at 9:00",
       prompt: "Ghost provider",
       working_dir: workDir,
-      model_provider: "ghost:whatever",
+      model: "ghost:whatever",
     });
     expect(status).toBe(422);
-    expect(html).toContain("no longer available in goose");
+    expect(html).toContain("not enabled");
+    expect(html).toContain("ghost");
     // The picker lives in the New Session form above, untouched by the
     // slot swap — the re-rendered form carries no picker to restore.
     expect(html).not.toContain("model-picker-slot");
@@ -182,7 +161,7 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "every weekday at 9:00",
       prompt: "Not a real model",
       working_dir: workDir,
-      model_provider: "zai:not-a-glm",
+      model: "goose:zai:not-a-glm",
     });
     expect(status).toBe(422);
     expect(html).toContain("no longer available in goose");
@@ -195,7 +174,7 @@ describe("scheduled-run model picker (goose)", () => {
       schedule: "* * * * * *",
       prompt: "Pinned sweep",
       working_dir: workDir,
-      model_provider: "zai:glm-5.3",
+      model: "goose:zai:glm-5.3",
     });
     expect(status).toBe(200);
     const args = await waitForArgs(argsPath);
@@ -211,7 +190,7 @@ describe("scheduled-run model picker (goose)", () => {
         schedule: "* * * * * *",
         prompt: "Pinned sweep",
         working_dir: workDir,
-        model_provider: "",
+        model: "",
       }),
       headers: { "HX-Request": "true" },
     });
@@ -235,7 +214,7 @@ describe("scheduled-run model picker (goose)", () => {
     const editHtml = await edit.text();
     expect(edit.status).toBe(200);
     expect(editHtml).toContain(
-      'hx-get="/sessions/model-picker?submitted=zai%3Aglm-5.1"',
+      'hx-get="/sessions/model-picker?submitted=goose%3Azai%3Aglm-5.1"',
     );
 
     const put = await authedFetch(env, "/cron/Weekly build", {
@@ -245,7 +224,7 @@ describe("scheduled-run model picker (goose)", () => {
         schedule: "every weekday at 9:00",
         prompt: "Run the nightly build",
         working_dir: workDir,
-        model_provider: "anthropic:claude-opus-4-6",
+        model: "goose:anthropic:claude-opus-4-6",
       }),
       headers: { "HX-Request": "true" },
     });
@@ -264,17 +243,15 @@ describe("scheduled-run model picker (goose)", () => {
 
       // The New Session form's picker swaps in lazily; pick a
       // non-default model there.
-      const picker = page.locator(
-        "form.new-session-form select[name=model_provider]",
-      );
+      const picker = page.locator("form.new-session-form select[name=model]");
       await expect(picker).toBeVisible({ timeout: 15_000 });
-      await picker.selectOption("zai:glm-5.1");
+      await picker.selectOption("goose:zai:glm-5.1");
 
       // The inline form renders no picker of its own.
       await page.getByRole("button", { name: "🕒 Schedule…" }).click();
       const slot = page.locator("#cron-save-slot");
       await expect(slot.locator("form")).toBeVisible();
-      await expect(slot.locator("select[name=model_provider]")).toHaveCount(0);
+      await expect(slot.locator("select[name=model]")).toHaveCount(0);
 
       // Compose in both forms, then submit from the slot: the model
       // comes from the picker above, the rest from this form.

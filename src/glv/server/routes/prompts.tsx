@@ -71,7 +71,7 @@ const registerPromptRoutes = (
 
   // Inline save form, loaded into the save slot on demand.
   app.get("/prompts/new", (_request, reply) =>
-    sendHtml(reply, <PromptSaveForm agentName={ctx.profile.agentName} />),
+    sendHtml(reply, <PromptSaveForm agentName={ctx.agentNames} />),
   );
 
   app.post("/prompts", async (request, reply) => {
@@ -80,7 +80,7 @@ const registerPromptRoutes = (
       return sendHtml(
         reply,
         <PromptSaveForm
-          agentName={ctx.profile.agentName}
+          agentName={ctx.agentNames}
           title={input.title}
           body={input.body}
           category={input.category ?? ""}

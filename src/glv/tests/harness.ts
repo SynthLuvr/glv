@@ -344,11 +344,25 @@ type SseEvent = { event: string; data: string; id: string | undefined };
 // What each flavor provides to the generic boot machinery.
 type FlavorAdapter = {
   readonly name: string;
-  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
+  /** Absolute path to the merged Node launcher (bin/glv.mjs). */
   readonly binPath: string;
   readonly mockBinName: string;
   readonly mockScriptPath: string;
   readonly mockEnvPrefix: string;
+  /**
+   * Every mock-configuration prefix the booted server's agents read
+   * (the combined fixture configures both mocks from one MockConfig).
+   * Defaults to [mockEnvPrefix].
+   */
+  readonly mockEnvPrefixes?: readonly string[];
+  /**
+   * Additional agent binaries to mock on PATH (the combined fixture
+   * serves two agents from one process, so both need mocking).
+   */
+  readonly extraMocks?: readonly {
+    readonly name: string;
+    readonly file: string;
+  }[];
   /** Creates the flavor's stores under the scratch dir (auth included). */
   readonly createDatabases: (scratchDir: string) => Databases;
   /** `serve` argv beyond `serve -p <port>` (store + db overrides). */
@@ -363,7 +377,20 @@ type FlavorFixture = {
   readonly name: string;
   /** Capitalized agent name for copy assertions ("Goose", "Claude"). */
   readonly displayName: string;
+  /** The binary name in describe labels ("glv"). */
   readonly binName: string;
+  /**
+   * The viewer-owned data directory name the server defaults to ("glv"
+   * for the merged product).
+   */
+  readonly dataDirName: string;
+  /**
+   * The session id the server spells for a flavor-native id — the
+   * namespaced form on the merged product ("goose:<id>", "claude:<id>"),
+   * identity for a native-id server. Suites use this to build URLs and
+   * compare server-emitted ids against the ids they seeded.
+   */
+  readonly viewId: (rawId: string) => string;
   /** Snippet of the mock agent's default reply text. */
   readonly mockReply: string;
   readonly startEnv: (
@@ -423,7 +450,7 @@ type FlavorFixture = {
   readonly resumeFlag: string;
   /** The serve flag naming the agent binary ("--goose-binary", ...). */
   readonly binaryFlag: string;
-  /** Absolute path to the flavor's Node launcher (bin/glv-*.mjs). */
+  /** Absolute path to the merged Node launcher (bin/glv.mjs). */
   readonly binPath: string;
   /** Puts the mock agent binary on PATH; returns a restore closure. */
   readonly mockAgent: () => Promise<() => void>;
@@ -551,14 +578,19 @@ const spawnLauncherSync = (
 // Environment overrides that point os.homedir() — and, on Windows, the
 // Known Folders glv resolves its data and config dirs through — at a
 // scratch directory, so tests never touch the real profile.
+// CLAUDE_CONFIG_DIR is pinned into the fake home too: claude's
+// transcript root resolves through it, and a host that exports it (or a
+// real ~/.claude) would otherwise leak the host's sessions into any
+// server booted under a fake home.
 const fakeHomeEnv = (home: string): Record<string, string> =>
   IS_WIN
     ? {
         USERPROFILE: home,
         APPDATA: join(home, "AppData", "Roaming"),
         LOCALAPPDATA: join(home, "AppData", "Local"),
+        CLAUDE_CONFIG_DIR: join(home, ".claude"),
       }
-    : { HOME: home };
+    : { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude") };
 
 // Platform default locations for glv-owned files under a (fake) home,
 // mirroring db-path.ts: XDG-style on macOS/Linux, Known Folders on
@@ -580,6 +612,8 @@ type CronJobRow = {
   workingDir: string;
   timezone?: string;
   enabled: boolean;
+  /** The agent the job fires through ("goose", "claude"). */
+  agent?: string;
   modelProvider?: string;
   model?: string;
   /** Follow-on prompts (chained steps), in run order. */
@@ -605,7 +639,7 @@ const openServerDb = (dbPath: string): DatabaseSync => {
 // seed statements below.
 const JOB_COLS =
   "name, schedule, schedule_input, prompt, working_dir, timezone, " +
-  "enabled, model_provider, model, follow_ups, last_fired_at";
+  "enabled, agent, model_provider, model, follow_ups, last_fired_at";
 
 const readCronJobRows = (dbPath: string): CronJobRow[] => {
   const db = openServerDb(dbPath);
@@ -623,6 +657,9 @@ const readCronJobRows = (dbPath: string): CronJobRow[] => {
       workingDir: row.working_dir as string,
       ...(row.timezone === null ? {} : { timezone: row.timezone as string }),
       enabled: row.enabled !== 0,
+      ...(row.agent === null || row.agent === undefined
+        ? {}
+        : { agent: row.agent as string }),
       ...(row.model_provider === null || row.model === null
         ? {}
         : {
@@ -653,6 +690,9 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // path); removeCronJobRow deletes one. A lastFiredAt key (even null)
 // is written past the store's own seeding, so catch-up tests control
 // the missed-run marker byte for byte.
+// Seeds write the agent column verbatim — an unset agent stays NULL so
+// whichever flavor's server opens the database next backfills it with
+// its own default, exactly like a pre-agent-column row would be.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   const { lastFiredAt, ...storeJob } = job;
   const db = openCronDb(dbPath);
@@ -783,6 +823,13 @@ const startEnv = async (
   const restoreAgentPath =
     agentMock ??
     (await mockBin(adapter.mockBinName, { file: adapter.mockScriptPath }));
+  // Awaited, not fired-and-forgotten: mockBin prepends its directory to
+  // PATH only once its promise resolves, and the server spawn below
+  // snapshots process.env — an unawaited extra mock would miss the
+  // snapshot and its agent would resolve to a real binary (or nothing).
+  const restoreExtraMocks: (() => void)[] = [];
+  for (const extra of adapter.extraMocks ?? [])
+    restoreExtraMocks.push(await mockBin(extra.name, { file: extra.file }));
   const restoreGhPath = await mockGh();
 
   // The live serve process and its captured output, rebindable so the
@@ -799,11 +846,16 @@ const startEnv = async (
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
-    ...mockEnv(adapter.mockEnvPrefix, mock),
+    ...Object.fromEntries(
+      (adapter.mockEnvPrefixes ?? [adapter.mockEnvPrefix]).flatMap((prefix) =>
+        Object.entries(mockEnv(prefix, mock)),
+      ),
+    ),
     ...extraEnv,
   };
   const abortBoot = (err: unknown, stderr: string): never => {
     restoreAgentPath();
+    for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
     rmScratch(scratchDir);
     throw new Error(
@@ -864,6 +916,7 @@ const startEnv = async (
     await browser.close();
     if (proc !== undefined) await stopProcess(proc);
     restoreAgentPath();
+    for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
     const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
@@ -928,14 +981,20 @@ const waitForAgentRun = async (
 };
 
 // Starts a brand-new run over HTTP (the create-session form's endpoint).
+// `model` is the combined picker's value when the test picks one.
 const postNewSession = (
   env: IntegrationEnv,
   workDir: string,
   prompt: string,
+  model?: string,
 ): Promise<Response> =>
   authedFetch(env, "/sessions", {
     method: "POST",
-    body: new URLSearchParams({ prompt, working_dir: workDir }),
+    body: new URLSearchParams({
+      prompt,
+      working_dir: workDir,
+      ...(model === undefined ? {} : { model }),
+    }),
   });
 
 // Queues a follow-up prompt on an existing session over HTTP.

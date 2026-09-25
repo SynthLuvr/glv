@@ -182,4 +182,13 @@ const PrChip = ({
   );
 };
 
-export { BranchChip, CLOCK_ICON, CronChip, PrChip, WorktreeChip };
+// The agent a session or scheduled run belongs to ("goose", "claude") —
+// sidebar rows, transcript headers, and cron cards all share this
+// spelling.
+const AgentChip = ({ agent }: { agent: string }) => (
+  <span class="agent-chip" data-agent={agent}>
+    {agent}
+  </span>
+);
+
+export { AgentChip, BranchChip, CLOCK_ICON, CronChip, PrChip, WorktreeChip };

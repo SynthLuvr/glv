@@ -41,7 +41,7 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
   describe("PR chip in the transcript", () => {
     it("renders a chip linking the detected PR in the header", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(env.baseUrl + "/sessions/pr-sess");
+        await page.goto(env.baseUrl + `/sessions/${fx.viewId("pr-sess")}`);
         const chip = page.locator(".session-header .pr-chip");
         await expect(chip).toHaveAttribute("href", PR_URL);
         await expect(chip).toContainText("#35");
@@ -50,7 +50,7 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
 
     it("renders no header chip for a session without a PR", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(env.baseUrl + "/sessions/plain-sess");
+        await page.goto(env.baseUrl + `/sessions/${fx.viewId("plain-sess")}`);
         await expect(page.locator(".session-header .pr-chip")).toHaveCount(0);
       });
     });
@@ -60,7 +60,8 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
     it("resolves the PR state via mocked gh", async () => {
       const res = await authedFetch(
         env,
-        "/sessions/pr-sess/pr-state?url=" + encodeURIComponent(PR_URL),
+        `/sessions/${fx.viewId("pr-sess")}/pr-state?url=` +
+          encodeURIComponent(PR_URL),
       );
       expect(res.status).toBe(200);
       // PR 35 is not mapped in gh-mock-script.ts, so it defaults to OPEN.
@@ -72,7 +73,7 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
     it("returns an empty body for a non-PR url", async () => {
       const res = await authedFetch(
         env,
-        "/sessions/pr-sess/pr-state?url=https://evil.example/x",
+        `/sessions/${fx.viewId("pr-sess")}/pr-state?url=https://evil.example/x`,
       );
       expect(res.status).toBe(200);
       expect((await res.text()).trim()).toBe("");
@@ -81,7 +82,10 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
 
   describe("git-info endpoint", () => {
     it("resolves the branch via gh but omits worktree for a non-repo dir", async () => {
-      const res = await authedFetch(env, "/sessions/pr-sess/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pr-sess")}/git-info`,
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       // gh-mock-script returns feat-35 for PR 35.

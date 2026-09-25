@@ -3,12 +3,17 @@ import formbody from "@fastify/formbody";
 import multipart from "@fastify/multipart";
 import sse from "@fastify/sse";
 import Fastify, { type FastifyInstance } from "fastify";
+import { splitNamespacedId } from "../agents.js";
 import { authMiddleware } from "../auth/service.js";
-import type { SessionLauncher } from "../launch.js";
+import type { AgentDispatchLauncher } from "../composite-launcher.js";
 import { type Runner } from "../runner/index.js";
 import type { SessionStore } from "../sessions.js";
 import { buildAssetBundle } from "./bundle.js";
-import { type ServerContext, type ServerOptions } from "./context.js";
+import {
+  type AgentRuntime,
+  type ServerContext,
+  type ServerOptions,
+} from "./context.js";
 import { sendNotFound } from "./http.js";
 import { expandHome, listHomeDirs } from "./paths.js";
 import { registerAssetRoutes } from "./routes/assets.js";
@@ -26,15 +31,32 @@ import { registerStreamRoutes } from "./routes/stream.js";
 
 const createApp = (
   sessions: SessionStore,
-  launcher: SessionLauncher,
+  launcher: AgentDispatchLauncher,
   runner: Runner,
   opts: ServerOptions,
 ): FastifyInstance => {
+  const agents = opts.agents;
+  const multiAgent = agents.length > 1;
+  // Single-agent servers have no ambiguity to resolve — every id belongs
+  // to the sole agent whether or not it carries the namespace. Multi-
+  // agent servers resolve the agent from the id's prefix; an unprefixed
+  // id (which only a multi-agent store never mints) matches nothing.
+  const agentOf = (id: string): AgentRuntime | undefined => {
+    if (!multiAgent) return agents[0];
+    const split = splitNamespacedId(id);
+    return split === undefined
+      ? undefined
+      : agents.find((runtime) => runtime.id === split.agent);
+  };
   const ctx: ServerContext = {
     sessions,
     launcher,
     runner,
-    profile: opts.profile,
+    agents,
+    agentOf,
+    defaultAgent: agents[0],
+    agentNames: agents.map((runtime) => runtime.profile.agentName).join(" + "),
+    dataDirName: opts.dataDirName,
     auth: opts.auth,
     prompts: opts.prompts,
     groups: opts.groups,
@@ -48,11 +70,10 @@ const createApp = (
     maxStatusPolls: opts.maxStatusPolls ?? Infinity,
     runPrState: opts.runPrState,
     runGit: opts.runGit,
-    models: opts.models,
     cronDb: opts.cronDb,
     onCronJobsChange: opts.onCronJobsChange,
     createLocks: new Map(),
-    assets: buildAssetBundle(opts.profile.id),
+    assets: buildAssetBundle(opts.assetsFlavor),
   };
 
   // Uploads ride the body parser: the friendly per-file (50 MB) and

@@ -27,10 +27,11 @@ import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
 import { buildLocationContext, parseSharedLocation } from "../location.js";
 import { expandHome } from "../paths.js";
 import {
-  modelPicker,
+  combinedModelPicker,
   newSessionDetail,
   render,
   renderNotFound,
+  resolveAgentPick,
   sidebarEntries,
 } from "../render.js";
 import { activeRunPrompt } from "../session.js";
@@ -129,6 +130,7 @@ const registerSessionRoutes = (
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
     const cronJob =
       ctx.cronDb !== undefined ? jobNameFor(ctx.cronDb, id) : undefined;
+    const runtime = ctx.agentOf(id);
     return render(
       request,
       reply,
@@ -136,7 +138,7 @@ const registerSessionRoutes = (
       sessionsAll(),
       id,
       <Transcript
-        agentName={ctx.profile.agentName}
+        agentName={runtime?.profile.agentName ?? ctx.agentNames}
         session={session}
         messages={messages}
         run={includeRun ? getHandle(ctx.runner, id) : undefined}
@@ -177,18 +179,18 @@ const registerSessionRoutes = (
 
   // Lazy fragment behind the picker slot: resolving the catalogue may
   // spawn the agent binary, so the form renders instantly and swaps this in
-  // once it lands. A no-picker result still swaps a hidden placeholder —
-  // htmx skips empty response bodies, which would strand the loading slot.
+  // once it lands. One combined select — every served agent's default
+  // entry and models, the pick naming both. A no-picker result still swaps
+  // a hidden placeholder — htmx skips empty response bodies, which would
+  // strand the loading slot.
   app.get("/sessions/model-picker", async (request, reply) => {
-    const picker = await modelPicker(ctx, queryValue(request, "submitted"));
-    return sendHtml(
-      reply,
-      picker === undefined ? (
-        <span class="model-picker-empty" hidden />
-      ) : (
-        <ModelSelect agentName={ctx.profile.agentName} picker={picker} />
-      ),
+    const picker = await combinedModelPicker(
+      ctx,
+      queryValue(request, "submitted"),
     );
+    if (picker === undefined)
+      return sendHtml(reply, <span class="model-picker-empty" hidden />);
+    return sendHtml(reply, <ModelSelect picker={picker} />);
   });
 
   app.post("/sessions", async (request, reply) => {
@@ -199,9 +201,13 @@ const registerSessionRoutes = (
     const prompt = bodyField("prompt");
     const promptId = bodyField("prompt_id");
     const sessionMode = bodyField("session_mode");
-    const modelProvider = bodyField("model_provider");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
+    );
+    const { agentId, runtime, modelValue } = resolveAgentPick(
+      ctx,
+      bodyField("model"),
+      ctx.defaultAgent.id,
     );
 
     const files = collectFiles(body.uploads);
@@ -222,10 +228,13 @@ const registerSessionRoutes = (
           error,
           workingDir: submittedWorkingDir,
           prompt,
-          modelProvider,
+          model: bodyField("model"),
         }),
         { status, title: NEW_SESSION_TITLE },
       );
+
+    if (runtime === undefined)
+      return rejectForm(`Agent "${agentId}" is not enabled.`, 422);
 
     if (prompt === "")
       return rejectForm("A prompt is required to start a session.", 422);
@@ -234,10 +243,11 @@ const registerSessionRoutes = (
       return rejectForm(location.error, 422);
 
     // The dropdown listed render-time config; resolve the pick against a
-    // fresh read in case goose's config changed since the form was served.
-    const model = ctx.models?.resolve(modelProvider);
-    if (modelProvider !== "" && model === undefined)
-      return rejectForm(modelUnavailableError(ctx.profile.agentName), 422);
+    // fresh read in case the agent's config changed since the form was
+    // served.
+    const model = runtime.models?.resolve(modelValue);
+    if (modelValue !== "" && model === undefined)
+      return rejectForm(modelUnavailableError(runtime.profile.agentName), 422);
 
     if (
       sessionMode !== "temp" &&
@@ -246,9 +256,7 @@ const registerSessionRoutes = (
       return rejectForm("That working directory does not exist.", 422);
 
     const tempWorkingDir =
-      sessionMode === "temp"
-        ? createTempDir(ctx.profile.dataDirName)
-        : undefined;
+      sessionMode === "temp" ? createTempDir(ctx.dataDirName) : undefined;
     const workingDir = tempWorkingDir ?? submittedWorkingDir;
 
     // Save uploaded files into GLV's private storage and append their
@@ -257,7 +265,7 @@ const registerSessionRoutes = (
     let fullPrompt = prompt;
     if (files.length > 0)
       try {
-        const saved = await saveUploads(files, ctx.profile.dataDirName);
+        const saved = await saveUploads(files, ctx.dataDirName);
         fullPrompt = prompt + buildUploadContext(saved.paths);
         uploadDir = saved.dir;
       } catch (err) {
@@ -282,7 +290,12 @@ const registerSessionRoutes = (
         async (): Promise<EstablishOutcome> => {
           // Inside the per-directory lock so concurrent starts can't race the pull.
           await pullRepo(workingDir, ctx.runGit);
-          const handle = ctx.launcher.startNew(workingDir, fullPrompt, model);
+          const handle = ctx.launcher.startNewFor(
+            agentId,
+            workingDir,
+            fullPrompt,
+            model,
+          );
 
           const sessionId = await ctx.launcher.awaitNew(
             handle,
@@ -294,7 +307,7 @@ const registerSessionRoutes = (
             return {
               ok: false,
               status: 502,
-              error: ctx.profile.sessionTimeoutError,
+              error: runtime.profile.sessionTimeoutError,
             };
           }
           return ctx.launcher.establish(
@@ -368,7 +381,7 @@ const registerSessionRoutes = (
       return sendHtml(
         reply,
         <PromptBar
-          agentName={ctx.profile.agentName}
+          agentName={ctx.agentOf(id)?.profile.agentName ?? ctx.agentNames}
           sessionId={id}
           run={run}
           prompts={libraryPrompts()}
@@ -388,8 +401,8 @@ const registerSessionRoutes = (
       // the run writing into deleted directories.
       stop(ctx.runner, id);
       ctx.sessions.archiveSessions([id]);
-      deleteUploads(ctx.profile.dataDirName, id);
-      deleteTempDir(ctx.profile.dataDirName, id);
+      deleteUploads(ctx.dataDirName, id);
+      deleteTempDir(ctx.dataDirName, id);
       return newSessionLanding(request, reply);
     },
   );
@@ -407,8 +420,8 @@ const registerSessionRoutes = (
       ctx.sessions.deleteSessions([id]);
       if (ctx.groups !== undefined) removeMember(ctx.groups, id);
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
-      deleteUploads(ctx.profile.dataDirName, id);
-      deleteTempDir(ctx.profile.dataDirName, id);
+      deleteUploads(ctx.dataDirName, id);
+      deleteTempDir(ctx.dataDirName, id);
       return newSessionLanding(request, reply);
     },
   );
@@ -461,7 +474,7 @@ const registerSessionRoutes = (
       let uploadError: string | undefined;
       if (files.length > 0)
         try {
-          const saved = await saveUploads(files, ctx.profile.dataDirName);
+          const saved = await saveUploads(files, ctx.dataDirName);
           fullPrompt = prompt + buildUploadContext(saved.paths);
           tagDir(saved.dir, id);
         } catch (err) {
@@ -479,9 +492,11 @@ const registerSessionRoutes = (
       // text here too would double-display it. Skip enqueuing entirely when an
       // upload failed so the user can retry.
       let activePrompt: string | undefined;
-      if (prompt !== "" && uploadError === undefined) {
+      const runtime = ctx.agentOf(id);
+      if (prompt !== "" && uploadError === undefined && runtime !== undefined) {
         const { queued } = enqueueOrQueue(
           ctx.runner,
+          runtime.invocation,
           id,
           fullPrompt,
           session.working_dir,

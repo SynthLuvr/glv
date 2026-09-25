@@ -46,8 +46,9 @@ describe("tool extension badge", () => {
   });
 
   it("renders the extension badge on tool calls", async () => {
+    const url = `${env.baseUrl}/sessions/${gooseFixture.viewId("t-ext")}`;
     await withPage(env.context, async (page) => {
-      await page.goto(`${env.baseUrl}/sessions/t-ext`);
+      await page.goto(url);
       await expect(page.locator(".block.tool-call .tool-ext")).toHaveText(
         "developer",
       );

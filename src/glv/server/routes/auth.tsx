@@ -87,12 +87,12 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
 
   app.get("/auth/register", (_request, reply) => {
     if (auth.isClaimed()) return reply.redirect("/auth/login");
-    return sendHtml(reply, <RegisterPage agentName={ctx.profile.agentName} />);
+    return sendHtml(reply, <RegisterPage agentName={ctx.agentNames} />);
   });
 
   app.get("/auth/login", (_request, reply) => {
     if (!auth.isClaimed()) return reply.redirect("/auth/register");
-    return sendHtml(reply, <LoginPage agentName={ctx.profile.agentName} />);
+    return sendHtml(reply, <LoginPage agentName={ctx.agentNames} />);
   });
 
   app.get("/auth/register/options", async (request, reply) => {
@@ -138,7 +138,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
       reply,
       <DevicesPage
         credentials={auth.listCredentialSummaries()}
-        agentName={ctx.profile.agentName}
+        agentName={ctx.agentNames}
       />,
     ),
   );
@@ -152,7 +152,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     return sendHtml(
       reply,
       <DevicesPage
-        agentName={ctx.profile.agentName}
+        agentName={ctx.agentNames}
         credentials={auth.listCredentialSummaries()}
         enrollUrl={enrollUrl}
         token={token}
@@ -171,7 +171,7 @@ const registerAuthRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
         return reply.redirect("/auth/login");
       return sendHtml(
         reply,
-        <EnrollPage token={token} agentName={ctx.profile.agentName} />,
+        <EnrollPage token={token} agentName={ctx.agentNames} />,
       );
     },
   );

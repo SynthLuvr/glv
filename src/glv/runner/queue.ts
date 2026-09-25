@@ -3,6 +3,7 @@ import type { ModelSelection } from "../models.js";
 import { createRingBuffer } from "./ring-buffer.js";
 import { runProcess } from "./spawn.js";
 import type {
+  AgentInvocation,
   InternalHandle,
   Invocation,
   RunHandle,
@@ -68,11 +69,9 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
 // Advance to the next queued prompt after a run finishes, or end the chain.
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
-// glimpse the terminal status of the run that just finished.
-const advanceChain = (
-  runner: Runner,
-  handle: InternalHandle,
-): Invocation | undefined => {
+// glimpse the terminal status of the run that just finished. The handle's
+// own agent builds the resume argv — one pool serves several.
+const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   if (handle.status === "stopped") {
     handle.pendingPrompts = [];
     return undefined;
@@ -84,7 +83,7 @@ const advanceChain = (
   handle.error = undefined;
   handle.status = "running";
   return {
-    args: runner.config.agent.resume(handle.sessionId, nextPrompt),
+    args: handle.agent.resume(handle.sessionId, nextPrompt),
     stdin: nextPrompt,
   };
 };
@@ -94,6 +93,7 @@ const enqueueInvocation = (
   key: string,
   invocation: Invocation,
   workingDir: string,
+  agent: AgentInvocation,
 ): RunHandle => {
   const existing = runner.registry.get(key);
   if (existing !== undefined && isActiveStatus(existing.status))
@@ -105,6 +105,7 @@ const enqueueInvocation = (
     pendingPrompts: [],
     startedPrompts: [],
     workingDir,
+    agent,
     status: "queued",
     queuePosition: undefined,
     output: createRingBuffer(runner.config.maxLines),
@@ -132,7 +133,7 @@ const enqueueInvocation = (
       }
       handle.process = undefined;
 
-      currentInvocation = advanceChain(runner, handle);
+      currentInvocation = advanceChain(handle);
     }
     scheduleEviction(runner, handle);
   });
@@ -144,6 +145,7 @@ const enqueueInvocation = (
 // forwarded to the binary (claude's --session-id) or discovered afterwards.
 const enqueueNewSession = (
   runner: Runner,
+  agent: AgentInvocation,
   key: string,
   prompt: string,
   workingDir: string,
@@ -152,13 +154,15 @@ const enqueueNewSession = (
   enqueueInvocation(
     runner,
     key,
-    { args: runner.config.agent.newSession(prompt, key, model), stdin: prompt },
+    { args: agent.newSession(prompt, key, model), stdin: prompt },
     workingDir,
+    agent,
   );
 
 // A follow-up run on an existing session.
 const enqueueRun = (
   runner: Runner,
+  agent: AgentInvocation,
   key: string,
   prompt: string,
   workingDir: string,
@@ -166,12 +170,14 @@ const enqueueRun = (
   enqueueInvocation(
     runner,
     key,
-    { args: runner.config.agent.resume(key, prompt), stdin: prompt },
+    { args: agent.resume(key, prompt), stdin: prompt },
     workingDir,
+    agent,
   );
 
 const enqueueOrQueue = (
   runner: Runner,
+  agent: AgentInvocation,
   sessionId: string,
   prompt: string,
   workingDir: string,
@@ -182,7 +188,7 @@ const enqueueOrQueue = (
     return { handle: existing, queued: true };
   }
   return {
-    handle: enqueueRun(runner, sessionId, prompt, workingDir),
+    handle: enqueueRun(runner, agent, sessionId, prompt, workingDir),
     queued: false,
   };
 };

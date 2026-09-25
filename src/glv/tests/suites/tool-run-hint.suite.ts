@@ -34,7 +34,7 @@ const runToolRunHintSuite = (fx: FlavorFixture): void => {
   };
 
   const startRun = (id: string): Promise<Response> =>
-    authedFetch(env, `/sessions/${id}/prompt`, {
+    authedFetch(env, `/sessions/${fx.viewId(id)}/prompt`, {
       method: "POST",
       body: new URLSearchParams({ prompt: "keep going" }),
       headers: { "HX-Request": "true" },
@@ -65,7 +65,7 @@ const runToolRunHintSuite = (fx: FlavorFixture): void => {
       const deadline = Date.now() + 15000;
       let html = "";
       while (Date.now() < deadline) {
-        const res = await authedFetch(env, "/sessions/th-http");
+        const res = await authedFetch(env, `/sessions/${fx.viewId("th-http")}`);
         html = await res.text();
         if (html.includes("data-tool-running")) break;
         await sleep(200);
@@ -83,7 +83,7 @@ const runToolRunHintSuite = (fx: FlavorFixture): void => {
       let answered = false;
       const stream = collectSse(
         env,
-        "/sessions/th-sse/events",
+        `/sessions/${fx.viewId("th-sse")}/events`,
         (evs) => evs.length > 0 && sawTool !== undefined && sawCleared,
         20000,
         (e) => {
@@ -120,7 +120,7 @@ const runToolRunHintSuite = (fx: FlavorFixture): void => {
     it("ticks the elapsed time and reverts when the tool answers", async () => {
       await startRun("th-live");
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/th-live`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("th-live")}`);
         const hint = page.locator(".status-hint.running[data-tool-running]");
         await expect(hint).toBeVisible({ timeout: 15000 });
         await expect(hint).toContainText("bash running for");

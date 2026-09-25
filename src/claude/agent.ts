@@ -1,3 +1,4 @@
+import type { ModelSelection } from "../glv/models.js";
 import type { AgentInvocation } from "../glv/runner/types.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../glv/system.js";
 import { claudeProfile } from "./profile.js";
@@ -54,6 +55,18 @@ const SYSTEM_FLAGS = ["--append-system-prompt", DEFAULT_SYSTEM_PROMPT];
 const permissionFlags = (mode: string): string[] =>
   mode === "inherit" ? [] : ["--permission-mode", mode];
 
+// DESIGN DECISION: --model is passed on new sessions only, and only when
+// the New Session form picked a specific model. Resumed sessions keep the
+// model they were using when the transcript was saved (documented claude
+// behaviour: --resume restores the transcript's model regardless of the
+// current setting), so follow-ups pass no --model — same rule as goose.
+// The value is an alias ("sonnet") or a full model name; claude resolves
+// it. No selection (the "claude default" option) passes no flag, so
+// claude's own precedence (env, settings, runtime default) stays in
+// charge.
+const modelFlags = (model: ModelSelection | undefined): string[] =>
+  model === undefined ? [] : ["--model", model.model];
+
 // glv pre-assigns the session id (verified: claude 2.1.232 honours
 // --session-id and names the transcript <uuid>.jsonl accordingly), so the
 // runner's handle key is forwarded to the binary and the id is known before
@@ -69,10 +82,11 @@ const makeClaudeAgent = (
   return {
     name: claudeProfile.agentName,
     binary,
-    newSession: (_prompt, key) => [
+    newSession: (_prompt, key, model) => [
       "--session-id",
       key,
       ...SYSTEM_FLAGS,
+      ...modelFlags(model),
       ...permissionFlags(permissionMode),
       ...STREAM_FLAGS,
     ],

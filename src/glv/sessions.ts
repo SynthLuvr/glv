@@ -1,5 +1,9 @@
 type SessionRow = {
   id: string;
+  // The agent a namespaced id belongs to ("goose", "claude"). Set by the
+  // composite store when several agents share one server; absent on
+  // single-flavor rows, where the id is native.
+  agent?: string;
   name: string;
   // goose's schema stores 0/1 with NULL for legacy rows; claude derives 0/1.
   user_set_name: number | null;

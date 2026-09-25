@@ -30,7 +30,7 @@ const defaultSessionsDb = (home: string): string =>
     : join(home, ".local", "share", "goose", "sessions", "sessions.db");
 
 describe("default goose sessions db path", () => {
-  it("serves sessions from the platform-default location with no --db or env override", async () => {
+  it("serves sessions from the platform-default location with no --goose-db or env override", async () => {
     const home = mkdtempSync(join(tmpdir(), "glv-defaultdb-"));
     const sessionsDb = defaultSessionsDb(home);
     mkdirSync(dirname(sessionsDb), { recursive: true });
@@ -39,9 +39,9 @@ describe("default goose sessions db path", () => {
     db.exec(SESSIONS_SCHEMA);
     db.close();
 
-    // Boots the real launcher with neither --db nor GOOSE_SESSIONS_DB, so
-    // the sessions DB must resolve purely by platform default; glv-owned
-    // databases still come from scratch.
+    // Boots the real launcher with neither --goose-db nor
+    // GOOSE_SESSIONS_DB, so the sessions DB must resolve purely by
+    // platform default; glv-owned databases still come from scratch.
     const adapter: harness.FlavorAdapter = {
       name: "goose",
       binPath: GLV,

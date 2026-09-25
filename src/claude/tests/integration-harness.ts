@@ -8,7 +8,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mockBin } from "type-a-bin";
 import { openMetaDb } from "../../glv/session-meta.js";
@@ -25,7 +25,7 @@ const claudeMockScriptPath = fileURLToPath(
   new URL("./claude-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(harness.ROOT, "bin", "glv-claude.mjs");
+const GLV = join(harness.ROOT, "bin", "glv.mjs");
 
 const mockClaude = (): Promise<() => void> =>
   mockBin("claude", { file: claudeMockScriptPath });
@@ -49,9 +49,15 @@ const claudeAdapter: harness.FlavorAdapter = {
   mockScriptPath: claudeMockScriptPath,
   mockEnvPrefix: "CLAUDE",
   createDatabases,
+  // There is no agent-choice flag, so the fixture stays single-agent by
+  // pinning goose's store override at a path that never exists: on a
+  // host with a real goose data directory, the default both-agents set
+  // would otherwise leak it into this fixture's sidebar.
   serveArgs: (dbs) => [
     "--projects-dir",
     dbs.flavor.projectsDir,
+    "--goose-db",
+    join(dirname(dbs.flavor.projectsDir), "no-goose-sessions.db"),
     "--meta-db",
     dbs.flavor.metaDb,
     ...harness.dbOverrideArgs(dbs),
@@ -157,7 +163,9 @@ const startIntegrationEnv = harness.makeStartEnv(claudeAdapter);
 const claudeFixture: harness.FlavorFixture = {
   name: "claude",
   displayName: "Claude",
-  binName: "glv-claude",
+  binName: "glv",
+  dataDirName: "glv",
+  viewId: (id) => `claude:${id}`,
   mockReply: "mock claude reply",
   startEnv: startIntegrationEnv,
   seedSessions: (env, seeds) =>
@@ -231,13 +239,24 @@ const claudeFixture: harness.FlavorFixture = {
   binaryFlag: "--claude-binary",
   binPath: GLV,
   mockAgent: mockClaude,
-  defaultServeArgs: (homeDir) => [
-    "--projects-dir",
-    join(homeDir, ".claude", "projects"),
-    "--claude-binary",
-    "claude",
+  defaultServeArgs: (homeDir) => {
+    // The projects root must exist for serve to count claude as
+    // available — there is no single-agent escape hatch anymore.
+    mkdirSync(join(homeDir, ".claude", "projects"), { recursive: true });
+    return [
+      "--projects-dir",
+      join(homeDir, ".claude", "projects"),
+      "--claude-binary",
+      "claude",
+    ];
+  },
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "claude-meta.db",
   ],
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db", "meta.db"],
   assertNewRunArgs: (args) => {
     // The session id is pre-assigned, not discovered after the fact.
     const id = args[args.indexOf("--session-id") + 1];

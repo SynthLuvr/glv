@@ -67,6 +67,25 @@ const openDb = (
   }
 };
 
+// The handle pair serve opens: writable first — read-only mode cannot
+// create the file, so serve works before goose has ever run — with both
+// handles waiting out a concurrent goose write, because node:sqlite's
+// default busy timeout is 0 (fail at once), which the sidebar,
+// transcript, and launch-poll reads must outlive.
+const openServeDbs = (
+  override?: string,
+): {
+  readonly db: DatabaseSync;
+  readonly dbWritable: DatabaseSync;
+} => {
+  const dbPath = resolveDbPath(override);
+  const dbWritable = openDb(dbPath, { readOnly: false });
+  dbWritable.exec("PRAGMA busy_timeout=5000");
+  const db = openDb(dbPath);
+  db.exec("PRAGMA busy_timeout=5000");
+  return { db, dbWritable };
+};
+
 // goose owns this schema and only creates it on its first run, so serve may
 // boot against an empty database file. Reads degrade to empty results there —
 // the viewer shows "no sessions" instead of 500-ing every route until goose
@@ -281,6 +300,7 @@ export {
   createSessionStore,
   getSession,
   openDb,
+  openServeDbs,
   resolveDbPath,
   sessionIdsInDir,
 };

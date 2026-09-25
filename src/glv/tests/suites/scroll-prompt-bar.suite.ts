@@ -39,7 +39,7 @@ const runScrollPromptBarSuite = (fx: FlavorFixture): void => {
       );
 
       await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/scroll-flush`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("scroll-flush")}`);
 
         const bar = page.locator("[data-prompt-bar]");
         const pane = page.locator("#detail-pane");

@@ -50,7 +50,7 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
 
       try {
         await waitForHttp(baseUrl);
-        const dataDir = defaultDataDir(homeDir, fx.binName);
+        const dataDir = defaultDataDir(homeDir, fx.dataDirName);
         for (const file of fx.defaultDbFiles)
           expect(existsSync(join(dataDir, file))).toBe(true);
       } finally {
@@ -81,7 +81,7 @@ const runDefaultDataDirsSuite = (fx: FlavorFixture): void => {
       );
       try {
         await waitForHttp(baseUrl);
-        const dataDir = defaultDataDir(emptyHome, fx.binName);
+        const dataDir = defaultDataDir(emptyHome, fx.dataDirName);
         expect(existsSync(join(dataDir, "auth.db"))).toBe(true);
       } finally {
         await stopProcess(proc);

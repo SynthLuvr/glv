@@ -100,10 +100,11 @@ const runProcess = async (
   handle: InternalHandle,
   invocation: Invocation,
 ): Promise<void> => {
-  const proc = runner.spawn(runner.config.agent.binary, invocation.args, {
+  // The handle's own agent spawns the process — one pool, many agents.
+  const proc = runner.spawn(handle.agent.binary, invocation.args, {
     stdin: invocation.stdin,
     cwd: handle.workingDir,
-    env: runner.config.agent.env(),
+    env: handle.agent.env(),
   });
   handle.process = proc;
 
@@ -128,7 +129,7 @@ const runProcess = async (
     if (handle.status === "stopped") return;
     handle.status = result.exitCode === 0 ? "completed" : "error";
     if (result.exitCode !== 0)
-      handle.error = describeFailure(result, runner.config.agent.name);
+      handle.error = describeFailure(result, handle.agent.name);
   } finally {
     stopEscalation();
   }

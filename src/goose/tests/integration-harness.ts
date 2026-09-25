@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { mockBin } from "type-a-bin";
@@ -53,7 +53,7 @@ const gooseMockScriptPath = fileURLToPath(
   new URL("./goose-mock-script.ts", import.meta.url),
 );
 
-const GLV = join(harness.ROOT, "bin", "glv-goose.mjs");
+const GLV = join(harness.ROOT, "bin", "glv.mjs");
 
 const mockGoose = (): Promise<() => void> =>
   mockBin("goose", { file: gooseMockScriptPath });
@@ -76,9 +76,17 @@ const gooseAdapter: harness.FlavorAdapter = {
   mockScriptPath: gooseMockScriptPath,
   mockEnvPrefix: "GOOSE",
   createDatabases,
+  // There is no agent-choice flag, so the fixture stays single-agent by
+  // pinning claude's store override at a path that never exists: on a
+  // host with a real ~/.claude, the default both-agents set would
+  // otherwise leak it into this fixture's sidebar. The goose sessions
+  // database is --goose-db (the merged CLI's spelling) and session ids
+  // list namespaced ("goose:<id>").
   serveArgs: (dbs) => [
-    "--db",
+    "--goose-db",
     dbs.flavor.sessionsDb,
+    "--projects-dir",
+    join(dirname(dbs.flavor.sessionsDb), "no-claude-projects"),
     ...harness.dbOverrideArgs(dbs),
     "--goose-binary",
     "goose",
@@ -139,7 +147,9 @@ const startIntegrationEnv = harness.makeStartEnv(gooseAdapter);
 const gooseFixture: harness.FlavorFixture = {
   name: "goose",
   displayName: "Goose",
-  binName: "glv-goose",
+  binName: "glv",
+  dataDirName: "glv",
+  viewId: (id) => `goose:${id}`,
   mockReply: "mock goose reply",
   startEnv: startIntegrationEnv,
   seedSessions: (env, seeds) =>
@@ -219,7 +229,7 @@ const gooseFixture: harness.FlavorFixture = {
     sdb.exec("PRAGMA journal_mode=WAL");
     sdb.exec(SESSIONS_SCHEMA);
     sdb.close();
-    return ["--db", sessionsDb, "--goose-binary", "goose"];
+    return ["--goose-db", sessionsDb, "--goose-binary", "goose"];
   },
   defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db"],
 };

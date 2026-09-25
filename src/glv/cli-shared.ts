@@ -24,6 +24,26 @@ const parsePositiveInt = (value: string): number => {
   return result;
 };
 
+// Commander option parser for a closed set of values.
+const parseChoice =
+  (choices: readonly string[]) =>
+  (value: string): string => {
+    if (!choices.includes(value))
+      throw new InvalidArgumentError(`must be one of: ${choices.join(", ")}`);
+    return value;
+  };
+
+// Reads a string option out of commander's option bag, falling back to
+// the option's default when a parser never landed a value in the record.
+const optString = (
+  opts: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string => {
+  const value = opts[key];
+  return typeof value === "string" ? value : fallback;
+};
+
 // An explicit path must exist on disk; a bare name must be found on PATH
 // (which honors PATHEXT on Windows and checks the executable bit, which
 // existence checks alone miss). The caller's spelling is kept — bare
@@ -59,8 +79,8 @@ const registerViewCommand = (
     .description("Show prompts and final outputs for a session")
     .action((sessionId: string) => run(sessionId));
 
-// The serve options every flavor shares, appended after the
-// flavor-specific binary/permission flags.
+// The serve options every program shares, appended after serve's own
+// agent binary/permission flags.
 const addServeTailOptions = (cmd: Command): Command =>
   cmd
     .option("--rp-name <name>", "WebAuthn relying party name", "GLV")
@@ -70,30 +90,27 @@ const addServeTailOptions = (cmd: Command): Command =>
     )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
-type ServeTailOpts = {
-  rpName: string;
-  rpId?: string;
-  debug?: boolean;
-};
-
+// Commander hands the action a plain option bag, so the tail is read
+// out of unknown values with the same defaults commander's parsers
+// applied — narrowed, not cast.
 const serveTail = (
-  opts: ServeTailOpts,
+  opts: Record<string, unknown>,
 ): {
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
 } => ({
-  rpName: opts.rpName,
-  rpIdOverride: opts.rpId,
+  rpName: typeof opts.rpName === "string" ? opts.rpName : "GLV",
+  rpIdOverride: typeof opts.rpId === "string" ? opts.rpId : undefined,
   debug: opts.debug === true,
 });
 
 // Raw argv can't decide "is there a subcommand" by sign alone: a global
-// option's *value* (`glv-goose --db /path/sessions.db`) is also a non-dash
-// token, which used to suppress the `sessions` default and fail with an
-// unknown-command error. Skip the values of value-taking global options
-// instead; the flag list comes from the program itself, so each flavor's
-// globals are covered without a hardcoded list. (commander's `required`
+// option's *value* (`glv --goose-db /path/sessions.db`) is also a
+// non-dash token, which used to suppress the `sessions` default and fail
+// with an unknown-command error. Skip the values of value-taking global
+// options instead; the flag list comes from the program itself, so every
+// global is covered without a hardcoded list. (commander's `required`
 // means "takes a <value>", not "must be present".)
 const hasSubcommandArg = (program: Command, argv: string[]): boolean => {
   const valueFlags = new Set<string>();
@@ -134,6 +151,8 @@ const runMain = (program: Command): void => {
 export {
   addServeTailOptions,
   makeRunnerConfig,
+  optString,
+  parseChoice,
   parsePositiveInt,
   readGlobalOpts,
   registerViewCommand,

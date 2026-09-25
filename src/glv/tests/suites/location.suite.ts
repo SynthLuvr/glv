@@ -170,7 +170,7 @@ const runLocationSuite = (fx: FlavorFixture): void => {
           longitude: LON,
           accuracy: 30,
         });
-        await page.goto(`${env.baseUrl}/sessions/loc-followup`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("loc-followup")}`);
         await expect(page.locator("form.prompt-bar")).toBeVisible();
 
         await page.locator("form.prompt-bar .location-btn").click();

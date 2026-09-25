@@ -36,11 +36,15 @@ const runOobSwapStateSuite = (fx: FlavorFixture): void => {
 
   describe("out-of-band sidebar swaps preserve client state", () => {
     it("keeps a collapsed group collapsed after a header rename", async () => {
-      const groupRes = await authedFetch(env, "/sessions/o-a/group-with", {
-        method: "POST",
-        body: new URLSearchParams({ otherId: "o-b" }),
-        headers: { "HX-Request": "true" },
-      });
+      const groupRes = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("o-a")}/group-with`,
+        {
+          method: "POST",
+          body: new URLSearchParams({ otherId: fx.viewId("o-b") }),
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(groupRes.status).toBe(200);
 
       await withPage(env.context, async (page) => {
@@ -55,7 +59,7 @@ const runOobSwapStateSuite = (fx: FlavorFixture): void => {
         // session by URL (collapse hides the member links) and rename it
         // from the transcript header — the response swaps the title and
         // re-renders the sidebar out-of-band.
-        await page.goto(`${env.baseUrl}/sessions/o-a`);
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("o-a")}`);
         await expect(page.locator("#detail-pane")).toContainText("OOB Alpha");
         await expect(page.locator(".session-group")).toHaveClass(/collapsed/);
         await page.locator("#detail-pane [data-action='rename']").click();

@@ -76,13 +76,13 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
 
   describe("group routes", () => {
     it("creates a group around one session, then a second session joins it", async () => {
-      const create = await post("/sessions/gr-a/group", {});
+      const create = await post(`/sessions/${fx.viewId("gr-a")}/group`, {});
       expect(create.status).toBe(200);
       expect(await create.text()).toContain('id="session-list"');
-      const groupId = groupContaining("gr-a");
+      const groupId = groupContaining(fx.viewId("gr-a"));
       expect(groupId).toBeDefined();
 
-      const join = await post("/sessions/gr-b/group", {
+      const join = await post(`/sessions/${fx.viewId("gr-b")}/group`, {
         groupId: groupId ?? "",
       });
       expect(join.status).toBe(200);
@@ -93,15 +93,21 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("rejects joining an unknown group with 404", async () => {
-      const res = await post("/sessions/gr-c/group", { groupId: "nope" });
+      const res = await post(`/sessions/${fx.viewId("gr-c")}/group`, {
+        groupId: "nope",
+      });
       expect(res.status).toBe(404);
     });
 
     it("ignores a self-pairing and an empty target", async () => {
       const before = groupsSnapshot();
-      const self = await post("/sessions/gr-d/group-with", { otherId: "gr-d" });
+      const self = await post(`/sessions/${fx.viewId("gr-d")}/group-with`, {
+        otherId: fx.viewId("gr-d"),
+      });
       expect(self.status).toBe(200);
-      const empty = await post("/sessions/gr-e/group-with", { otherId: "" });
+      const empty = await post(`/sessions/${fx.viewId("gr-e")}/group-with`, {
+        otherId: "",
+      });
       expect(empty.status).toBe(200);
 
       const after = groupsSnapshot();
@@ -111,7 +117,9 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("pairs two ungrouped sessions into a new group", async () => {
-      const res = await post("/sessions/gr-f/group-with", { otherId: "gr-g" });
+      const res = await post(`/sessions/${fx.viewId("gr-f")}/group-with`, {
+        otherId: fx.viewId("gr-g"),
+      });
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("session-group");
@@ -120,14 +128,21 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("joins the target session's existing group", async () => {
-      const res = await post("/sessions/gr-h/group-with", { otherId: "gr-f" });
+      const res = await post(`/sessions/${fx.viewId("gr-h")}/group-with`, {
+        otherId: fx.viewId("gr-f"),
+      });
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("GR-F");
       expect(html).toContain("GR-G");
       expect(html).toContain("GR-H");
-      const members = groupsSnapshot().get(groupContaining("gr-f") ?? "");
-      expect(members?.sort()).toEqual(["gr-f", "gr-g", "gr-h"]);
+      const members = groupsSnapshot().get(
+        groupContaining(fx.viewId("gr-f")) ?? "",
+      );
+      // Sidecar rows carry the namespaced ids the routes write.
+      expect(members?.sort()).toEqual(
+        ["gr-f", "gr-g", "gr-h"].map((id) => fx.viewId(id)),
+      );
     });
 
     it("rejects archiving an unknown group with 404", async () => {
@@ -136,7 +151,7 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
     });
 
     it("ungroups a session that never belonged to one", async () => {
-      const res = await post("/sessions/gr-e/ungroup", {});
+      const res = await post(`/sessions/${fx.viewId("gr-e")}/ungroup`, {});
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('id="session-list"');
     });

@@ -24,7 +24,11 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
   };
 
   const meta = (id: string): Promise<Response> =>
-    authedFetch(env, `/sessions/${id}/sidebar-meta`);
+    authedFetch(env, `/sessions/${fx.viewId(id)}/sidebar-meta`);
+
+  // The DOM id a session's sidebar-meta span carries: the namespaced id
+  // with the separator sanitized (querySelector-unsafe inside an id).
+  const metaDomId = (id: string): string => fx.viewId(id).replaceAll(":", "_");
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-prchips-");
@@ -161,16 +165,21 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
       const res = await authedFetch(env, "/sessions/sidebar-meta");
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain('id="sidebar-meta-pr-created"');
+      expect(html).toContain(`id="sidebar-meta-${metaDomId("pr-created")}"`);
       expect(html).toContain("pull/205");
       expect(html).toContain("pull/202");
       // Every session gets a slot; the PR-less one renders an empty span.
-      const none = /id="sidebar-meta-pr-none"[^>]*><\/span>/.exec(html);
+      const none = new RegExp(
+        `id="sidebar-meta-${metaDomId("pr-none")}"[^>]*><\\/span>`,
+      ).exec(html);
       expect(none).not.toBeNull();
     });
 
     it("resolves the branch and worktree through the git-info route", async () => {
-      const res = await authedFetch(env, "/sessions/pr-created/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pr-created")}/git-info`,
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("git-chip-branch");
@@ -179,7 +188,10 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns an empty git-info body for a session without a PR", async () => {
-      const res = await authedFetch(env, "/sessions/pr-none/git-info");
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("pr-none")}/git-info`,
+      );
       expect(res.status).toBe(200);
       expect((await res.text()).trim()).toBe("");
     });

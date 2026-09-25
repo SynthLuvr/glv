@@ -1,4 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import {
+  establishSession,
+  launcherKeys,
+  prefixedInvocation,
+} from "../glv/composite-launcher.js";
 import type { SessionLauncher } from "../glv/launch.js";
 import {
   enqueueNewSession,
@@ -7,6 +12,7 @@ import {
   rekey,
   stop,
 } from "../glv/runner/index.js";
+import type { AgentInvocation } from "../glv/runner/types.js";
 import { getSession, sessionIdsInDir } from "./db.js";
 
 const sleep = (ms: number): Promise<void> =>
@@ -17,18 +23,34 @@ const sleep = (ms: number): Promise<void> =>
 // not exist before the run was enqueued. `known` must be captured before
 // enqueueing; otherwise a fast run could write its session before the
 // snapshot and hide it from the discovery poll.
+//
+// Under the merged product every id that crosses the launcher boundary is
+// namespaced ("goose:<id>"); `prefix` ("goose") decides. Runner registry
+// keys are namespaced too; the argv builder receives native ids through
+// the prefixed invocation view.
 const makeGooseLauncher = (
   db: DatabaseSync,
   runner: Runner,
+  invocation: AgentInvocation,
   timeoutError: string,
+  prefix: string,
 ): SessionLauncher => {
+  const keys = launcherKeys(prefix);
+  const agent = prefixedInvocation(invocation, prefix);
   const knownIds = new Map<string, Set<string>>();
   return {
     startNew: (workingDir, prompt, model) => {
       const tempKey = generateTempKey();
-      knownIds.set(tempKey, new Set(sessionIdsInDir(db, workingDir)));
-      enqueueNewSession(runner, tempKey, prompt, workingDir, model);
-      return tempKey;
+      knownIds.set(keys.out(tempKey), new Set(sessionIdsInDir(db, workingDir)));
+      enqueueNewSession(
+        runner,
+        agent,
+        keys.out(tempKey),
+        prompt,
+        workingDir,
+        model,
+      );
+      return keys.out(tempKey);
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {
       const known = knownIds.get(handle) ?? new Set<string>();
@@ -37,7 +59,7 @@ const makeGooseLauncher = (
         const found = sessionIdsInDir(db, workingDir).find(
           (id) => !known.has(id),
         );
-        if (found !== undefined) return found;
+        if (found !== undefined) return keys.out(found);
         await sleep(50);
       }
       knownIds.delete(handle);
@@ -51,12 +73,13 @@ const makeGooseLauncher = (
         stop(runner, handle);
         return { ok: false, status: 409, error: conflictError };
       }
-      const session = getSession(db, sessionId);
-      if (session === undefined) {
-        stop(runner, sessionId);
-        return { ok: false, status: 502, error: timeoutError };
-      }
-      return { ok: true, sessionId, session };
+      return establishSession(
+        () => getSession(db, keys.native(sessionId)),
+        runner,
+        handle,
+        sessionId,
+        timeoutError,
+      );
     },
   };
 };

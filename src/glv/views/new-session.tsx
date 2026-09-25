@@ -1,5 +1,5 @@
 import { shortenHome } from "../../glv/format/index.js";
-import type { ModelChoice } from "../../glv/models.js";
+import { encodeAgentModelValue, type ModelChoice } from "../../glv/models.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
@@ -46,28 +46,75 @@ const TempDirBody = () => (
 
 // Render-ready picker state; NewSessionForm hides the field when absent.
 type ModelPicker = {
-  readonly choices: readonly ModelChoice[];
-  readonly defaultLabel: string;
+  readonly groups: readonly AgentModelGroup[];
+  /** The combined value to preselect (a restored submit, or the default
+   * agent's default entry). */
   readonly selected: string;
 };
 
-// Choices arrive provider-ordered with each provider's models contiguous;
-// bucket them so the select shows one optgroup per provider.
-type ModelGroup = {
-  readonly provider: string;
-  readonly choices: ModelChoice[];
+// One served agent's slice of the combined model picker: its default
+// entry and its choices share one optgroup, and every value carries the
+// agent prefix that routes the submit.
+type AgentModelGroup = {
+  readonly agent: string;
+  readonly label: string;
+  /** "provider / model" of the agent's own default; "" when it has no
+   * readable one and the option drops the suffix. */
+  readonly defaultLabel: string;
+  readonly choices: readonly ModelChoice[];
 };
 
-const groupByProvider = (choices: readonly ModelChoice[]): ModelGroup[] => {
-  const groups: ModelGroup[] = [];
-  for (const choice of choices) {
-    const last = groups[groups.length - 1];
-    if (last !== undefined && last.provider === choice.provider)
-      last.choices.push(choice);
-    else groups.push({ provider: choice.provider, choices: [choice] });
-  }
-  return groups;
+// With several providers behind one agent, a bare model label loses the
+// provider context the old per-provider optgroups carried — prefix
+// labels only when the agent actually spans providers.
+const groupChoices = (group: AgentModelGroup) => {
+  const providers = new Set(group.choices.map((choice) => choice.provider));
+  return group.choices.map((choice) => ({
+    value: encodeAgentModelValue(group.agent, choice.value),
+    label:
+      providers.size > 1
+        ? `${choice.provider} / ${choice.label}`
+        : choice.label,
+  }));
 };
+
+// The combined picker: one select choosing the agent and the model. Each
+// agent's optgroup leads with its "<agent> default" entry — an empty
+// model value, so the run passes no model flags and the agent's own
+// precedence applies — followed by every model it offers.
+const ModelSelect = ({ picker }: { picker: ModelPicker }) => (
+  <label class="form-field">
+    <span class="form-label">Model</span>
+    <select name="model" class="form-input">
+      {picker.groups.map((group) => {
+        const defaultValue = encodeAgentModelValue(group.agent, "");
+        return (
+          <optgroup label={group.label}>
+            <option
+              value={defaultValue}
+              selected={picker.selected === defaultValue}
+            >
+              {group.label} default
+              {group.defaultLabel === "" ? "" : ` — ${group.defaultLabel}`}
+            </option>
+            {groupChoices(group).map((choice) => (
+              <option
+                value={choice.value}
+                selected={picker.selected === choice.value}
+              >
+                {choice.label}
+              </option>
+            ))}
+          </optgroup>
+        );
+      })}
+    </select>
+    <span class="model-hint">
+      Each agent lists the models configured in it; the default entry lets the
+      agent choose. Add goose providers with goose configure.
+    </span>
+  </label>
+);
 
 // Stand-in rendered in place of the picker; the real <select> loads lazily
 // because resolving the catalogue can spawn the agent binary, and the form
@@ -89,41 +136,6 @@ const ModelPickerSlot = ({ submitted }: { submitted?: string }) => {
     </div>
   );
 };
-
-// The first option ("<agent> default — …") submits an empty value so the
-// run passes no model flags and the agent's own precedence applies.
-const ModelSelect = ({
-  agentName,
-  picker,
-}: {
-  agentName: string;
-  picker: ModelPicker;
-}) => (
-  <label class="form-field">
-    <span class="form-label">Model</span>
-    <select name="model_provider" class="form-input">
-      <option value="" selected={picker.selected === ""}>
-        {agentName} default — {picker.defaultLabel}
-      </option>
-      {groupByProvider(picker.choices).map((group) => (
-        <optgroup label={group.provider}>
-          {group.choices.map((choice) => (
-            <option
-              value={choice.value}
-              selected={picker.selected === choice.value}
-            >
-              {choice.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-    <span class="model-hint">
-      Providers configured in {agentName} only; add more with {agentName}{" "}
-      configure.
-    </span>
-  </label>
-);
 
 const SourceToggle = () => (
   <fieldset class="source-toggle">
@@ -202,9 +214,11 @@ const NewSessionForm = ({
         <WorkingDirBody workingDir={workingDir} dirs={dirs} />
         <TempDirBody />
       </div>
-      {modelPicker !== undefined && (
-        <ModelPickerSlot submitted={modelPicker.submitted} />
-      )}
+      <div class="model-picker-wrap" data-model-picker-wrap>
+        {modelPicker !== undefined && (
+          <ModelPickerSlot submitted={modelPicker.submitted} />
+        )}
+      </div>
       <label class="form-field">
         <span class="form-label">Prompt</span>
         <textarea
@@ -242,10 +256,5 @@ const NotFoundDetail = ({ id }: { id: string }) => (
   </div>
 );
 
-export {
-  ModelPicker,
-  ModelPickerSlot,
-  ModelSelect,
-  NewSessionForm,
-  NotFoundDetail,
-};
+export type { AgentModelGroup, ModelPicker };
+export { ModelPickerSlot, ModelSelect, NewSessionForm, NotFoundDetail };

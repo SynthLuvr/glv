@@ -28,9 +28,11 @@ type AgentInvocation = {
   readonly env: () => Record<string, string>;
 };
 
+// The agent is not part of the config: one runner serves several agents
+// (one concurrency pool across all of them), so the invocation travels
+// with each enqueue instead.
 type RunnerConfig = {
   maxConcurrent: number;
-  agent: AgentInvocation;
   /** Grace window (ms) after each stop signal before escalating it. */
   stopGraceMs: number;
   /** Max NDJSON lines retained per run before the oldest are dropped. */
@@ -52,13 +54,10 @@ const RunnerConfigSchema = type({
 
 const makeRunnerConfig = (
   maxConcurrent: number,
-  agent: AgentInvocation,
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
   maxLines: number = DEFAULT_MAX_LINES,
   terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
 ): RunnerConfig => {
-  if (agent.binary.trim() === "")
-    throw new Error("Invalid runner configuration: agent binary is empty");
   const result = RunnerConfigSchema({
     maxConcurrent,
     stopGraceMs,
@@ -67,7 +66,7 @@ const makeRunnerConfig = (
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
-  return { maxConcurrent, agent, stopGraceMs, maxLines, terminalRetentionMs };
+  return { maxConcurrent, stopGraceMs, maxLines, terminalRetentionMs };
 };
 
 type RunStatus = "queued" | "running" | "completed" | "stopped" | "error";
@@ -121,6 +120,9 @@ type InternalHandle = Omit<
   pendingPrompts: string[];
   startedPrompts: string[];
   readonly workingDir: string;
+  // The agent this run belongs to: one pool serves several, so argv
+  // building and spawning read it per handle.
+  readonly agent: AgentInvocation;
   cancelled: boolean;
   process: SpawnedProcess | undefined;
   // Retention timer that eventually deletes a terminal handle from the registry.

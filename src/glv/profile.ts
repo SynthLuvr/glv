@@ -10,7 +10,10 @@ type FlavorProfile = {
   readonly streamEnvelope: StreamEnvelope;
   /** The agent's name in user-facing copy ("goose", "claude"). */
   readonly agentName: string;
-  /** Viewer-owned data directory name ("glv-goose", "glv-claude"). */
+  /**
+   * The flavor's legacy data directory name ("glv-goose", "glv-claude")
+   * — what the one-time migration adopts into the unified "glv" dir.
+   */
   readonly dataDirName: string;
   /** 502 copy shown when a launched run never creates its session. */
   readonly sessionTimeoutError: string;

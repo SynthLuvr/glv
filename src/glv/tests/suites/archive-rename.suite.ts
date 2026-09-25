@@ -62,7 +62,7 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
 
   describe("archive", () => {
     it("archives a single session from the transcript button and hides it", async () => {
-      const res = await post("/sessions/ar-a/archive", {});
+      const res = await post(`/sessions/${fx.viewId("ar-a")}/archive`, {});
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("new-session-form");
       expect(col("ar-a", "archived_at")).not.toBeNull();
@@ -76,8 +76,8 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
 
     it("archives a bulk selection submitted as repeated id fields", async () => {
       const body = new URLSearchParams();
-      body.append("id", "ar-b");
-      body.append("id", "ar-c");
+      body.append("id", fx.viewId("ar-b"));
+      body.append("id", fx.viewId("ar-c"));
       const res = await authedFetch(env, "/sessions/archive", {
         method: "POST",
         body,
@@ -92,7 +92,7 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
 
   describe("rename", () => {
     it("renames from the header, persists it and refreshes the sidebar OOB", async () => {
-      const res = await post("/sessions/rn-a/rename", {
+      const res = await post(`/sessions/${fx.viewId("rn-a")}/rename`, {
         name: "Header Renamed",
         from: "header",
       });
@@ -101,7 +101,7 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("Header Renamed");
       expect(html).toContain('id="session-list"');
       await withPage(env.context, async (page) => {
-        await page.goto(env.baseUrl + "/sessions/rn-a");
+        await page.goto(env.baseUrl + "/sessions/" + fx.viewId("rn-a"));
         await expect(page.locator(".session-header")).toContainText(
           "Header Renamed",
         );
@@ -110,13 +110,16 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
     });
 
     it("trims whitespace and clears the custom name when blank", async () => {
-      await post("/sessions/rn-c/rename", { name: "   ", from: "header" });
+      await post(`/sessions/${fx.viewId("rn-c")}/rename`, {
+        name: "   ",
+        from: "header",
+      });
       expect(col("rn-c", "name")).toBe("");
       expect(col("rn-c", "user_set_name")).toBe(0);
     });
 
     it("re-renders the sidebar list when renamed from the sidebar", async () => {
-      const res = await post("/sessions/rn-b/rename", {
+      const res = await post(`/sessions/${fx.viewId("rn-b")}/rename`, {
         name: "Side X",
         from: "sidebar",
       });
@@ -127,13 +130,15 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
     });
 
     it("returns a not-found response for an unknown session rename", async () => {
-      const res = await post("/sessions/nope/rename", { name: "x" });
+      const res = await post(`/sessions/${fx.viewId("nope")}/rename`, {
+        name: "x",
+      });
       expect(await res.text()).toContain("Session not found");
     });
 
     it("renders inline rename and archive controls", async () => {
       await withPage(env.context, async (page) => {
-        await page.goto(env.baseUrl + "/sessions/rn-a");
+        await page.goto(env.baseUrl + "/sessions/" + fx.viewId("rn-a"));
         await expect(page.locator(".archive-btn")).toBeVisible();
         await expect(
           page.locator(".session-item .rename-pencil").first(),

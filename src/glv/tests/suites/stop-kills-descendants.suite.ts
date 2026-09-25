@@ -26,7 +26,7 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
   };
 
   const startRun = (prompt: string): Promise<Response> =>
-    authedFetch(env, "/sessions/tree-1/prompt", {
+    authedFetch(env, `/sessions/${fx.viewId("tree-1")}/prompt`, {
       method: "POST",
       body: new URLSearchParams({ prompt }),
       headers: { "HX-Request": "true" },
@@ -62,10 +62,14 @@ const runStopKillsDescendantsSuite = (fx: FlavorFixture): void => {
       expect(pid).toBeGreaterThan(0);
       expect(isAlive(pid)).toBe(true);
 
-      const res = await authedFetch(env, "/sessions/tree-1/stop", {
-        method: "POST",
-        headers: { "HX-Request": "true" },
-      });
+      const res = await authedFetch(
+        env,
+        `/sessions/${fx.viewId("tree-1")}/stop`,
+        {
+          method: "POST",
+          headers: { "HX-Request": "true" },
+        },
+      );
       expect(res.status).toBe(200);
 
       // killDescendants reaps the whole tree, so the orphaned descendant dies.

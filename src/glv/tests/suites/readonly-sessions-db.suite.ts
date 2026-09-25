@@ -66,17 +66,23 @@ const runReadonlySessionsSuite = (fx: FlavorFixture): void => {
     it("routes archive/rename through the viewer-owned writable store", async () => {
       // These mutate, so they succeed only via the writable store, then
       // persist and show up on the next read-only browse.
-      const renameRes = await post("/sessions/ro-mutate/rename", {
-        name: "Renamed Safe",
-        from: "header",
-      });
+      const renameRes = await post(
+        `/sessions/${fx.viewId("ro-mutate")}/rename`,
+        {
+          name: "Renamed Safe",
+          from: "header",
+        },
+      );
       expect(renameRes.status).toBe(200);
       expect(fx.readSessionField(env, "name", "ro-mutate")).toBe(
         "Renamed Safe",
       );
       expect(fx.readSessionField(env, "user_set_name", "ro-mutate")).toBe(1);
 
-      const archiveRes = await post("/sessions/ro-mutate/archive", {});
+      const archiveRes = await post(
+        `/sessions/${fx.viewId("ro-mutate")}/archive`,
+        {},
+      );
       expect(archiveRes.status).toBe(200);
       expect(
         fx.readSessionField(env, "archived_at", "ro-mutate"),
