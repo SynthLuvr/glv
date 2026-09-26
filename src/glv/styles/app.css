@@ -1569,10 +1569,9 @@ pre::-webkit-scrollbar-thumb {
 }
 .prompt-input-row {
   display: flex;
-  /* Wrap instead of overflowing: on a phone the row's fixed-size tenants
-     (picker, attach, location, Queue/Stop) can exceed the viewport, and
-     without wrap the only shrinkable item — the textarea — absorbed the
-     whole deficit and collapsed to a couple of characters. */
+  /* Wraps on narrow panes: the fixed-size buttons cannot shrink, so without
+     wrap the textarea absorbs the whole width deficit and collapses to a
+     sliver. */
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: flex-end;
@@ -1591,10 +1590,9 @@ pre::-webkit-scrollbar-thumb {
 /* flex:1 is scoped to the row so the textarea fills the space between the
    picker and the action button. It must NOT apply to the new-session form,
    whose textarea lives in a column flex container — there flex-basis:0 would
-   override the `height` property and break autogrow. The 12rem basis keeps
-   that fill while giving the input a floor: when the row's buttons leave
-   less than that, the input wraps to its own full-width line (see the
-   720px media query) instead of shrinking into unreadability. */
+   override the `height` property and break autogrow. The 12rem basis floors
+   that fill: below it the wrapped row moves the input onto its own
+   full-width line instead of shrinking it to a sliver. */
 .prompt-input-row .prompt-input {
   flex: 1 1 12rem;
 }
@@ -2121,9 +2119,8 @@ select.form-input {
     padding: 1.5rem 1.25rem 3rem;
   }
 
-  /* A phone cannot fit the textarea and its five row-mates on one line, so
-     give the input a whole row to itself and let the buttons share the row
-     below (the row wraps via .prompt-input-row above). */
+  /* Phones cannot fit the input and its row-mates on one line: the input
+     takes the full row and the buttons wrap onto the next. */
   .prompt-input-row .prompt-input {
     flex-basis: 100%;
   }

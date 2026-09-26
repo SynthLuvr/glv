@@ -21,8 +21,8 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   const VIEWPORT = { width: 400, height: 800 };
 
   beforeAll(async () => {
-    // sleepMs keeps the composer test's follow-up run "running" so the busy
-    // bar (Queue/Stop) stays up while its layout is measured.
+    // sleepMs keeps the submitted follow-up running long enough for the
+    // busy bar (Queue/Stop) to be measured while it is up.
     env = await fx.startEnv("glv-mobile-layout-", { sleepMs: 20000 });
     fx.seedSessions(env, [
       {
@@ -40,16 +40,12 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         name: "Mobile Composer",
         workingDir: join(env.scratchDir, "composer"),
       },
-      {
-        id: "mobile-composer-idle",
-        name: "Mobile Composer Idle",
-        workingDir: join(env.scratchDir, "composer-idle"),
-      },
     ]);
     fx.seedMessages(env, "mobile-tall", TALL_MESSAGES);
     fx.seedMessages(env, "mobile-tall-2", TALL_MESSAGES);
+    // The busy-composer test submits a run, and the agent spawns with this
+    // workingDir as its cwd.
     mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
-    mkdirSync(join(env.scratchDir, "composer-idle"), { recursive: true });
   }, 90000);
 
   afterAll(async () => {
@@ -182,24 +178,22 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     }, 30000);
   });
 
-  // The busy composer packs the picker, textarea, attach and location
-  // buttons, and Queue/Stop into one flex row. The textarea was the only
-  // flexible item, so a phone's width deficit used to collapse it to a
-  // couple of characters. Assert real geometry at a phone viewport: a
-  // typing-usable textarea and a row that never overflows horizontally.
+  // The busy bar packs the picker, attach/location buttons and Queue/Stop
+  // around the textarea, the row's only shrinkable item — a phone's width
+  // deficit used to collapse the input to a few characters. Assert real
+  // geometry at the phone viewport: a typing-usable input, no horizontal
+  // overflow.
   describe("prompt bar stays usable on mobile", () => {
     const composerGeometry = async (
       page: Page,
-    ): Promise<{ inputWidth: number; overflow: number } | null> =>
-      page.evaluate(() => {
-        const row = document.querySelector(".prompt-input-row");
-        const input = document.querySelector(".prompt-input-row .prompt-input");
-        if (row === null || input === null) return null;
-        return {
-          inputWidth: input.getBoundingClientRect().width,
-          overflow: row.scrollWidth - row.clientWidth,
-        };
-      });
+    ): Promise<{ inputWidth: number; overflow: number }> => ({
+      inputWidth: await page
+        .locator(".prompt-input-row .prompt-input")
+        .evaluate((el) => el.getBoundingClientRect().width),
+      overflow: await page
+        .locator(".prompt-input-row")
+        .evaluate((el) => el.scrollWidth - el.clientWidth),
+    });
 
     it("keeps the follow-up textarea usable while Queue/Stop are shown", async () => {
       await withPage(env.context, async (page) => {
@@ -208,29 +202,23 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
           .locator('form.prompt-bar textarea[name="prompt"]')
           .fill("Queue a follow-up while the run finishes");
         await page.locator("form.prompt-bar button.send-btn").click();
-
-        // Submitting swaps the bar to its busy form.
         await page
           .locator("form.prompt-bar button.stop-btn")
           .waitFor({ timeout: 20000 });
 
-        const rect = await composerGeometry(page);
-        expect(rect).not.toBeNull();
-        // Collapsed, the textarea measured a couple of characters wide; it
-        // must keep room for a sentence.
-        expect(rect!.inputWidth).toBeGreaterThan(150);
-        expect(rect!.overflow).toBeLessThanOrEqual(1);
+        const { inputWidth, overflow } = await composerGeometry(page);
+        expect(inputWidth).toBeGreaterThan(150);
+        expect(overflow).toBeLessThanOrEqual(1);
       });
     }, 60000);
 
     it("keeps the idle textarea usable next to its Send button", async () => {
       await withPage(env.context, async (page) => {
-        await openMobileDetail(page, "mobile-composer-idle");
+        await openMobileDetail(page);
 
-        const rect = await composerGeometry(page);
-        expect(rect).not.toBeNull();
-        expect(rect!.inputWidth).toBeGreaterThan(200);
-        expect(rect!.overflow).toBeLessThanOrEqual(1);
+        const { inputWidth, overflow } = await composerGeometry(page);
+        expect(inputWidth).toBeGreaterThan(200);
+        expect(overflow).toBeLessThanOrEqual(1);
       });
     }, 30000);
   });

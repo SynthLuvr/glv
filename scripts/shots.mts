@@ -149,8 +149,8 @@ const addSessionCookie = async (
 };
 
 const startSeededEnv = async (): Promise<IntegrationEnv> => {
-  // sleepMs keeps a submitted follow-up "running" so the busy composer
-  // (Queue/Stop) can be captured before the run completes.
+  // sleepMs keeps the busy-composer follow-up running long enough to be
+  // captured before the run completes.
   const env = await gooseFixture.startEnv("glv-shots-", { sleepMs: 20000 });
   const workingDir = join(env.scratchDir, "project");
   mkdirSync(workingDir, { recursive: true });
@@ -222,9 +222,8 @@ const captureViews = async (
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
 
-  // Busy composer: with a run active the bar shows Queue/Stop, and on a
-  // phone that row is where the textarea used to collapse to a sliver.
-  // Captured last so the running session cannot leak into earlier shots.
+  // Busy composer (Queue/Stop), captured last: the submitted follow-up
+  // stays running for sleepMs and must not leak into the shots above.
   await page.setViewportSize(DESKTOP);
   await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
   await page.locator("form.prompt-bar").waitFor();
