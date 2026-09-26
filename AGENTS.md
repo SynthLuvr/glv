@@ -104,7 +104,10 @@ Some hosts cannot rasterize headlessly (WSL2 + Chrome 153: the headless
 compositor never produces a frame, so DevTools screenshot capture hangs
 forever); the script probes for this and automatically falls back to a
 headed launch under Xvfb, so it works locally everywhere Xvfb is
-installed — no temporary CI workflows needed.
+installed — no temporary CI workflows needed. The test suite applies the
+same probe-and-fallback once per run (vitest global setup,
+`src/glv/tests/display-global-setup.ts`), so `pnpm test` works on those
+hosts too.
 
 - **Never commit image assets to the repo** — no screenshots, PNGs,
   JPGs, GIFs, or video in the tree, in any PR. They live in the PR

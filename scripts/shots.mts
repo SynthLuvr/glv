@@ -1,5 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type Browser,
@@ -7,7 +6,10 @@ import {
   chromium,
   type Page,
 } from "@playwright/test";
-import which from "which";
+import {
+  probeHeadlessRaster,
+  startXvfbDisplay,
+} from "../src/glv/tests/browser-display.js";
 import {
   seedClaudeSessions,
   startCombinedEnv,
@@ -26,84 +28,40 @@ import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 // what Playwright uses — hangs forever (Chrome's own --screenshot mode
 // escapes it only by driving BeginFrames itself). A headed launch under Xvfb
 // rasterizes normally, so probe headless capture once up front and fall back
-// to a script-managed Xvfb when the probe times out.
+// to a script-managed Xvfb when the probe times out. The probe and Xvfb
+// plumbing are shared with the vitest global setup
+// (src/glv/tests/browser-display.ts).
 
 const OUT = "pr-shots";
 const DESKTOP = { width: 1280, height: 800 };
 const MOBILE = { width: 390, height: 844 };
 const SESSION_ID = "shots-1";
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-// A throwaway page load plus screenshot answers the only question that
-// matters: can this host turn a headless page into pixels via DevTools?
-const headlessRasterWorks = async (): Promise<boolean> => {
-  let browser: Browser | undefined;
-  try {
-    browser = await chromium.launch();
-    const page = await browser.newPage();
-    await page.setContent("<!doctype html><p>raster probe</p>");
-    await page.screenshot({ timeout: 8000 });
-    return true;
-  } catch {
-    return false;
-  } finally {
-    if (browser !== undefined) await browser.close().catch(() => undefined);
-  }
-};
-
-// Xvfb claims a display by creating /tmp/.X<n>-lock; the first number
-// without one wins.
-const findFreeDisplay = (): { display: string; lock: string } => {
-  for (let n = 99; n <= 120; n += 1) {
-    const lock = `/tmp/.X${n}-lock`;
-    if (!existsSync(lock)) return { display: `:${n}`, lock };
-  }
-  throw new Error("no free X display number between :99 and :120");
-};
-
-const startHeadedDisplay = async (): Promise<{
-  display: string;
-  xvfb: ChildProcess;
-}> => {
-  if (which.sync("Xvfb", { nothrow: true }) === null)
-    throw new Error(
-      "headless rasterization is unavailable on this host and Xvfb is " +
-        "not installed — install it (e.g. `sudo apt install xvfb`) and retry",
-    );
-  const { display, lock } = findFreeDisplay();
-  const xvfb = spawn("Xvfb", [display, "-screen", "0", "1600x1000x24"], {
-    stdio: "ignore",
-  });
-  for (let i = 0; i < 50 && !existsSync(lock); i += 1) await sleep(100);
-  if (!existsSync(lock)) {
-    xvfb.kill("SIGTERM");
-    throw new Error(`Xvfb failed to start on ${display}`);
-  }
-  return { display, xvfb };
-};
-
 // The teardown kills the fallback Xvfb; in headless mode there is nothing
-// extra to stop.
+// extra to stop. Xvfb missing on a raster-broken host is fatal here —
+// unlike the vitest global setup, this script has no headless fallback
+// that could produce the PNGs it exists to capture.
 const launchBrowser = async (): Promise<{
   browser: Browser;
   teardown: () => void;
 }> => {
-  if (await headlessRasterWorks())
+  if ((await probeHeadlessRaster()) === "works")
     return { browser: await chromium.launch(), teardown: () => undefined };
   console.log(
     "headless rasterization unavailable on this host — " +
       "falling back to a headed launch under Xvfb",
   );
-  const { display, xvfb } = await startHeadedDisplay();
+  const started = await startXvfbDisplay("1600x1000x24");
+  if (started === null)
+    throw new Error(
+      "headless rasterization is unavailable on this host and Xvfb is " +
+        "not installed — install it (e.g. `sudo apt install xvfb`) and retry",
+    );
   const browser = await chromium.launch({
     headless: false,
-    env: { ...process.env, DISPLAY: display },
+    env: { ...process.env, DISPLAY: started.display },
   });
-  return { browser, teardown: () => xvfb.kill("SIGTERM") };
+  return { browser, teardown: started.stop };
 };
 
 const capture = async (

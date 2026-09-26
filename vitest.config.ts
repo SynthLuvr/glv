@@ -17,6 +17,12 @@ const WINDOWS_EXCLUDED_SUITES = [
 // from ts-canon's vitest preset; everything below is repo-specific and
 // replaces the preset defaults wholesale.
 const config = vitestPreset({
+  // Probes headless rasterization once per run and, on hosts where the
+  // headless compositor cannot produce a frame (WSL2 + recent Chrome),
+  // provisions one Xvfb display that the harness's browser launches run
+  // headed under — browser-facing suites otherwise hang there on
+  // Playwright actionability checks. See display-global-setup.ts.
+  globalSetup: ["src/glv/tests/display-global-setup.ts"],
   include: [
     "src/glv/tests/**/*.test.ts",
     "src/goose/tests/**/*.test.ts",
@@ -63,12 +69,17 @@ const config = vitestPreset({
     ],
     // Floors for the merged report, which is timing-sensitive (which
     // server profiles flush, stop-path grace windows) and varies run
-    // to run — observed: statements 43.0–46.8%, branches 27.2–33.5%,
-    // functions 38.1–47.0%, lines 52.2–56.9%. The floors sit below
-    // the observed minimums with headroom; they bind `pnpm test` (and
-    // any full `--coverage` run), while sharded CI runs don't collect
-    // coverage. Raise them as coverage improves — the point is that
-    // the number is now meaningful, so regressions show up.
+    // to run — observed: statements 81.2–81.3%, branches 67.5–69.5%,
+    // functions 94.1–94.2%, lines 93.6–93.7%. Branches are the noisy
+    // metric: race and poll outcomes flip narrow conditional arms
+    // between runs while statements, lines, and functions hold steady,
+    // so floors must clear its observed floor, not a single reading
+    // (the subprocess-coverage merge has its own latent nondeterminism,
+    // tracked upstream: SynthLuvr/type-a-bin#40). The floors sit below
+    // the observed minimums with headroom; they bind `pnpm test` (and any full `--coverage` run), while sharded
+    // CI runs don't collect coverage. Raise them as coverage improves
+    // — the point is that the number is now meaningful, so regressions
+    // show up.
     thresholds: {
       statements: 40,
       branches: 25,
