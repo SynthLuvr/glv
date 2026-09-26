@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -20,7 +21,9 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   const VIEWPORT = { width: 400, height: 800 };
 
   beforeAll(async () => {
-    env = await fx.startEnv("glv-mobile-layout-");
+    // sleepMs keeps the submitted follow-up running long enough for the
+    // busy bar (Queue/Stop) to be measured while it is up.
+    env = await fx.startEnv("glv-mobile-layout-", { sleepMs: 20000 });
     fx.seedSessions(env, [
       {
         id: "mobile-tall",
@@ -32,9 +35,17 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         name: "Mobile Tall 2",
         workingDir: join(env.scratchDir, "mobile-2"),
       },
+      {
+        id: "mobile-composer",
+        name: "Mobile Composer",
+        workingDir: join(env.scratchDir, "composer"),
+      },
     ]);
     fx.seedMessages(env, "mobile-tall", TALL_MESSAGES);
     fx.seedMessages(env, "mobile-tall-2", TALL_MESSAGES);
+    // The busy-composer test submits a run, and the agent spawns with this
+    // workingDir as its cwd.
+    mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
   }, 90000);
 
   afterAll(async () => {
@@ -163,6 +174,51 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         );
 
         await expectTopBarWithinViewport(page);
+      });
+    }, 30000);
+  });
+
+  // The busy bar packs the picker, attach/location buttons and Queue/Stop
+  // around the textarea, the row's only shrinkable item — a phone's width
+  // deficit used to collapse the input to a few characters. Assert real
+  // geometry at the phone viewport: a typing-usable input, no horizontal
+  // overflow.
+  describe("prompt bar stays usable on mobile", () => {
+    const composerGeometry = async (
+      page: Page,
+    ): Promise<{ inputWidth: number; overflow: number }> => ({
+      inputWidth: await page
+        .locator(".prompt-input-row .prompt-input")
+        .evaluate((el) => el.getBoundingClientRect().width),
+      overflow: await page
+        .locator(".prompt-input-row")
+        .evaluate((el) => el.scrollWidth - el.clientWidth),
+    });
+
+    it("keeps the follow-up textarea usable while Queue/Stop are shown", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page, "mobile-composer");
+        await page
+          .locator('form.prompt-bar textarea[name="prompt"]')
+          .fill("Queue a follow-up while the run finishes");
+        await page.locator("form.prompt-bar button.send-btn").click();
+        await page
+          .locator("form.prompt-bar button.stop-btn")
+          .waitFor({ timeout: 20000 });
+
+        const { inputWidth, overflow } = await composerGeometry(page);
+        expect(inputWidth).toBeGreaterThan(150);
+        expect(overflow).toBeLessThanOrEqual(1);
+      });
+    }, 60000);
+
+    it("keeps the idle textarea usable next to its Send button", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page);
+
+        const { inputWidth, overflow } = await composerGeometry(page);
+        expect(inputWidth).toBeGreaterThan(200);
+        expect(overflow).toBeLessThanOrEqual(1);
       });
     }, 30000);
   });

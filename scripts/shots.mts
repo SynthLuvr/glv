@@ -149,7 +149,9 @@ const addSessionCookie = async (
 };
 
 const startSeededEnv = async (): Promise<IntegrationEnv> => {
-  const env = await gooseFixture.startEnv("glv-shots-");
+  // sleepMs keeps the busy-composer follow-up running long enough to be
+  // captured before the run completes.
+  const env = await gooseFixture.startEnv("glv-shots-", { sleepMs: 20000 });
   const workingDir = join(env.scratchDir, "project");
   mkdirSync(workingDir, { recursive: true });
   mkdirSync(OUT, { recursive: true });
@@ -219,6 +221,22 @@ const captureViews = async (
   await showDetailPaneOnMobile(page);
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
+
+  // Busy composer (Queue/Stop), captured last: the submitted follow-up
+  // stays running for sleepMs and must not leak into the shots above.
+  await page.setViewportSize(DESKTOP);
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await page.locator("form.prompt-bar").waitFor();
+  await page
+    .locator('form.prompt-bar textarea[name="prompt"]')
+    .fill("Queue the changelog pass while this run finishes");
+  await page.locator("form.prompt-bar button.send-btn").click();
+  await page
+    .locator("form.prompt-bar button.stop-btn")
+    .waitFor({ timeout: 20000 });
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await capture(page, "prompt-bar-mobile-busy.png", "form.prompt-bar");
 
   await context.close();
 };
