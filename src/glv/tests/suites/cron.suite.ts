@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { countSessions, pollUntil, sleep } from "../cron-helpers.js";
 import {
   authedFetch,
   type CronJobRow,
@@ -13,23 +14,6 @@ import {
   removeCronJobRow,
   seedCronJobRow,
 } from "../harness.js";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Polls predicate every 500ms until it holds or the deadline passes;
-// resolves to whether it ever held.
-const pollUntil = async (
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs: number,
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return true;
-    await sleep(500);
-  }
-  return false;
-};
 
 // The mock agent writes its capture files asynchronously, trailing the
 // fire that caused them; poll until one exists with content.
@@ -243,20 +227,16 @@ const runCronSuite = (fx: FlavorFixture): void => {
       rmSync(workingDir, { recursive: true, force: true });
     });
 
-    // The sidebar renders each session's name exactly once, so counting
-    // marker occurrences counts that name's sessions.
-    const countSessions = async (): Promise<number> => {
-      const res = await authedFetch(env, "/");
-      const html = await res.text();
-      return html.split('class="session-name">Live Session<').length - 1;
-    };
-
     const waitForSessions = async (atLeast: number): Promise<number> => {
       let count = 0;
-      await pollUntil(async () => {
-        count = await countSessions();
-        return count >= atLeast;
-      }, 30_000);
+      await pollUntil(
+        async () => {
+          count = await countSessions(env, "Live Session");
+          return count >= atLeast;
+        },
+        30_000,
+        500,
+      );
       return count;
     };
 
@@ -268,12 +248,13 @@ const runCronSuite = (fx: FlavorFixture): void => {
           existsSync(stdinCapture) &&
           readFileSync(stdinCapture, "utf-8").includes(prompt),
         30_000,
+        500,
       );
       expect(reached, `prompt "${prompt}" never reached the agent`).toBe(true);
     };
 
     const waitForStderr = async (fragment: string): Promise<void> => {
-      await pollUntil(() => env.serverStderr().includes(fragment), 20_000);
+      await pollUntil(() => env.serverStderr().includes(fragment), 20_000, 500);
     };
 
     it("picks up a job seeded externally after boot", async () => {
@@ -282,7 +263,7 @@ const runCronSuite = (fx: FlavorFixture): void => {
     });
 
     it("keeps the running schedule when a written row is invalid", async () => {
-      const before = await countSessions();
+      const before = await countSessions(env, "Live Session");
 
       // A structurally valid row with an invalid schedule, written
       // straight into the database: logged, schedule untouched.
@@ -321,9 +302,9 @@ const runCronSuite = (fx: FlavorFixture): void => {
       // under a second), then confirm the count stays flat across three
       // fire windows of the former every-second schedule.
       await sleep(3000);
-      const first = await countSessions();
+      const first = await countSessions(env, "Live Session");
       await sleep(3000);
-      const second = await countSessions();
+      const second = await countSessions(env, "Live Session");
       expect(second).toBe(first);
     });
   });

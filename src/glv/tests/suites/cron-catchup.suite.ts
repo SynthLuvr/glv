@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
+import { countSessions, pollUntil, sleep } from "../cron-helpers.js";
 import {
   authedFetch,
   cronJobRow,
@@ -12,39 +13,10 @@ import {
   seedCronJobRow,
 } from "../harness.js";
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Polls predicate every 250ms until it holds or the deadline passes;
-// resolves to whether it ever held.
-const pollUntil = async (
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs: number,
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return true;
-    await sleep(250);
-  }
-  return false;
-};
-
 // The log fragment every catch-up fire names — one line per missed
 // run. The scheduler emits it with console.log, which consola's
 // wrapper (serve's logger) sends to stdout — not the stderr trail.
 const CATCHUP_LINE = "firing missed run scheduled for";
-
-// Counts a session-name's occurrences in the sidebar markup (the
-// sidebar renders each session's name exactly once — same technique as
-// the cron suite).
-const countSessions = async (
-  env: IntegrationEnv,
-  sessionName: string,
-): Promise<number> => {
-  const res = await authedFetch(env, "/");
-  const html = await res.text();
-  return html.split(`class="session-name">${sessionName}<`).length - 1;
-};
 
 // The job row's missed-run marker as epoch ms; undefined when the row
 // (or its marker) is gone or unparseable.
