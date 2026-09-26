@@ -114,11 +114,12 @@ claude sessions in one sidebar, behind one login and one schedule — an
 agent whose binary or data directory is missing is hidden, not fatal
 (see `docs/decisions/0007-merge-goose-and-claude.md`). There is no
 agent-choice flag: both agents always load, and the per-flavor commands
-`glv-goose` / `glv-claude` are gone. On the first start, glv adopts the
-legacy per-flavor data directories (`~/.local/share/glv-goose`,
-`glv-claude`) into the unified `~/.local/share/glv` — re-keying ids with
-their agent prefix, adopting one passkey, and renaming the legacy
-directories `.migrated` (never deleting them).
+`glv-goose` / `glv-claude` are gone. Older glv adopted the per-flavor
+data directories (`~/.local/share/glv-goose`, `glv-claude`) into the
+unified `~/.local/share/glv` on its first starts; that migration is
+complete and the code is gone. Current glv never reads the legacy
+directories — a leftover `glv-goose.migrated` or `glv-claude.migrated`
+can simply be deleted.
 
 ### Windows
 

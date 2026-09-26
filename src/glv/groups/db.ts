@@ -5,7 +5,7 @@ import { openGlvDb, resolveDataPath } from "../db-path.js";
 import { transaction, validate, validateAll } from "../query.js";
 
 // Viewer-owned sidecar, kept separate from agent-owned session data so
-// schema migrations never touch this data.  Archiving a session hides it from
+// schema changes never touch this data.  Archiving a session hides it from
 // the sidebar but keeps its membership here, so un-archiving restores the group
 // once ≥ 2 members are visible again.
 

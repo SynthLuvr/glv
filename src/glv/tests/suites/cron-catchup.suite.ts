@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
@@ -401,73 +400,6 @@ const runCronCatchUpSuite = (fx: FlavorFixture): void => {
         await sleep(3_000);
         expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
         expect(await countSessions(env, "Edit Session")).toBe(0);
-      });
-    });
-
-    describe("the marker column migrates", () => {
-      let env: IntegrationEnv;
-      let homeDir: string;
-
-      // The pre-catch-up schema: everything but last_fired_at.
-      const OLD_SCHEMA = `
-CREATE TABLE IF NOT EXISTS cron_jobs (
-  name           TEXT PRIMARY KEY,
-  schedule       TEXT NOT NULL,
-  prompt         TEXT NOT NULL,
-  working_dir    TEXT NOT NULL,
-  timezone       TEXT,
-  enabled        INTEGER NOT NULL DEFAULT 1,
-  model_provider TEXT,
-  model          TEXT,
-  follow_ups     TEXT,
-  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
-);
-`;
-
-      beforeAll(async () => {
-        homeDir = mkdtempSync(join(tmpdir(), "glv-catchup-mig-"));
-        env = await fx.startEnv(
-          "glv-catchup-mig-",
-          { sessionName: "Migration Session" },
-          homeDir,
-          {},
-          // Raw, deliberately un-migrated store: the table predates the
-          // column, so boot has to add and seed it.
-          ({ cronDb }) => {
-            const db = new DatabaseSync(cronDb);
-            db.exec(OLD_SCHEMA);
-            db.prepare(
-              "INSERT INTO cron_jobs (name, schedule, prompt, working_dir, enabled) " +
-                "VALUES (?, ?, ?, ?, 1)",
-            ).run(
-              "legacy",
-              "7 0 * * *",
-              "Legacy job prompt",
-              mkdtempSync(join(tmpdir(), "glv-catchup-ldir-")),
-            );
-            db.close();
-          },
-        );
-      }, 120000);
-
-      afterAll(async () => {
-        await env?.cleanup();
-        rmSync(homeDir, { recursive: true, force: true });
-      });
-
-      it("adds the column, seeds it to boot time, and fires nothing", async () => {
-        // The read itself proves the column exists and holds a marker.
-        const marker = cronJobRow(env.dbs.cronDb, "legacy")?.lastFiredAt;
-        expect(marker).toBeDefined();
-        const ms = Date.parse(marker ?? "");
-        expect(Number.isNaN(ms)).toBe(false);
-        // Seeded to the migration moment, i.e. this boot.
-        expect(Date.now() - ms).toBeLessThan(120_000);
-
-        await sleep(3_000);
-        expect(env.serverStdout()).not.toContain(CATCHUP_LINE);
-        expect(await countSessions(env, "Migration Session")).toBe(0);
       });
     });
   });

@@ -692,7 +692,7 @@ const cronJobRow = (dbPath: string, name: string): CronJobRow | undefined =>
 // the missed-run marker byte for byte.
 // Seeds write the agent column verbatim — an unset agent stays NULL so
 // whichever flavor's server opens the database next backfills it with
-// its own default, exactly like a pre-agent-column row would be.
+// its own default, exactly like an externally written row.
 const seedCronJobRow = (dbPath: string, job: CronJobRow): void => {
   const { lastFiredAt, ...storeJob } = job;
   const db = openCronDb(dbPath);
