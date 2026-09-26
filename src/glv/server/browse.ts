@@ -113,14 +113,6 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-// Matches only the exact prefix or prefix + "/", so "/browser" is left alone.
-const subPathOf = (reqPath: string, prefix: string): string =>
-  reqPath === prefix
-    ? ""
-    : reqPath.startsWith(`${prefix}/`)
-      ? reqPath.slice(prefix.length + 1)
-      : "";
-
 const childRel = (rel: string, name: string): string =>
   rel === "" ? name : `${rel}/${name}`;
 
@@ -136,5 +128,4 @@ export {
   listBrowseDir,
   parentRel,
   resolveBrowsePath,
-  subPathOf,
 };

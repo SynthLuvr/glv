@@ -9,7 +9,7 @@ import { IS_WIN } from "./harness.js";
 const SHELL_LAUNCHER = resolve("bin/glv");
 const NODE_LAUNCHER = resolve("bin/glv.mjs");
 
-type Out = { status: number; stdout: string };
+type Out = { status: number; stdout: string; stderr: string };
 
 // Windows cannot execute the POSIX launcher directly; when a POSIX sh is
 // on PATH (Git for Windows), the parity check runs through it. MSYS sh
@@ -22,7 +22,11 @@ const runShell = (args: string[]): Out => {
         encoding: "utf-8",
       })
     : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
-  return { status: result.status ?? -1, stdout: result.stdout ?? "" };
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 };
 
 // Some minimal sh builds (e.g. Git's sh.exe invoked with a plain Windows
@@ -37,7 +41,11 @@ const runNode = (args: string[]): Out => {
   const result = spawnSync(process.execPath, [NODE_LAUNCHER, ...args], {
     encoding: "utf-8",
   });
-  return { status: result.status ?? -1, stdout: result.stdout ?? "" };
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 };
 
 describe("bin/glv.mjs Node launcher", () => {
@@ -64,8 +72,11 @@ describe("bin/glv.mjs Node launcher", () => {
   });
 
   it("forwards argv and propagates a non-zero exit from commander", () => {
-    // Argument validation runs before the serve action and needs no database.
-    const { status } = runNode(["serve", "--max-concurrent", "0"]);
+    // Argument validation runs before the serve action and needs no
+    // database. This owns the serve --max-concurrent validation contract:
+    // the flavor cli suites only cover their store-specific flags.
+    const { status, stderr } = runNode(["serve", "--max-concurrent", "0"]);
     expect(status).not.toBe(0);
+    expect(stderr).toContain("positive integer");
   });
 });
