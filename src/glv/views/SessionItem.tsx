@@ -7,7 +7,6 @@ import {
   truncateMiddle,
 } from "../format/index.js";
 import type { SessionRow } from "../sessions.js";
-import { AgentChip } from "./chips.js";
 import { icon, RenameWrap } from "./Rename.js";
 
 const SessionItem = ({
@@ -60,7 +59,6 @@ const SessionItem = ({
         >
           <span class="session-name">{displayName(session.name)}</span>
           <span class="session-sub">
-            {session.agent !== undefined && <AgentChip agent={session.agent} />}
             <time
               datetime={toIso(session.updated_at)}
               title={session.updated_at}

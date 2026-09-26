@@ -59,7 +59,7 @@ describe("combined viewer — sidebar", () => {
     expect(stdout).not.toContain("glv-claude");
   });
 
-  it("merges both agents' sessions, newest first, with agent chips", async () => {
+  it("merges both agents' sessions, newest first, without agent chips", async () => {
     seedGooseSessions(env, [
       { id: "alpha", name: "Goose Alpha", workingDir: workDir("alpha") },
     ]);
@@ -71,9 +71,7 @@ describe("combined viewer — sidebar", () => {
     const html = await res.text();
     expect(html).toContain("Goose Alpha");
     expect(html).toContain("Claude Beta");
-    // Both sessions carry their agent chip; ids carry their namespace.
-    expect(html).toContain('data-agent="goose"');
-    expect(html).toContain('data-agent="claude"');
+    expect(html).not.toContain("data-agent=");
     expect(html).toContain('data-session-id="goose:alpha"');
     expect(html).toContain('data-session-id="claude:beta"');
     // Claude was seeded last, so it lists first.
@@ -93,7 +91,7 @@ describe("combined viewer — sidebar", () => {
 });
 
 describe("combined viewer — transcripts and streams", () => {
-  it("serves each agent's transcript with its agent chip", async () => {
+  it("serves each agent's transcript without naming its agent", async () => {
     seedGooseMessages(env, "alpha", [
       { role: "user", content: "hello goose" },
       {
@@ -112,13 +110,12 @@ describe("combined viewer — transcripts and streams", () => {
     const gooseRes = await authedFetch(env, "/sessions/goose:alpha");
     const gooseHtml = await gooseRes.text();
     expect(gooseHtml).toContain("goose reply");
-    expect(gooseHtml).toContain('data-agent="goose"');
     expect(gooseHtml).toContain("goose:alpha");
 
     const claudeRes = await authedFetch(env, "/sessions/claude:beta");
     const claudeHtml = await claudeRes.text();
     expect(claudeHtml).toContain("claude reply");
-    expect(claudeHtml).toContain('data-agent="claude"');
+    expect(claudeHtml).not.toContain("data-agent=");
   });
 
   it("streams each agent's session events under its namespaced id", async () => {
@@ -184,7 +181,7 @@ describe("combined viewer — new session model picker", () => {
     // The transcript that lands is the claude one the mock created, under
     // the claude namespace, and the run carried the claude model flag.
     expect(html).toContain('data-session-id="claude:');
-    expect(html).toContain('data-agent="claude"');
+    expect(html).not.toContain("data-agent=");
     const args = await waitForArgs(argsPath);
     expect(flagValue(args, "--model")).toBe("sonnet");
   }, 60000);

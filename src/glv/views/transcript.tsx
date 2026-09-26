@@ -12,7 +12,7 @@ import { detectPrUrl } from "../../glv/pr.js";
 import type { SavedPrompt } from "../../glv/prompts/db.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
-import { AgentChip, CronChip, PrChip } from "../../glv/views/chips.js";
+import { CronChip, PrChip } from "../../glv/views/chips.js";
 import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { SessionTitleWrap } from "../../glv/views/Rename.js";
 import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
@@ -178,7 +178,6 @@ const TranscriptHeader = ({
       </div>
     </div>
     <div class="session-meta">
-      {session.agent !== undefined && <AgentChip agent={session.agent} />}
       <MetaChip label="ID" value={session.id} mono />
       {cronJob !== undefined && <CronChip jobName={cronJob} />}
       {session.model !== null && (
