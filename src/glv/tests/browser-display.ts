@@ -8,17 +8,15 @@ import which from "which";
 // capture — what Playwright uses — hangs forever (screenshots, and
 // actionability checks with them). This module is the shared machinery
 // for probing headless rasterization and falling back to a headed
-// browser under a script-managed Xvfb. Consumers: the vitest global
-// setup (display-global-setup.ts, feeding harness.ts browser launches)
-// and scripts/shots.mts.
+// browser under a script-managed Xvfb.
 
 // Environment variable the global setup sets to the fallback display it
 // provisioned; browser launches that see it run headed under Xvfb.
 const DISPLAY_ENV = "GLV_TEST_X_DISPLAY";
 
-// Generous enough for a cold browser launch on a contended runner; on a
-// raster-broken host the timeout is the probe's cost, paid once per run
-// by the global setup.
+// Generous for a slow host's first paint; on a raster-broken host it is
+// the fixed cost of learning that, paid once per run by the global
+// setup.
 const PROBE_TIMEOUT_MS = 8000;
 
 type HeadlessRaster = "works" | "broken" | "unlaunchable";
@@ -61,13 +59,19 @@ const findFreeDisplay = (): { display: string; lock: string } => {
 };
 
 // Every Xvfb this process started, so a hard exit cannot leak servers;
-// the exit hook is registered once, lazily.
+// the exit hook costs nothing while the set is empty.
 const spawnedXvfbs = new Set<ChildProcess>();
-let exitHookRegistered = false;
+
+const stopXvfb = (xvfb: ChildProcess): void => {
+  xvfb.kill("SIGTERM");
+  spawnedXvfbs.delete(xvfb);
+};
 
 const killSpawnedXvfbs = (): void => {
-  for (const xvfb of spawnedXvfbs) xvfb.kill("SIGTERM");
+  for (const xvfb of spawnedXvfbs) stopXvfb(xvfb);
 };
+
+process.once("exit", killSpawnedXvfbs);
 
 // Starts Xvfb on a free display and waits for its lock file. Returns
 // null when the Xvfb binary is not installed — callers decide whether
@@ -85,22 +89,13 @@ const startXvfbDisplay = async (
   // A spawn failing asynchronously (binary vanished between the which
   // check and exec) must not crash the process on `error`.
   xvfb.once("error", () => spawnedXvfbs.delete(xvfb));
-  if (!exitHookRegistered) {
-    exitHookRegistered = true;
-    process.once("exit", killSpawnedXvfbs);
-  }
   spawnedXvfbs.add(xvfb);
   for (let i = 0; i < 50 && !existsSync(lock); i += 1) await sleep(100);
   if (!existsSync(lock)) {
-    xvfb.kill("SIGTERM");
-    spawnedXvfbs.delete(xvfb);
+    stopXvfb(xvfb);
     throw new Error(`Xvfb failed to start on ${display}`);
   }
-  const stop = (): void => {
-    xvfb.kill("SIGTERM");
-    spawnedXvfbs.delete(xvfb);
-  };
-  return { display, stop };
+  return { display, stop: () => stopXvfb(xvfb) };
 };
 
 // The integration harness launches every browser through here: when the

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { IS_WIN } from "./harness.js";
@@ -11,23 +11,25 @@ const NODE_LAUNCHER = resolve("bin/glv.mjs");
 
 type Out = { status: number; stdout: string; stderr: string };
 
+const toOut = (result: SpawnSyncReturns<string>): Out => ({
+  status: result.status ?? -1,
+  stdout: result.stdout ?? "",
+  stderr: result.stderr ?? "",
+});
+
 // Windows cannot execute the POSIX launcher directly; when a POSIX sh is
 // on PATH (Git for Windows), the parity check runs through it. MSYS sh
 // treats backslashes as plain characters, so a Windows path would make
 // dirname("$0") resolve to "." and the launcher would compute the wrong
 // project root — hand sh a forward-slash path instead.
-const runShell = (args: string[]): Out => {
-  const result = IS_WIN
-    ? spawnSync("sh", [SHELL_LAUNCHER.replaceAll("\\", "/"), ...args], {
-        encoding: "utf-8",
-      })
-    : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" });
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-};
+const runShell = (args: string[]): Out =>
+  toOut(
+    IS_WIN
+      ? spawnSync("sh", [SHELL_LAUNCHER.replaceAll("\\", "/"), ...args], {
+          encoding: "utf-8",
+        })
+      : spawnSync(SHELL_LAUNCHER, args, { encoding: "utf-8" }),
+  );
 
 // Some minimal sh builds (e.g. Git's sh.exe invoked with a plain Windows
 // PATH, as on CI runners) cannot run the launcher at all, so parity is
@@ -37,16 +39,12 @@ const canRunShell =
   (spawnSync("sh", ["-c", "exit 0"]).status === 0 &&
     runShell(["--help"]).stdout.includes("Usage: glv"));
 
-const runNode = (args: string[]): Out => {
-  const result = spawnSync(process.execPath, [NODE_LAUNCHER, ...args], {
-    encoding: "utf-8",
-  });
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-};
+const runNode = (args: string[]): Out =>
+  toOut(
+    spawnSync(process.execPath, [NODE_LAUNCHER, ...args], {
+      encoding: "utf-8",
+    }),
+  );
 
 describe("bin/glv.mjs Node launcher", () => {
   it("loads cli.ts via tsx and prints serve help", () => {

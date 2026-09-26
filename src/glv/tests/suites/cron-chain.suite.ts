@@ -5,7 +5,7 @@ import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
 import {
-  countSessions,
+  countSessions as countSessionsNamed,
   pollUntil,
   sleep,
   withSeconds,
@@ -316,7 +316,7 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           capture: () =>
             existsSync(captureStdin) ? readFileSync(captureStdin, "utf-8") : "",
           countSessions: () =>
-            countSessions(env, mock.sessionName ?? "Session"),
+            countSessionsNamed(env, mock.sessionName ?? "Session"),
         };
       };
 

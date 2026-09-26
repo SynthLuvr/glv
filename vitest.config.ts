@@ -68,18 +68,16 @@ const config = vitestPreset({
       "src/claude/scripts/**",
     ],
     // Floors for the merged report, which is timing-sensitive (which
-    // server profiles flush, stop-path grace windows) and varies run
-    // to run — observed: statements 81.2–81.3%, branches 67.5–69.5%,
+    // server profiles flush, stop-path grace windows) and varies run to
+    // run — observed: statements 81.2–81.3%, branches 67.5–69.5%,
     // functions 94.1–94.2%, lines 93.6–93.7%. Branches are the noisy
-    // metric: race and poll outcomes flip narrow conditional arms
-    // between runs while statements, lines, and functions hold steady,
-    // so floors must clear its observed floor, not a single reading
-    // (the subprocess-coverage merge has its own latent nondeterminism,
-    // tracked upstream: SynthLuvr/type-a-bin#40). The floors sit below
-    // the observed minimums with headroom; they bind `pnpm test` (and any full `--coverage` run), while sharded
-    // CI runs don't collect coverage. Raise them as coverage improves
-    // — the point is that the number is now meaningful, so regressions
-    // show up.
+    // metric (race and poll outcomes flip narrow conditional arms, and
+    // the subprocess-coverage merge has its own latent nondeterminism,
+    // tracked upstream: SynthLuvr/type-a-bin#40), so the floors sit
+    // below the observed minimums with headroom. They bind `pnpm test`
+    // and any full `--coverage` run; sharded CI runs collect none.
+    // Raise them as coverage improves — the point is that the number
+    // is now meaningful, so regressions show up.
     thresholds: {
       statements: 40,
       branches: 25,
