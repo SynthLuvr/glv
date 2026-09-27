@@ -1,3 +1,4 @@
+import { domIdOf } from "../agents.js";
 import { shortenHome, truncateMiddle } from "../format/index.js";
 import { prLabel } from "../pr.js";
 
@@ -134,7 +135,9 @@ const CronChip = ({
 // URL renders instantly from offline detection; the colored state is swapped
 // in lazily via htmx, so any failure just leaves a plain link. `compact`
 // shrinks the chip for the sidebar and gives the state element a per-session
-// id, since the sidebar shows many at once.
+// id, since the sidebar shows many at once. The id derives from the
+// namespaced session id, so it must go through domIdOf: `:` is legal in an
+// id attribute but breaks the `hx-target` selector htmx resolves by.
 const PrChip = ({
   sessionId,
   url,
@@ -144,7 +147,7 @@ const PrChip = ({
   url: string;
   compact?: boolean;
 }) => {
-  const stateId = compact ? `sb-pr-state-${sessionId}` : "pr-state";
+  const stateId = compact ? `sb-pr-state-${domIdOf(sessionId)}` : "pr-state";
   // hono/jsx can't emit `::` attributes directly, so spread it.
   const errorHandler = {
     "hx-on::response-error": `this.querySelector('#${stateId}')?.remove()`,
