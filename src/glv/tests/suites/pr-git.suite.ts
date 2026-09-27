@@ -56,6 +56,29 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("PR chip in the sidebar", () => {
+    // Browser-driven because the failure is client-side: htmx resolves
+    // `hx-target` as a CSS selector, and the `:` in a namespaced session id
+    // ("goose:…") made it throw, so the loading dot never got swapped out.
+    it("swaps the resolved state into the sidebar PR chip", async () => {
+      await withPage(env.context, async (page) => {
+        const sessionId = fx.viewId("pr-sess");
+        const pageErrors: string[] = [];
+        page.on("pageerror", (err) => pageErrors.push(err.message));
+        await page.goto(env.baseUrl + `/sessions/${sessionId}`);
+        const badge = page.locator(
+          `.session-item[data-session-id="${sessionId}"] .pr-chip .pr-state`,
+        );
+        await expect(badge).toHaveClass(/pr-state-open/, { timeout: 15000 });
+        await expect(badge).toContainText("Open");
+        const selectorErrors = pageErrors.filter((message) =>
+          message.includes("not a valid selector"),
+        );
+        expect(selectorErrors).toEqual([]);
+      });
+    });
+  });
+
   describe("PR state endpoint", () => {
     it("resolves the PR state via mocked gh", async () => {
       const res = await authedFetch(
