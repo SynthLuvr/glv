@@ -56,6 +56,29 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("PR chip in the sidebar", () => {
+    // Browser-driven because the failure is client-side: htmx resolves
+    // `hx-target` as a CSS selector, and the `:` in a namespaced session id
+    // ("goose:…") made it throw, so the loading dot never got swapped out.
+    it("swaps the resolved state into the sidebar PR chip", async () => {
+      await withPage(env.context, async (page) => {
+        const sessionId = fx.viewId("pr-sess");
+        const pageErrors: string[] = [];
+        page.on("pageerror", (err) => pageErrors.push(err.message));
+        await page.goto(env.baseUrl + `/sessions/${sessionId}`);
+        const badge = page.locator(
+          `.session-item[data-session-id="${sessionId}"] .pr-chip .pr-state`,
+        );
+        await expect(badge).toHaveClass(/pr-state-open/, { timeout: 15000 });
+        await expect(badge).toContainText("Open");
+        const selectorErrors = pageErrors.filter((message) =>
+          message.includes("not a valid selector"),
+        );
+        expect(selectorErrors).toEqual([]);
+      });
+    });
+  });
+
   describe("PR state endpoint", () => {
     it("resolves the PR state via mocked gh", async () => {
       const res = await authedFetch(
@@ -68,29 +91,6 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
       const html = await res.text();
       expect(html).toContain("pr-state-open");
       expect(html).toContain("Open");
-    });
-
-    // Browser-driven because the failure mode is client-side: the chip's
-    // state slot id derives from the namespaced session id ("goose:…"),
-    // and a raw `:` is a valid HTML id but an invalid CSS selector — htmx
-    // threw resolving `hx-target` and the loading dot never got replaced.
-    it("swaps the resolved state into the sidebar PR chip", async () => {
-      await withPage(env.context, async (page) => {
-        const pageErrors: string[] = [];
-        page.on("pageerror", (err) => pageErrors.push(err.message));
-        await page.goto(env.baseUrl + `/sessions/${fx.viewId("pr-sess")}`);
-        const badge = page.locator(
-          `.session-item[data-session-id="${fx.viewId("pr-sess")}"] ` +
-            ".pr-chip .pr-state",
-        );
-        await expect(badge).toHaveClass(/pr-state-open/, { timeout: 15000 });
-        await expect(badge).toContainText("Open");
-        expect(
-          pageErrors.filter((message) =>
-            message.includes("not a valid selector"),
-          ),
-        ).toEqual([]);
-      });
     });
   });
 
