@@ -8,6 +8,7 @@ import {
   formatOneShotLocal,
   parseSchedule,
 } from "../../schedule.js";
+import { sleep, withSeconds } from "../cron-helpers.js";
 import {
   authedFetch,
   type CronJobRow,
@@ -18,17 +19,6 @@ import {
   seedCronJobRow,
   withPage,
 } from "../harness.js";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Appends :ss to a minute-precision one-shot spelling so a test can aim
-// a fixed distance out instead of waiting for a minute boundary (the
-// prune tests keep the minute spelling covered). Zone offsets are
-// minute-aligned, so an instant's seconds are its seconds in every
-// zone — the target's own seconds serve zoned spellings too.
-const withSeconds = (schedule: string, target: Date): string =>
-  `${schedule}:${String(target.getSeconds()).padStart(2, "0")}`;
 
 // The scheduled-runs UI: creating from the New Session form, managing
 // from the section, recognizing job-started sessions, and the one-shot

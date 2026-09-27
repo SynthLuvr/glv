@@ -4,42 +4,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { countSessions, pollUntil, sleep } from "../cron-helpers.js";
 import {
-  authedFetch,
   cronJobRow,
   type FlavorFixture,
   type IntegrationEnv,
   seedCronJobRow,
 } from "../harness.js";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Polls predicate every 250ms until it holds or the deadline passes;
-// resolves to whether it ever held.
-const pollUntil = async (
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs: number,
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return true;
-    await sleep(250);
-  }
-  return false;
-};
-
-// Counts a session-name's occurrences in the sidebar markup (each
-// rendered session spells its name exactly once — same technique as the
-// other cron suites).
-const countSessions = async (
-  env: IntegrationEnv,
-  sessionName: string,
-): Promise<number> => {
-  const res = await authedFetch(env, "/");
-  const html = await res.text();
-  return html.split(`class="session-name">${sessionName}<`).length - 1;
-};
 
 // The one-shot's distance from boot. Even a slow, contended boot still
 // leaves the scheduler arming timers before the occurrence — and a boot

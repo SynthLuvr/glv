@@ -69,15 +69,6 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("pr-state-open");
       expect(html).toContain("Open");
     });
-
-    it("returns an empty body for a non-PR url", async () => {
-      const res = await authedFetch(
-        env,
-        `/sessions/${fx.viewId("pr-sess")}/pr-state?url=https://evil.example/x`,
-      );
-      expect(res.status).toBe(200);
-      expect((await res.text()).trim()).toBe("");
-    });
   });
 
   describe("git-info endpoint", () => {

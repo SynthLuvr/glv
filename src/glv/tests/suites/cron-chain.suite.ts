@@ -5,6 +5,12 @@ import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotLocal } from "../../schedule.js";
 import {
+  countSessions as countSessionsNamed,
+  pollUntil,
+  sleep,
+  withSeconds,
+} from "../cron-helpers.js";
+import {
   authedFetch,
   cronJobRow,
   type FlavorFixture,
@@ -14,30 +20,6 @@ import {
   seedCronJobRow,
   withPage,
 } from "../harness.js";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Polls predicate every 250ms until it holds or the deadline passes;
-// resolves to whether it ever held (a false outcome is the assertion in
-// the "never happens" tests).
-const pollUntil = async (
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs: number,
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return true;
-    await sleep(250);
-  }
-  return false;
-};
-
-// Appends :ss to a minute-precision one-shot spelling so a test can aim
-// a fixed distance out instead of waiting for a minute boundary (same
-// helper as the cron-ui suite).
-const withSeconds = (schedule: string, target: Date): string =>
-  `${schedule}:${String(target.getSeconds()).padStart(2, "0")}`;
 
 // Chained scheduled runs: follow-on prompts stacked on a job, each
 // starting a new session after the previous step finishes. Persistence
@@ -49,16 +31,6 @@ const withSeconds = (schedule: string, target: Date): string =>
 // step's prompt is visible exactly while its session runs).
 
 const runCronChainSuite = (fx: FlavorFixture): void => {
-  // Counts a session-name's occurrences in the sidebar markup — the
-  // sidebar renders each session's name exactly once (same technique as
-  // the cron suite).
-  const sessionCounter =
-    (env: IntegrationEnv, sessionName: string) => async (): Promise<number> => {
-      const res = await authedFetch(env, "/");
-      const html = await res.text();
-      return html.split(`class="session-name">${sessionName}<`).length - 1;
-    };
-
   const putJob = async (
     env: IntegrationEnv,
     name: string,
@@ -343,7 +315,8 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           workDir,
           capture: () =>
             existsSync(captureStdin) ? readFileSync(captureStdin, "utf-8") : "",
-          countSessions: sessionCounter(env, mock.sessionName ?? "Session"),
+          countSessions: () =>
+            countSessionsNamed(env, mock.sessionName ?? "Session"),
         };
       };
 

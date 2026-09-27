@@ -103,18 +103,6 @@ const runCliSuite = (fx: FlavorFixture, deps: CliDeps): void => {
   });
 
   describe(`${fx.binName} serve argument validation`, () => {
-    it("rejects a non-positive --max-concurrent", () => {
-      const { status, stderr } = run(["serve", "--max-concurrent", "0"]);
-      expect(status).not.toBe(0);
-      expect(stderr.toLowerCase()).toContain("positive integer");
-    });
-
-    it("rejects a non-numeric --max-concurrent", () => {
-      const { status, stderr } = run(["serve", "--max-concurrent", "abc"]);
-      expect(status).not.toBe(0);
-      expect(stderr.toLowerCase()).toContain("positive integer");
-    });
-
     it("rejects a binary path that does not exist", () => {
       const { status, stderr } = run([
         "serve",

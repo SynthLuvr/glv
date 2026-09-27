@@ -19,12 +19,7 @@ import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import {
-  type BrowserContext,
-  chromium,
-  expect,
-  type Page,
-} from "@playwright/test";
+import { type BrowserContext, expect, type Page } from "@playwright/test";
 import {
   type MockBinBehaviour,
   type MockBinCall,
@@ -45,6 +40,7 @@ import {
   updateCronJob,
 } from "../cron-jobs.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
+import { launchTestBrowser } from "./browser-display.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -896,7 +892,7 @@ const startEnv = async (
   };
   await bootServer();
 
-  const browser = await chromium.launch();
+  const browser = await launchTestBrowser();
   const context = await browser.newContext();
   const cookieName = sessionCookieName(dbs.authDb);
   await context.addCookies([
