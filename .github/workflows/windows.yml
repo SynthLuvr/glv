@@ -1,12 +1,12 @@
 # Weekly Windows safety net. Per-PR Windows CI was disabled in e7d15ab
-# (#271) — at ~2 merges/day it cost ~$98/mo for coverage the suite's
-# win32 exclusions in vitest.config.ts prove matters: #204 and #207
-# were Windows-only breaks that only CI caught. This runs the full
-# matrix once a week against main instead, ~$3/mo, and can be
-# dispatched manually before a risky merge.
+# (#271) — at ~2 merges/day it cost ~$98/mo. But Windows is a real
+# target: vitest.config.ts carries win32-only suite exclusions, and
+# #204/#207 were Windows-only breaks that only CI caught. This runs the
+# full matrix once a week against main (~$3/mo) and can be dispatched
+# manually before a risky merge.
 #
-# Job bodies mirror ci.yml on windows-latest. If you change the test
-# invocation, cache strategy, or timeouts there, change them here too.
+# Job bodies mirror ci.yml: if you change the test invocation, cache
+# strategy, or timeouts there, change them here too.
 name: Windows CI (weekly)
 
 on:
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: win-weekly-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -54,9 +54,7 @@ jobs:
         run: pnpm lint
 
   # Same shape as ci.yml's shards: parallel with the build job, each
-  # installing and building its own assets. Playwright browsers live at
-  # a different path on Windows — the save/restore covers both OSes so
-  # this file and ci.yml can share one cache key scheme.
+  # installing and building its own assets.
   test:
     timeout-minutes: 10
     runs-on: windows-latest
@@ -83,9 +81,7 @@ jobs:
       - name: Restore Playwright browsers
         uses: actions/cache/restore@v6.1.0
         with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/AppData/Local/ms-playwright
+          path: ~/AppData/Local/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
@@ -99,9 +95,7 @@ jobs:
         if: matrix.shard == '4/4'
         uses: actions/cache/save@v6.1.0
         with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/AppData/Local/ms-playwright
+          path: ~/AppData/Local/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
 
       - name: Test (shard ${{ matrix.shard }})

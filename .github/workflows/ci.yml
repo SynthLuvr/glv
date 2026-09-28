@@ -10,11 +10,10 @@ on:
       - "**.md"
       - "pr-shots/**"
 
-# Every push to an open PR used to stack another full 5-job run on the
-# previous one (Sep 25 alone burned ~500 runner-minutes this way).
-# Cancel the superseded run for the same ref when a new push lands.
+# A new push to an open PR used to stack a full 5-job run on top of
+# the previous one (Sep 25 alone burned ~500 runner-minutes this way).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
