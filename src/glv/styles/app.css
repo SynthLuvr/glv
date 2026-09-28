@@ -1576,7 +1576,6 @@ pre::-webkit-scrollbar-thumb {
   gap: 0.5rem;
   align-items: flex-end;
 }
-/* Compact icon-only variants keep the prompt-bar row unobtrusive. */
 .prompt-input-row .paperclip-btn,
 .prompt-input-row .location-btn {
   display: flex;
@@ -1587,12 +1586,12 @@ pre::-webkit-scrollbar-thumb {
   min-height: 2.4rem;
   padding: 0;
 }
-/* flex:1 is scoped to the row so the textarea fills the space between the
-   picker and the action button. It must NOT apply to the new-session form,
-   whose textarea lives in a column flex container — there flex-basis:0 would
-   override the `height` property and break autogrow. The 12rem basis floors
-   that fill: below it the wrapped row moves the input onto its own
-   full-width line instead of shrinking it to a sliver. */
+/* flex:1 is scoped to the row so the textarea fills the width beside the
+   action buttons. It must NOT apply to the new-session form, whose textarea
+   lives in a column flex container — there flex-basis:0 would override the
+   `height` property and break autogrow. The 12rem basis floors that fill:
+   below it the wrapped row moves the input onto its own full-width line
+   instead of shrinking it to a sliver. */
 .prompt-input-row .prompt-input {
   flex: 1 1 12rem;
 }
