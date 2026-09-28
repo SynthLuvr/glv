@@ -221,6 +221,44 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         expect(overflow).toBeLessThanOrEqual(1);
       });
     }, 30000);
+
+    it("drops the saved-prompt picker and keeps the row intact", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page);
+
+        // The saved-prompt picker was removed from the bar entirely.
+        await expect(
+          page.locator(".prompt-input-row .followup-picker"),
+        ).toHaveCount(0);
+
+        // With the input owning the first line, the attach button rides the
+        // wrapped action row, bottom-aligned with Send.
+        const boxes = await page.evaluate(() => {
+          const box = (selector: string) => {
+            const el = document.querySelector(selector);
+            if (el === null) return null;
+            const r = el.getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom };
+          };
+          return {
+            input: box(".prompt-input-row .prompt-input"),
+            paperclip: box(".prompt-input-row .paperclip-btn"),
+            send: box(".prompt-input-row .send-btn"),
+          };
+        });
+        expect(boxes.input).not.toBeNull();
+        expect(boxes.paperclip).not.toBeNull();
+        expect(boxes.send).not.toBeNull();
+
+        expect(boxes.paperclip!.top).toBeGreaterThanOrEqual(
+          boxes.input!.bottom - 0.5,
+        );
+        const clipSendBottomDelta = Math.abs(
+          boxes.paperclip!.bottom - boxes.send!.bottom,
+        );
+        expect(clipSendBottomDelta).toBeLessThanOrEqual(1.5);
+      });
+    }, 30000);
   });
 };
 

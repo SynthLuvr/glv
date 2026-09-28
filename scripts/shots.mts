@@ -179,6 +179,7 @@ const captureViews = async (
   await showDetailPaneOnMobile(page);
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
+  await capture(page, "prompt-bar-mobile.png", "form.prompt-bar");
 
   // Busy composer (Queue/Stop), captured last: the submitted follow-up
   // stays running for sleepMs and must not leak into the shots above.

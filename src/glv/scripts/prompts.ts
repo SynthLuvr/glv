@@ -171,37 +171,6 @@ import { fillPromptInput } from "./shared.js";
     submitSessionForm(sessionForm());
   };
 
-  const followupTextarea = (btn: HTMLElement): HTMLTextAreaElement | null => {
-    const bar = btn.closest<HTMLElement>("[data-prompt-bar]");
-    return (
-      bar?.querySelector<HTMLTextAreaElement>('textarea[name="prompt"]') ?? null
-    );
-  };
-
-  // Follow-up context: the session's working dir (exposed on the picker) plus
-  // today's date. repo/branch are unknown here, so {{repo}} stays literal.
-  const followupContext = (btn: HTMLElement): PlaceholderValues => {
-    const values: PlaceholderValues = { date: today() };
-    const picker = btn.closest<HTMLElement>(".followup-picker");
-    const workingDir = picker?.dataset.workingDir ?? "";
-    if (workingDir !== "") values.working_dir = workingDir;
-    return values;
-  };
-
-  const followupUse = (btn: HTMLElement): void => {
-    const body = substitutePlaceholders(
-      btn.dataset.promptBody ?? "",
-      followupContext(btn),
-    );
-    const textarea = followupTextarea(btn);
-    if (textarea !== null) {
-      fillPromptInput(textarea, body);
-      textarea.focus();
-    }
-    const picker = btn.closest<HTMLElement>(".followup-picker");
-    if (picker instanceof HTMLDetailsElement) picker.open = false;
-  };
-
   let dragged: HTMLElement | null = null;
 
   const allCardIds = (): string =>
@@ -346,7 +315,6 @@ import { fillPromptInput } from "./shared.js";
     const action = btn.dataset.action ?? "";
     if (action === "use") usePrompt(btn);
     else if (action === "run") void runPrompt(btn);
-    else if (action === "followup-use") followupUse(btn);
     else if (action === "close-save") closeSaveSlot();
     // "open-save" is handled by htmx; the body pre-fill runs after the swap.
   });
