@@ -221,6 +221,43 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         expect(overflow).toBeLessThanOrEqual(1);
       });
     }, 30000);
+
+    it("drops the saved-prompt picker and keeps the row intact", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page);
+
+        await expect(
+          page.locator(".prompt-input-row .followup-picker"),
+        ).toHaveCount(0);
+
+        // With the input owning the first line, the attach button rides the
+        // wrapped action row, bottom-aligned with Send.
+        const edge = (
+          selector: string,
+          side: "top" | "bottom",
+        ): Promise<number> =>
+          page
+            .locator(selector)
+            .evaluate((el, s) => el.getBoundingClientRect()[s], side);
+
+        const inputBottom = await edge(
+          ".prompt-input-row .prompt-input",
+          "bottom",
+        );
+        const paperclipTop = await edge(
+          ".prompt-input-row .paperclip-btn",
+          "top",
+        );
+        const paperclipBottom = await edge(
+          ".prompt-input-row .paperclip-btn",
+          "bottom",
+        );
+        const sendBottom = await edge(".prompt-input-row .send-btn", "bottom");
+
+        expect(paperclipTop).toBeGreaterThanOrEqual(inputBottom - 0.5);
+        expect(Math.abs(paperclipBottom - sendBottom)).toBeLessThanOrEqual(1.5);
+      });
+    }, 30000);
   });
 };
 

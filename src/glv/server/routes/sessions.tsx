@@ -8,8 +8,7 @@ import { pullRepo } from "../../git.js";
 import { removeMember } from "../../groups/db.js";
 import { type EstablishOutcome, withCreateLock } from "../../launch.js";
 import { modelUnavailableError } from "../../models.js";
-import type { SavedPrompt } from "../../prompts/db.js";
-import { bumpUsage, listPrompts } from "../../prompts/db.js";
+import { bumpUsage } from "../../prompts/db.js";
 import {
   clearPending,
   enqueueOrQueue,
@@ -69,10 +68,6 @@ const registerSessionRoutes = (
   ctx: ServerContext,
 ): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
-  // The saved-prompt library powers the follow-up bar picker; empty when the
-  // prompts store is disabled so the picker shows its "no prompts" message.
-  const libraryPrompts = (): SavedPrompt[] =>
-    ctx.prompts !== undefined ? listPrompts(ctx.prompts) : [];
 
   const NEW_SESSION_TITLE = "New Session — GLV";
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
@@ -143,7 +138,6 @@ const registerSessionRoutes = (
         messages={messages}
         run={includeRun ? getHandle(ctx.runner, id) : undefined}
         prompt={prompt}
-        prompts={libraryPrompts()}
         uploadError={uploadError}
         cronJob={cronJob}
       />,
@@ -384,8 +378,6 @@ const registerSessionRoutes = (
           agentName={ctx.agentOf(id)?.profile.agentName ?? ctx.agentNames}
           sessionId={id}
           run={run}
-          prompts={libraryPrompts()}
-          workingDir={session.working_dir}
           pendingTool={tool}
         />,
       );

@@ -9,7 +9,6 @@ import {
   truncateMiddle,
 } from "../../glv/format/index.js";
 import { detectPrUrl } from "../../glv/pr.js";
-import type { SavedPrompt } from "../../glv/prompts/db.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
 import { CronChip, PrChip } from "../../glv/views/chips.js";
@@ -252,59 +251,16 @@ const QueuedPrompt = ({ prompt }: { prompt: string }) => (
 const isRunActive = (run: RunHandle | undefined): boolean =>
   run !== undefined && (run.status === "queued" || run.status === "running");
 
-// A compact saved-prompt picker for the in-session follow-up bar. Selecting an
-// item fills the follow-up textarea with template-substituted text (known
-// placeholders only — unknowns stay literal for the user to edit). The
-// working dir is exposed via a data attribute so the client can resolve
-// {{working_dir}} without a round trip.
-const FollowupPicker = ({
-  prompts,
-  workingDir,
-}: {
-  prompts: SavedPrompt[];
-  workingDir: string;
-}) => (
-  <details class="followup-picker" data-working-dir={workingDir}>
-    <summary
-      class="followup-picker-btn"
-      title="Insert a saved prompt"
-      aria-label="Insert a saved prompt"
-    >
-      📋
-    </summary>
-    <div class="followup-picker-list">
-      {prompts.length === 0 ? (
-        <p class="followup-picker-empty">No saved prompts.</p>
-      ) : (
-        prompts.map((prompt) => (
-          <button
-            type="button"
-            class="followup-picker-item"
-            data-action="followup-use"
-            data-prompt-body={prompt.body}
-          >
-            {prompt.title}
-          </button>
-        ))
-      )}
-    </div>
-  </details>
-);
-
 const PromptBar = ({
   agentName,
   sessionId,
   run,
-  prompts = [],
-  workingDir = "",
   uploadError,
   pendingTool: tool,
 }: {
   agentName: string;
   sessionId: string;
   run?: RunHandle;
-  prompts?: SavedPrompt[];
-  workingDir?: string;
   uploadError?: string;
   /** In-flight tool call derived from the persisted request row, if any. */
   pendingTool?: ToolRun;
@@ -349,7 +305,6 @@ const PromptBar = ({
       <UploadFields />
       <LocationFields />
       <div class="prompt-input-row">
-        <FollowupPicker prompts={prompts} workingDir={workingDir} />
         <textarea
           name="prompt"
           placeholder={busy ? "Queue a follow-up prompt…" : `Ask ${agentName}…`}
@@ -390,7 +345,6 @@ const Transcript = ({
   messages,
   run,
   prompt,
-  prompts = [],
   uploadError,
   cronJob,
 }: {
@@ -399,7 +353,6 @@ const Transcript = ({
   messages: ParsedMessage[];
   run?: RunHandle;
   prompt?: string;
-  prompts?: SavedPrompt[];
   uploadError?: string;
   /** Name of the scheduled job that started this session, if any. */
   cronJob?: string;
@@ -454,8 +407,6 @@ const Transcript = ({
         agentName={agentName}
         sessionId={session.id}
         run={run}
-        prompts={prompts}
-        workingDir={session.working_dir}
         uploadError={uploadError}
         pendingTool={tool}
       />

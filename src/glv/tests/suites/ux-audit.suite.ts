@@ -203,7 +203,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
   });
 
   describe("A4: icon-only controls and bare inputs are labelled", () => {
-    it("labels the filter input, follow-up textarea, and picker summary", async () => {
+    it("labels the filter input and the follow-up textarea", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
         await expect(page.locator(".prompt-filter")).toHaveAttribute(
@@ -216,9 +216,6 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
           "aria-label",
           "Follow-up prompt",
         );
-        await expect(
-          page.locator(".followup-picker summary.followup-picker-btn"),
-        ).toHaveAttribute("aria-label", "Insert a saved prompt");
       });
     }, 30000);
   });
