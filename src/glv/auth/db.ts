@@ -317,21 +317,19 @@ const consumeEnrollmentToken = (
   return typeof row?.userId === "string" ? row.userId : undefined;
 };
 
-// API tokens: long-lived bearer credentials minted by the owner for
+// API tokens are long-lived bearer credentials minted by the owner for
 // non-browser clients (curl, CI). Unlike sessions, only the SHA-256 hash
-// of the token is stored — these live for weeks in CI configs, so the
-// database must not hold the secret itself — and the lookup is a primary
-// key hit on that hash, so no token bytes are ever compared.
-const API_TOKEN_TTL_SECONDS = 2592000; // 30 days
+// is stored — they live for weeks in CI configs — so the lookup is a
+// primary-key hit on that hash and no token bytes are ever compared.
+const API_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const API_TOKEN_PREFIX = "glv_at_";
 
 const tokenHash = (token: string): string =>
   createHash("sha256").update(token).digest("hex");
 
-// Lightweight projection for the management screen — the id (a hash), its
-// label, and its timestamps. The raw token is never stored, so it can
-// never be listed.
+// All the management screen can show: the raw token is never stored, so
+// it can never be listed.
 type ApiTokenSummary = {
   id: string;
   name: string;
@@ -340,15 +338,13 @@ type ApiTokenSummary = {
   expiresAt: string;
 };
 
-const apiTokenSummaryShape = {
+const ApiTokenSummaryRow = type({
   id: "string",
   name: "string",
   created_at: "string",
   "last_used_at?": "string | null",
   expires_at: "string",
-} as const;
-
-const ApiTokenSummaryRow = type(apiTokenSummaryShape);
+});
 
 type ApiTokenSummaryRow = typeof ApiTokenSummaryRow.infer;
 
@@ -375,18 +371,17 @@ const createApiToken = (
   db: DatabaseSync,
   userId: string,
   name: string,
-  ttlSeconds: number,
 ): string => {
-  // Rows are only removed here and on revoke, so purge expired ones to
-  // keep the table from growing without bound (same story as sessions).
+  // Tokens are otherwise only removed on revoke, so purge expired rows
+  // here to keep the table from growing without bound (as sessions do).
   db.prepare(
     "DELETE FROM api_tokens WHERE expires_at <= datetime('now')",
   ).run();
-  const token = `${API_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+  const token = API_TOKEN_PREFIX + newToken();
   db.prepare(
     `INSERT INTO api_tokens (id, user_id, name, expires_at)
        VALUES (?, ?, ?, datetime('now', ?))`,
-  ).run(tokenHash(token), userId, name, `+${ttlSeconds} seconds`);
+  ).run(tokenHash(token), userId, name, `+${API_TOKEN_TTL_SECONDS} seconds`);
   return token;
 };
 
@@ -409,14 +404,13 @@ const touchApiToken = (db: DatabaseSync, token: string): void => {
   ).run(tokenHash(token));
 };
 
-// `id` is the stored hash — the only spelling the UI ever sees.
+// `id` is the stored token hash.
 const revokeApiToken = (db: DatabaseSync, id: string): void => {
   db.prepare("DELETE FROM api_tokens WHERE id = ?").run(id);
 };
 
 export type { ApiTokenSummary, CredentialSummary, NewCredential };
 export {
-  API_TOKEN_TTL_SECONDS,
   addCredential,
   apiTokenValid,
   consumeEnrollmentToken,

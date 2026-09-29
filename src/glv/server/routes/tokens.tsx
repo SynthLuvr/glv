@@ -6,8 +6,8 @@ import type { ServerContext } from "../context.js";
 import { fieldString, parseForm } from "../forms.js";
 import { sendHtml } from "../http.js";
 
-// 1–64 characters once trimmed: the name is a label shown on this screen,
-// not an identifier (the stored hash is).
+// A free-form label (the stored hash is the identifier): 1–64 characters
+// once trimmed.
 const ApiTokenName = type("string.trim").pipe(type("1<=string<=64"));
 
 const NAME_ERROR = "A token name of 1–64 characters is required.";
@@ -31,10 +31,9 @@ const renderTokensPage = (
     />,
   );
 
-// Owner-only API-token management, behind the session gate (excluded from
-// isPublicPath). The create response is a full page render showing the raw
-// token exactly once — the same shape as the passkey-enrollment flow —
-// because only a hash is stored.
+// Owner-only management, behind the session gate (excluded from
+// isPublicPath). The create response re-renders the page showing the raw
+// token exactly once — only its hash is stored.
 const registerTokenRoutes = (
   app: FastifyInstance,
   ctx: ServerContext,
@@ -64,9 +63,9 @@ const registerTokenRoutes = (
     return renderTokensPage(reply, auth, ctx, { token, tokenName: name });
   });
 
-  // Revoking by the stored hash id (the only spelling the page knows).
-  // Unknown ids revoke nothing and land back on the list — the outcome the
-  // owner sees is identical, and there is nothing to leak in a 404.
+  // Revoking by the stored hash id. Unknown ids revoke nothing and land
+  // back on the list — the visible outcome is identical, and there is
+  // nothing to leak in a 404.
   app.post<{ Params: { id: string } }>(
     "/auth/tokens/:id/revoke",
     (request, reply) => {

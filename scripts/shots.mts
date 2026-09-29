@@ -200,8 +200,8 @@ const captureViews = async (
   await context.close();
 };
 
-// The API-token management screen: the empty state, then the once-only
-// reveal after minting through the real form.
+// The API-token management screen: empty state, then the once-only reveal
+// after minting through the real form.
 const captureTokens = async (browser: Browser, env: IntegrationEnv) => {
   const context = await browser.newContext({ viewport: DESKTOP });
   await addSessionCookie(context, env);

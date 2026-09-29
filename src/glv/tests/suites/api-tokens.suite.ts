@@ -9,11 +9,10 @@ import {
   withPage,
 } from "../harness.js";
 
-// API tokens: the bearer credentials non-browser clients send in the
-// Authorization header. Covers the whole chain end-to-end over real HTTP —
-// the gate's bearer branch (valid/garbage/expired/revoked), the JSON-401
-// (never login-redirect) contract for /api/*, the /auth/tokens minting UI
-// driven in a real browser, and the JSON surface the tokens unlock.
+// End-to-end over real HTTP: the auth gate's bearer branch
+// (valid/garbage/expired/revoked), the JSON-401 (never login-redirect)
+// contract for /api/*, the /auth/tokens minting UI driven in a real
+// browser, and the JSON surface the tokens unlock.
 
 type SessionJson = { id: string; name: string };
 

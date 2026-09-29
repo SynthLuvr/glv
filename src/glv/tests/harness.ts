@@ -94,12 +94,10 @@ const seedAuthDb = (dbPath: string): string => {
   return token;
 };
 
-// Seeds an API-token row the way the server itself writes it — only the
-// SHA-256 hash of the raw token is stored — and returns the raw token for
-// Authorization headers. A negative ttlSeconds seeds an already-expired
-// token. The table is created by seedAuthDb's schema; this opens the
-// server's auth DB after it exists (busy timeout waits out any boot-time
-// overlap).
+// Seeds an API-token row the way the server writes it — only the SHA-256
+// hash is stored — and returns the raw token for Authorization headers.
+// A negative ttlSeconds seeds an already-expired token; the busy timeout
+// waits out boot-time DB overlap.
 const seedApiToken = (
   dbPath: string,
   name: string,
@@ -109,13 +107,12 @@ const seedApiToken = (
   adb.exec("PRAGMA busy_timeout=5000");
   const token = `glv_at_${randomBytes(32).toString("base64url")}`;
   const hash = createHash("sha256").update(token).digest("hex");
-  const seconds = `${ttlSeconds >= 0 ? "+" : ""}${ttlSeconds} seconds`;
   adb
     .prepare(
       "INSERT INTO api_tokens (id, user_id, name, expires_at) " +
         "VALUES (?, 'owner-1', ?, datetime('now', ?))",
     )
-    .run(hash, name, seconds);
+    .run(hash, name, `${ttlSeconds} seconds`);
   adb.close();
   return token;
 };

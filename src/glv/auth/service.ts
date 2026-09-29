@@ -20,7 +20,6 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { headerValue } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
-  API_TOKEN_TTL_SECONDS,
   type ApiTokenSummary,
   addCredential,
   apiTokenValid,
@@ -84,8 +83,7 @@ type AuthService = {
   isEnrollmentTokenValid: (token: string) => boolean;
   consumeEnrollmentToken: (token: string) => string | undefined;
   listCredentialSummaries: () => CredentialSummary[];
-  // API tokens (bearer credentials for curl/CI): minted against the
-  // owner, validated as hashes, revoked and listed by their hash id.
+  // API tokens: bearer credentials for curl/CI, keyed by their stored hash.
   createApiToken: (name: string) => string | undefined;
   isValidApiToken: (token: string) => boolean;
   touchApiToken: (token: string) => void;
@@ -394,7 +392,7 @@ const makeAuthService = (
       : createEnrollmentToken(authDb, id, ENROLLMENT_TTL_SECONDS);
   };
 
-  // Returns the raw token exactly once; only its hash is persisted.
+  // Returns the raw token exactly once (only its hash is persisted), or
   // undefined when there is no owner to attach it to.
   return {
     isClaimed: () => isClaimed(authDb),
@@ -412,9 +410,7 @@ const makeAuthService = (
     listCredentialSummaries: () => listCredentialSummaries(authDb),
     createApiToken: (name: string) => {
       const id = ownerUserId(authDb);
-      return id === undefined
-        ? undefined
-        : createApiToken(authDb, id, name, API_TOKEN_TTL_SECONDS);
+      return id === undefined ? undefined : createApiToken(authDb, id, name);
     },
     isValidApiToken: (token: string) => apiTokenValid(authDb, token),
     touchApiToken: (token: string) => touchApiToken(authDb, token),
@@ -481,10 +477,9 @@ const resolveRequestUrl = (request: FastifyRequest): URL => {
   return url;
 };
 
-// The JSON API surface for non-browser clients (curl, CI). Requests to
-// it answer 401 JSON instead of the 302 to the HTML login page — a
-// redirect would let a misconfigured script "succeed" while parsing the
-// login page's markup.
+// The JSON API for non-browser clients. Unauthenticated requests here
+// answer 401 JSON instead of the 302 to the HTML login page — a redirect
+// would let a misconfigured script "succeed" while parsing login markup.
 const API_PREFIX = "/api/";
 
 // Extracts the token from an `Authorization: Bearer <token>` header

@@ -197,11 +197,10 @@ type TokensPageProps = {
   error?: string;
 };
 
-// Owner-only management screen for API tokens — the bearer credentials
-// curl/CI send in the Authorization header. The trust chain is passkey →
-// browser session → API token, so minting happens here, behind the
-// session, and the raw token is displayed exactly once (only its SHA-256
-// hash is stored).
+// Owner-only management screen for the bearer credentials curl/CI send in
+// the Authorization header. Minting sits behind the session (passkey →
+// session → token), and the raw token is shown exactly once — only its
+// SHA-256 hash is stored.
 const TokensPage = ({
   tokens,
   token,
@@ -245,9 +244,10 @@ const TokensPage = ({
           <code class="token-value">{token}</code>
         </div>
       )}
-      {tokens.length === 0 ? (
-        token === undefined && <p class="auth-sub">No API tokens yet.</p>
-      ) : (
+      {tokens.length === 0 && token === undefined && (
+        <p class="auth-sub">No API tokens yet.</p>
+      )}
+      {tokens.length > 0 && (
         <ul class="token-list">
           {tokens.map((t) => (
             <li data-token-id={t.id}>
