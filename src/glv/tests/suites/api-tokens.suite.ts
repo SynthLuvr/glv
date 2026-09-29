@@ -198,7 +198,7 @@ const runApiTokensSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/auth/tokens`);
         await page.locator('input[name="name"]').fill("browser-minted");
-        await page.locator('button[type="submit"]').click();
+        await page.locator("form.token-create-form button").click();
         await page.locator(".token-value").waitFor();
         const token = await page.locator("#api-token").getAttribute("value");
         // glv_at_ + 43 base64url chars; only the hash is ever stored.

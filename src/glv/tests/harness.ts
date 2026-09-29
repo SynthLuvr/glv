@@ -109,12 +109,13 @@ const seedApiToken = (
   adb.exec("PRAGMA busy_timeout=5000");
   const token = `glv_at_${randomBytes(32).toString("base64url")}`;
   const hash = createHash("sha256").update(token).digest("hex");
+  const seconds = `${ttlSeconds >= 0 ? "+" : ""}${ttlSeconds} seconds`;
   adb
     .prepare(
       "INSERT INTO api_tokens (id, user_id, name, expires_at) " +
         "VALUES (?, 'owner-1', ?, datetime('now', ?))",
     )
-    .run(hash, name, `+${ttlSeconds} seconds`);
+    .run(hash, name, seconds);
   adb.close();
   return token;
 };
