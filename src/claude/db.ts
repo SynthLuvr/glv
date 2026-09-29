@@ -84,11 +84,19 @@ const listSessions = (
 ): SessionRow[] => {
   const meta = listMeta(store.meta);
   const out: SessionRow[] = [];
+  let skipped = 0;
+  const offset = filter.offset ?? 0;
   for (const file of listSessionFiles(store.root)) {
     if (out.length >= filter.limit) break;
     const metaRow = meta.get(file.id);
     const archived = metaRow !== undefined && metaRow.archived_at !== null;
     if (archived && !filter.includeArchived) continue;
+    // Offset applies to the filtered order, mirroring SQL semantics:
+    // archived rows are excluded first, then the window skips forward.
+    if (skipped < offset) {
+      skipped++;
+      continue;
+    }
     out.push(sessionRow(file, metaRow, parseTranscriptFile(file.path)));
   }
   return out;

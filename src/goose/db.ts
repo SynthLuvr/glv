@@ -132,8 +132,8 @@ const listSessions = (
   if (!filter.includeArchived) clauses.push("archived_at IS NULL");
   const parts = [`SELECT ${SESSION_COLS} FROM sessions`];
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
-  parts.push("ORDER BY updated_at DESC", "LIMIT ?");
-  params.push(filter.limit);
+  parts.push("ORDER BY updated_at DESC", "LIMIT ? OFFSET ?");
+  params.push(filter.limit, filter.offset ?? 0);
   // The sidebar never renders the model, so listing skips the extra
   // readModelName query; the detail pane re-reads the row via getSession.
   return validateAll(

@@ -15,6 +15,7 @@ import {
   type ServerOptions,
 } from "./context.js";
 import { sendNotFound } from "./http.js";
+import { createSessionOperations } from "./operations.js";
 import { expandHome, listHomeDirs } from "./paths.js";
 import { registerApiRoutes } from "./routes/api.js";
 import { registerAssetRoutes } from "./routes/assets.js";
@@ -74,10 +75,12 @@ const createApp = (
     runGit: opts.runGit,
     cronDb: opts.cronDb,
     onCronJobsChange: opts.onCronJobsChange,
-    createLocks: new Map(),
     assets: buildAssetBundle(opts.assetsFlavor),
   };
 
+  // The shared operation layer every mutating surface delegates to —
+  // the HTML routes and the JSON API run the same effects through it.
+  const ops = createSessionOperations(ctx);
   // Uploads ride the body parser: the friendly per-file (50 MB) and
   // total (100 MB) checks live in saveUploads, so the framework limits
   // sit above them to let those errors surface instead of a hard 413.
@@ -138,7 +141,7 @@ const createApp = (
     registerAuthRoutes(scope, ctx);
     registerBrowseRoutes(scope, ctx);
     registerSidebarMetaRoutes(scope, ctx);
-    registerSessionRoutes(scope, ctx);
+    registerSessionRoutes(scope, ctx, ops);
     registerGroupRoutes(scope, ctx);
     registerPrRoutes(scope, ctx);
     registerGitRoutes(scope, ctx);
@@ -147,7 +150,7 @@ const createApp = (
     registerStreamRoutes(scope, ctx);
     registerEventsRoutes(scope, ctx);
     registerTokenRoutes(scope, ctx);
-    registerApiRoutes(scope, ctx);
+    registerApiRoutes(scope, ctx, ops);
   });
 
   return app;

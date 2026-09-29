@@ -1,71 +1,34 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Fragment } from "hono/jsx";
 import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
-import { pullRepo } from "../../git.js";
 import { removeMember } from "../../groups/db.js";
-import { type EstablishOutcome, withCreateLock } from "../../launch.js";
-import { modelUnavailableError } from "../../models.js";
-import { bumpUsage } from "../../prompts/db.js";
-import {
-  clearPending,
-  enqueueOrQueue,
-  getHandle,
-  stop,
-} from "../../runner/index.js";
+import { clearPending, getHandle, stop } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
 import { ModelSelect } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
 import { ServerContext, VIEWER_FILTER } from "../context.js";
-import { fieldString, parseForm } from "../forms.js";
+import { fieldString, firstString, parseForm } from "../forms.js";
 import { extractIds, isHtmxRequest, queryValue, sendHtml } from "../http.js";
-import { buildLocationContext, parseSharedLocation } from "../location.js";
+import { canonicalWorkingDir, type SessionOperations } from "../operations.js";
 import { expandHome } from "../paths.js";
 import {
   combinedModelPicker,
   newSessionDetail,
   render,
   renderNotFound,
-  resolveAgentPick,
   sidebarEntries,
 } from "../render.js";
 import { activeRunPrompt } from "../session.js";
 import { activeSessionIds } from "../status.js";
-import {
-  buildUploadContext,
-  collectFiles,
-  createTempDir,
-  deleteTempDir,
-  deleteUploads,
-  removeDir,
-  saveUploads,
-  tagDir,
-  uploadErrorMessage,
-} from "../uploads.js";
-
-// parseForm yields an array per repeated field; take the first string.
-const firstString = (val: unknown): string => {
-  if (Array.isArray(val))
-    return typeof val[0] === "string" ? val[0].trim() : "";
-  return typeof val === "string" ? val.trim() : "";
-};
-
-// The agent persists working_dir in canonical form, so the submitted dir
-// must be normalized here or the new-session discovery poll compares
-// against a different spelling, never finds the row, and stops the healthy
-// run at its timeout — this also keeps the spawn cwd and the per-directory
-// create lock on one spelling. Empty stays empty: resolve("") would invent
-// the server's cwd.
-const canonicalWorkingDir = (raw: string): string =>
-  raw === "" ? raw : resolve(raw);
+import { deleteTempDir, deleteUploads } from "../uploads.js";
 
 const registerSessionRoutes = (
   app: FastifyInstance,
   ctx: ServerContext,
+  ops: SessionOperations,
 ): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
 
@@ -192,22 +155,6 @@ const registerSessionRoutes = (
     const body = await parseForm(request);
     const bodyField = (key: string): string => firstString(body[key]);
 
-    const prompt = bodyField("prompt");
-    const promptId = bodyField("prompt_id");
-    const sessionMode = bodyField("session_mode");
-    const submittedWorkingDir = canonicalWorkingDir(
-      expandHome(bodyField("working_dir")),
-    );
-    const { agentId, runtime, modelValue } = resolveAgentPick(
-      ctx,
-      bodyField("model"),
-      ctx.defaultAgent.id,
-    );
-
-    const files = collectFiles(body.uploads);
-    // Validated before any directory or session is created.
-    const location = parseSharedLocation(bodyField("location"));
-
     // Every rejection re-renders the form with the submitted prompt and
     // schedule values restored — scheduling is an alternate submit, and
     // nothing typed may be lost either way.
@@ -220,129 +167,22 @@ const registerSessionRoutes = (
         undefined,
         newSessionDetail(ctx, {
           error,
-          workingDir: submittedWorkingDir,
-          prompt,
+          workingDir: canonicalWorkingDir(expandHome(bodyField("working_dir"))),
+          prompt: bodyField("prompt"),
           model: bodyField("model"),
         }),
         { status, title: NEW_SESSION_TITLE },
       );
 
-    if (runtime === undefined)
-      return rejectForm(`Agent "${agentId}" is not enabled.`, 422);
-
-    if (prompt === "")
-      return rejectForm("A prompt is required to start a session.", 422);
-
-    if (location !== undefined && !location.ok)
-      return rejectForm(location.error, 422);
-
-    // The dropdown listed render-time config; resolve the pick against a
-    // fresh read in case the agent's config changed since the form was
-    // served.
-    const model = runtime.models?.resolve(modelValue);
-    if (modelValue !== "" && model === undefined)
-      return rejectForm(modelUnavailableError(runtime.profile.agentName), 422);
-
-    if (
-      sessionMode !== "temp" &&
-      (submittedWorkingDir === "" || !existsSync(submittedWorkingDir))
-    )
-      return rejectForm("That working directory does not exist.", 422);
-
-    const tempWorkingDir =
-      sessionMode === "temp" ? createTempDir(ctx.dataDirName) : undefined;
-    const workingDir = tempWorkingDir ?? submittedWorkingDir;
-
-    // Save uploaded files into GLV's private storage and append their
-    // absolute paths to the prompt so the agent can read them.
-    let uploadDir: string | undefined;
-    let fullPrompt = prompt;
-    if (files.length > 0)
-      try {
-        const saved = await saveUploads(files, ctx.dataDirName);
-        fullPrompt = prompt + buildUploadContext(saved.paths);
-        uploadDir = saved.dir;
-      } catch (err) {
-        return rejectForm(uploadErrorMessage(err), 422);
-      }
-
-    // After the upload section, so both attachments read as one context
-    // block.
-    if (location?.ok) fullPrompt += buildLocationContext(location.data);
-
-    // Pre-tag cleanup for a failed attempt: these dirs are untagged, so
-    // the archive-time sweep would never collect them.
-    const removeAttemptDirs = (): void => {
-      if (uploadDir !== undefined) removeDir(uploadDir);
-      if (tempWorkingDir !== undefined) removeDir(tempWorkingDir);
-    };
-
-    const establishSession = async (): Promise<EstablishOutcome> =>
-      withCreateLock(
-        ctx.createLocks,
-        workingDir,
-        async (): Promise<EstablishOutcome> => {
-          // Inside the per-directory lock so concurrent starts can't race the pull.
-          await pullRepo(workingDir, ctx.runGit);
-          const handle = ctx.launcher.startNewFor(
-            agentId,
-            workingDir,
-            fullPrompt,
-            model,
-          );
-
-          const sessionId = await ctx.launcher.awaitNew(
-            handle,
-            workingDir,
-            ctx.pollTimeoutMs,
-          );
-          if (sessionId === undefined) {
-            stop(ctx.runner, handle);
-            return {
-              ok: false,
-              status: 502,
-              error: runtime.profile.sessionTimeoutError,
-            };
-          }
-          return ctx.launcher.establish(
-            handle,
-            sessionId,
-            "Another session is starting in that directory. Please try again.",
-          );
-        },
-      );
-
-    let result: EstablishOutcome;
-    try {
-      result = await establishSession();
-    } catch (err) {
-      // The lock helper only swallows *prior* attempts' rejections; a fresh
-      // throw from this attempt must still clean up or its dirs leak forever.
-      removeAttemptDirs();
-      throw err;
-    }
-
-    if (!result.ok) {
-      removeAttemptDirs();
-      return rejectForm(result.error, result.status);
-    }
+    const result = await ops.startSession(body);
+    if (!result.ok) return rejectForm(result.error, result.status);
     const { sessionId, session } = result;
-
-    // Tag the upload dir with the real session id so cleanup finds it when
-    // the session is archived.
-    if (uploadDir !== undefined) tagDir(uploadDir, sessionId);
-    if (tempWorkingDir !== undefined) tagDir(tempWorkingDir, sessionId);
-
-    // A "Run" from a saved prompt tags the submit with the prompt id; bump
-    // usage stats only once the run has actually been established.
-    if (promptId !== "" && ctx.prompts !== undefined)
-      bumpUsage(ctx.prompts, promptId);
 
     // The transcript swaps into #detail-pane; push the new session's URL
     // so the address bar (and a refresh) match what is on screen.
     reply.header("HX-Push-Url", `/sessions/${sessionId}`);
     return renderSession(request, reply, sessionId, session, {
-      prompt,
+      prompt: bodyField("prompt"),
       refreshSidebar: true,
     });
   });
@@ -454,54 +294,24 @@ const registerSessionRoutes = (
     "/sessions/:id/prompt",
     async (request, reply) => {
       const id = request.params.id;
-      const session = ctx.sessions.getSession(id);
-      if (session === undefined) return renderNotFound(request, reply, ctx, id);
-
       const body = await parseForm(request);
-      const prompt = firstString(body.prompt);
-      const files = collectFiles(body.uploads);
+      const result = await ops.queueFollowUp(id, body);
 
-      // Session id is known, so tag the upload dir immediately for cleanup.
-      let fullPrompt = prompt;
-      let uploadError: string | undefined;
-      if (files.length > 0)
-        try {
-          const saved = await saveUploads(files, ctx.dataDirName);
-          fullPrompt = prompt + buildUploadContext(saved.paths);
-          tagDir(saved.dir, id);
-        } catch (err) {
-          uploadError = uploadErrorMessage(err);
-        }
-
-      // A malformed share surfaces as the bar's error hint so the user can
-      // retry, matching uploads.
-      const location = parseSharedLocation(firstString(body.location));
-      if (location !== undefined && !location.ok) uploadError = location.error;
-      else if (location?.ok) fullPrompt += buildLocationContext(location.data);
-
-      // Render the submitted prompt only when it started right away; queued
-      // prompts surface as QueuedPrompt cards via the handle, so passing the
-      // text here too would double-display it. Skip enqueuing entirely when an
-      // upload failed so the user can retry.
-      let activePrompt: string | undefined;
-      const runtime = ctx.agentOf(id);
-      if (prompt !== "" && uploadError === undefined && runtime !== undefined) {
-        const { queued } = enqueueOrQueue(
-          ctx.runner,
-          runtime.invocation,
-          id,
-          fullPrompt,
-          session.working_dir,
-        );
-        if (!queued) activePrompt = prompt;
+      if (!result.ok) {
+        if (result.status === 404)
+          return renderNotFound(request, reply, ctx, id);
+        // Validation failures (upload, location, empty prompt) surface as
+        // the bar's error hint so the user can retry.
+        const session = ctx.sessions.getSession(id);
+        if (session === undefined)
+          return renderNotFound(request, reply, ctx, id);
+        return renderSession(request, reply, id, session, {
+          uploadError: result.error,
+        });
       }
 
-      const run = getHandle(ctx.runner, id);
-      activePrompt ??= activeRunPrompt(run);
-
-      return renderSession(request, reply, id, session, {
-        prompt: activePrompt,
-        uploadError,
+      return renderSession(request, reply, id, result.session, {
+        prompt: result.activePrompt,
       });
     },
   );
@@ -525,10 +335,11 @@ const registerSessionRoutes = (
     "/sessions/:id/stop",
     (request, reply) => {
       const id = request.params.id;
-      stop(ctx.runner, id);
-      const session = ctx.sessions.getSession(id);
-      if (session === undefined) return renderNotFound(request, reply, ctx, id);
-      return renderSession(request, reply, id, session, { includeRun: false });
+      const result = ops.stopSession(id);
+      if (!result.ok) return renderNotFound(request, reply, ctx, id);
+      return renderSession(request, reply, id, result.session, {
+        includeRun: false,
+      });
     },
   );
 };
