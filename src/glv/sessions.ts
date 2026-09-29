@@ -30,11 +30,13 @@ type MessageRow = {
 };
 
 // `type` narrows listing to a session kind the store understands ("user",
-// "hidden", ...); stores with a single session kind ignore it.
+// "hidden", ...); stores with a single session kind ignore it. `offset`
+// skips that many rows of the filtered, newest-first order (pagination).
 type SessionFilter = {
   type: string;
   limit: number;
   includeArchived: boolean;
+  offset?: number;
 };
 
 // The shared session model and the storage boundary between the glv

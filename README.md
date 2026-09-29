@@ -383,12 +383,77 @@ curl -N -H "Authorization: Bearer glv_at_…" \
   http://localhost:3457/events/status
 ```
 
-Unauthenticated `/api/*` requests (and requests carrying an invalid
-token) answer `401` JSON instead of the browser login redirect, so a
-misconfigured script fails loudly instead of parsing the login page. The
-session cookie also works for `/api/*`, but exporting it to scripts
+The session cookie also works for `/api/*`, but exporting it to scripts
 couples them to your browser login (7-day ceiling, revoked on logout,
 indistinguishable from you) — mint a token instead.
+
+### Driving runs over the API
+
+The listing paginates: `?limit=` (1–500, default 100) and `?offset=`
+window the newest-first order.
+
+The three non-destructive mutations the browser can perform are JSON
+endpoints too, with identical semantics (both surfaces delegate to one
+shared operation layer). **`POST` accepts the bearer only** — a
+cookie-authenticated write is rejected with `401`, which is what makes
+these endpoints safe behind an app that ships no CSRF protection:
+
+| Endpoint | Effect |
+|----|----|
+| `POST /api/sessions` | start a run (multipart form) |
+| `POST /api/sessions/:id/prompt` | queue a follow-up prompt |
+| `POST /api/sessions/:id/stop` | stop the run (idempotent: `200` either way) |
+
+Start a session in a working directory — or send `session_mode=temp`
+instead of `working_dir` for a scratch directory glv owns and sweeps on
+archive:
+
+``` bash
+curl -sS -X POST http://localhost:3457/api/sessions \
+  -H "Authorization: Bearer glv_at_…" \
+  -F prompt="summarize the failing tests" \
+  -F working_dir="$PWD" \
+  -F uploads=@error.log
+```
+
+The answer is `201` with a `Location` header and
+`{"id":"goose:…","status":"started"}`. `"queued"` means the prompt is
+waiting — behind the concurrency pool for a new session, behind the
+session’s active run for a follow-up. Creation returns once the session
+exists, not when the run completes: poll the detail endpoint, or watch
+the run live over the session’s SSE feed (the same feed the browser
+uses, and the same bearer header):
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/sessions/goose:abc123
+
+curl -N -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/sessions/goose:abc123/events
+```
+
+Queue a follow-up while it runs, and stop a runaway:
+
+``` bash
+curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/prompt \
+  -H "Authorization: Bearer glv_at_…" \
+  -F prompt="now fix them"
+
+curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/stop \
+  -H "Authorization: Bearer glv_at_…"
+```
+
+Optional `POST /api/sessions` fields: `model` (`agent:provider:model`,
+omitted or empty for the agent’s default), `location` (the JSON
+coordinate share the browser sends), and `uploads` (files, appended to
+the prompt as readable paths). Validation failures answer
+`422 {"error":"…"}`; unknown ids `404`.
+
+`GET /api/openapi.json` serves the machine-readable contract — generated
+from the same schemas the routes validate with, so it cannot drift —
+behind the same auth as every other `/api` path. Destructive operations
+(archive, delete) and every management surface (tokens, cron, prompts,
+groups) stay in the browser.
 
 > **Behind a reverse proxy.** When the viewer sits behind a
 > TLS-terminating proxy, forward the original request details so

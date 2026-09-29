@@ -67,6 +67,13 @@ const normalizeEntry = async (
 const fieldString = (body: Record<string, unknown>, key: string): string =>
   typeof body[key] === "string" ? body[key] : "";
 
+// parseForm yields an array per repeated field; take the first string.
+const firstString = (val: unknown): string => {
+  if (Array.isArray(val))
+    return typeof val[0] === "string" ? val[0].trim() : "";
+  return typeof val === "string" ? val.trim() : "";
+};
+
 // Reads a parsed form body (urlencoded or multipart) into the normalized
 // record. JSON bodies (the auth endpoints) never route through here.
 const parseForm = async (
@@ -82,4 +89,4 @@ const parseForm = async (
   return out;
 };
 
-export { fieldString, parseForm };
+export { fieldString, firstString, parseForm };

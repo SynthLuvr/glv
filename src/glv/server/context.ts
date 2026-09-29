@@ -111,7 +111,6 @@ type ServerContext = {
   readonly runGit: GitRunner | undefined;
   readonly cronDb: DatabaseSync | undefined;
   readonly onCronJobsChange: (() => void) | undefined;
-  readonly createLocks: Map<string, Promise<void>>;
   readonly assets: AssetBundle;
 };
 

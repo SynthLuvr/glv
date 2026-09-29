@@ -38,12 +38,9 @@ import {
 import type { ServerContext } from "../context.js";
 import { parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
+import { resolveAgentPick } from "../operations.js";
 import { expandHome } from "../paths.js";
-import {
-  modelPickerOpts,
-  resolveAgentPick,
-  showsModelPicker,
-} from "../render.js";
+import { modelPickerOpts, showsModelPicker } from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which

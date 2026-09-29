@@ -1063,6 +1063,26 @@ const authedFetch = (
   });
 };
 
+// The credential a script sends: an API-token bearer and nothing else.
+// Mirrors authedFetch for the JSON surface — the API's write endpoints
+// reject the session cookie by design, so suites exercise them exactly
+// the way a curl client would.
+const bearerFetch = (
+  env: IntegrationEnv,
+  path: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<Response> => {
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  const extra = init.headers as Record<string, string> | undefined;
+  if (extra !== undefined) Object.assign(headers, extra);
+  return fetch(`${env.baseUrl}${path}`, {
+    ...init,
+    headers,
+    redirect: "manual",
+  });
+};
+
 const parseSseData = (data: string): Record<string, unknown> => {
   const parsed = parseJson(data, JsonObject);
   return parsed.ok ? parsed.data : {};
@@ -1197,6 +1217,7 @@ export type {
 export {
   authedFetch,
   baseDatabases,
+  bearerFetch,
   collectSse,
   cronJobRow,
   dbOverrideArgs,

@@ -81,15 +81,27 @@ const createCompositeSessionStore = (
   };
 
   return {
-    listSessions: (filter) =>
-      mergeNewestFirst(
+    listSessions: (filter) => {
+      // Offset applies to the merged (globally newest-first) order, not
+      // to each child's own list — skipping per child would drop rows
+      // that belong in the window. Children therefore return enough rows
+      // to cover offset + limit (offset disabled inside the child
+      // filter), and the composite drops the first `offset` after the
+      // merge.
+      const offset = filter.offset ?? 0;
+      const childFilter =
+        offset === 0
+          ? filter
+          : { ...filter, offset: 0, limit: filter.limit + offset };
+      return mergeNewestFirst(
         entries.map((entry) =>
           entry.store
-            .listSessions(filter)
+            .listSessions(childFilter)
             .map((row) => prefixedRow(entry.agent, row)),
         ),
-        filter.limit,
-      ),
+        childFilter.limit,
+      ).slice(offset);
+    },
 
     getSession: (id) => {
       const target = route(id);
