@@ -399,7 +399,7 @@ cookie-authenticated write is rejected with `401`, which is what makes
 these endpoints safe behind an app that ships no CSRF protection:
 
 | Endpoint | Effect |
-|---|---|
+|----|----|
 | `POST /api/sessions` | start a run (multipart form) |
 | `POST /api/sessions/:id/prompt` | queue a follow-up prompt |
 | `POST /api/sessions/:id/stop` | stop the run (idempotent: `200` either way) |
@@ -419,9 +419,9 @@ curl -sS -X POST http://localhost:3457/api/sessions \
 The answer is `201` with a `Location` header and
 `{"id":"goose:…","status":"started"}`. `"queued"` means the prompt is
 waiting — behind the concurrency pool for a new session, behind the
-session's active run for a follow-up. Creation returns once the session
+session’s active run for a follow-up. Creation returns once the session
 exists, not when the run completes: poll the detail endpoint, or watch
-the run live over the session's SSE feed (the same feed the browser
+the run live over the session’s SSE feed (the same feed the browser
 uses, and the same bearer header):
 
 ``` bash
@@ -443,11 +443,11 @@ curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/stop \
   -H "Authorization: Bearer glv_at_…"
 ```
 
-Optional `POST /api/sessions` fields: `model`
-(`agent:provider:model`, omitted or empty for the agent's default),
-`location` (the JSON coordinate share the browser sends), and `uploads`
-(files, appended to the prompt as readable paths). Validation failures
-answer `422 {"error":"…"}`; unknown ids `404`.
+Optional `POST /api/sessions` fields: `model` (`agent:provider:model`,
+omitted or empty for the agent’s default), `location` (the JSON
+coordinate share the browser sends), and `uploads` (files, appended to
+the prompt as readable paths). Validation failures answer
+`422 {"error":"…"}`; unknown ids `404`.
 
 `GET /api/openapi.json` serves the machine-readable contract — generated
 from the same schemas the routes validate with, so it cannot drift —
