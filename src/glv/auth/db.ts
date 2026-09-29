@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "../db-path.js";
@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS enrollment_tokens (
   expires_at  TEXT NOT NULL,
   used_at     TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  name         TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
 
@@ -309,10 +317,110 @@ const consumeEnrollmentToken = (
   return typeof row?.userId === "string" ? row.userId : undefined;
 };
 
-export type { CredentialSummary, NewCredential };
+// API tokens: long-lived bearer credentials minted by the owner for
+// non-browser clients (curl, CI). Unlike sessions, only the SHA-256 hash
+// of the token is stored — these live for weeks in CI configs, so the
+// database must not hold the secret itself — and the lookup is a primary
+// key hit on that hash, so no token bytes are ever compared.
+const API_TOKEN_TTL_SECONDS = 2592000; // 30 days
+
+const API_TOKEN_PREFIX = "glv_at_";
+
+const tokenHash = (token: string): string =>
+  createHash("sha256").update(token).digest("hex");
+
+// Lightweight projection for the management screen — the id (a hash), its
+// label, and its timestamps. The raw token is never stored, so it can
+// never be listed.
+type ApiTokenSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};
+
+const apiTokenSummaryShape = {
+  id: "string",
+  name: "string",
+  created_at: "string",
+  "last_used_at?": "string | null",
+  expires_at: "string",
+} as const;
+
+const ApiTokenSummaryRow = type(apiTokenSummaryShape);
+
+type ApiTokenSummaryRow = typeof ApiTokenSummaryRow.infer;
+
+const mapApiTokenSummary = (row: ApiTokenSummaryRow): ApiTokenSummary => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.created_at,
+  lastUsedAt: row.last_used_at ?? null,
+  expiresAt: row.expires_at,
+});
+
+const listApiTokenSummaries = (db: DatabaseSync): ApiTokenSummary[] =>
+  validateAll(
+    ApiTokenSummaryRow,
+    db
+      .prepare(
+        "SELECT id, name, created_at, last_used_at, expires_at " +
+          "FROM api_tokens ORDER BY created_at DESC",
+      )
+      .all(),
+  ).map(mapApiTokenSummary);
+
+const createApiToken = (
+  db: DatabaseSync,
+  userId: string,
+  name: string,
+  ttlSeconds: number,
+): string => {
+  // Rows are only removed here and on revoke, so purge expired ones to
+  // keep the table from growing without bound (same story as sessions).
+  db.prepare(
+    "DELETE FROM api_tokens WHERE expires_at <= datetime('now')",
+  ).run();
+  const token = `${API_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+  db.prepare(
+    `INSERT INTO api_tokens (id, user_id, name, expires_at)
+       VALUES (?, ?, ?, datetime('now', ?))`,
+  ).run(tokenHash(token), userId, name, `+${ttlSeconds} seconds`);
+  return token;
+};
+
+const apiTokenValid = (db: DatabaseSync, token: string): boolean => {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM api_tokens
+         WHERE id = ? AND expires_at > datetime('now')`,
+    )
+    .get(tokenHash(token));
+  return typeof row?.n === "number" && row.n > 0;
+};
+
+// Deliberately no sliding refresh: a token that silently lives forever is
+// what the session max-lifetime ceiling exists to prevent. Fixed TTL plus
+// a visible last_used_at is the revocability story instead.
+const touchApiToken = (db: DatabaseSync, token: string): void => {
+  db.prepare(
+    "UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?",
+  ).run(tokenHash(token));
+};
+
+// `id` is the stored hash — the only spelling the UI ever sees.
+const revokeApiToken = (db: DatabaseSync, id: string): void => {
+  db.prepare("DELETE FROM api_tokens WHERE id = ?").run(id);
+};
+
+export type { ApiTokenSummary, CredentialSummary, NewCredential };
 export {
+  API_TOKEN_TTL_SECONDS,
   addCredential,
+  apiTokenValid,
   consumeEnrollmentToken,
+  createApiToken,
   createEnrollmentToken,
   createOwner,
   createSession,
@@ -320,13 +428,16 @@ export {
   enrollmentTokenValid,
   getCredential,
   isClaimed,
+  listApiTokenSummaries,
   listCredentialSummaries,
   listCredentials,
   openAuthDb,
   ownerUserId,
   refreshSession,
   resolveAuthDbPath,
+  revokeApiToken,
   SESSION_TTL_SECONDS,
+  touchApiToken,
   updateCounter,
   validSession,
 };

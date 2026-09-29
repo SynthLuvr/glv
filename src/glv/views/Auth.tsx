@@ -1,5 +1,5 @@
 import type { Child } from "hono/jsx";
-import type { CredentialSummary } from "../auth/db.js";
+import type { ApiTokenSummary, CredentialSummary } from "../auth/db.js";
 import { HeadMeta } from "./head.js";
 
 // Mirrors the inline bootstrap in Layout.tsx so the saved theme applies before
@@ -188,4 +188,87 @@ const DevicesPage = ({
   </AuthLayout>
 );
 
-export { DevicesPage, EnrollPage, LoginPage, RegisterPage };
+type TokensPageProps = {
+  agentName: string;
+  tokens: ApiTokenSummary[];
+  /** The raw token of a just-minted API token, shown exactly once. */
+  token?: string;
+  tokenName?: string;
+  error?: string;
+};
+
+// Owner-only management screen for API tokens — the bearer credentials
+// curl/CI send in the Authorization header. The trust chain is passkey →
+// browser session → API token, so minting happens here, behind the
+// session, and the raw token is displayed exactly once (only its SHA-256
+// hash is stored).
+const TokensPage = ({
+  tokens,
+  token,
+  tokenName,
+  error,
+  agentName,
+}: TokensPageProps) => (
+  <AuthLayout title="API tokens — GLV" agentName={agentName}>
+    <div class="auth-card">
+      <h1>API tokens</h1>
+      <p class="auth-sub">
+        Long-lived credentials for scripts and CI. Send one as a header —{" "}
+        <code>Authorization: Bearer glv_at_…</code> — to reach the JSON API (
+        <code>/api/sessions</code>) or the event streams. Tokens expire 30 days
+        after minting and can be revoked here at any time.
+      </p>
+      <form method="post" action="/auth/tokens" class="token-create-form">
+        <input
+          type="text"
+          name="name"
+          placeholder="Token name (e.g. ci)"
+          maxlength={64}
+          required
+          value={tokenName}
+          class="token-name-input"
+        />
+        <button class="auth-btn" type="submit">
+          Create token
+        </button>
+      </form>
+      {error !== undefined && <p class="auth-banner-error">{error}</p>}
+      {token !== undefined && (
+        <div class="token-reveal">
+          {/* Machine-readable token for tests/automation; the visible code
+              block is the copy-paste surface for the owner. */}
+          <data id="api-token" value={token} />
+          <p class="auth-sub">
+            Copy it now — this is the only time the full token is shown. Only a
+            hash is stored.
+          </p>
+          <code class="token-value">{token}</code>
+        </div>
+      )}
+      {tokens.length === 0 ? (
+        token === undefined && <p class="auth-sub">No API tokens yet.</p>
+      ) : (
+        <ul class="token-list">
+          {tokens.map((t) => (
+            <li data-token-id={t.id}>
+              <span class="token-label">{t.name}</span>
+              <span class="token-date">
+                created {t.createdAt}
+                {t.lastUsedAt !== null && `, last used ${t.lastUsedAt}`}
+                {", expires "}
+                {t.expiresAt}
+              </span>
+              <form method="post" action={`/auth/tokens/${t.id}/revoke`}>
+                <button class="token-revoke-btn" type="submit">
+                  Revoke
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </AuthLayout>
+);
+
+export { DevicesPage, EnrollPage, LoginPage, RegisterPage, TokensPage };
