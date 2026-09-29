@@ -78,8 +78,6 @@ const createApp = (
     assets: buildAssetBundle(opts.assetsFlavor),
   };
 
-  // The shared operation layer every mutating surface delegates to —
-  // the HTML routes and the JSON API run the same effects through it.
   const ops = createSessionOperations(ctx);
   // Uploads ride the body parser: the friendly per-file (50 MB) and
   // total (100 MB) checks live in saveUploads, so the framework limits

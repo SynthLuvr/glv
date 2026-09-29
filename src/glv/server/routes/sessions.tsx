@@ -154,6 +154,7 @@ const registerSessionRoutes = (
     const sessions = sessionsAll();
     const body = await parseForm(request);
     const bodyField = (key: string): string => firstString(body[key]);
+    const prompt = bodyField("prompt");
 
     // Every rejection re-renders the form with the submitted prompt and
     // schedule values restored — scheduling is an alternate submit, and
@@ -168,7 +169,7 @@ const registerSessionRoutes = (
         newSessionDetail(ctx, {
           error,
           workingDir: canonicalWorkingDir(expandHome(bodyField("working_dir"))),
-          prompt: bodyField("prompt"),
+          prompt,
           model: bodyField("model"),
         }),
         { status, title: NEW_SESSION_TITLE },
@@ -182,7 +183,7 @@ const registerSessionRoutes = (
     // so the address bar (and a refresh) match what is on screen.
     reply.header("HX-Push-Url", `/sessions/${sessionId}`);
     return renderSession(request, reply, sessionId, session, {
-      prompt: bodyField("prompt"),
+      prompt,
       refreshSidebar: true,
     });
   });

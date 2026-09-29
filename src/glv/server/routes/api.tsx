@@ -41,8 +41,6 @@ const registerApiRoutes = (
     });
   });
 
-  // Returns once the session id exists — not when the run completes;
-  // consumers poll the detail endpoint or ride the SSE feed.
   app.post("/api/sessions", async (request, reply) => {
     const body = await parseForm(request);
     const result = await ops.startSession(body);
@@ -65,7 +63,6 @@ const registerApiRoutes = (
     },
   );
 
-  // Idempotent: 200 whether or not a run is active.
   app.post<{ Params: { id: string } }>(
     "/api/sessions/:id/stop",
     (request, reply) => {
@@ -76,12 +73,10 @@ const registerApiRoutes = (
     },
   );
 
-  // The machine-readable contract, generated from the same ArkType
-  // schemas the routes validate with. Behind auth like every other /api
-  // path — the document names no secrets, but this is a single-owner
-  // app and the gate is uniform.
+  // Behind auth like every other /api path — the document names no
+  // secrets, but this is a single-owner app and the gate is uniform.
   app.get("/api/openapi.json", (_request, reply) =>
-    reply.send(openApiDocument(VIEWER_FILTER.limit, 500)),
+    reply.send(openApiDocument(VIEWER_FILTER.limit)),
   );
 };
 

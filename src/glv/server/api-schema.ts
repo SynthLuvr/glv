@@ -5,7 +5,7 @@ import { isRecord, queryValue } from "./http.js";
 // The ArkType contracts at the JSON API's boundaries. Every shape the
 // API sends or accepts is defined here once; the OpenAPI document below
 // is generated from these schemas (toJsonSchema), so the published
-// contract cannot drift from the validation the routes actually run.
+// contract cannot drift from them.
 
 // The error body every failure answers with (mirrors the pre-existing
 // 401/404 shapes).
@@ -20,11 +20,12 @@ const ApiRunAccepted = type({ id: "string", status: "'started' | 'queued'" });
 const ApiStopAccepted = type({ id: "string", status: "'stopped'" });
 
 // The listing window: 1–500 rows, skipping forward from the newest.
-const ListLimit = type("1 <= number.integer <= 500");
+const MAX_LIST_LIMIT = 500;
+const ListLimit = type(`1 <= number.integer <= ${MAX_LIST_LIMIT}`);
 const ListOffset = type("number.integer >= 0");
 const ApiListQuery = type({
-  "limit?": "1 <= number.integer <= 500",
-  "offset?": "number.integer >= 0",
+  "limit?": ListLimit,
+  "offset?": ListOffset,
 });
 
 // One session row exactly as the listing and detail endpoints return it
@@ -172,10 +173,7 @@ const sessionParam = (): Record<string, unknown> => ({
   description: "Session id, namespaced by agent (e.g. goose:<uuid>).",
 });
 
-const openApiDocument = (
-  defaultListLimit: number,
-  maxListLimit: number,
-): Record<string, unknown> => {
+const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   const queryProps = properties(ApiListQuery);
   return {
     openapi: "3.1.0",
@@ -227,7 +225,7 @@ const openApiDocument = (
               name: "limit",
               in: "query",
               schema: queryProps.limit,
-              description: `Rows to return (1–${maxListLimit}; default ${defaultListLimit}).`,
+              description: `Rows to return (1–${MAX_LIST_LIMIT}; default ${defaultListLimit}).`,
             },
             {
               name: "offset",

@@ -32,14 +32,14 @@ import {
 // as `{ok: false, status, error}` and the caller decides how to render
 // them (an HTML form re-render or a JSON status code).
 
-/** One failure any operation can surface, HTTP-flavoured. */
+// One failure any operation can surface, HTTP-flavoured.
 type OperationFailure = {
   readonly ok: false;
   readonly status: number;
   readonly error: string;
 };
 
-/** Where a submitted prompt sits when the operation returns. */
+// Where a submitted prompt sits when the operation returns.
 type RunStartStatus = "started" | "queued";
 
 type StartSessionOutcome =
@@ -58,11 +58,9 @@ type FollowUpOutcome =
       readonly sessionId: string;
       readonly session: SessionRow;
       readonly runStatus: RunStartStatus;
-      /**
-       * The prompt the transcript should highlight: the submitted text
-       * when it began executing, the session's active-run prompt when
-       * the submit queued behind one (queued prompts render as cards).
-       */
+      // The prompt the transcript should highlight: the submitted text
+      // when it began executing, the session's active-run prompt when
+      // the submit queued behind one (queued prompts render as cards).
       readonly activePrompt: string | undefined;
     };
 
@@ -207,7 +205,6 @@ const createSessionOperations = (ctx: ServerContext) => {
         createLocks,
         workingDir,
         async (): Promise<EstablishOutcome> => {
-          // Inside the per-directory lock so concurrent starts can't race the pull.
           await pullRepo(workingDir, ctx.runGit);
           const handle = ctx.launcher.startNewFor(
             agentId,
@@ -322,15 +319,9 @@ const createSessionOperations = (ctx: ServerContext) => {
       ok: true,
       sessionId: id,
       session,
-      // "queued" while the prompt waits behind the session's active run;
-      // otherwise a run began for this prompt. The boolean is used, not
-      // a registry read — a just-dispatched run's status has not
-      // necessarily flipped yet.
+      // The boolean decides, not a registry read — a just-dispatched
+      // run's status has not necessarily flipped yet.
       runStatus: queued ? "queued" : "started",
-      // The transcript highlights the submitted prompt only when it
-      // started right away; queued prompts surface as cards via the
-      // handle, so repeating the text here too would double-display it —
-      // instead the transcript keeps showing the active run's own prompt.
       activePrompt: queued
         ? activeRunPrompt(getHandle(ctx.runner, id))
         : prompt,
@@ -339,8 +330,6 @@ const createSessionOperations = (ctx: ServerContext) => {
 
   // Idempotent: stopping a session with no active run changes nothing.
   const stopSession = (id: string): StopOutcome => {
-    // Stop first — sweeping a live run's session out from under it would
-    // leave the agent writing into removed records.
     stop(ctx.runner, id);
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
@@ -353,12 +342,5 @@ const createSessionOperations = (ctx: ServerContext) => {
 
 type SessionOperations = ReturnType<typeof createSessionOperations>;
 
-export type {
-  FollowUpOutcome,
-  OperationFailure,
-  RunStartStatus,
-  SessionOperations,
-  StartSessionOutcome,
-  StopOutcome,
-};
+export type { SessionOperations };
 export { canonicalWorkingDir, createSessionOperations, resolveAgentPick };

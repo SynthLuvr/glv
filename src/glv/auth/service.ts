@@ -491,7 +491,9 @@ const isApiWrite = (path: string, method: string): boolean =>
   path.startsWith(API_PREFIX) && method !== "GET" && method !== "HEAD";
 
 const API_WRITE_CREDENTIAL_ERROR =
-  "Write requests under /api require an API-token bearer; session cookies are not accepted."; // Extracts the token from an `Authorization: Bearer <token>` header
+  "Write requests under /api require an API-token bearer; session cookies are not accepted.";
+
+// Extracts the token from an `Authorization: Bearer <token>` header
 // (scheme case-insensitive per RFC 9110). Anything else — a different
 // scheme, a missing token — is "no bearer present", so the request falls
 // through to the cookie path like any browser request.
@@ -530,8 +532,6 @@ const authMiddleware =
     }
     const token = auth.readSessionCookie(request);
     if (token !== undefined && auth.isValidSession(token)) {
-      // A valid cookie opens reads, never writes: the bearer-only rule
-      // above is what makes the API's mutations unforgeable.
       if (isApiWrite(path, request.method)) {
         await reply.status(401).send({ error: API_WRITE_CREDENTIAL_ERROR });
         return;
