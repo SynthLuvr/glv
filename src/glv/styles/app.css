@@ -2371,6 +2371,92 @@ select.form-input {
   color: var(--color-err);
 }
 
+/* ---------- API tokens ---------- */
+.token-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+.token-name-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface-2);
+  color: inherit;
+  font: inherit;
+  font-size: 0.92rem;
+}
+.token-name-input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.token-reveal {
+  margin: 0 0 1.25rem;
+  padding: 0.9rem 0.9rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-accent-soft);
+  text-align: left;
+}
+.token-reveal .auth-sub {
+  margin: 0 0 0.6rem;
+}
+.token-value {
+  display: block;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+  user-select: all;
+}
+.token-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+.token-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--color-border);
+}
+.token-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.token-date {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.76rem;
+  color: var(--color-muted);
+}
+.token-revoke-btn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.token-revoke-btn:hover {
+  color: var(--color-err);
+  border-color: var(--color-err);
+  background: var(--color-err-soft);
+}
+
 /* ---------- logout ---------- */
 .logout-form {
   display: inline-flex;

@@ -6,7 +6,7 @@ import {
   spawn,
   spawnSync,
 } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at  TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  name         TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 const seedAuthDb = (dbPath: string): string => {
@@ -82,6 +90,29 @@ const seedAuthDb = (dbPath: string): string => {
         "VALUES (?, ?, datetime('now', '+1 day'), datetime('now'))",
     )
     .run(token, "owner-1");
+  adb.close();
+  return token;
+};
+
+// Seeds an API-token row the way the server writes it — only the SHA-256
+// hash is stored — and returns the raw token for Authorization headers.
+// A negative ttlSeconds seeds an already-expired token; the busy timeout
+// waits out boot-time DB overlap.
+const seedApiToken = (
+  dbPath: string,
+  name: string,
+  ttlSeconds = 2592000,
+): string => {
+  const adb = new DatabaseSync(dbPath);
+  adb.exec("PRAGMA busy_timeout=5000");
+  const token = `glv_at_${randomBytes(32).toString("base64url")}`;
+  const hash = createHash("sha256").update(token).digest("hex");
+  adb
+    .prepare(
+      "INSERT INTO api_tokens (id, user_id, name, expires_at) " +
+        "VALUES (?, 'owner-1', ?, datetime('now', ?))",
+    )
+    .run(hash, name, `${ttlSeconds} seconds`);
   adb.close();
   return token;
 };
@@ -1184,6 +1215,7 @@ export {
   readStoreField,
   removeCronJobRow,
   rmScratch,
+  seedApiToken,
   seedCronJobRow,
   spawnLauncher,
   spawnLauncherSync,

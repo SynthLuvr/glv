@@ -16,6 +16,7 @@ import {
 } from "./context.js";
 import { sendNotFound } from "./http.js";
 import { expandHome, listHomeDirs } from "./paths.js";
+import { registerApiRoutes } from "./routes/api.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBrowseRoutes } from "./routes/browse.js";
@@ -28,6 +29,7 @@ import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { registerTokenRoutes } from "./routes/tokens.js";
 
 const createApp = (
   sessions: SessionStore,
@@ -144,6 +146,8 @@ const createApp = (
     registerCronRoutes(scope, ctx);
     registerStreamRoutes(scope, ctx);
     registerEventsRoutes(scope, ctx);
+    registerTokenRoutes(scope, ctx);
+    registerApiRoutes(scope, ctx);
   });
 
   return app;

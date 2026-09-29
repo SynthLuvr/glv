@@ -200,6 +200,22 @@ const captureViews = async (
   await context.close();
 };
 
+// The API-token management screen: empty state, then the once-only reveal
+// after minting through the real form.
+const captureTokens = async (browser: Browser, env: IntegrationEnv) => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(`${env.baseUrl}/auth/tokens`);
+  await page.locator("form.token-create-form").waitFor();
+  await capture(page, "tokens-desktop.png", ".auth-card");
+  await page.locator('input[name="name"]').fill("ci");
+  await page.locator("form.token-create-form button").click();
+  await page.locator(".token-value").waitFor();
+  await capture(page, "token-minted-desktop.png", ".auth-card");
+  await context.close();
+};
+
 // The merged product: one serve, both agents, the combined model picker.
 const captureCombined = async (browser: Browser): Promise<void> => {
   const env = await startCombinedEnv("glv-shots-combined-");
@@ -233,6 +249,7 @@ const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
   await captureViews(browser, env);
+  await captureTokens(browser, env);
   await captureCombined(browser);
 } finally {
   await browser.close();

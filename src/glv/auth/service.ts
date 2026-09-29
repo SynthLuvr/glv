@@ -20,9 +20,12 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { headerValue } from "../server/http.js";
 import { errorMessage } from "../util.js";
 import {
+  type ApiTokenSummary,
   addCredential,
+  apiTokenValid,
   type CredentialSummary,
   consumeEnrollmentToken,
+  createApiToken,
   createEnrollmentToken,
   createOwner,
   createSession,
@@ -30,12 +33,15 @@ import {
   enrollmentTokenValid,
   getCredential,
   isClaimed,
+  listApiTokenSummaries,
   listCredentialSummaries,
   listCredentials,
   type NewCredential,
   ownerUserId,
   refreshSession,
+  revokeApiToken,
   SESSION_TTL_SECONDS,
+  touchApiToken,
   updateCounter,
   validSession,
 } from "./db.js";
@@ -77,6 +83,12 @@ type AuthService = {
   isEnrollmentTokenValid: (token: string) => boolean;
   consumeEnrollmentToken: (token: string) => string | undefined;
   listCredentialSummaries: () => CredentialSummary[];
+  // API tokens: bearer credentials for curl/CI, keyed by their stored hash.
+  createApiToken: (name: string) => string | undefined;
+  isValidApiToken: (token: string) => boolean;
+  touchApiToken: (token: string) => void;
+  revokeApiToken: (id: string) => void;
+  listApiTokenSummaries: () => ApiTokenSummary[];
   readSessionCookie: (request: FastifyRequest) => string | undefined;
   setSessionCookie: (
     request: FastifyRequest,
@@ -380,6 +392,8 @@ const makeAuthService = (
       : createEnrollmentToken(authDb, id, ENROLLMENT_TTL_SECONDS);
   };
 
+  // Returns the raw token exactly once (only its hash is persisted), or
+  // undefined when there is no owner to attach it to.
   return {
     isClaimed: () => isClaimed(authDb),
     ownerUserId: () => ownerUserId(authDb),
@@ -394,6 +408,14 @@ const makeAuthService = (
     consumeEnrollmentToken: (token: string) =>
       consumeEnrollmentToken(authDb, token),
     listCredentialSummaries: () => listCredentialSummaries(authDb),
+    createApiToken: (name: string) => {
+      const id = ownerUserId(authDb);
+      return id === undefined ? undefined : createApiToken(authDb, id, name);
+    },
+    isValidApiToken: (token: string) => apiTokenValid(authDb, token),
+    touchApiToken: (token: string) => touchApiToken(authDb, token),
+    revokeApiToken: (id: string) => revokeApiToken(authDb, id),
+    listApiTokenSummaries: () => listApiTokenSummaries(authDb),
     readSessionCookie,
     setSessionCookie,
     isValidSession,
@@ -416,12 +438,15 @@ const sessionCookieName = (authDbPath: string): string => {
 // whitelist them as a group without naming each file individually.
 const ASSET_PREFIX = "/assets/";
 
-// Management routes (add/view passkeys) require an existing session, unlike the
-// rest of /auth/* which is the public auth gate itself. Enrollment redemption
-// (/auth/enroll/:token) stays public because it authorizes via a bearer token.
+// Management routes (add/view passkeys, mint/revoke API tokens) require an
+// existing session, unlike the rest of /auth/* which is the public auth gate
+// itself. Enrollment redemption (/auth/enroll/:token) stays public because it
+// authorizes via a bearer token.
 const isPublicPath = (path: string): boolean =>
   path === "/auth" ||
-  (path.startsWith("/auth/") && !path.startsWith("/auth/devices")) ||
+  (path.startsWith("/auth/") &&
+    !path.startsWith("/auth/devices") &&
+    !path.startsWith("/auth/tokens")) ||
   path.startsWith(ASSET_PREFIX);
 
 // Reconstructs the browser-visible URL, honoring the standard reverse-proxy
@@ -452,6 +477,26 @@ const resolveRequestUrl = (request: FastifyRequest): URL => {
   return url;
 };
 
+// The JSON API for non-browser clients. Unauthenticated requests here
+// answer 401 JSON instead of the 302 to the HTML login page — a redirect
+// would let a misconfigured script "succeed" while parsing login markup.
+const API_PREFIX = "/api/";
+
+// Extracts the token from an `Authorization: Bearer <token>` header
+// (scheme case-insensitive per RFC 9110). Anything else — a different
+// scheme, a missing token — is "no bearer present", so the request falls
+// through to the cookie path like any browser request.
+const bearerToken = (request: FastifyRequest): string | undefined => {
+  const raw = headerValue(request.headers.authorization);
+  if (raw === undefined) return undefined;
+  const space = raw.indexOf(" ");
+  if (space <= 0) return undefined;
+  const scheme = raw.slice(0, space);
+  const token = raw.slice(space + 1).trim();
+  if (scheme.toLowerCase() !== "bearer" || token === "") return undefined;
+  return token;
+};
+
 // Fastify onRequest hook; registered inside the route scope so it runs
 // after @fastify/cookie's root-level parse hook. Every non-public request
 // must carry a valid session before any route handler runs.
@@ -460,6 +505,20 @@ const authMiddleware =
   async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const path = request.url.split("?")[0];
     if (isPublicPath(path)) return;
+    // Bearer credentials (API tokens) are checked before the cookie: a
+    // request that carries one is a programmatic client, and an invalid
+    // one must fail as JSON, never fall through to a login redirect.
+    const bearer = bearerToken(request);
+    if (bearer !== undefined) {
+      if (!auth.isValidApiToken(bearer)) {
+        await reply
+          .status(401)
+          .send({ error: "Missing or invalid bearer token." });
+        return;
+      }
+      auth.touchApiToken(bearer);
+      return;
+    }
     const token = auth.readSessionCookie(request);
     if (token !== undefined && auth.isValidSession(token)) {
       // Sliding window: re-issue the cookie so the browser expiry tracks
@@ -467,11 +526,23 @@ const authMiddleware =
       auth.setSessionCookie(request, reply, token);
       return;
     }
+    // No credential of any kind: browser routes redirect to the auth
+    // screens, JSON API routes answer in their own dialect.
+    if (path.startsWith(API_PREFIX)) {
+      await reply.status(401).send({ error: "Authentication required." });
+      return;
+    }
     const dest = auth.isClaimed() ? "/auth/login" : "/auth/register";
     await reply.redirect(dest);
   };
 
-export type { AuthService, CredentialSummary, RpConfig, VerifyResult };
+export type {
+  ApiTokenSummary,
+  AuthService,
+  CredentialSummary,
+  RpConfig,
+  VerifyResult,
+};
 export {
   authMiddleware,
   makeAuthService,

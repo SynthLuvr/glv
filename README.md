@@ -365,6 +365,31 @@ passkey for each via the single-use **enrollment** flow:
 A cancelled or failed ceremony does not consume the link, so you can
 retry with the same URL until one succeeds.
 
+### API tokens (curl, CI)
+
+A passkey ceremony needs a browser, so scripts and CI get their own
+credential minted *underneath* the passkey: log in once in the browser,
+visit `/auth/tokens`, name a token, and copy the `glv_at_…` value — it
+is displayed exactly once and only its SHA-256 hash is stored. Tokens
+live 30 days (no sliding renewal), record their `last_used_at` time, and
+can be revoked on the same page.
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/sessions
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/sessions/goose:abc123
+curl -N -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/events/status
+```
+
+Unauthenticated `/api/*` requests (and requests carrying an invalid
+token) answer `401` JSON instead of the browser login redirect, so a
+misconfigured script fails loudly instead of parsing the login page. The
+session cookie also works for `/api/*`, but exporting it to scripts
+couples them to your browser login (7-day ceiling, revoked on logout,
+indistinguishable from you) — mint a token instead.
+
 > **Behind a reverse proxy.** When the viewer sits behind a
 > TLS-terminating proxy, forward the original request details so
 > WebAuthn computes the correct RP origin and cookie flags:
