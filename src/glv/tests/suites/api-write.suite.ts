@@ -224,7 +224,9 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(422);
       expect(await res.json()).toEqual({
-        error: `That model is no longer available in ${fx.displayName}. Pick another from the list.`,
+        // The copy names the profile's agentName spelling ("goose",
+        // "claude"), not the display name.
+        error: `That model is no longer available in ${fx.name}. Pick another from the list.`,
       });
     });
 
