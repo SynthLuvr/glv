@@ -482,7 +482,16 @@ const resolveRequestUrl = (request: FastifyRequest): URL => {
 // would let a misconfigured script "succeed" while parsing login markup.
 const API_PREFIX = "/api/";
 
-// Extracts the token from an `Authorization: Bearer <token>` header
+// Writes under /api carry their own credential: only an API-token bearer
+// authorizes them. A session cookie authenticates a browser, and the app
+// ships no CSRF protection — cookie-authenticated writes would be
+// forgeable cross-origin — so unsafe methods reject the cookie outright
+// rather than trusting it.
+const isApiWrite = (path: string, method: string): boolean =>
+  path.startsWith(API_PREFIX) && method !== "GET" && method !== "HEAD";
+
+const API_WRITE_CREDENTIAL_ERROR =
+  "Write requests under /api require an API-token bearer; session cookies are not accepted."; // Extracts the token from an `Authorization: Bearer <token>` header
 // (scheme case-insensitive per RFC 9110). Anything else — a different
 // scheme, a missing token — is "no bearer present", so the request falls
 // through to the cookie path like any browser request.
@@ -521,6 +530,12 @@ const authMiddleware =
     }
     const token = auth.readSessionCookie(request);
     if (token !== undefined && auth.isValidSession(token)) {
+      // A valid cookie opens reads, never writes: the bearer-only rule
+      // above is what makes the API's mutations unforgeable.
+      if (isApiWrite(path, request.method)) {
+        await reply.status(401).send({ error: API_WRITE_CREDENTIAL_ERROR });
+        return;
+      }
       // Sliding window: re-issue the cookie so the browser expiry tracks
       // the just-refreshed DB session rather than the original login.
       auth.setSessionCookie(request, reply, token);

@@ -109,17 +109,15 @@ const resolveAgentPick = (
   };
 };
 
-// A run reports "queued" while it waits — either behind the session's
-// active run or in the concurrency pool — and "started" once execution
-// has begun (a run that already finished also "started").
-const runStartStatus = (
+// A created run reports "queued" while it waits in the concurrency pool
+// and "started" once execution has begun (a run that already finished
+// also "started"). Establishment guarantees the pool's decision has
+// settled by the time this runs, so the read is not racy.
+const createRunStatus = (
   ctx: ServerContext,
   sessionId: string,
-  queuedBehindRun: boolean,
 ): RunStartStatus =>
-  queuedBehindRun || getHandle(ctx.runner, sessionId)?.status === "queued"
-    ? "queued"
-    : "started";
+  getHandle(ctx.runner, sessionId)?.status === "queued" ? "queued" : "started";
 
 const createSessionOperations = (ctx: ServerContext) => {
   // Serializes session creation per working directory so two submits
@@ -269,7 +267,7 @@ const createSessionOperations = (ctx: ServerContext) => {
       ok: true,
       sessionId,
       session,
-      runStatus: runStartStatus(ctx, sessionId, false),
+      runStatus: createRunStatus(ctx, sessionId),
     };
   };
 
@@ -324,7 +322,11 @@ const createSessionOperations = (ctx: ServerContext) => {
       ok: true,
       sessionId: id,
       session,
-      runStatus: runStartStatus(ctx, id, queued),
+      // "queued" while the prompt waits behind the session's active run;
+      // otherwise a run began for this prompt. The boolean is used, not
+      // a registry read — a just-dispatched run's status has not
+      // necessarily flipped yet.
+      runStatus: queued ? "queued" : "started",
       // The transcript highlights the submitted prompt only when it
       // started right away; queued prompts surface as cards via the
       // handle, so repeating the text here too would double-display it —
