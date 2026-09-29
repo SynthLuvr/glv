@@ -1,0 +1,102 @@
+# Weekly Windows safety net. Per-PR Windows CI was disabled in e7d15ab
+# (#271) — at ~2 merges/day it cost ~$98/mo. But Windows is a real
+# target: vitest.config.ts carries win32-only suite exclusions, and
+# #204/#207 were Windows-only breaks that only CI caught. This runs the
+# full matrix once a week against main (~$3/mo) and can be dispatched
+# manually before a risky merge.
+#
+# Job bodies mirror ci.yml: if you change the test invocation, cache
+# strategy, or timeouts there, change them here too.
+name: Windows CI (weekly)
+
+on:
+  schedule:
+    # Sundays 04:23 UTC — off-peak, off the top of the hour. Runs
+    # against the default branch (main).
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    timeout-minutes: 10
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install pandoc (pinned for Markdown lint/format)
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\pandoc.zip"
+          $dir = "$env:RUNNER_TEMP\pandoc-3.11"
+          Invoke-WebRequest -Uri https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-windows-x86_64.zip -OutFile $zip
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP"
+          Add-Content $env:GITHUB_PATH $dir
+          & "$dir\pandoc.exe" --version | Select-Object -First 1
+
+      - name: Lint
+        run: pnpm lint
+
+  # Same shape as ci.yml's shards: parallel with the build job, each
+  # installing and building its own assets.
+  test:
+    timeout-minutes: 10
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/4, 2/4, 3/4, 4/4]
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build assets
+        run: pnpm build:assets
+
+      - name: Restore Playwright browsers
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+      # Saved inline (browsers are final once install succeeds) and from
+      # one shard only: the cache action's post-job save made all four
+      # shards race for the same key and burned post-job time the
+      # 10-minute job budget cannot afford.
+      - name: Save Playwright browsers
+        if: matrix.shard == '4/4'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Test (shard ${{ matrix.shard }})
+        run: pnpm exec vitest run --shard ${{ matrix.shard }}

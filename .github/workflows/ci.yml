@@ -2,6 +2,19 @@ name: CI
 
 on:
   pull_request:
+    # Prose-only changes can't fail the build — don't boot five jobs
+    # for them. (pr-shots/ is gitignored today; this keeps the skip
+    # correct if shots ever get tracked.)
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "pr-shots/**"
+
+# A new push to an open PR used to stack a full 5-job run on top of
+# the previous one (Sep 25 alone burned ~500 runner-minutes this way).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
