@@ -79,11 +79,9 @@ const registerApiRoutes = (
     },
   );
 
-  // Scheduled runs over JSON: the same cron operation layer the
-  // browser's Scheduled runs section delegates to, so a script
-  // schedules exactly what the form would save (one-shots, cron, and
-  // human-text schedules alike), and every mutation lands in the cron
-  // database and applies to the running scheduler immediately.
+  // Scheduled runs: the same operation layer the browser's Scheduled
+  // runs section delegates to, so a script schedules exactly what the
+  // form would save.
   const cronReadError = (reply: FastifyReply, error: string) =>
     reply
       .status(500)

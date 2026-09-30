@@ -4,7 +4,6 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { Fragment } from "hono/jsx";
 import {
   type CronJobConfig,
-  deleteCronJob,
   setCronJobEnabled,
   updateCronJob,
 } from "../../cron-jobs.js";
@@ -38,9 +37,7 @@ import {
   findJob,
   NAME_ERROR,
   NAME_RE,
-  readJobsOr,
   scheduleFields,
-  writeJobsOr,
 } from "../cron-operations.js";
 import { parseForm, stringFields } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
@@ -50,10 +47,9 @@ import { modelPickerOpts, showsModelPicker } from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which
-// re-reads the table live — no restart needed. Creates delegate to the
-// shared cron operation layer, the same validate-and-execute core the
-// JSON API's /api/cron routes call, so both surfaces run identical
-// effects.
+// re-reads the table live — no restart needed. Creates and deletes
+// delegate to the shared cron operation layer, the same core the JSON
+// API's /api/cron routes call.
 
 // First string value of a form field, trimmed (parseBody with all:true
 // yields arrays for repeated fields, File for uploads).
@@ -63,9 +59,9 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
   return typeof candidate === "string" ? candidate.trim() : "";
 };
 
-// The 500 body shared by the mutations whose database write fails.
-const dbWriteError = (error: string) => (
-  <p class="status-hint error">Could not update the cron database: {error}</p>
+// The styled 500 hint a failed database write renders as.
+const writeErrorHint = (message: string) => (
+  <p class="status-hint error">{message}</p>
 );
 
 const registerCronRoutes = (
@@ -136,10 +132,9 @@ const registerCronRoutes = (
 
   // Creates a job from the slot form. The New Session form itself stays
   // untouched — the row is written and the confirmation lands in the
-  // slot, with the grid and count refreshing out of band. Validation is
-  // the shared cron operation layer's (the JSON API runs the identical
-  // core); only the two fields composed in the form above get copy
-  // here that points back at it.
+  // slot, with the grid and count refreshing out of band. Only the
+  // prompt and working-dir empties carry copy pointing back at the
+  // form; every other failure surfaces the operation layer's copy.
   app.post("/cron", async (request, reply) => {
     const body: Record<string, unknown> = await parseForm(request);
     const jobName = trimmedField(body, "job_name");
@@ -182,7 +177,7 @@ const registerCronRoutes = (
 
     // Confirmation inline in the slot; the grid and count swap out of
     // band so the new card appears below without touching the slot.
-    const { jobs: fresh } = readJobsOr(ctx);
+    const { jobs: fresh } = cronOps.listJobs();
     return sendHtml(
       reply,
       <Fragment>
@@ -203,7 +198,7 @@ const registerCronRoutes = (
   app.get<{ Params: { name: string } }>(
     "/cron/:name/card",
     (request, reply) => {
-      const { jobs } = readJobsOr(ctx);
+      const { jobs } = cronOps.listJobs();
       const job = findJob(jobs, request.params.name);
       if (job === undefined) return sendNotFound(reply);
       return sendHtml(reply, <ScheduleJobCard job={job} />);
@@ -213,7 +208,7 @@ const registerCronRoutes = (
   app.get<{ Params: { name: string } }>(
     "/cron/:name/edit",
     (request, reply) => {
-      const { jobs } = readJobsOr(ctx);
+      const { jobs } = cronOps.listJobs();
       const job = findJob(jobs, request.params.name);
       if (job === undefined) return sendNotFound(reply);
       return sendHtml(
@@ -239,7 +234,7 @@ const registerCronRoutes = (
     "/cron/:name",
     async (request, reply) => {
       const currentName = request.params.name;
-      const { jobs } = readJobsOr(ctx);
+      const { jobs } = cronOps.listJobs();
       const existing = findJob(jobs, currentName);
       if (existing === undefined) return sendNotFound(reply);
       const body: Record<string, unknown> = await parseForm(request);
@@ -352,7 +347,7 @@ const registerCronRoutes = (
           ? { followUps: nextFollowUps }
           : {}),
       };
-      const writeError = writeJobsOr(ctx, (db) =>
+      const writeError = cronOps.writeJobs((db) =>
         updateCronJob(db, currentName, updated),
       );
       if (writeError !== undefined)
@@ -364,14 +359,18 @@ const registerCronRoutes = (
   );
 
   const toggleJob = (reply: FastifyReply, name: string, enabled: boolean) => {
-    const { jobs } = readJobsOr(ctx);
+    const { jobs } = cronOps.listJobs();
     if (findJob(jobs, name) === undefined) return sendNotFound(reply);
-    const writeError = writeJobsOr(ctx, (db) =>
+    const writeError = cronOps.writeJobs((db) =>
       setCronJobEnabled(db, name, enabled),
     );
     if (writeError !== undefined)
-      return sendHtml(reply, dbWriteError(writeError), 500);
-    const { jobs: fresh, error } = readJobsOr(ctx);
+      return sendHtml(
+        reply,
+        writeErrorHint(`Could not update the cron database: ${writeError}`),
+        500,
+      );
+    const { jobs: fresh, error } = cronOps.listJobs();
     if (error !== undefined)
       return sendHtml(reply, <p class="status-hint error">{error}</p>, 500);
     return sendHtml(reply, <ScheduledRunsSection jobs={fresh} />);
@@ -387,15 +386,12 @@ const registerCronRoutes = (
   );
 
   app.delete<{ Params: { name: string } }>("/cron/:name", (request, reply) => {
-    const name = request.params.name;
-    let removed = false;
-    const writeError = writeJobsOr(ctx, (db) => {
-      removed = deleteCronJob(db, name);
-    });
-    if (writeError !== undefined)
-      return sendHtml(reply, dbWriteError(writeError), 500);
-    if (!removed) return sendNotFound(reply);
-    const { jobs } = readJobsOr(ctx);
+    const result = cronOps.deleteJob(request.params.name);
+    if (!result.ok) {
+      if (result.status === 404) return sendNotFound(reply);
+      return sendHtml(reply, writeErrorHint(result.error), 500);
+    }
+    const { jobs } = cronOps.listJobs();
     // The (possibly hidden) section swaps back in, so deleting the last
     // job clears the section from the page.
     return sendHtml(reply, <ScheduledRunsSection jobs={jobs} />);

@@ -19,14 +19,13 @@ import type { ServerContext } from "./context.js";
 import { resolveAgentPick } from "./operations.js";
 import { expandHome } from "./paths.js";
 
-// The shared cron operation layer: the validate-and-execute core of the
-// scheduled-run mutations, extracted from the HTML handlers so the JSON
-// API and the browser UI run literally the same effects — the same
-// stance as the session operation layer. Validation failures come back
-// as `{ok: false, status, error}` and each surface decides how to
-// render them (an HTML form re-render or a JSON status code).
+// The cron operation layer: the validate-and-execute core shared by the
+// HTML routes and the JSON API, so both surfaces run identical effects.
+// Failures come back as {ok: false, status, error} and each surface
+// decides how to render them — a form re-render or a JSON status code.
 
-// Names must stay URL-safe (they name route params) and human-friendly.
+// Job names become route params, so they must stay URL-safe as well as
+// human-friendly.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
 
 const NAME_ERROR =
@@ -37,8 +36,6 @@ const FOLLOW_UPS_CAP_ERROR =
   `A scheduled run may have at most ${MAX_CRON_STEPS - 1} follow-on ` +
   `steps — ${MAX_CRON_STEPS} steps in total, the first prompt included.`;
 
-// One failure any cron operation can surface, HTTP-flavoured (the
-// session operation layer's shape).
 type CronOperationFailure = {
   readonly ok: false;
   readonly status: number;
@@ -46,8 +43,8 @@ type CronOperationFailure = {
 };
 
 // The fields a create accepts, already spelled per surface (the HTML
-// form's job_name maps to name here). Values are trimmed again below,
-// so direct-API writes are normalized exactly like form submits.
+// form's job_name maps to name here). Every value is trimmed again
+// below, so direct API writes normalize exactly like form submits.
 type CronJobSubmission = {
   readonly name: string;
   readonly schedule: string;
@@ -55,11 +52,7 @@ type CronJobSubmission = {
   readonly workingDir: string;
   /** "" names no override — the run fires on the server's clock. */
   readonly timezone: string;
-  /**
-   * The combined agent/model pick ("agent:provider:model", the New
-   * Session picker's spelling); "" or a bare "agent:" keeps the
-   * agent's default.
-   */
+  /** "agent:provider:model" (the picker's spelling); "" keeps the default. */
   readonly model: string;
   /** Follow-on prompts, in run order (the JSON API surface). */
   readonly followUps?: readonly string[];
@@ -78,11 +71,11 @@ const findJob = (
   name: string,
 ): CronJobRecord | undefined => jobs.find((job) => job.name === name);
 
-// The schedule pair every save writes: English input becomes its cron
-// pattern here, with the typed text kept beside it when it differs so
-// the edit form prefills what the user wrote. scheduleInput is always
-// set — undefined clears any stale memory when the submit itself
-// spelled the canonical form.
+// The schedule pair every save writes: human text becomes its cron
+// pattern, with the typed text kept beside it so the edit form
+// prefills what the user wrote. scheduleInput is always set —
+// undefined clears stale memory when the submit itself spelled the
+// canonical form.
 const scheduleFields = (
   schedule: string,
   cron: string | undefined,
@@ -94,64 +87,48 @@ const scheduleFields = (
   };
 };
 
-// The section's job list, or an empty list with the read error surfaced
-// when the store is unreadable (it was valid at boot, so something
-// external broke it); shown instead of a 500.
-const readJobsOr = (
-  ctx: ServerContext,
-): {
-  jobs: CronJobRecord[];
-  error: string | undefined;
-} => {
-  if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
-  try {
-    return {
-      jobs: listCronJobs(ctx.cronDb, ctx.defaultAgent.id),
-      error: undefined,
-    };
-  } catch (err) {
-    return { jobs: [], error: errorMessage(err) };
-  }
-};
-
-// Every successful mutation lands in the database first, then nudges
-// the scheduler so the new schedule applies immediately.
-const writeJobsOr = (
-  ctx: ServerContext,
-  write: (db: DatabaseSync) => void,
-): string | undefined => {
-  if (ctx.cronDb === undefined) return "the cron database is not open";
-  try {
-    write(ctx.cronDb);
-  } catch (err) {
-    return errorMessage(err);
-  }
-  ctx.onCronJobsChange?.();
-  return undefined;
-};
-
 const createCronOperations = (ctx: ServerContext) => {
-  // The stored row for a just-written job, read back so the answer is
-  // exactly what the store holds (the insert seeds last_fired_at). A
-  // read failure right after a successful write is extraordinary; the
-  // written shape is the honest fallback.
-  const readBack = (job: CronJobConfig): CronJobRecord => {
-    const fallback: CronJobRecord = { ...job, enabled: true };
-    if (ctx.cronDb === undefined) return fallback;
+  // The job list, or an empty list with the read error surfaced when
+  // the store is unreadable (it was valid at boot, so something
+  // external broke it) — rendered by the caller instead of a 500.
+  const listJobs = (): {
+    jobs: CronJobRecord[];
+    error: string | undefined;
+  } => {
+    if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
     try {
-      return (
-        findJob(listCronJobs(ctx.cronDb, ctx.defaultAgent.id), job.name) ??
-        fallback
-      );
-    } catch {
-      return fallback;
+      return {
+        jobs: listCronJobs(ctx.cronDb, ctx.defaultAgent.id),
+        error: undefined,
+      };
+    } catch (err) {
+      return { jobs: [], error: errorMessage(err) };
     }
   };
 
-  // Creates a job. Validation order matches the browser form's, so the
-  // same faulty submit answers with the same error whichever surface
-  // received it; the two copy variants that point back at the New
-  // Session form stay in the HTML route.
+  // Every successful mutation lands in the database first, then nudges
+  // the scheduler so the new schedule applies immediately.
+  const writeJobs = (write: (db: DatabaseSync) => void): string | undefined => {
+    if (ctx.cronDb === undefined) return "the cron database is not open";
+    try {
+      write(ctx.cronDb);
+    } catch (err) {
+      return errorMessage(err);
+    }
+    ctx.onCronJobsChange?.();
+    return undefined;
+  };
+
+  // The stored row for a just-written job, read back so the answer is
+  // exactly what the store holds (the insert seeds last_fired_at); the
+  // written shape is the fallback when the read fails.
+  const readBack = (job: CronJobConfig): CronJobRecord =>
+    findJob(listJobs().jobs, job.name) ?? { ...job, enabled: true };
+
+  // Validation order is the browser form's, so the same faulty submit
+  // answers with the same error whichever surface received it; the two
+  // copy variants that point back at the New Session form stay in the
+  // HTML route.
   const createJob = (submission: CronJobSubmission): CronCreateOutcome => {
     const fail = (error: string): CronOperationFailure => ({
       ok: false,
@@ -164,8 +141,7 @@ const createCronOperations = (ctx: ServerContext) => {
     const prompt = submission.prompt.trim();
     const workingDirRaw = submission.workingDir.trim();
     const timezone = submission.timezone.trim();
-    // Blanks are dropped on save — an emptied step block is a removal,
-    // not an error (the edit form's rule).
+    // Blank steps are removals, not errors (the edit form's rule).
     const followUps = (submission.followUps ?? [])
       .map((step) => step.trim())
       .filter((step) => step !== "");
@@ -180,7 +156,7 @@ const createCronOperations = (ctx: ServerContext) => {
       return fail(`Agent "${agentId}" is not enabled.`);
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
-    // served (same rule as the New Session flow).
+    // served.
     const picked = runtime.models?.resolve(modelValue);
     if (pickUnresolved(pick, picked))
       return fail(modelUnavailableError(runtime.profile.agentName));
@@ -193,7 +169,7 @@ const createCronOperations = (ctx: ServerContext) => {
     if (!parsed.ok) return fail(parsed.error);
     if (followUps.length > MAX_CRON_STEPS - 1)
       return fail(FOLLOW_UPS_CAP_ERROR);
-    if (readJobsOr(ctx).jobs.some((job) => job.name === name))
+    if (listJobs().jobs.some((job) => job.name === name))
       return fail(`A scheduled run named "${name}" already exists.`);
 
     const job: CronJobConfig = {
@@ -206,7 +182,7 @@ const createCronOperations = (ctx: ServerContext) => {
       ...modelPinFields(picked),
       ...(followUps.length > 0 ? { followUps } : {}),
     };
-    const writeError = writeJobsOr(ctx, (db) => insertCronJob(db, job));
+    const writeError = writeJobs((db) => insertCronJob(db, job));
     if (writeError !== undefined)
       return {
         ok: false,
@@ -216,12 +192,11 @@ const createCronOperations = (ctx: ServerContext) => {
     return { ok: true, job: readBack(job) };
   };
 
-  // Removes a job by name; false when nothing matched. One-shots
-  // retire themselves through the scheduler once their moment passes —
-  // this is the caller-driven exit for everything else.
+  // One-shots retire themselves through the scheduler once their moment
+  // passes — this is the caller-driven exit for everything else.
   const deleteJob = (name: string): CronDeleteOutcome => {
     let removed = false;
-    const writeError = writeJobsOr(ctx, (db) => {
+    const writeError = writeJobs((db) => {
       removed = deleteCronJob(db, name);
     });
     if (writeError !== undefined)
@@ -235,19 +210,17 @@ const createCronOperations = (ctx: ServerContext) => {
     return { ok: true, name };
   };
 
-  return { listJobs: () => readJobsOr(ctx), createJob, deleteJob };
+  return { listJobs, writeJobs, createJob, deleteJob };
 };
 
 type CronOperations = ReturnType<typeof createCronOperations>;
 
-export type { CronCreateOutcome, CronOperations };
+export type { CronOperations };
 export {
   createCronOperations,
   FOLLOW_UPS_CAP_ERROR,
   findJob,
   NAME_ERROR,
   NAME_RE,
-  readJobsOr,
   scheduleFields,
-  writeJobsOr,
 };
