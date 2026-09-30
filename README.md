@@ -228,12 +228,14 @@ zone the schedule’s times apply in — searched as you type by zone name,
 city (“new york”), or UTC offset (“utc+2”), with each suggestion showing
 its current offset; the field stays free-typing (any IANA name is
 accepted), and left empty it means the server’s local time; the section
-lists every job with pause, edit, and delete). The jobs live in the
-**cron database** — a glv-owned SQLite file at
-`~/.local/share/glv/cron.db` on Linux/macOS (`%APPDATA%\glv\cron.db` on
-Windows), alongside the job-started-session tags that badge fired runs.
-Override with `--cron-db <path>` or the `GLV_CRON_DB` environment
-variable. The running server picks changes up live, no restart needed.
+lists every job with pause, edit, and delete). Scripts and CI can
+create, list, and delete the same jobs over the JSON API
+([below](#scheduling-runs-over-the-api)). The jobs live in the **cron
+database** — a glv-owned SQLite file at `~/.local/share/glv/cron.db` on
+Linux/macOS (`%APPDATA%\glv\cron.db` on Windows), alongside the
+job-started-session tags that badge fired runs. Override with
+`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
+running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
 retired config file were migrated into the cron database by the first
@@ -452,8 +454,54 @@ the prompt as readable paths). Validation failures answer
 `GET /api/openapi.json` serves the machine-readable contract — generated
 from the same schemas the routes validate with, so it cannot drift —
 behind the same auth as every other `/api` path. Destructive operations
-(archive, delete) and every management surface (tokens, cron, prompts,
-groups) stay in the browser.
+(archive, delete) and every management surface (tokens, prompts, groups)
+stay in the browser.
+
+### Scheduling runs over the API
+
+Scheduled runs are scriptable too — the same schedule grammar the
+browser form accepts (a one-shot ISO datetime, a cron pattern, or
+English text), written through the same operation layer, landing in the
+same cron database and picked up by the running scheduler immediately:
+
+| Endpoint                 | Effect                                       |
+|--------------------------|----------------------------------------------|
+| `GET /api/cron`          | list scheduled runs (creation order)         |
+| `GET /api/cron/:name`    | read one run                                 |
+| `POST /api/cron`         | schedule a run (multipart form, bearer only) |
+| `DELETE /api/cron/:name` | cancel a run                                 |
+
+Schedule a one-off — the programmatic answer to “run this once at 09:00”
+from CI or a deploy script:
+
+``` bash
+curl -sS -X POST http://localhost:3457/api/cron \
+  -H "Authorization: Bearer glv_at_…" \
+  -F name="release-notes" \
+  -F schedule="2026-10-01T09:00" \
+  -F prompt="draft the release notes" \
+  -F working_dir="$PWD"
+```
+
+The answer is `201` with a `Location` header and the stored row; a
+one-shot carries a single `next_runs` instant, fires once, and retires
+itself from the listing afterwards. Recurring spellings —
+`schedule="0 9 * * 1-5"` or `schedule="every weekday at 9:00"` — work
+the same way (English is stored as its cron translation with the typed
+text kept in `schedule_input`). Optional fields: `timezone` (IANA name
+the schedule’s times apply in), `model` (`agent:provider:model`, same
+spelling as the session API), and repeated `follow_ups` parts chaining
+further prompts after the first (10 steps in total, at most). Every row
+carries `next_runs` — the next fire times — while it is enabled. Cancel
+anything that has not fired yet:
+
+``` bash
+curl -sS -X DELETE http://localhost:3457/api/cron/release-notes \
+  -H "Authorization: Bearer glv_at_…"
+```
+
+Names may contain spaces (URL-encode them); validation failures answer
+`422 {"error":"…"}`, unknown names `404`.
 
 > **Behind a reverse proxy.** When the viewer sits behind a
 > TLS-terminating proxy, forward the original request details so

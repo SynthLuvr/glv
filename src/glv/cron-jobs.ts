@@ -275,7 +275,7 @@ const watchCronJobs = (onChange: () => void): { readonly stop: () => void } => {
   return { stop: () => clearInterval(poll) };
 };
 
-export type { CronJobConfig };
+export type { CronJobConfig, CronJobRecord };
 export {
   backfillCronAgents,
   deleteCronJob,

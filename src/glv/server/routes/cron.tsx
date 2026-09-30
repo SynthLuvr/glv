@@ -1,13 +1,10 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { Fragment } from "hono/jsx";
 import {
   type CronJobConfig,
   deleteCronJob,
-  insertCronJob,
-  listCronJobs,
   setCronJobEnabled,
   updateCronJob,
 } from "../../cron-jobs.js";
@@ -25,7 +22,6 @@ import {
   searchTimezones,
   starterSuggestions,
 } from "../../timezones.js";
-import { errorMessage } from "../../util.js";
 import {
   CronJobGrid,
   ScheduleConfirmation,
@@ -36,7 +32,17 @@ import {
   TimezoneSuggestions,
 } from "../../views/schedule.js";
 import type { ServerContext } from "../context.js";
-import { parseForm } from "../forms.js";
+import {
+  type CronOperations,
+  FOLLOW_UPS_CAP_ERROR,
+  findJob,
+  NAME_ERROR,
+  NAME_RE,
+  readJobsOr,
+  scheduleFields,
+  writeJobsOr,
+} from "../cron-operations.js";
+import { parseForm, stringFields } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound } from "../http.js";
 import { resolveAgentPick } from "../operations.js";
 import { expandHome } from "../paths.js";
@@ -44,19 +50,10 @@ import { modelPickerOpts, showsModelPicker } from "../render.js";
 
 // Management surface for scheduled runs. The cron database is the source
 // of truth: every mutation writes a row and nudges the scheduler, which
-// re-reads the table live — no restart needed.
-
-// Names must stay URL-safe (they name route params) and human-friendly.
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
-
-const NAME_ERROR =
-  "Job names start with a letter or digit and may use spaces, dots, " +
-  "dashes, and underscores (max 64 characters).";
-
-const findJob = (
-  jobs: readonly CronJobConfig[],
-  name: string,
-): CronJobConfig | undefined => jobs.find((job) => job.name === name);
+// re-reads the table live — no restart needed. Creates delegate to the
+// shared cron operation layer, the same validate-and-execute core the
+// JSON API's /api/cron routes call, so both surfaces run identical
+// effects.
 
 // First string value of a form field, trimmed (parseBody with all:true
 // yields arrays for repeated fields, File for uploads).
@@ -66,77 +63,16 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
   return typeof candidate === "string" ? candidate.trim() : "";
 };
 
-// Every string value of a (repeated) form field, verbatim and in submit
-// order — the follow-on steps submit one field per step.
-const stringFields = (body: Record<string, unknown>, key: string): string[] => {
-  const value = body[key];
-  const values =
-    value === undefined ? [] : Array.isArray(value) ? value : [value];
-  return values.filter((entry): entry is string => typeof entry === "string");
-};
-
-const FOLLOW_UPS_CAP_ERROR =
-  `A scheduled run may have at most ${MAX_CRON_STEPS - 1} follow-on ` +
-  `steps — ${MAX_CRON_STEPS} steps in total, the first prompt included.`;
-
-// The schedule pair every save writes: English input becomes its cron
-// pattern here, with the typed text kept beside it when it differs so
-// the edit form prefills what the user wrote. scheduleInput is always
-// set — undefined clears any stale memory when the submit itself
-// spelled the canonical form.
-const scheduleFields = (
-  schedule: string,
-  cron: string | undefined,
-): Pick<CronJobConfig, "schedule" | "scheduleInput"> => {
-  const canonical = cron ?? schedule;
-  return {
-    schedule: canonical,
-    scheduleInput: canonical === schedule ? undefined : schedule,
-  };
-};
-
-// The section's job list, or an empty list with the read error surfaced
-// when the store is unreadable (it was valid at boot, so something
-// external broke it); shown instead of a 500.
-const readJobsOr = (
-  ctx: ServerContext,
-): {
-  jobs: CronJobConfig[];
-  error: string | undefined;
-} => {
-  if (ctx.cronDb === undefined) return { jobs: [], error: undefined };
-  try {
-    return {
-      jobs: listCronJobs(ctx.cronDb, ctx.defaultAgent.id),
-      error: undefined,
-    };
-  } catch (err) {
-    return { jobs: [], error: errorMessage(err) };
-  }
-};
-
-// Every successful mutation lands in the database first, then nudges
-// the scheduler so the new schedule applies immediately.
-const writeJobsOr = (
-  ctx: ServerContext,
-  write: (db: DatabaseSync) => void,
-): string | undefined => {
-  if (ctx.cronDb === undefined) return "the cron database is not open";
-  try {
-    write(ctx.cronDb);
-  } catch (err) {
-    return errorMessage(err);
-  }
-  ctx.onCronJobsChange?.();
-  return undefined;
-};
-
 // The 500 body shared by the mutations whose database write fails.
 const dbWriteError = (error: string) => (
   <p class="status-hint error">Could not update the cron database: {error}</p>
 );
 
-const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
+const registerCronRoutes = (
+  app: FastifyInstance,
+  ctx: ServerContext,
+  cronOps: CronOperations,
+): void => {
   // Suggestion fragments for the timezone combobox — <auto-complete> on
   // the form fetches these as the user types; an empty query means the
   // field was focused untouched, so the starter list leads with the
@@ -200,7 +136,10 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
 
   // Creates a job from the slot form. The New Session form itself stays
   // untouched — the row is written and the confirmation lands in the
-  // slot, with the grid and count refreshing out of band.
+  // slot, with the grid and count refreshing out of band. Validation is
+  // the shared cron operation layer's (the JSON API runs the identical
+  // core); only the two fields composed in the form above get copy
+  // here that points back at it.
   app.post("/cron", async (request, reply) => {
     const body: Record<string, unknown> = await parseForm(request);
     const jobName = trimmedField(body, "job_name");
@@ -208,13 +147,6 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
     const prompt = trimmedField(body, "prompt");
     const workingDirRaw = trimmedField(body, "working_dir");
     const timezone = trimmedField(body, "timezone");
-    // The combined pick rides in from the New Session form's model select
-    // and names both the agent and the model.
-    const { pick, agentId, runtime, modelValue } = resolveAgentPick(
-      ctx,
-      trimmedField(body, "model"),
-      ctx.defaultAgent.id,
-    );
 
     const reject = (error: string) =>
       sendHtml(
@@ -231,48 +163,30 @@ const registerCronRoutes = (app: FastifyInstance, ctx: ServerContext): void => {
 
     if (prompt === "")
       return reject("A prompt is required — type one in the form above.");
-    if (runtime === undefined)
-      return reject(`Agent "${agentId}" is not enabled.`);
-    // The picker listed render-time config; resolve the pick against a
-    // fresh read in case the agent's config changed since the form was
-    // served (same rule as the New Session flow).
-    const picked = runtime.models?.resolve(modelValue);
-    if (pickUnresolved(pick, picked))
-      return reject(modelUnavailableError(runtime.profile.agentName));
-    if (!NAME_RE.test(jobName)) return reject(NAME_ERROR);
     if (workingDirRaw === "")
       return reject(
         "A working directory is required — set one in the form above.",
       );
-    const workingDir = resolve(expandHome(workingDirRaw));
-    if (!existsSync(workingDir))
-      return reject("That working directory does not exist.");
-    const parsed = parseSchedule(schedule, { timezone });
-    if (!parsed.ok) return reject(parsed.error);
 
-    const existing = readJobsOr(ctx).jobs;
-    if (existing.some((job) => job.name === jobName))
-      return reject(`A scheduled run named "${jobName}" already exists.`);
-
-    const job: CronJobConfig = {
+    const result = cronOps.createJob({
       name: jobName,
-      ...scheduleFields(schedule, parsed.info.cron),
+      schedule,
       prompt,
-      workingDir,
-      ...(timezone === "" ? {} : { timezone }),
-      agent: agentId,
-      ...modelPinFields(picked),
-    };
-    const writeError = writeJobsOr(ctx, (db) => insertCronJob(db, job));
-    if (writeError !== undefined)
-      return reject(`Could not save the scheduled run: ${writeError}`);
+      workingDir: workingDirRaw,
+      timezone,
+      // The combined pick rides in from the New Session form's model
+      // select and names both the agent and the model.
+      model: trimmedField(body, "model"),
+    });
+    if (!result.ok) return reject(result.error);
+
     // Confirmation inline in the slot; the grid and count swap out of
     // band so the new card appears below without touching the slot.
     const { jobs: fresh } = readJobsOr(ctx);
     return sendHtml(
       reply,
       <Fragment>
-        <ScheduleConfirmation job={job} />
+        <ScheduleConfirmation job={result.job} />
         <CronJobGrid jobs={fresh} oob />
         <span
           id="scheduled-runs-count"

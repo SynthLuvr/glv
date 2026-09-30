@@ -74,6 +74,16 @@ const firstString = (val: unknown): string => {
   return typeof val === "string" ? val.trim() : "";
 };
 
+// Every string value of a (repeated) form field, verbatim and in submit
+// order — parsed bodies hold a string, an array, or nothing per key
+// (the cron follow-on steps submit one field per step).
+const stringFields = (body: Record<string, unknown>, key: string): string[] => {
+  const value = body[key];
+  const values =
+    value === undefined ? [] : Array.isArray(value) ? value : [value];
+  return values.filter((entry): entry is string => typeof entry === "string");
+};
+
 // Reads a parsed form body (urlencoded or multipart) into the normalized
 // record. JSON bodies (the auth endpoints) never route through here.
 const parseForm = async (
@@ -89,4 +99,4 @@ const parseForm = async (
   return out;
 };
 
-export { fieldString, firstString, parseForm };
+export { fieldString, firstString, parseForm, stringFields };

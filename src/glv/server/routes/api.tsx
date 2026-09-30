@@ -1,9 +1,14 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
-import { openApiDocument, parseListQuery } from "../api-schema.js";
+import {
+  openApiDocument,
+  parseListQuery,
+  toApiCronJob,
+} from "../api-schema.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
-import { parseForm } from "../forms.js";
+import type { CronOperations } from "../cron-operations.js";
+import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
 
 // The JSON surface for non-browser clients (curl, CI), reached with an
@@ -17,6 +22,7 @@ const registerApiRoutes = (
   app: FastifyInstance,
   ctx: ServerContext,
   ops: SessionOperations,
+  cronOps: CronOperations,
 ): void => {
   app.get("/api/sessions", (request, reply) => {
     const query = parseListQuery(request, VIEWER_FILTER.limit);
@@ -70,6 +76,67 @@ const registerApiRoutes = (
       if (!result.ok)
         return reply.status(result.status).send({ error: result.error });
       return reply.send({ id: result.sessionId, status: "stopped" });
+    },
+  );
+
+  // Scheduled runs over JSON: the same cron operation layer the
+  // browser's Scheduled runs section delegates to, so a script
+  // schedules exactly what the form would save (one-shots, cron, and
+  // human-text schedules alike), and every mutation lands in the cron
+  // database and applies to the running scheduler immediately.
+  const cronReadError = (reply: FastifyReply, error: string) =>
+    reply
+      .status(500)
+      .send({ error: `Could not read the cron database: ${error}` });
+
+  app.get("/api/cron", (_request, reply) => {
+    const { jobs, error } = cronOps.listJobs();
+    if (error !== undefined) return cronReadError(reply, error);
+    return reply.send(
+      jobs.map((job) => toApiCronJob(job, ctx.defaultAgent.id)),
+    );
+  });
+
+  app.get<{ Params: { name: string } }>("/api/cron/:name", (request, reply) => {
+    const { jobs, error } = cronOps.listJobs();
+    if (error !== undefined) return cronReadError(reply, error);
+    const job = jobs.find((entry) => entry.name === request.params.name);
+    if (job === undefined)
+      return reply
+        .status(404)
+        .send({ error: `No scheduled run ${request.params.name}.` });
+    return reply.send(toApiCronJob(job, ctx.defaultAgent.id));
+  });
+
+  app.post("/api/cron", async (request, reply) => {
+    const body = await parseForm(request);
+    const result = cronOps.createJob({
+      name: firstString(body.name),
+      schedule: firstString(body.schedule),
+      prompt: firstString(body.prompt),
+      workingDir: firstString(body.working_dir),
+      timezone: firstString(body.timezone),
+      model: firstString(body.model),
+      followUps: stringFields(body, "follow_ups"),
+    });
+    if (!result.ok)
+      return reply.status(result.status).send({ error: result.error });
+    reply.header(
+      "Location",
+      `/api/cron/${encodeURIComponent(result.job.name)}`,
+    );
+    return reply
+      .status(201)
+      .send(toApiCronJob(result.job, ctx.defaultAgent.id));
+  });
+
+  app.delete<{ Params: { name: string } }>(
+    "/api/cron/:name",
+    (request, reply) => {
+      const result = cronOps.deleteJob(request.params.name);
+      if (!result.ok)
+        return reply.status(result.status).send({ error: result.error });
+      return reply.send({ name: result.name, status: "deleted" });
     },
   );
 

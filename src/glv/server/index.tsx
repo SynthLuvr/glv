@@ -14,6 +14,7 @@ import {
   type ServerContext,
   type ServerOptions,
 } from "./context.js";
+import { createCronOperations } from "./cron-operations.js";
 import { sendNotFound } from "./http.js";
 import { createSessionOperations } from "./operations.js";
 import { expandHome, listHomeDirs } from "./paths.js";
@@ -79,6 +80,7 @@ const createApp = (
   };
 
   const ops = createSessionOperations(ctx);
+  const cronOps = createCronOperations(ctx);
   // Uploads ride the body parser: the friendly per-file (50 MB) and
   // total (100 MB) checks live in saveUploads, so the framework limits
   // sit above them to let those errors surface instead of a hard 413.
@@ -144,11 +146,11 @@ const createApp = (
     registerPrRoutes(scope, ctx);
     registerGitRoutes(scope, ctx);
     registerPromptRoutes(scope, ctx);
-    registerCronRoutes(scope, ctx);
+    registerCronRoutes(scope, ctx, cronOps);
     registerStreamRoutes(scope, ctx);
     registerEventsRoutes(scope, ctx);
     registerTokenRoutes(scope, ctx);
-    registerApiRoutes(scope, ctx, ops);
+    registerApiRoutes(scope, ctx, ops, cronOps);
   });
 
   return app;

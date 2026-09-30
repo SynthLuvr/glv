@@ -396,6 +396,8 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       };
       expect(doc.openapi).toBe("3.1.0");
       expect(Object.keys(doc.paths).sort()).toEqual([
+        "/api/cron",
+        "/api/cron/{name}",
         "/api/sessions",
         "/api/sessions/{id}",
         "/api/sessions/{id}/prompt",
@@ -405,6 +407,9 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "bearerAuth",
       );
       expect(Object.keys(doc.components.schemas).sort()).toEqual([
+        "CronDeleted",
+        "CronJob",
+        "CronJobForm",
         "Error",
         "FollowUpForm",
         "RunAccepted",
