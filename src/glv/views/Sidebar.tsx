@@ -16,6 +16,8 @@ type SidebarProps = {
   entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
+  /** Gates the auth-only controls (logout, API-tokens link). */
+  authed?: boolean;
 };
 
 // Rendered as `<div id="session-list">` so htmx can swap it back in after
@@ -86,7 +88,7 @@ const Sidebar = ({
   selectedId,
   runningIds,
   authed = false,
-}: SidebarProps & { authed?: boolean }) => (
+}: SidebarProps) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Sessions</h1>
@@ -119,7 +121,11 @@ const Sidebar = ({
         runningIds={runningIds}
       />
     )}
-    <div class="sidebar-foot">{authed && <ApiTokensLink />}</div>
+    {authed && (
+      <div class="sidebar-foot">
+        <ApiTokensLink />
+      </div>
+    )}
     <script src="/assets/sidebar.js" defer></script>
     <script src="/assets/groups.js" defer></script>
   </aside>

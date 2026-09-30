@@ -200,9 +200,8 @@ const captureViews = async (
   await context.close();
 };
 
-// The sidebar footer carries the API-tokens entry point; the management
-// screen is reached by clicking it (the real user path), then the once-only
-// reveal after minting through the real form.
+// Enter the tokens screen the way a user does — the sidebar footer link —
+// then mint through the real form for the once-only reveal.
 const captureTokens = async (browser: Browser, env: IntegrationEnv) => {
   const context = await browser.newContext({ viewport: DESKTOP });
   await addSessionCookie(context, env);
