@@ -1,5 +1,7 @@
 import { type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
+import type { CronJobRecord } from "../cron-jobs.js";
+import { parseSchedule } from "../schedule.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -62,6 +64,88 @@ const ApiFollowUpForm = type({
   prompt: "string",
   "location?": "string",
 });
+
+// One scheduled-run row exactly as the cron endpoints return it (the
+// store's CronJobRecord, snake_cased like ApiSession) plus next_runs:
+// the next fire times an enabled schedule spells, soonest first (up to
+// three, ISO instants). Omitted for paused rows and for schedules that
+// no longer parse — no claim is made about a run that will not fire.
+const ApiCronJob = type({
+  name: "string",
+  /** The canonical schedule spelling (human text is stored as its cron translation). */
+  schedule: "string",
+  /** The schedule exactly as last typed, when schedule holds a translation. */
+  "schedule_input?": "string",
+  prompt: "string",
+  working_dir: "string",
+  "timezone?": "string",
+  enabled: "boolean",
+  /** The agent the run fires through ("goose", "claude"). */
+  agent: "string",
+  /** The pinned model, both keys together or neither. */
+  "model_provider?": "string",
+  "model?": "string",
+  /** Follow-on prompts, in run order. */
+  "follow_ups?": "string[]",
+  /** The most recent occurrence served, ISO UTC. */
+  "last_fired_at?": "string",
+  "next_runs?": "string[]",
+});
+
+type ApiCronJobData = typeof ApiCronJob.infer;
+
+// The multipart form fields POST /api/cron accepts. follow_ups submits
+// one part per follow-on prompt, in run order.
+const ApiCronJobForm = type({
+  name: "string",
+  schedule: "string",
+  prompt: "string",
+  working_dir: "string",
+  "timezone?": "string",
+  "model?": "string",
+  "follow_ups?": "string[]",
+});
+
+// The body DELETE /api/cron/:name returns.
+const ApiCronDeleted = type({ name: "string", status: "'deleted'" });
+
+// A stored row as the API spells it. defaultAgent is what a row
+// without its own agent would read as (records from the store always
+// carry one; the fallback keeps the projection total).
+const toApiCronJob = (
+  job: CronJobRecord,
+  defaultAgent: string,
+): ApiCronJobData => {
+  const parsed = parseSchedule(job.schedule, { timezone: job.timezone });
+  return {
+    name: job.name,
+    schedule: job.schedule,
+    ...(job.scheduleInput === undefined
+      ? {}
+      : { schedule_input: job.scheduleInput }),
+    prompt: job.prompt,
+    working_dir: job.workingDir,
+    ...(job.timezone === undefined ? {} : { timezone: job.timezone }),
+    enabled: job.enabled,
+    agent: job.agent ?? defaultAgent,
+    ...(job.modelProvider === undefined || job.model === undefined
+      ? {}
+      : { model_provider: job.modelProvider, model: job.model }),
+    ...(job.followUps !== undefined && job.followUps.length > 0
+      ? { follow_ups: [...job.followUps] }
+      : {}),
+    ...(job.lastFiredAt === undefined
+      ? {}
+      : { last_fired_at: job.lastFiredAt }),
+    ...(job.enabled && parsed.ok
+      ? {
+          next_runs: parsed.info.next
+            .slice(0, 3)
+            .map((run) => run.toISOString()),
+        }
+      : {}),
+  };
+};
 
 type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }
@@ -173,6 +257,16 @@ const sessionParam = (): Record<string, unknown> => ({
   description: "Session id, namespaced by agent (e.g. goose:<uuid>).",
 });
 
+const cronNameParam = (): Record<string, unknown> => ({
+  name: "name",
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+  description:
+    "Scheduled-run name — letters, digits, spaces, dots, dashes, " +
+    "underscores, max 64 characters (URL-encode spaces).",
+});
+
 const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   const queryProps = properties(ApiListQuery);
   return {
@@ -188,7 +282,8 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         "rides the Server-Sent Events routes /sessions/{id}/events and " +
         "/events/status with the same bearer header. Destructive " +
         "operations (archive, delete) and every management surface " +
-        "(tokens, cron, prompts, groups) stay in the browser.",
+        "(tokens, prompts, groups) stay in the browser; scheduled runs " +
+        "are created, listed, and deleted over JSON at /api/cron.",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -214,9 +309,81 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             uploads: uploadsProperty(),
           },
         },
+        CronJob: component(ApiCronJob),
+        CronJobForm: component(ApiCronJobForm),
+        CronDeleted: component(ApiCronDeleted),
       },
     },
     paths: {
+      "/api/cron": {
+        get: {
+          summary: "List scheduled runs (creation order)",
+          description:
+            "One-shots that already fired are retired from the list by " +
+            "the scheduler; paused rows carry enabled: false and no " +
+            "next_runs.",
+          responses: {
+            "200": jsonResponse("The scheduled-run rows.", {
+              type: "array",
+              items: ref("CronJob"),
+            }),
+            ...bearerResponses(),
+          },
+        },
+        post: {
+          summary: "Schedule a run",
+          description:
+            "Multipart form. The schedule is one of: an ISO 8601 local " +
+            "datetime (2026-09-03T09:00 — fires once, then retires " +
+            "itself), a cron pattern (0 9 * * 1-5), or human text " +
+            "(every weekday at 9:00 — translated to its cron pattern at " +
+            "save time). An optional timezone (IANA name) relocates " +
+            "either kind. Repeated follow_ups fields chain further " +
+            "prompts, strictly in order, after the first. The row is " +
+            "written and the scheduler picks it up immediately — no " +
+            "restart needed.",
+          requestBody: multipartRequest("CronJobForm"),
+          responses: {
+            "201": {
+              description: "The scheduled run was saved.",
+              headers: {
+                Location: {
+                  description: "The new run's detail URL.",
+                  schema: { type: "string" },
+                },
+              },
+              content: {
+                "application/json": { schema: ref("CronJob") },
+              },
+            },
+            "422": jsonResponse("Validation failure.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/cron/{name}": {
+        get: {
+          summary: "Read one scheduled run",
+          parameters: [cronNameParam()],
+          responses: {
+            "200": jsonResponse("The scheduled-run row.", ref("CronJob")),
+            "404": jsonResponse("Unknown scheduled-run name.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+        delete: {
+          summary: "Delete a scheduled run",
+          description:
+            "Cancels the schedule. An in-flight run keeps running; a " +
+            "one-shot not yet fired simply never fires.",
+          parameters: [cronNameParam()],
+          responses: {
+            "200": jsonResponse("The run was deleted.", ref("CronDeleted")),
+            "404": jsonResponse("Unknown scheduled-run name.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
       "/api/sessions": {
         get: {
           summary: "List sessions (newest first)",
@@ -323,4 +490,4 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   };
 };
 
-export { openApiDocument, parseListQuery };
+export { openApiDocument, parseListQuery, toApiCronJob };
