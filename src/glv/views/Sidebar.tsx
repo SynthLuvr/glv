@@ -3,6 +3,7 @@ import type { SessionRow } from "../sessions.js";
 import { GroupEntry } from "./GroupEntry.js";
 import { SessionItem } from "./SessionItem.js";
 import {
+  ApiTokensLink,
   BrowseFilesButton,
   BulkActionBar,
   LogoutButton,
@@ -84,8 +85,8 @@ const Sidebar = ({
   entries,
   selectedId,
   runningIds,
-  logout = false,
-}: SidebarProps & { logout?: boolean }) => (
+  authed = false,
+}: SidebarProps & { authed?: boolean }) => (
   <aside class="sidebar">
     <div class="sidebar-head">
       <h1>Sessions</h1>
@@ -95,7 +96,7 @@ const Sidebar = ({
       <NewSessionButton />
       <BrowseFilesButton />
       <ThemeToggle />
-      {logout && <LogoutButton />}
+      {authed && <LogoutButton />}
     </div>
     {sessions.length === 0 ? (
       <p class="empty">
@@ -118,6 +119,7 @@ const Sidebar = ({
         runningIds={runningIds}
       />
     )}
+    <div class="sidebar-foot">{authed && <ApiTokensLink />}</div>
     <script src="/assets/sidebar.js" defer></script>
     <script src="/assets/groups.js" defer></script>
   </aside>

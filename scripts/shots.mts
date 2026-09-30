@@ -200,13 +200,17 @@ const captureViews = async (
   await context.close();
 };
 
-// The API-token management screen: empty state, then the once-only reveal
-// after minting through the real form.
+// The sidebar footer carries the API-tokens entry point; the management
+// screen is reached by clicking it (the real user path), then the once-only
+// reveal after minting through the real form.
 const captureTokens = async (browser: Browser, env: IntegrationEnv) => {
   const context = await browser.newContext({ viewport: DESKTOP });
   await addSessionCookie(context, env);
   const page = await context.newPage();
-  await page.goto(`${env.baseUrl}/auth/tokens`);
+  await page.goto(env.baseUrl);
+  await page.locator(".sidebar").waitFor();
+  await capture(page, "sidebar-desktop.png", ".sidebar");
+  await page.locator("a.api-tokens-link").click();
   await page.locator("form.token-create-form").waitFor();
   await capture(page, "tokens-desktop.png", ".auth-card");
   await page.locator('input[name="name"]').fill("ci");

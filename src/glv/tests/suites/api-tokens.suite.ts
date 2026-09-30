@@ -183,6 +183,32 @@ const runApiTokensSuite = (fx: FlavorFixture): void => {
       expect(await res.text()).toContain("API tokens");
     });
 
+    it("links to the tokens page from the app sidebar", async () => {
+      const res = await authedFetch(env, "/");
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('class="api-tokens-link"');
+      expect(html).toContain('href="/auth/tokens"');
+    });
+
+    it("reaches token minting by clicking the sidebar link", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl);
+        await page.locator(".sidebar-foot").waitFor();
+        await page.locator("a.api-tokens-link").click();
+        await page.waitForURL(/\/auth\/tokens$/);
+        await page.locator('input[name="name"]').fill("sidebar-click");
+        await page.locator("form.token-create-form button").click();
+        await page.locator(".token-value").waitFor();
+        const token = await page.locator("#api-token").getAttribute("value");
+        expect(token).toMatch(/^glv_at_[A-Za-z0-9_-]{43}$/);
+        // The minted token actually authenticates the JSON API.
+        expect((await bearerFetch("/api/sessions", token ?? "")).status).toBe(
+          200,
+        );
+      });
+    });
+
     it("rejects an empty token name without minting", async () => {
       const res = await authedFetch(env, "/auth/tokens", {
         method: "POST",
