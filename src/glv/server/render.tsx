@@ -84,7 +84,7 @@ const Shell = ({
   entries,
   selectedId,
   runningIds,
-  logout = false,
+  authed = false,
   children,
   title,
   agentName,
@@ -93,7 +93,7 @@ const Shell = ({
   entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
-  logout?: boolean;
+  authed?: boolean;
   title: string;
   agentName: string;
 }>) => (
@@ -108,7 +108,7 @@ const Shell = ({
         entries={entries}
         selectedId={selectedId}
         runningIds={runningIds}
-        logout={logout}
+        authed={authed}
       />
       <main class="detail" id="detail-pane">
         {children}
@@ -139,7 +139,7 @@ const render = (
 ): FastifyReply => {
   const entries = sidebarEntries(ctx, sessions);
   const runningIds = activeSessionIds(ctx.runner);
-  const showLogout = ctx.auth !== undefined;
+  const authed = ctx.auth !== undefined;
   if (isHtmxRequest(request))
     return sendHtml(
       reply,
@@ -165,7 +165,7 @@ const render = (
       entries={entries}
       selectedId={selectedId}
       runningIds={runningIds}
-      logout={showLogout}
+      authed={authed}
       title={title}
     >
       {detail}
