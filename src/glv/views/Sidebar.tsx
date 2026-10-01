@@ -16,7 +16,6 @@ type SidebarProps = {
   entries: ListEntry[];
   selectedId: string | undefined;
   runningIds: Set<string>;
-  /** Gates the auth-only controls (logout, API-tokens link). */
   authed?: boolean;
 };
 
