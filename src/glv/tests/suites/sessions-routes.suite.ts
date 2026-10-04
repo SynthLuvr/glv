@@ -67,7 +67,7 @@ const runSessionsRoutesSuite = (fx: FlavorFixture): void => {
       { id: "sr-b", name: "Beta", workingDir: env.scratchDir },
       { id: "sr-c", name: "Gamma", workingDir: env.scratchDir },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

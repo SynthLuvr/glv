@@ -62,7 +62,7 @@ const runGhGitSuite = (fx: FlavorFixture): void => {
     fx.seedMessages(env, "git-sess", [
       { role: "user", content: prContent(GIT_PR_URL) },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

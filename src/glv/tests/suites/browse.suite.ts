@@ -65,7 +65,7 @@ const runBrowseSuite = (fx: FlavorFixture): void => {
       symlinkSync("Documents", join(home, "link-docs"), "dir");
     }
     env = await fx.startEnv("glv-browse-", {}, home);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

@@ -42,7 +42,7 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
         content: [fx.toolResponse("boom", true)],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

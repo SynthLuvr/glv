@@ -72,7 +72,7 @@ const runGitPullBeforeSessionSuite = (fx: FlavorFixture): void => {
     writeFileSync(join(noUpstreamDir, "a.txt"), "a");
     git(noUpstreamDir, "add", "-A");
     git(noUpstreamDir, "commit", "-q", "-m", "init");
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

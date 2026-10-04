@@ -20,7 +20,7 @@ const runCreateFailureCleanupSuite = (fx: FlavorFixture): void => {
       sleepMs: 120000,
       neverCreateSession: true,
     });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

@@ -15,11 +15,17 @@
  * deliberate rather than inherited. Byte-identical copies of ANY size
  * are still caught by lint:mirrored.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type } from "arktype";
-import { runPnpm } from "./run-pnpm.mts";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const TREES = new Set(["goose", "claude", "glv"]);
 // typescript + tsx mirror the ts-canon jscpd step's scope plus the .tsx
@@ -52,10 +58,23 @@ const treeOf = (path: string): string | undefined => {
   return TREES.has(head) ? head : undefined;
 };
 
+// jscpd's installed bin entry, run under the current node: spawnSync
+// cannot execute the .cmd shim `pnpm exec` resolves to on Windows.
+const resolveJscpdEntry = (): string => {
+  const pkgDir = join(ROOT, "node_modules", "jscpd");
+  const manifest: unknown = JSON.parse(
+    readFileSync(join(pkgDir, "package.json"), "utf8"),
+  );
+  const bin = isPlainObject(manifest) ? manifest.bin : undefined;
+  const entry =
+    typeof bin === "string" ? bin : isPlainObject(bin) ? bin.jscpd : undefined;
+  if (typeof entry !== "string")
+    throw new Error('the jscpd package has no "jscpd" bin entry');
+  return join(pkgDir, entry);
+};
+
 const runJscpd = (outDir: string): Report => {
   const args = [
-    "exec",
-    "jscpd",
     "src",
     "--format",
     FORMATS,
@@ -79,7 +98,10 @@ const runJscpd = (outDir: string): Report => {
     "--output",
     outDir,
   ];
-  const result = runPnpm(args);
+  const result = spawnSync(process.execPath, [resolveJscpdEntry(), ...args], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
   if (result.error) throw result.error;
   const reportPath = join(outDir, "jscpd-report.json");
   if (!existsSync(reportPath))

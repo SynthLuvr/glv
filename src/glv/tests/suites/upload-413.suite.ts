@@ -43,7 +43,7 @@ const runUpload413Suite = (fx: FlavorFixture): void => {
   beforeAll(async () => {
     env = await fx.startEnv("glv-up413-");
     workDir = join(env.scratchDir, "project");
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

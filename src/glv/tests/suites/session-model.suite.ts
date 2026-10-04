@@ -48,7 +48,7 @@ const runSessionModelSuite = (fx: FlavorFixture, expected: string): void => {
         content: [{ type: "text", text: "No assistant turn yet" }],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

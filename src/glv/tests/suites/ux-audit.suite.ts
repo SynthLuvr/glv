@@ -54,7 +54,7 @@ const runUxAuditSuite = (fx: FlavorFixture): void => {
     ]);
     await postForm("/prompts", { title: "Grower", body: multilineBody });
     await postForm("/prompts", { title: "Modal", body: "Hello {{name}}" });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

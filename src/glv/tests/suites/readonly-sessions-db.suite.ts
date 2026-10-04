@@ -35,7 +35,7 @@ const runReadonlySessionsSuite = (fx: FlavorFixture): void => {
         workingDir: join(env.scratchDir, "mutate"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

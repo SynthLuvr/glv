@@ -204,7 +204,11 @@ const flagValue = (
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
+// Covers the slow tail, not the healthy case: on a loaded Windows
+// shard a cold serve boot (spawns plus first compiles cost multiples
+// of the POSIX price) has exceeded 60s while staying alive and silent,
+// failing an otherwise green suite.
+const waitForHttp = async (url: string, timeoutMs = 120000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
   while (Date.now() < deadline)

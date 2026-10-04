@@ -68,7 +68,7 @@ const runGroupsRoutesSuite = (fx: FlavorFixture): void => {
         workingDir: `${env.scratchDir}/${id}`,
       })),
     );
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

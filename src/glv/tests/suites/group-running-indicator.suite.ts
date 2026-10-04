@@ -43,7 +43,7 @@ const runGroupRunningIndicatorSuite = (fx: FlavorFixture): void => {
     await post(`/sessions/${fx.viewId("grp-a")}/group-with`, {
       otherId: fx.viewId("grp-b"),
     });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

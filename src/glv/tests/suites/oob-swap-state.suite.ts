@@ -28,7 +28,7 @@ const runOobSwapStateSuite = (fx: FlavorFixture): void => {
         workingDir: `${env.scratchDir}/o-b`,
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

@@ -59,7 +59,7 @@ const runLocationSuite = (fx: FlavorFixture): void => {
       { role: "user", content: [{ type: "text", text: "initial prompt" }] },
       { role: "assistant", content: [{ type: "text", text: "initial reply" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

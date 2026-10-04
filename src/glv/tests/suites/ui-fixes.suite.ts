@@ -43,7 +43,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         workingDir: join(env.scratchDir, "dir-b"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

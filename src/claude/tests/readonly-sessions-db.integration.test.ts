@@ -41,7 +41,7 @@ describe("agent-owned transcripts stay untouched", () => {
         workingDir: join(env.scratchDir, "agent"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

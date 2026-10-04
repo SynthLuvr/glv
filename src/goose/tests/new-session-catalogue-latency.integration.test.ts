@@ -56,7 +56,7 @@ describe("new session with a slow model catalogue (goose)", () => {
         workingDir: join(env.scratchDir, "seed"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

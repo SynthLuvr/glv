@@ -12,7 +12,7 @@ const runSidebarSuite = (fx: FlavorFixture): void => {
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-sidebar-");
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

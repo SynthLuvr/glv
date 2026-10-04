@@ -54,7 +54,7 @@ const runArchiveRenameSuite = (fx: FlavorFixture): void => {
         workingDir: join(env.scratchDir, "r3"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

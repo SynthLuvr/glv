@@ -30,7 +30,7 @@ const runNewSessionNavSuite = (fx: FlavorFixture): void => {
     fx.seedMessages(env, "nav-seed", [
       { role: "user", content: [{ type: "text", text: "seed message" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

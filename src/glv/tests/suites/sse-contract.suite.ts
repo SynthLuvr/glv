@@ -77,7 +77,7 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
       { role: "user", content: [{ type: "text", text: "three" }] },
       { role: "assistant", content: [{ type: "text", text: "four" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

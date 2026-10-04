@@ -75,7 +75,7 @@ describe("turn-context categorization", () => {
         content: [{ type: "text", text: "Done." }],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();
