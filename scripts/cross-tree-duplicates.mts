@@ -6,11 +6,6 @@
  *
  *   pnpm lint:cross-tree -> tsx scripts/cross-tree-duplicates.mts
  *
- * jscpd is spawned through its installed bin entry rather than
- * `pnpm exec`: the `.cmd` shim pnpm puts on PATH cannot be executed by
- * spawnSync on Windows (ENOENT), while the entry point runs under the
- * current node on every platform.
- *
  * The jscpd step inside `ts-canon lint` only fails when the aggregate
  * duplication rate crosses its 5% threshold, so the two product trees
  * could drift into near-identical copies without tripping it. This
@@ -63,12 +58,8 @@ const treeOf = (path: string): string | undefined => {
   return TREES.has(head) ? head : undefined;
 };
 
-// Resolves the installed jscpd package's real JavaScript entry point —
-// the `jscpd` bin read from its manifest, joined onto the package
-// directory. Spawning it under the current node keeps the call free of
-// both a PATH lookup and the `.cmd` shim pnpm writes on Windows, neither
-// of which spawnSync can execute there; it is the same discipline
-// ts-canon's own runner applies to every tool it spawns.
+// jscpd's installed bin entry, run under the current node: spawnSync
+// cannot execute the .cmd shim `pnpm exec` resolves to on Windows.
 const resolveJscpdEntry = (): string => {
   const pkgDir = join(ROOT, "node_modules", "jscpd");
   const manifest: unknown = JSON.parse(

@@ -51,23 +51,20 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
   });
 
   // Each agent invocation overwrites the capture file, so poll until it
-  // holds the run under assertion (an earlier run's text may still be
-  // in place). The first read can legitimately race the first agent
-  // spawn — a loaded host has not even created the file yet — so a
-  // missing capture polls like an unmarked one instead of crashing the
-  // read (ENOENT on Windows CI).
+  // holds the run under assertion — an earlier run's text may still be
+  // in place, and the first read can race the first agent spawn before
+  // the file exists.
   const waitForStdin = async (marker: string): Promise<string> => {
     const deadline = Date.now() + 30000;
     for (;;) {
-      let text = "";
       try {
-        text = readFileSync(captureStdin, "utf-8");
+        const text = readFileSync(captureStdin, "utf-8");
+        if (text.includes(marker)) return text;
       } catch {
         // the writer may not have started yet — keep polling
       }
-      if (text.includes(marker)) return text;
       if (Date.now() > deadline)
-        throw new Error(`stdin capture never contained "${marker}": ${text}`);
+        throw new Error(`stdin capture never contained "${marker}"`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   };

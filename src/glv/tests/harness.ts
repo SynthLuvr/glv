@@ -204,12 +204,10 @@ const flagValue = (
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-// The deadline covers a cold serve boot on the slowest CI host, not a
-// healthy one — a loaded Windows shard has pushed a boot past 60s
-// (serve alive, silent, still not listening) and failed an otherwise
-// green suite. Process spawns and first compiles cost several times
-// their POSIX price there; healthy boots still answer in seconds, so
-// the higher ceiling only ever binds on the slow tail.
+// Covers the slow tail, not the healthy case: on a loaded Windows
+// shard a cold serve boot (spawns plus first compiles cost multiples
+// of the POSIX price) has exceeded 60s while staying alive and silent,
+// failing an otherwise green suite.
 const waitForHttp = async (url: string, timeoutMs = 120000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
