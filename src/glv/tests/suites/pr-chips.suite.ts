@@ -123,7 +123,7 @@ const runPrChipsSuite = (fx: FlavorFixture): void => {
     fx.seedMessages(env, "pr-none", [
       { role: "user", content: [{ type: "text", text: "no links here" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

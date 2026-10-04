@@ -31,7 +31,7 @@ const runApiTokensSuite = (fx: FlavorFixture): void => {
         content: [{ type: "text", text: "here are the notes" }],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

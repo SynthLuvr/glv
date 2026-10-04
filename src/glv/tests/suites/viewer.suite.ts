@@ -13,7 +13,7 @@ const runViewerSuite = (fx: FlavorFixture): void => {
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-viewer-");
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

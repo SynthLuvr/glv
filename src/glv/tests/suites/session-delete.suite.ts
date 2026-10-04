@@ -71,7 +71,7 @@ const runSessionDeleteSuite = (fx: FlavorFixture): void => {
       { role: "user", content: [{ type: "text", text: "hello" }] },
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

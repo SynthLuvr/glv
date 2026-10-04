@@ -33,7 +33,7 @@ const runNewSessionSuite = (fx: FlavorFixture): void => {
         workingDir: join(env.scratchDir, "other-project"),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

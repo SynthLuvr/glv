@@ -12,7 +12,7 @@ const runStructuredLoggerSuite = (fx: FlavorFixture): void => {
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-structured-logger-");
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

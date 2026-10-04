@@ -211,7 +211,7 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
     resetAuthDb(env.dbs.authDb);
     // Install before any page touches navigator.credentials.
     await env.context.credentials.install();
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await phoneContext?.close();

@@ -57,7 +57,7 @@ describe("compacted-summary categorization", () => {
         content: [{ type: "text", text: "Baseline is green." }],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

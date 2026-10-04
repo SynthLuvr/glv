@@ -40,7 +40,7 @@ globalThis.DataTransfer = class {
     mkdirSync(workDir, { recursive: true });
     uploadFilePath = join(env.scratchDir, FILENAME);
     writeFileSync(uploadFilePath, CONTENT);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

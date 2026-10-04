@@ -2,11 +2,16 @@
 # (#271) — at ~2 merges/day it cost ~$98/mo. But Windows is a real
 # target: vitest.config.ts carries win32-only suite exclusions, and
 # #204/#207 were Windows-only breaks that only CI caught. This runs the
-# full matrix once a week against main (~$3/mo) and can be dispatched
-# manually before a risky merge.
+# full matrix once a week against main (~$8/mo at the 20-minute test
+# budget below) and can be dispatched manually before a risky merge.
 #
-# Job bodies mirror ci.yml: if you change the test invocation, cache
-# strategy, or timeouts there, change them here too.
+# Job bodies mirror ci.yml: if you change the test invocation or cache
+# strategy there, change them here too. The one deliberate divergence is
+# the test job's timeout: the suite is process-spawn-heavy (every file
+# boots a real server plus a headless Chromium) and Windows pays
+# several times the POSIX price per spawn, so the same shards that
+# finish in 5–7 minutes on Ubuntu measure 8–12 there — the shared
+# 10-minute budget cancelled green shards, and 20 gives them headroom.
 name: Windows CI (weekly)
 
 on:
@@ -54,9 +59,11 @@ jobs:
         run: pnpm lint
 
   # Same shape as ci.yml's shards: parallel with the build job, each
-  # installing and building its own assets.
+  # installing and building its own assets. The timeout is 20 minutes,
+  # not ci.yml's 10 — see the header note — because the observed Windows
+  # shard wall times (8–12m) straddle the Ubuntu budget.
   test:
-    timeout-minutes: 10
+    timeout-minutes: 20
     runs-on: windows-latest
     strategy:
       fail-fast: false

@@ -46,7 +46,7 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     // The busy-composer test submits a run, and the agent spawns with this
     // workingDir as its cwd.
     mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

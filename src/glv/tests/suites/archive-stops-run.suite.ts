@@ -21,7 +21,7 @@ const runArchiveStopsRunSuite = (fx: FlavorFixture): void => {
       sleepMs: 120000,
       sessionName: "Archive Stop",
     });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

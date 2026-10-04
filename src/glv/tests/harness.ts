@@ -204,7 +204,13 @@ const flagValue = (
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-const waitForHttp = async (url: string, timeoutMs = 60000): Promise<void> => {
+// The deadline covers a cold serve boot on the slowest CI host, not a
+// healthy one — a loaded Windows shard has pushed a boot past 60s
+// (serve alive, silent, still not listening) and failed an otherwise
+// green suite. Process spawns and first compiles cost several times
+// their POSIX price there; healthy boots still answer in seconds, so
+// the higher ceiling only ever binds on the slow tail.
+const waitForHttp = async (url: string, timeoutMs = 120000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
   while (Date.now() < deadline)

@@ -36,7 +36,7 @@ const runDirSpellingSuite = (fx: FlavorFixture): void => {
     );
     workDir = join(env.scratchDir, "project");
     mkdirSync(workDir, { recursive: true });
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

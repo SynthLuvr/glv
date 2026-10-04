@@ -6,6 +6,11 @@
  *
  *   pnpm lint:cross-tree -> tsx scripts/cross-tree-duplicates.mts
  *
+ * jscpd is spawned through its installed bin entry rather than
+ * `pnpm exec`: the `.cmd` shim pnpm puts on PATH cannot be executed by
+ * spawnSync on Windows (ENOENT), while the entry point runs under the
+ * current node on every platform.
+ *
  * The jscpd step inside `ts-canon lint` only fails when the aggregate
  * duplication rate crosses its 5% threshold, so the two product trees
  * could drift into near-identical copies without tripping it. This
@@ -15,11 +20,17 @@
  * deliberate rather than inherited. Byte-identical copies of ANY size
  * are still caught by lint:mirrored.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type } from "arktype";
-import { runPnpm } from "./run-pnpm.mts";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const TREES = new Set(["goose", "claude", "glv"]);
 // typescript + tsx mirror the ts-canon jscpd step's scope plus the .tsx
@@ -52,10 +63,27 @@ const treeOf = (path: string): string | undefined => {
   return TREES.has(head) ? head : undefined;
 };
 
+// Resolves the installed jscpd package's real JavaScript entry point —
+// the `jscpd` bin read from its manifest, joined onto the package
+// directory. Spawning it under the current node keeps the call free of
+// both a PATH lookup and the `.cmd` shim pnpm writes on Windows, neither
+// of which spawnSync can execute there; it is the same discipline
+// ts-canon's own runner applies to every tool it spawns.
+const resolveJscpdEntry = (): string => {
+  const pkgDir = join(ROOT, "node_modules", "jscpd");
+  const manifest: unknown = JSON.parse(
+    readFileSync(join(pkgDir, "package.json"), "utf8"),
+  );
+  const bin = isPlainObject(manifest) ? manifest.bin : undefined;
+  const entry =
+    typeof bin === "string" ? bin : isPlainObject(bin) ? bin.jscpd : undefined;
+  if (typeof entry !== "string")
+    throw new Error('the jscpd package has no "jscpd" bin entry');
+  return join(pkgDir, entry);
+};
+
 const runJscpd = (outDir: string): Report => {
   const args = [
-    "exec",
-    "jscpd",
     "src",
     "--format",
     FORMATS,
@@ -79,7 +107,10 @@ const runJscpd = (outDir: string): Report => {
     "--output",
     outDir,
   ];
-  const result = runPnpm(args);
+  const result = spawnSync(process.execPath, [resolveJscpdEntry(), ...args], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
   if (result.error) throw result.error;
   const reportPath = join(outDir, "jscpd-report.json");
   if (!existsSync(reportPath))

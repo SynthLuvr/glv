@@ -33,7 +33,7 @@ const runCopyWorkingDirSuite = (fx: FlavorFixture): void => {
         workingDir: fullWorkingDir(),
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

@@ -40,7 +40,7 @@ describe("synthetic assistant turns", () => {
         model: "<synthetic>",
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

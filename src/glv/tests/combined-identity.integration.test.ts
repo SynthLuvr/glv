@@ -41,7 +41,7 @@ beforeAll(async () => {
     { captureArgs: argsPath },
     home,
   );
-}, 90000);
+}, 180000);
 
 afterAll(async () => {
   await env?.cleanup();

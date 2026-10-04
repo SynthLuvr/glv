@@ -23,7 +23,7 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
     fx.seedMessages(env, "mp-b", [
       { role: "user", content: [{ type: "text", text: "seed b" }] },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();

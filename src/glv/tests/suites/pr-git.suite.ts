@@ -32,7 +32,7 @@ const runPrGitSuite = (fx: FlavorFixture): void => {
         content: [fx.toolResponse(PR_URL, false)],
       },
     ]);
-  }, 90000);
+  }, 180000);
 
   afterAll(async () => {
     await env?.cleanup();
