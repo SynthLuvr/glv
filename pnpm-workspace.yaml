@@ -16,8 +16,6 @@ minimumReleaseAgeExclude:
   - jscpd-windows-x64-msvc@5.2.0
   - jscpd@5.2.0
   - tsx@4.23.15
-# scriptShell is intentionally unset — pnpm's per-platform default
-# (cmd.exe on Windows, /bin/sh on POSIX) runs every script in
-# package.json. Forcing bash made Windows installs resolve the first
-# bash.exe on PATH, which is often WSL's launcher: it has no node, so
-# every lifecycle script (e.g. @ast-grep/cli's postinstall) exited 127.
+# Keep scriptShell unset — forcing bash made Windows pick WSL's
+# bash.exe (which has no node), so lifecycle scripts died with exit
+# 127; pnpm's per-platform default handles every script fine.
