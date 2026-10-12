@@ -135,6 +135,16 @@ const createCompositeSessionStore = (
         entry.store.deleteSessions(native);
     },
 
+    forkSession: (id, cutoff) => {
+      const target = route(id);
+      if (target === undefined)
+        return { ok: false, status: 404, error: `No session ${id}.` };
+      const result = target.entry.store.forkSession(target.nativeId, cutoff);
+      return result.ok
+        ? { ok: true, row: prefixedRow(target.entry.agent, result.row) }
+        : result;
+    },
+
     firstPromptSessionName: (ids) => {
       for (const [entry, native] of byAgent(ids)) {
         const name = entry.store.firstPromptSessionName(native);

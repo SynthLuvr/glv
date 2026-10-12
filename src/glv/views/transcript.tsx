@@ -7,6 +7,7 @@ import {
   shortenHome,
   toolRunText,
   truncateMiddle,
+  unsafeForkCutoffs,
 } from "../../glv/format/index.js";
 import { detectPrUrl } from "../../glv/pr.js";
 import type { RunHandle } from "../../glv/runner/index.js";
@@ -124,6 +125,16 @@ const SessionActionMenu = ({ session }: { session: SessionRow }) => (
       id={`session-menu-${session.id}`}
       aria-label="Session actions"
     >
+      <button
+        type="button"
+        role="menuitem"
+        class="session-menu-item session-menu-fork"
+        hx-post={`/sessions/${session.id}/fork`}
+        hx-target="#detail-pane"
+        hx-swap="innerHTML"
+      >
+        Fork session
+      </button>
       <button
         type="button"
         role="menuitem"
@@ -257,6 +268,7 @@ const PromptBar = ({
   run,
   uploadError,
   pendingTool: tool,
+  focusPrompt,
 }: {
   agentName: string;
   sessionId: string;
@@ -264,6 +276,9 @@ const PromptBar = ({
   uploadError?: string;
   /** In-flight tool call derived from the persisted request row, if any. */
   pendingTool?: ToolRun;
+  /** Focus the textarea when the bar lands via an htmx swap (a fresh
+   * fork waits on its first prompt). */
+  focusPrompt?: boolean;
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
@@ -311,6 +326,7 @@ const PromptBar = ({
           class="prompt-input"
           rows={2}
           aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
+          autofocus={focusPrompt === true ? true : undefined}
         />
         <PaperclipButton compact />
         <LocationButton compact />
@@ -347,6 +363,7 @@ const Transcript = ({
   prompt,
   uploadError,
   cronJob,
+  focusPrompt,
 }: {
   agentName: string;
   session: SessionRow;
@@ -356,12 +373,17 @@ const Transcript = ({
   uploadError?: string;
   /** Name of the scheduled job that started this session, if any. */
   cronJob?: string;
+  /** Focus the prompt bar when this transcript renders (a fresh fork). */
+  focusPrompt?: boolean;
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
     .filter((entry) => hasContent(entry.message));
   const isEmpty = visible.length === 0 && prompt === undefined;
   const prUrl = detectPrUrl(messages);
+  // Cutoffs that would strand a tool call without its result — the
+  // per-message fork buttons render disabled at exactly these indexes.
+  const unsafeCutoffs = unsafeForkCutoffs(messages);
   // Only meaningful while the run is live: an unanswered request row in an
   // idle session is stale history, not something the bar should name.
   const tool = run?.status === "running" ? pendingTool(messages) : undefined;
@@ -377,7 +399,12 @@ const Transcript = ({
         is a sibling the client clears once content arrives. */}
       <div id="messages">
         {visible.map((entry) => (
-          <MessageView message={entry.message} index={entry.index} />
+          <MessageView
+            message={entry.message}
+            index={entry.index}
+            sessionId={session.id}
+            forkUnsafe={unsafeCutoffs.has(entry.index)}
+          />
         ))}
       </div>
       {isEmpty && (
@@ -409,6 +436,7 @@ const Transcript = ({
         run={run}
         uploadError={uploadError}
         pendingTool={tool}
+        focusPrompt={focusPrompt}
       />
     </div>
   );

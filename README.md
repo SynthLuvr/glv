@@ -63,8 +63,10 @@ the browser.
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
   Each job can pin the model its runs use (goose or a claude alias).
-- **Session management.** Rename sessions, and archive them one at a
-  time or in bulk.
+- **Session management.** Rename sessions, fork a session — the whole
+  transcript or from any message boundary — to explore a branch without
+  touching the original (forks are ordinary sessions: rename, archive,
+  delete, fork again), and archive one at a time or in bulk.
 - **Dark and light themes.**
 - **Passkey login.** The whole app is gated behind WebAuthn passkey
   authentication — no emails, no passwords.
@@ -394,9 +396,9 @@ indistinguishable from you) — mint a token instead.
 The listing paginates: `?limit=` (1–500, default 100) and `?offset=`
 window the newest-first order.
 
-The three non-destructive mutations the browser can perform are JSON
-endpoints too, with identical semantics (both surfaces delegate to one
-shared operation layer). **`POST` accepts the bearer only** — a
+The non-destructive mutations the browser can perform are JSON endpoints
+too, with identical semantics (both surfaces delegate to one shared
+operation layer). **`POST` accepts the bearer only** — a
 cookie-authenticated write is rejected with `401`, which is what makes
 these endpoints safe behind an app that ships no CSRF protection:
 
@@ -405,6 +407,7 @@ these endpoints safe behind an app that ships no CSRF protection:
 | `POST /api/sessions` | start a run (multipart form) |
 | `POST /api/sessions/:id/prompt` | queue a follow-up prompt |
 | `POST /api/sessions/:id/stop` | stop the run (idempotent: `200` either way) |
+| `POST /api/sessions/:id/fork` | copy the session under a fresh id |
 
 Start a session in a working directory — or send `session_mode=temp`
 instead of `working_dir` for a scratch directory glv owns and sweeps on
@@ -444,6 +447,25 @@ curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/prompt \
 curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/stop \
   -H "Authorization: Bearer glv_at_…"
 ```
+
+Fork a session — the whole transcript, or only the messages up to a
+boundary — and optionally give the copy a first prompt in the same
+request (it runs through the follow-up path, so the fork resumes as an
+ordinary session):
+
+``` bash
+curl -sS -X POST http://localhost:3457/api/sessions/goose:abc123/fork \
+  -H "Authorization: Bearer glv_at_…" \
+  -F cutoff=1 \
+  -F prompt="try a different approach from here"
+```
+
+The answer is `201` with the new session’s id and `{"status":"created"}`
+(no prompt) or `{"status":"started"|"queued"}` (prompt riding the
+follow-up path). `cutoff` is the index of the last message to keep, in
+transcript order — the same boundary the per-message fork button posts.
+A cutoff that would strand a tool call without its result is rejected
+with `422`; the source is never modified in any case.
 
 Optional `POST /api/sessions` fields: `model` (`agent:provider:model`,
 omitted or empty for the agent’s default), `location` (the JSON

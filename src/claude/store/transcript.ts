@@ -6,9 +6,10 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { mayFail } from "ts-handling";
 import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
 
@@ -308,6 +309,78 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
+// Copies a transcript under a new session id, keeping the line prefix up
+// to the cutoff message — `cutoff` is the index, in the same order
+// parseTranscriptText yields messages, of the last message to keep; null
+// keeps every line. Every kept line's sessionId is rewritten to the fork
+// id (uuid/parentUuid chains stay intact — a prefix cut never breaks a
+// backwards-pointing chain), unparseable lines are kept verbatim, and the
+// new file lands beside the source in the same project directory so a
+// resumed fork resolves the same working dir. The source file is never
+// written. Verified against claude 2.1.289: `claude --resume <id>` loads
+// a hand-forged transcript exactly like this one.
+type ForkTranscriptResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly reason: "missing" | "range" };
+
+// A line becomes a transcript message on exactly the conditions
+// appendMessage applies: a main-chain (non-sidechain) user or assistant
+// record.
+const isMessageLine = (parsed: Record<string, unknown>): boolean =>
+  (parsed.type === "user" || parsed.type === "assistant") &&
+  parsed.isSidechain !== true;
+
+const forkTranscript = (
+  root: string,
+  sourceId: string,
+  forkId: string,
+  cutoff: number | null,
+): ForkTranscriptResult => {
+  const sourcePath = findTranscript(root, sourceId);
+  if (sourcePath === undefined) return { ok: false, reason: "missing" };
+  // The BOM strip mirrors parseTranscriptText so the first line cuts and
+  // rewrites the same way it parses.
+  const lines = readTranscriptText(sourcePath)
+    .replace(/^\uFEFF/, "")
+    .split("\n");
+
+  // Count message lines exactly the way appendMessage does, remembering
+  // where the cutoff message's line ends.
+  let kept = lines.length;
+  if (cutoff !== null) {
+    let messageIndex = 0;
+    kept = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const parsed = parseLine(lines[i]);
+      if (parsed !== undefined && isMessageLine(parsed)) {
+        if (messageIndex === cutoff) {
+          kept = i + 1;
+          break;
+        }
+        messageIndex++;
+      }
+    }
+    if (kept === -1) return { ok: false, reason: "range" };
+  }
+
+  const rewritten = lines.slice(0, kept).map((line) => {
+    const parsed = parseLine(line);
+    if (parsed === undefined) return line;
+    parsed.sessionId = forkId;
+    return JSON.stringify(parsed);
+  });
+  // A final newline leaves one trailing empty element behind; the fork
+  // ends with exactly one terminator.
+  while (rewritten.length > 0 && rewritten[rewritten.length - 1] === "")
+    rewritten.pop();
+  const path = join(dirname(sourcePath), `${forkId}${SESSION_EXT}`);
+  writeFileSync(
+    path,
+    rewritten.length === 0 ? "" : `${rewritten.join("\n")}\n`,
+  );
+  return { ok: true, path };
+};
+
 // Best-effort shred before permanent removal: zero the bytes in place
 // (unlinking alone only forgets content), evict the cached parse, then
 // remove the file. No userspace writer can defeat SSD wear-leveling or
@@ -351,6 +424,7 @@ export type { SessionFile, Transcript };
 export {
   deleteTranscript,
   findTranscript,
+  forkTranscript,
   listSessionFiles,
   parseTranscriptFile,
   readTranscriptText,

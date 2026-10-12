@@ -79,6 +79,24 @@ const registerApiRoutes = (
     },
   );
 
+  // Fork: the copy runs through the same operation layer the browser's
+  // action menu uses, so both surfaces fork identically. 201 names the
+  // new session; status "created" when no prompt rode along, else where
+  // the prompt sits ("started" | "queued").
+  app.post<{ Params: { id: string } }>(
+    "/api/sessions/:id/fork",
+    async (request, reply) => {
+      const body = await parseForm(request);
+      const result = await ops.forkSession(request.params.id, body);
+      if (!result.ok)
+        return reply.status(result.status).send({ error: result.error });
+      reply.header("Location", `/api/sessions/${result.sessionId}`);
+      return reply
+        .status(201)
+        .send({ id: result.sessionId, status: result.runStatus });
+    },
+  );
+
   // Scheduled runs: the same operation layer the browser's Scheduled
   // runs section delegates to, so a script schedules exactly what the
   // form would save.

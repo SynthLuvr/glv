@@ -475,6 +475,13 @@ type FlavorFixture = {
   readonly deleteSession: (env: IntegrationEnv, id: string) => void;
   /** Throws while any flavor-owned record of the session still exists. */
   readonly assertSessionGone: (env: IntegrationEnv, id: string) => void;
+  /**
+   * Deterministic serialization of the flavor-owned storage for one
+   * session (goose: its rows; claude: the transcript's bytes) — suites
+   * compare snapshots before/after a mutation to prove the source was
+   * left untouched.
+   */
+  readonly snapshotStore: (env: IntegrationEnv, id: string) => string;
   /** The flag that injects the built-in system prompt on every run. */
   readonly systemFlag: string;
   /** The flag that marks a follow-up (resume) invocation. */

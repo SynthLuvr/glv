@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { type } from "arktype";
@@ -5,11 +6,13 @@ import { resolveDataPath } from "../glv/db-path.js";
 import { isRecord, JsonObject, parseJson } from "../glv/parse.js";
 import { placeholders, validate, validateAll } from "../glv/query.js";
 import type {
+  ForkResult,
   MessageRow,
   SessionFilter,
   SessionRow,
   SessionStore,
 } from "../glv/sessions.js";
+import { forkSessionName } from "../glv/sessions.js";
 
 const sessionShape = {
   id: "string",
@@ -255,6 +258,172 @@ const prCandidateIds = (db: DatabaseSync, ids: string[]): Set<string> => {
   return new Set(rows.map((row) => row.session_id));
 };
 
+// goose owns this schema and drifts it over releases (schema_version 17
+// today), so a fork copies whatever columns exist rather than a hardcoded
+// list: the session row's shape is discovered from PRAGMA table_info at
+// runtime. Column names are validated as plain identifiers before they
+// reach SQL — the database is agent-owned, not glv's.
+const PragmaColumn = type({ name: "string" });
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const tableColumns = (db: DatabaseSync, table: string): string[] =>
+  validateAll(PragmaColumn, db.prepare(`PRAGMA table_info(${table})`).all())
+    .map((row) => row.name)
+    .filter((name) => IDENTIFIER.test(name));
+
+// Columns a fork rewrites rather than copies: the fresh id, the fork name
+// (user-set), a now updated_at, and a visible (unarchived) row. The order
+// pairs with the selectRefs below.
+const SESSION_FORK_OVERWRITE_ORDER: readonly string[] = [
+  "id",
+  "name",
+  "user_set_name",
+  "updated_at",
+  "archived_at",
+];
+const SESSION_FORK_OVERWRITE: ReadonlySet<string> = new Set(
+  SESSION_FORK_OVERWRITE_ORDER,
+);
+
+// The (created_timestamp, id) pair of the message at `cutoff` — the index
+// into the exact order listMessages reads (created_timestamp ASC, id ASC).
+// `undefined` when the index is past the transcript's end.
+const CutoffRow = type({
+  id: "number",
+  created_timestamp: "number",
+});
+
+const cutoffBoundary = (
+  db: DatabaseSync,
+  sessionId: string,
+  cutoff: number,
+): { readonly id: number; readonly createdTimestamp: number } | undefined => {
+  const row = validate(
+    CutoffRow,
+    db
+      .prepare(
+        "SELECT id, created_timestamp FROM messages WHERE session_id = ? " +
+          "ORDER BY created_timestamp ASC, id ASC LIMIT 1 OFFSET ?",
+      )
+      .get(sessionId, cutoff),
+  );
+  return row === undefined
+    ? undefined
+    : { id: row.id, createdTimestamp: row.created_timestamp };
+};
+
+// Copies a session under a fresh id in one transaction: the session row and
+// the messages up to the cutoff, by the same (created_timestamp, id) order
+// the transcript reads. The usage_ledger table stays untouched (matching
+// goose's own fork — a fork's stats start clean), and parent provenance
+// lands in parent_session_id when the goose schema has the column (17
+// does). The source is only ever read.
+const forkSession = (
+  dbWritable: DatabaseSync,
+  sourceId: string,
+  cutoff: number | null,
+): ForkResult => {
+  const fail = (status: number, error: string): ForkResult => ({
+    ok: false,
+    status,
+    error,
+  });
+
+  const name = validate(
+    type({ name: "string" }),
+    getRow(dbWritable, "SELECT name FROM sessions WHERE id = ?", sourceId),
+  )?.name;
+  if (name === undefined) return fail(404, `No session ${sourceId}.`);
+
+  const forkId = randomUUID();
+
+  const sessionCols = tableColumns(dbWritable, "sessions");
+  if (sessionCols.length === 0) return fail(404, `No session ${sourceId}.`);
+  const hasParentColumn = sessionCols.includes("parent_session_id");
+  const copyCols = sessionCols.filter(
+    (col) => !SESSION_FORK_OVERWRITE.has(col) && col !== "parent_session_id",
+  );
+  const insertCols = [
+    ...SESSION_FORK_OVERWRITE_ORDER,
+    ...(hasParentColumn ? ["parent_session_id"] : []),
+    ...copyCols,
+  ];
+  const selectRefs = [
+    "?",
+    "?",
+    "1",
+    "datetime('now')",
+    "NULL",
+    ...(hasParentColumn ? ["?"] : []),
+    ...copyCols,
+  ];
+
+  const boundary =
+    cutoff === null ? undefined : cutoffBoundary(dbWritable, sourceId, cutoff);
+  if (cutoff !== null && boundary === undefined)
+    return fail(
+      422,
+      `Cutoff ${cutoff} is past the end of the session's transcript.`,
+    );
+
+  const messageCols = tableColumns(dbWritable, "messages");
+  // The copy rebinds session_id to the fork and lets the rowid
+  // (messages.id) auto-assign — explicit rowids would collide with the
+  // source's.
+  const messageInsertCols = messageCols.filter((col) => col !== "id");
+  const messageSelectRefs = messageInsertCols.map((col) =>
+    col === "session_id" ? "?" : col,
+  );
+
+  dbWritable.exec("BEGIN IMMEDIATE");
+  try {
+    const inserted = dbWritable
+      .prepare(
+        `INSERT INTO sessions (${insertCols.join(", ")}) ` +
+          `SELECT ${selectRefs.join(", ")} FROM sessions WHERE id = ?`,
+      )
+      .run(
+        forkId,
+        forkSessionName(name),
+        ...(hasParentColumn ? [sourceId] : []),
+        sourceId,
+      );
+    if (inserted.changes !== 1) {
+      dbWritable.exec("ROLLBACK");
+      return fail(404, `No session ${sourceId}.`);
+    }
+    if (messageInsertCols.length > 0) {
+      const where =
+        boundary === undefined
+          ? "session_id = ?"
+          : "session_id = ? AND (created_timestamp, id) <= (?, ?)";
+      dbWritable
+        .prepare(
+          `INSERT INTO messages (${messageInsertCols.join(", ")}) ` +
+            `SELECT ${messageSelectRefs.join(", ")} FROM messages ` +
+            `WHERE ${where} ORDER BY created_timestamp ASC, id ASC`,
+        )
+        .run(
+          forkId,
+          sourceId,
+          ...(boundary === undefined
+            ? []
+            : [boundary.createdTimestamp, boundary.id]),
+        );
+    }
+    dbWritable.exec("COMMIT");
+  } catch (err) {
+    dbWritable.exec("ROLLBACK");
+    const detail = err instanceof Error ? err.message : String(err);
+    return fail(500, `Could not copy the session: ${detail}`);
+  }
+
+  const row = getSession(dbWritable, forkId);
+  return row === undefined
+    ? fail(500, "The forked session could not be read back.")
+    : { ok: true, row };
+};
+
 // Used to name a freshly created group after its founding session — the one
 // whose first user prompt came earliest. `undefined` when none of the
 // sessions have a user message yet.
@@ -292,6 +461,7 @@ const createSessionStore = (
   archiveSessions: (ids) => archiveSessions(dbWritable, ids),
   renameSession: (id, rawName) => renameSession(dbWritable, id, rawName),
   deleteSessions: (ids) => deleteSessions(dbWritable, ids),
+  forkSession: (id, cutoff) => forkSession(dbWritable, id, cutoff),
   firstPromptSessionName: (ids) => firstPromptSessionName(db, ids),
   prCandidateIds: (ids) => prCandidateIds(db, ids),
 });

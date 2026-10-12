@@ -78,11 +78,13 @@ const registerSessionRoutes = (
       refreshSidebar = false,
       includeRun = true,
       uploadError,
+      focusPrompt = false,
     }: {
       prompt?: string;
       refreshSidebar?: boolean;
       includeRun?: boolean;
       uploadError?: string;
+      focusPrompt?: boolean;
     } = {},
   ): FastifyReply => {
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
@@ -103,6 +105,7 @@ const registerSessionRoutes = (
         prompt={prompt}
         uploadError={uploadError}
         cronJob={cronJob}
+        focusPrompt={focusPrompt}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -313,6 +316,37 @@ const registerSessionRoutes = (
 
       return renderSession(request, reply, id, result.session, {
         prompt: result.activePrompt,
+      });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/fork",
+    async (request, reply) => {
+      const id = request.params.id;
+      const body = await parseForm(request);
+      const result = await ops.forkSession(id, body);
+      if (!result.ok) {
+        if (result.status === 404)
+          return renderNotFound(request, reply, ctx, id);
+        // A rejected cutoff re-renders the source with the reason in the
+        // prompt bar's error hint, so the user can pick another point.
+        const session = ctx.sessions.getSession(id);
+        if (session === undefined)
+          return renderNotFound(request, reply, ctx, id);
+        return renderSession(request, reply, id, session, {
+          uploadError: result.error,
+        });
+      }
+      // The fork's transcript swaps into the detail pane; push its URL so
+      // the address bar (and a refresh) land on the fork, and refresh the
+      // sidebar so the copy appears at the top. The bar focuses so the
+      // next prompt is one keystroke away.
+      reply.header("HX-Push-Url", `/sessions/${result.sessionId}`);
+      return renderSession(request, reply, result.sessionId, result.session, {
+        prompt: result.activePrompt,
+        refreshSidebar: true,
+        focusPrompt: true,
       });
     },
   );

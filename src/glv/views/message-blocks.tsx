@@ -182,12 +182,66 @@ const itemBlock = (item: ContentItem, kind: MessageKind): Child | null => {
   }
 };
 
+const ForkHereButton = ({
+  sessionId,
+  index,
+  disabled,
+}: {
+  sessionId: string;
+  index: number;
+  disabled: boolean;
+}) => (
+  <button
+    type="button"
+    class="fork-here-btn"
+    hx-post={`/sessions/${sessionId}/fork`}
+    hx-vals={`{"cutoff":${index}}`}
+    hx-target="#detail-pane"
+    hx-swap="innerHTML"
+    disabled={disabled ? true : undefined}
+    title={
+      disabled
+        ? "Cannot fork here — the tool call above needs its result"
+        : "Fork the session from this message"
+    }
+    aria-label={
+      disabled ? "Cannot fork from this message" : "Fork from this message"
+    }
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="6" cy="5" r="2.6" />
+      <circle cx="18" cy="5" r="2.6" />
+      <circle cx="12" cy="19" r="2.6" />
+      <path d="M6 7.6v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-1" />
+      <path d="M12 12.6v4" />
+    </svg>
+  </button>
+);
+
 const MessageView = ({
   message,
   index,
+  sessionId,
+  forkUnsafe,
 }: {
   message: ParsedMessage;
   index: number;
+  /** The session this transcript belongs to; present only on the
+   * server-rendered detail pane — live-tailed rows render no fork button
+   * (the transcript is mid-run and shifting). */
+  sessionId?: string;
+  /** A cutoff at this message would strand a tool call (see
+   * unsafeForkCutoffs) — the button renders disabled. */
+  forkUnsafe?: boolean;
 }) => {
   const kind = messageKind(message.role, message.items);
   const blocks = message.items
@@ -201,6 +255,13 @@ const MessageView = ({
         <time datetime={toIso(message.timestamp)} title={message.timestamp}>
           {fmtRelative(message.timestamp)}
         </time>
+        {sessionId !== undefined && (
+          <ForkHereButton
+            sessionId={sessionId}
+            index={index}
+            disabled={forkUnsafe === true}
+          />
+        )}
       </div>
       <div class="message-body">{blocks}</div>
     </article>

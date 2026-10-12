@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   provider_name TEXT,
   model_config_json TEXT,
   user_set_name BOOLEAN DEFAULT FALSE,
-  archived_at TIMESTAMP
+  archived_at TIMESTAMP,
+  parent_session_id TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,6 +217,23 @@ const gooseFixture: harness.FlavorFixture = {
   },
   readSessionField: (env, field, id) =>
     harness.readStoreField(env.dbs.flavor.sessionsDb, "sessions", field, id),
+  snapshotStore: (env, id) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
+      readOnly: true,
+    });
+    try {
+      const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+      const messages = db
+        .prepare(
+          "SELECT * FROM messages WHERE session_id = ? " +
+            "ORDER BY created_timestamp, id",
+        )
+        .all(id);
+      return JSON.stringify({ session, messages });
+    } finally {
+      db.close();
+    }
+  },
   systemFlag: "--system",
   resumeFlag: "--session-id",
   binaryFlag: "--goose-binary",
