@@ -7,6 +7,7 @@ import { buildEntries } from "../groups/model.js";
 import { encodeAgentModelValue, modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
 import type { SessionRow } from "../sessions.js";
+import { suggestionsEnabled } from "../suggestions/db.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
 import {
@@ -88,6 +89,7 @@ const Shell = ({
   children,
   title,
   agentName,
+  suggestionsOn,
 }: PropsWithChildren<{
   sessions: SessionRow[];
   entries: ListEntry[];
@@ -96,6 +98,8 @@ const Shell = ({
   authed?: boolean;
   title: string;
   agentName: string;
+  /** Suggestions setting state; undefined hides the sidebar toggle. */
+  suggestionsOn?: boolean;
 }>) => (
   <Layout title={title} agentName={agentName}>
     <div
@@ -109,6 +113,7 @@ const Shell = ({
         selectedId={selectedId}
         runningIds={runningIds}
         authed={authed}
+        suggestionsOn={suggestionsOn}
       />
       <main class="detail" id="detail-pane">
         {children}
@@ -167,6 +172,11 @@ const render = (
       runningIds={runningIds}
       authed={authed}
       title={title}
+      suggestionsOn={
+        ctx.suggestions === undefined
+          ? undefined
+          : suggestionsEnabled(ctx.suggestions)
+      }
     >
       {detail}
     </Shell>,

@@ -285,6 +285,17 @@ type MockConfig = {
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
   /**
+   * Output lines for an ephemeral (suggestions) invocation — the
+   * behind-the-scenes ask the suggestion watcher runs. Unset means the
+   * ephemeral invocation answers with the default reply line.
+   */
+  ephemeralLines?: string[];
+  /**
+   * Log file the mock agent appends one JSON line to per ephemeral
+   * invocation (its argv), so suites can count asks and assert flags.
+   */
+  ephemeralLog?: string;
+  /**
    * Replaces the mock agent script with a scripted type-a-bin behaviour,
    * for suites that need the agent as a process (silent, long-lived,
    * signal-trapping, spawning a descendant) rather than as a store writer.
@@ -298,6 +309,7 @@ type Databases = {
   readonly promptsDb: string;
   readonly groupsDb: string;
   readonly cronDb: string;
+  readonly suggestionsDb: string;
   readonly token: string;
   /**
    * Flavor-specific store paths (goose: sessionsDb; claude: projectsDir,
@@ -353,6 +365,7 @@ const baseDatabases = (
     promptsDb: join(scratchDir, "prompts.db"),
     groupsDb: join(scratchDir, "groups.db"),
     cronDb: join(scratchDir, "cron.db"),
+    suggestionsDb: join(scratchDir, "suggestions.db"),
     token: seedAuthDb(authDb),
     flavor,
   };
@@ -368,6 +381,8 @@ const dbOverrideArgs = (dbs: Databases): string[] => [
   dbs.groupsDb,
   "--cron-db",
   dbs.cronDb,
+  "--suggestions-db",
+  dbs.suggestionsDb,
 ];
 
 type SseEvent = { event: string; data: string; id: string | undefined };
@@ -499,6 +514,12 @@ type FlavorFixture = {
   readonly defaultServeArgs: (homeDir: string) => string[];
   /** glv-owned files expected to exist under the default data dir. */
   readonly defaultDbFiles: readonly string[];
+  /**
+   * Records of behind-the-scenes helper runs left in the flavor's own
+   * store, for the suggestions suite's no-trace assertion. Undefined
+   * when the flavor's helper runs are trace-free by construction.
+   */
+  readonly ephemeralTraceCount?: (env: IntegrationEnv) => number;
   /** Flavor-specific extra assertions on a new run's captured argv. */
   readonly assertNewRunArgs?: (args: string[]) => void;
   /** Flavor-specific extra assertions on a resume run's captured argv. */
@@ -549,6 +570,9 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_CAPTURE_ENV`]: mock.captureEnv ?? "",
   [`${prefix}_MOCK_NEVER_CREATE_SESSION`]:
     mock.neverCreateSession === true ? "1" : "",
+  [`${prefix}_MOCK_EPHEMERAL_LINES`]:
+    mock.ephemeralLines === undefined ? "" : mock.ephemeralLines.join("\n"),
+  [`${prefix}_MOCK_EPHEMERAL_LOG`]: mock.ephemeralLog ?? "",
   ...(mock.acpProviders !== undefined
     ? { [`${prefix}_MOCK_ACP_PROVIDERS`]: mock.acpProviders }
     : {}),
@@ -883,6 +907,7 @@ const startEnv = async (
     ...adapter.serverEnv(dbs),
     GLV_UPLOADS_DIR: uploadsDir,
     GLV_TEMP_DIR: tempDir,
+    GLV_SUGGESTIONS_DIR: join(scratchDir, "suggestions-scratch"),
     ...(homeDir !== undefined ? fakeHomeEnv(homeDir) : {}),
     ...Object.fromEntries(
       (adapter.mockEnvPrefixes ?? [adapter.mockEnvPrefix]).flatMap((prefix) =>

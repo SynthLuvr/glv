@@ -234,6 +234,34 @@ const gooseFixture: harness.FlavorFixture = {
       db.close();
     }
   },
+  // goose's --no-session helper runs leave a hidden session row (and
+  // message rows); the product's cleanup sweep must leave none behind.
+  ephemeralTraceCount: (env) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
+      readOnly: true,
+    });
+    try {
+      const sessions = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sessions WHERE session_type = 'hidden'",
+        )
+        .get();
+      const messages = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM messages WHERE session_id IN " +
+            "(SELECT id FROM sessions WHERE session_type = 'hidden')",
+        )
+        .get();
+      const count = (row: unknown): number => {
+        if (typeof row !== "object" || row === null) return 0;
+        const value = (row as Record<string, unknown>).n;
+        return typeof value === "number" ? value : 0;
+      };
+      return count(sessions) + count(messages);
+    } finally {
+      db.close();
+    }
+  },
   systemFlag: "--system",
   resumeFlag: "--session-id",
   binaryFlag: "--goose-binary",
@@ -249,7 +277,13 @@ const gooseFixture: harness.FlavorFixture = {
     sdb.close();
     return ["--goose-db", sessionsDb, "--goose-binary", "goose"];
   },
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db"],
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "suggestions.db",
+  ],
 };
 
 export {

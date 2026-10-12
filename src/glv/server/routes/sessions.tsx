@@ -5,6 +5,8 @@ import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { removeMember } from "../../groups/db.js";
 import { clearPending, getHandle, stop } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
+import { forgetSession } from "../../suggestions/db.js";
+import { currentSuggestions } from "../../suggestions/view.js";
 import { ModelSelect } from "../../views/new-session.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
@@ -106,6 +108,11 @@ const registerSessionRoutes = (
         uploadError={uploadError}
         cronJob={cronJob}
         focusPrompt={focusPrompt}
+        suggestions={currentSuggestions(
+          ctx.suggestions,
+          session,
+          messages.length,
+        )}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -229,9 +236,10 @@ const registerSessionRoutes = (
       const session = ctx.sessions.getSession(id);
       if (session === undefined) return renderNotFound(request, reply, ctx, id);
       const run = getHandle(ctx.runner, id);
+      const messages = ctx.sessions.listMessages(id);
       const tool =
         run?.status === "running"
-          ? pendingTool(ctx.sessions.listMessages(id).map(parseMessage))
+          ? pendingTool(messages.map(parseMessage))
           : undefined;
       return sendHtml(
         reply,
@@ -240,6 +248,11 @@ const registerSessionRoutes = (
           sessionId={id}
           run={run}
           pendingTool={tool}
+          suggestions={currentSuggestions(
+            ctx.suggestions,
+            session,
+            messages.length,
+          )}
         />,
       );
     },
@@ -273,6 +286,7 @@ const registerSessionRoutes = (
       ctx.sessions.deleteSessions([id]);
       if (ctx.groups !== undefined) removeMember(ctx.groups, id);
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
+      if (ctx.suggestions !== undefined) forgetSession(ctx.suggestions, id);
       deleteUploads(ctx.dataDirName, id);
       deleteTempDir(ctx.dataDirName, id);
       return newSessionLanding(request, reply);

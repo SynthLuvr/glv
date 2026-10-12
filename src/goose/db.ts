@@ -230,6 +230,31 @@ const deleteSessions = (db: DatabaseSync, ids: string[]): void => {
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 };
 
+// Deletes every session row (and message row) recorded against a working
+// directory — the no-trace sweep for behind-the-scenes helper runs
+// (`goose run --no-session` still writes a hidden session row, verified
+// against goose 1.45+: sidebar-invisible, but a row nonetheless). The
+// directory is glv-owned scratch space, so no user session can ever
+// match. usage_ledger is swept best-effort: the table postdates some
+// schemas and is absent from the test fixture.
+const deleteSessionsInDir = (db: DatabaseSync, workingDir: string): void => {
+  db.exec("PRAGMA secure_delete = ON");
+  try {
+    db.prepare(
+      "DELETE FROM usage_ledger WHERE session_id IN " +
+        "(SELECT id FROM sessions WHERE working_dir = ?)",
+    ).run(workingDir);
+  } catch (err) {
+    if (!isMissingTable(err)) throw err;
+  }
+  db.prepare(
+    "DELETE FROM messages WHERE session_id IN " +
+      "(SELECT id FROM sessions WHERE working_dir = ?)",
+  ).run(workingDir);
+  db.prepare("DELETE FROM sessions WHERE working_dir = ?").run(workingDir);
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+};
+
 // A blank name clears the user-set flag.
 const renameSession = (db: DatabaseSync, id: string, rawName: string): void => {
   const name = rawName.trim();
@@ -471,6 +496,7 @@ const createSessionStore = (
 
 export {
   createSessionStore,
+  deleteSessionsInDir,
   getSession,
   openDb,
   openServeDbs,

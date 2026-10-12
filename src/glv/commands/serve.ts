@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import type { Socket } from "node:net";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
@@ -17,10 +18,15 @@ import {
   watchCronJobs,
 } from "../cron-jobs.js";
 import { tagCronSession } from "../cron-sessions.js";
+import { resolveDataPath } from "../db-path.js";
 import { openGroupsDb } from "../groups/db.js";
 import type { SessionLauncher } from "../launch.js";
 import { setupLogging } from "../log.js";
-import type { ModelSource } from "../models.js";
+import {
+  decodeAgentModelValue,
+  type ModelSelection,
+  type ModelSource,
+} from "../models.js";
 import type { FlavorProfile } from "../profile.js";
 import { openPromptsDb } from "../prompts/db.js";
 import {
@@ -33,6 +39,9 @@ import type { AgentInvocation } from "../runner/types.js";
 import type { AgentRuntime } from "../server/context.js";
 import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
+import type { EphemeralAsk } from "../suggestions/ask.js";
+import { openSuggestionsDb } from "../suggestions/db.js";
+import { createSuggestionService } from "../suggestions/service.js";
 
 // One agent's wiring as a serve caller provides it: the flavor adapters
 // (store, launcher factory, argv builder, optional model picker) plus
@@ -51,6 +60,13 @@ type AgentServeSpec = {
   readonly models: ModelSource | undefined;
   readonly makeLauncher: (runner: Runner) => SessionLauncher;
   readonly closeStore: () => void;
+  /**
+   * The behind-the-scenes ask this agent performs for suggested next
+   * prompts: the argv that keeps the run session-free, plus any store
+   * cleanup afterwards. Receives the glv-owned scratch directory asks
+   * run in.
+   */
+  readonly ephemeralAsk: (scratchDir: string) => EphemeralAsk;
 };
 
 type ServeOpts = {
@@ -67,6 +83,14 @@ type ServeOpts = {
   promptsDbPath: string;
   groupsDbPath: string;
   cronDbPath: string;
+  /** The suggested-next-prompts store (setting + rows). */
+  suggestionsDbPath: string;
+  /**
+   * A pinned model for suggestion asks, in the combined picker's
+   * spelling ("<agent>:<model value>"); unset asks on each agent's own
+   * default.
+   */
+  suggestionsModel?: string;
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
@@ -75,6 +99,33 @@ type ServeOpts = {
 // close() stops accepting connections; in-flight requests drain asynchronously.
 type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
+};
+
+// The pinned model an agent's suggestion asks use, from the combined
+// picker spelling ("<agent>:<model value>"); a pin that no longer
+// resolves against the live catalogue warns once and falls back to the
+// agent's own default - a misconfiguration degrades, never breaks.
+const makeSuggestionModelResolver = (
+  runtimes: readonly AgentRuntime[],
+  pinned: string | undefined,
+): ((agentId: string) => ModelSelection | undefined) => {
+  const warned = new Set<string>();
+  return (agentId) => {
+    if (pinned === undefined) return undefined;
+    const pick = decodeAgentModelValue(pinned);
+    if (pick.kind !== "pick" || pick.agent !== agentId) return undefined;
+    if (pick.modelValue === "") return undefined;
+    const runtime = runtimes.find((entry) => entry.id === agentId);
+    const resolved = runtime?.models?.resolve(pick.modelValue);
+    if (resolved === undefined && !warned.has(agentId)) {
+      warned.add(agentId);
+      console.warn(
+        `suggestions: pinned model "${pinned}" does not resolve for ` +
+          `agent ${agentId}; asking on its default`,
+      );
+    }
+    return resolved;
+  };
 };
 
 type ConnectionEmitter = {
@@ -104,6 +155,7 @@ type ShutdownDeps = {
   server: CloseableServer;
   destroyConnections: () => void;
   stopCron: () => void;
+  stopSuggestions: () => void;
   stopProcesses: () => void;
   closeDbs: () => void;
   exit: (code?: number) => void;
@@ -124,6 +176,7 @@ const createShutdown = (
     deps.destroyConnections();
     await closeServer(deps.server);
     deps.stopCron();
+    deps.stopSuggestions();
     deps.stopProcesses();
     deps.closeDbs();
     deps.exit(exitCode);
@@ -208,6 +261,31 @@ const runServe = (opts: ServeOpts): void => {
     recordFire: (jobName, occurrence) =>
       recordCronFire(cronDb, jobName, occurrence),
   });
+  // The suggested-next-prompts store and watcher: the setting row, the
+  // per-session rows, and the background ask pipeline. The watcher
+  // polls the runner registry and reads the setting fresh, so toggling
+  // the feature applies without a restart.
+  const suggestionsDb = openSuggestionsDb(opts.suggestionsDbPath);
+  const suggestionsScratch = resolveDataPath(
+    undefined,
+    "GLV_SUGGESTIONS_DIR",
+    opts.dataDirName,
+    "suggestions",
+  );
+  mkdirSync(suggestionsScratch, { recursive: true });
+  const suggestionService = createSuggestionService({
+    db: suggestionsDb,
+    runner,
+    sessions,
+    cronDb,
+    scratchDir: suggestionsScratch,
+    askOf: (agentId) =>
+      opts.agents
+        .find((spec) => spec.profile.id === agentId)
+        ?.ephemeralAsk(suggestionsScratch),
+    modelFor: makeSuggestionModelResolver(runtimes, opts.suggestionsModel),
+  });
+
   const authDb = openAuthDb(opts.authDbPath);
   const promptsDb = openPromptsDb(opts.promptsDbPath);
   const groupsDb = openGroupsDb(opts.groupsDbPath);
@@ -220,6 +298,7 @@ const runServe = (opts: ServeOpts): void => {
     prompts: promptsDb,
     groups: groupsDb,
     cronDb,
+    suggestions: suggestionsDb,
     onCronJobsChange: cron.reload,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
@@ -253,6 +332,7 @@ const runServe = (opts: ServeOpts): void => {
     promptsDb.close();
     groupsDb.close();
     cronDb.close();
+    suggestionsDb.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not
@@ -266,6 +346,7 @@ const runServe = (opts: ServeOpts): void => {
     server: app,
     destroyConnections,
     stopCron: cron.stop,
+    stopSuggestions: suggestionService.stop,
     stopProcesses: () => stopAll(runner),
     closeDbs,
     exit: (code?: number) => process.exit(code),

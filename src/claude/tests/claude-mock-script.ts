@@ -99,6 +99,23 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
   );
 };
 
+// An ephemeral invocation (`--no-session-persistence`, the
+// behind-the-scenes suggestions ask). Mirrors real claude 2.1.289: no
+// transcript is written at all, so there is nothing to clean up. Output
+// lines come from the ephemeral fixture env, and every invocation
+// appends its argv to the ephemeral log.
+const appendEphemeralLog = (args: string[]): void => {
+  const path = process.env.CLAUDE_MOCK_EPHEMERAL_LOG;
+  if (path === undefined || path === "") return;
+  appendFileSync(path, JSON.stringify(args) + "\n");
+};
+
+const ephemeralLines = (): string[] => {
+  const custom = process.env.CLAUDE_MOCK_EPHEMERAL_LINES ?? "";
+  if (custom === "") return [DEFAULT_LINE];
+  return custom.split("\n").filter((line) => line !== "");
+};
+
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
@@ -107,6 +124,15 @@ const main = async (): Promise<void> => {
   // first so the server's transcript poll detects the file promptly even
   // when a long sleep keeps the process alive afterwards. Tests that need a
   // create-timeout (session-establishment failure) skip the file entirely.
+  // The ephemeral suggestions ask: log, stream the fixture lines, write
+  // no transcript, exit.
+  if (args.includes("--no-session-persistence")) {
+    appendEphemeralLog(args);
+    await captureStdinTo("CLAUDE_MOCK_CAPTURE_STDIN");
+    await streamLines(ephemeralLines(), 0);
+    process.exit(0);
+  }
+
   const neverCreate = process.env.CLAUDE_MOCK_NEVER_CREATE_SESSION === "1";
   const sessionId = args.includes("--resume")
     ? argValue(args, "--resume")

@@ -69,6 +69,81 @@ const teardown = (): void => {
   stopToolTicker();
 };
 
+// ---- suggested next prompts ----
+
+// The strip is built node-by-node with textContent — suggestion text is
+// model output and is never markup.
+const buildSuggestionsStrip = (prompts: readonly string[]): HTMLElement => {
+  const strip = document.createElement("div");
+  strip.className = "suggestion-strip";
+  strip.setAttribute("data-suggestions", "");
+  const label = document.createElement("span");
+  label.className = "suggestion-label";
+  label.textContent = "Next, you could:";
+  strip.append(label);
+  for (const prompt of prompts) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "suggestion-chip";
+    chip.setAttribute("data-suggestion", "");
+    chip.title = prompt;
+    chip.textContent = prompt;
+    strip.append(chip);
+  }
+  return strip;
+};
+
+// Renders (or clears) the strip inside the current prompt bar, directly
+// above the input row. Yields to the user: never renders while a run is
+// active, and never once typing has begun — the suggestions politely
+// stand down instead.
+const applySuggestions = (prompts: readonly string[]): void => {
+  const bar = document.querySelector("[data-prompt-bar]");
+  if (bar === null) return;
+  bar.querySelector("[data-suggestions]")?.remove();
+  if (prompts.length === 0 || lastBusy) return;
+  const textarea = bar.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea !== null && textarea.value !== "") return;
+  const row = bar.querySelector(".prompt-input-row");
+  if (row === null) return;
+  row.before(buildSuggestionsStrip(prompts));
+};
+
+// One tap drops the suggestion into the input, ready to edit or send —
+// fillPromptInput's synthetic input event retires the strip (it has
+// served its purpose).
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) return;
+  const chip = e.target.closest("[data-suggestion]");
+  if (chip === null) return;
+  const textarea = chip
+    .closest("[data-prompt-bar]")
+    ?.querySelector<HTMLTextAreaElement>(".prompt-input");
+  if (textarea === undefined || textarea === null) return;
+  fillPromptInput(textarea, chip.textContent ?? "");
+  textarea.focus();
+});
+
+// Typing (or Escape) stands the suggestions down until the next turn's
+// set arrives.
+const dismissSuggestions = (): void => {
+  document.querySelector("[data-suggestions]")?.remove();
+};
+
+document.addEventListener("input", (e) => {
+  if (
+    e.target instanceof HTMLTextAreaElement &&
+    e.target.classList.contains("prompt-input")
+  )
+    dismissSuggestions();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!(e.target instanceof HTMLTextAreaElement)) return;
+  dismissSuggestions();
+});
+
 const scrollToBottom = (): void => {
   const pane = document.getElementById("detail-pane");
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
@@ -368,6 +443,12 @@ const connect = (root: Element): void => {
 
   onSessionEvent(activeSource, "status", (data) => {
     handleStatus(sessionId ?? "", data);
+  });
+
+  // Next-prompt suggestions for the finished turn — rendered above the
+  // input whenever the behind-the-scenes ask lands.
+  onSessionEvent(activeSource, "suggestions", (data) => {
+    applySuggestions(data.prompts);
   });
 
   // A chained prompt started — append its card to the preview tail and dismiss

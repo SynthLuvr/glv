@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -36,6 +37,38 @@ const insertSession = (): string | undefined => {
 const sessionIdFromArgs = (args: string[]): string | undefined => {
   const idx = args.indexOf("--session-id");
   return idx >= 0 ? args[idx + 1] : undefined;
+};
+
+// An ephemeral invocation (`run --no-session`, the behind-the-scenes
+// suggestions ask). Mirrors real goose 1.53.0: a hidden-type session row
+// is still inserted (the product's cleanup sweep deletes it), no message
+// rows are committed, and output lines come from the ephemeral fixture
+// env. Every invocation appends its argv to the ephemeral log.
+const insertHiddenSession = (): string | undefined => {
+  const dbPath = process.env.GOOSE_SESSIONS_DB;
+  if (dbPath === undefined) return undefined;
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA busy_timeout=5000");
+  const id = `mock-hidden-${process.pid}-${Date.now()}`;
+  db.prepare(
+    "INSERT INTO sessions (id, name, session_type, working_dir, " +
+      "created_at, updated_at) " +
+      "VALUES (?, '', 'hidden', ?, datetime('now'), datetime('now'))",
+  ).run(id, process.cwd());
+  db.close();
+  return id;
+};
+
+const appendEphemeralLog = (args: string[]): void => {
+  const path = process.env.GOOSE_MOCK_EPHEMERAL_LOG;
+  if (path === undefined || path === "") return;
+  appendFileSync(path, JSON.stringify(args) + "\n");
+};
+
+const ephemeralLines = (): string[] => {
+  const custom = process.env.GOOSE_MOCK_EPHEMERAL_LINES ?? "";
+  if (custom === "") return [DEFAULT_LINE];
+  return custom.split("\n").filter((line) => line !== "");
 };
 
 // Persists a streamed NDJSON envelope as a committed message row, the way
@@ -171,6 +204,16 @@ const main = async (): Promise<void> => {
     await runAcpMode();
     return;
   }
+  // The ephemeral suggestions ask: log, insert the hidden row real goose
+  // leaves, stream the fixture lines, and never commit message rows.
+  if (args.includes("--no-session")) {
+    appendEphemeralLog(args);
+    insertHiddenSession();
+    await captureStdinTo("GOOSE_MOCK_CAPTURE_STDIN");
+    await streamLines(ephemeralLines(), 0);
+    process.exit(0);
+  }
+
   const isResume = args.includes("--session-id");
 
   // Insert first so the server's session poll detects the row promptly even

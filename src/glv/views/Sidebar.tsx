@@ -8,6 +8,7 @@ import {
   BulkActionBar,
   LogoutButton,
   NewSessionButton,
+  SuggestionsToggle,
   ThemeToggle,
 } from "./SidebarControls.js";
 
@@ -17,6 +18,8 @@ type SidebarProps = {
   selectedId: string | undefined;
   runningIds: Set<string>;
   authed?: boolean;
+  /** Whether suggested next prompts are on; undefined hides the toggle. */
+  suggestionsOn?: boolean;
 };
 
 // Rendered as `<div id="session-list">` so htmx can swap it back in after
@@ -87,6 +90,7 @@ const Sidebar = ({
   selectedId,
   runningIds,
   authed = false,
+  suggestionsOn,
 }: SidebarProps) => (
   <aside class="sidebar">
     <div class="sidebar-head">
@@ -96,6 +100,9 @@ const Sidebar = ({
       </span>
       <NewSessionButton />
       <BrowseFilesButton />
+      {suggestionsOn !== undefined && (
+        <SuggestionsToggle enabled={suggestionsOn} />
+      )}
       <ThemeToggle />
       {authed && <LogoutButton />}
     </div>

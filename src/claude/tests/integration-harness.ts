@@ -260,6 +260,7 @@ const claudeFixture: harness.FlavorFixture = {
     "prompts.db",
     "groups.db",
     "cron.db",
+    "suggestions.db",
     "claude-meta.db",
   ],
   assertNewRunArgs: (args) => {
