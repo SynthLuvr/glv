@@ -226,6 +226,7 @@ Options:
   database location (default `~/.local/share/glv/suggestions.db` on
   Linux/macOS (`%APPDATA%\glv\suggestions.db` on Windows), or
   `GLV_SUGGESTIONS_DB`).
+
 - `--stop-notices-db <path>` — override the stop-notice database
   location (default `~/.local/share/glv/stop-notices.db` on Linux/macOS
   (`%APPDATA%\glv\stop-notices.db` on Windows), or

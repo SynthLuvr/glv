@@ -126,13 +126,26 @@ const runProcess = async (
     runner.config.stopGraceMs,
   );
   try {
-    for await (const line of proc.stdout) {
-      if (handle.status === "stopped") break;
-      handle.output.push(line);
+    // execa's stream iterator rejects once the final line has been
+    // yielded whenever the process exits non-zero — claude does exactly
+    // that after printing its failure record. The drain must not let
+    // that rejection preempt the verdict below (the refusal record is
+    // already buffered by then); it only remembers the error for the
+    // case where no process ever ran, so a spawn failure keeps its
+    // original message.
+    let drainError: unknown;
+    try {
+      for await (const line of proc.stdout) {
+        if (handle.status === "stopped") break;
+        handle.output.push(line);
+      }
+    } catch (err) {
+      drainError = err;
     }
 
     const result = await proc.exit;
     if (handle.status === "stopped") return;
+    if (result.exitCode === null && drainError !== undefined) throw drainError;
 
     // A provider refusal the agent announced on its stream outranks the
     // exit code: goose 1.45.0 prints its usage-limit error record and

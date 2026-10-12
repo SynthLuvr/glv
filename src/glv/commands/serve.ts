@@ -40,14 +40,14 @@ import type { AgentInvocation } from "../runner/types.js";
 import type { AgentRuntime } from "../server/context.js";
 import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
-import type { EphemeralAsk } from "../suggestions/ask.js";
-import { getSuggestionModel, openSuggestionsDb } from "../suggestions/db.js";
-import { createSuggestionService } from "../suggestions/service.js";
 import {
   clearStopNotice,
   openStopNoticesDb,
   recordStopNotice,
 } from "../stop-notices.js";
+import type { EphemeralAsk } from "../suggestions/ask.js";
+import { getSuggestionModel, openSuggestionsDb } from "../suggestions/db.js";
+import { createSuggestionService } from "../suggestions/service.js";
 
 // One agent's wiring as a serve caller provides it: the flavor adapters
 // (store, launcher factory, argv builder, optional model picker) plus

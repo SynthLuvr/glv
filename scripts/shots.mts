@@ -8,16 +8,16 @@ import {
   expect,
   type Page,
 } from "@playwright/test";
+import {
+  openStopNoticesDb,
+  recordStopNotice,
+} from "../src/glv/stop-notices.js";
 import { turnKeyOf } from "../src/glv/suggestions/ask.js";
 import {
   openSuggestionsDb,
   putSuggestions,
   setSuggestionsEnabled,
 } from "../src/glv/suggestions/db.js";
-import {
-  openStopNoticesDb,
-  recordStopNotice,
-} from "../src/glv/stop-notices.js";
 import {
   probeHeadlessRaster,
   startXvfbDisplay,

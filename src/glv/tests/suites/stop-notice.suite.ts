@@ -23,11 +23,15 @@ import {
 const runStopNoticeSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let envExit: IntegrationEnv;
+  let envRefuseExit: IntegrationEnv;
   let linesDir: string;
-  let linesFile: string;
 
-  const writeLines = (lines: readonly string[]): void => {
-    writeFileSync(linesFile, `${lines.join("\n")}\n`);
+  const linesFileFor = (name: string): string => join(linesDir, name);
+
+  const writeLines = (name: string, lines: readonly string[]): string => {
+    const path = linesFileFor(name);
+    writeFileSync(path, `${lines.join("\n")}\n`);
+    return path;
   };
 
   const ensureDir = (dir: string): void => {
@@ -82,13 +86,26 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
 
   beforeAll(async () => {
     linesDir = mkdtempSync(join(tmpdir(), "glv-stop-lines-"));
-    linesFile = join(linesDir, "lines.txt");
     // The file is re-read per invocation, so one environment walks through
     // every scenario by rewriting it.
-    writeLines([fx.streamLine(fx.mockReply)]);
-    env = await fx.startEnv("glv-stop-", { linesFile });
+    writeLines("main.txt", [fx.streamLine(fx.mockReply)]);
+    env = await fx.startEnv("glv-stop-", {
+      linesFile: linesFileFor("main.txt"),
+    });
     envExit = await fx.startEnv("glv-stop-exit-", { exitCode: 1 });
-    for (const e of [env, envExit]) {
+    // claude's documented refusal shape: the failure record printed and
+    // a non-zero exit. goose exits 0 after the same record, so both
+    // verdicts get their own environment.
+    writeLines("refuse-exit.txt", [
+      fx.refusalRecord(
+        "API Error: 429 usage limit reached — your plan resets at 09:00",
+      ),
+    ]);
+    envRefuseExit = await fx.startEnv("glv-stop-rx-", {
+      exitCode: 1,
+      linesFile: linesFileFor("refuse-exit.txt"),
+    });
+    for (const e of [env, envExit, envRefuseExit]) {
       ensureDir(join(e.scratchDir, "w"));
       fx.seedSessions(e, [
         { id: "limit-1", name: "Limit", workingDir: join(e.scratchDir, "w") },
@@ -105,12 +122,13 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
   afterAll(async () => {
     await env?.cleanup();
     await envExit?.cleanup();
+    await envRefuseExit?.cleanup();
     rmSync(linesDir, { recursive: true, force: true });
   });
 
   describe("usage-limit refusal, exit 0", () => {
     it("streams an error status carrying the notice, not a completion", async () => {
-      writeLines([
+      writeLines("main.txt", [
         fx.refusalRecord(
           "Rate limit exceeded: usage limit reached. Your quota resets at 17:01.",
         ),
@@ -168,7 +186,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     });
 
     it("clears the notice once the session continues and finishes", async () => {
-      writeLines([fx.streamLine(fx.mockReply)]);
+      writeLines("main.txt", [fx.streamLine(fx.mockReply)]);
       await startRun(env, "limit-1", "continue please");
       const html = await waitForIdleBar(env, "limit-1");
       expect(html).not.toContain("Session stopped early");
@@ -177,7 +195,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
 
   describe("non-quota failures keep their own wording", () => {
     it("reports a network outage as a network error, not a usage limit", async () => {
-      writeLines([
+      writeLines("main.txt", [
         fx.refusalRecord(
           "Network error — could not connect to api.anthropic.com:443",
         ),
@@ -187,6 +205,20 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("provider network error");
       expect(html).toContain("could not connect");
       expect(html).not.toContain("usage limit");
+    });
+  });
+
+  describe("refusal with a non-zero exit", () => {
+    it("still words the stop by the refusal, not the exit code", async () => {
+      await startRun(envRefuseExit, "net-1", "refuse and fail loudly");
+      const html = await waitForPageText(
+        envRefuseExit,
+        "net-1",
+        "Session stopped early",
+      );
+      expect(html).toContain("usage limit");
+      expect(html).toContain("resets at 09:00");
+      expect(html).not.toContain("exited with code 1");
     });
   });
 
@@ -227,7 +259,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
 
   describe("healthy runs", () => {
     it("finish with no notice, before and after a restart", async () => {
-      writeLines([fx.streamLine(fx.mockReply)]);
+      writeLines("main.txt", [fx.streamLine(fx.mockReply)]);
       await startRun(env, "ok-1", "all good please");
       const html = await waitForIdleBar(env, "ok-1");
       expect(html).not.toContain("Session stopped early");
