@@ -371,8 +371,8 @@ const createSessionOperations = (ctx: ServerContext) => {
       return fail(404, `No session ${id}.`);
 
     const cutoffField = firstString(body.cutoff);
-    if (cutoffField !== "") {
-      const cutoff = Number(cutoffField);
+    const cutoff = cutoffField === "" ? null : Number(cutoffField);
+    if (cutoff !== null) {
       if (!Number.isInteger(cutoff) || cutoff < 0)
         return fail(422, "The fork cutoff must be a message index.");
       const messages = ctx.sessions.listMessages(id).map(parseMessage);
@@ -389,10 +389,7 @@ const createSessionOperations = (ctx: ServerContext) => {
         );
     }
 
-    const forked = ctx.sessions.forkSession(
-      id,
-      cutoffField === "" ? null : Number(cutoffField),
-    );
+    const forked = ctx.sessions.forkSession(id, cutoff);
     if (!forked.ok) return forked;
 
     // A submitted prompt rides the exact follow-up path against the new
@@ -405,15 +402,7 @@ const createSessionOperations = (ctx: ServerContext) => {
         runStatus: "created",
         activePrompt: undefined,
       };
-    const followUp = await queueFollowUp(forked.row.id, body);
-    if (!followUp.ok) return followUp;
-    return {
-      ok: true,
-      sessionId: followUp.sessionId,
-      session: followUp.session,
-      runStatus: followUp.runStatus,
-      activePrompt: followUp.activePrompt,
-    };
+    return queueFollowUp(forked.row.id, body);
   };
 
   return { startSession, queueFollowUp, stopSession, forkSession };

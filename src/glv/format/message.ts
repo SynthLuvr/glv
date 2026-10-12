@@ -149,33 +149,6 @@ const timeoutFromArgs = (args: unknown): number | undefined => {
   return undefined;
 };
 
-// A fork cutoff at index i keeps the message prefix [0..i]; a prefix whose
-// trailing non-empty message is an unanswered assistant tool call would
-// strand that call — the next model turn sees a dangling tool_use, which
-// the providers reject. These are exactly the prefixes pendingTool reports
-// as having a call in flight, computed here for every index at once with
-// the same trailing-message logic (a per-index pendingTool call would
-// re-walk each prefix separately).
-const unsafeForkCutoffs = (messages: readonly ParsedMessage[]): Set<number> => {
-  const unsafe = new Set<number>();
-  let dangling = false;
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    if (message.items.length > 0)
-      if (message.role === "user") dangling = false;
-      else {
-        const infos = message.items
-          .map(toolCallInfo)
-          .filter((info): info is ToolCallInfo => info !== undefined);
-        dangling =
-          infos.length > 0 && !Number.isNaN(parseTimestamp(message.timestamp));
-      }
-
-    if (dangling) unsafe.add(i);
-  }
-  return unsafe;
-};
-
 // A tool call is in flight when the newest message is an assistant row
 // carrying tool requests: the answering toolResponse always lands as its
 // own (user-role) row, so any row after the request means it finished.
@@ -206,6 +179,20 @@ const pendingTool = (
     };
   }
   return undefined;
+};
+
+// A fork cutoff at index i keeps the message prefix [0..i]. A prefix is
+// unsafe when it ends on a tool call still awaiting its result — the
+// next model turn would see a dangling tool_use, which the providers
+// reject. That is exactly what pendingTool detects, so the disabled
+// per-message buttons can never disagree with the server's cutoff
+// validation.
+const unsafeForkCutoffs = (messages: readonly ParsedMessage[]): Set<number> => {
+  const unsafe = new Set<number>();
+  for (let cutoff = 0; cutoff < messages.length; cutoff++)
+    if (pendingTool(messages.slice(0, cutoff + 1)) !== undefined)
+      unsafe.add(cutoff);
+  return unsafe;
 };
 
 type MessageKind = "prompt" | "output" | "tool" | "context" | "summary";

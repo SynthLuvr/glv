@@ -111,6 +111,23 @@ const registerSessionRoutes = (
     );
   };
 
+  // A failed follow-up or fork re-renders the source session with the
+  // reason in the prompt bar's error hint so the user can retry; a
+  // vanished session renders not-found instead.
+  const rejectMutation = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    id: string,
+    failure: { readonly status: number; readonly error: string },
+  ): FastifyReply => {
+    if (failure.status === 404) return renderNotFound(request, reply, ctx, id);
+    const session = ctx.sessions.getSession(id);
+    if (session === undefined) return renderNotFound(request, reply, ctx, id);
+    return renderSession(request, reply, id, session, {
+      uploadError: failure.error,
+    });
+  };
+
   app.get("/", (request, reply) =>
     render(
       request,
@@ -301,18 +318,7 @@ const registerSessionRoutes = (
       const body = await parseForm(request);
       const result = await ops.queueFollowUp(id, body);
 
-      if (!result.ok) {
-        if (result.status === 404)
-          return renderNotFound(request, reply, ctx, id);
-        // Validation failures (upload, location, empty prompt) surface as
-        // the bar's error hint so the user can retry.
-        const session = ctx.sessions.getSession(id);
-        if (session === undefined)
-          return renderNotFound(request, reply, ctx, id);
-        return renderSession(request, reply, id, session, {
-          uploadError: result.error,
-        });
-      }
+      if (!result.ok) return rejectMutation(request, reply, id, result);
 
       return renderSession(request, reply, id, result.session, {
         prompt: result.activePrompt,
@@ -326,18 +332,7 @@ const registerSessionRoutes = (
       const id = request.params.id;
       const body = await parseForm(request);
       const result = await ops.forkSession(id, body);
-      if (!result.ok) {
-        if (result.status === 404)
-          return renderNotFound(request, reply, ctx, id);
-        // A rejected cutoff re-renders the source with the reason in the
-        // prompt bar's error hint, so the user can pick another point.
-        const session = ctx.sessions.getSession(id);
-        if (session === undefined)
-          return renderNotFound(request, reply, ctx, id);
-        return renderSession(request, reply, id, session, {
-          uploadError: result.error,
-        });
-      }
+      if (!result.ok) return rejectMutation(request, reply, id, result);
       // The fork's transcript swaps into the detail pane; push its URL so
       // the address bar (and a refresh) land on the fork, and refresh the
       // sidebar so the copy appears at the top. The bar focuses so the

@@ -326,7 +326,7 @@ const PromptBar = ({
           class="prompt-input"
           rows={2}
           aria-label={busy ? "Queue a follow-up prompt" : "Follow-up prompt"}
-          autofocus={focusPrompt === true ? true : undefined}
+          autofocus={focusPrompt ? true : undefined}
         />
         <PaperclipButton compact />
         <LocationButton compact />

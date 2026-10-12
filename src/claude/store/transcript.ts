@@ -309,16 +309,9 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
-// Copies a transcript under a new session id, keeping the line prefix up
-// to the cutoff message — `cutoff` is the index, in the same order
-// parseTranscriptText yields messages, of the last message to keep; null
-// keeps every line. Every kept line's sessionId is rewritten to the fork
-// id (uuid/parentUuid chains stay intact — a prefix cut never breaks a
-// backwards-pointing chain), unparseable lines are kept verbatim, and the
-// new file lands beside the source in the same project directory so a
-// resumed fork resolves the same working dir. The source file is never
-// written. Verified against claude 2.1.289: `claude --resume <id>` loads
-// a hand-forged transcript exactly like this one.
+// The fork writer's outcome: the new transcript's path, or why the copy
+// never happened (the source transcript is missing, or the cutoff is
+// past its last message).
 type ForkTranscriptResult =
   | { readonly ok: true; readonly path: string }
   | { readonly ok: false; readonly reason: "missing" | "range" };
@@ -330,6 +323,40 @@ const isMessageLine = (parsed: Record<string, unknown>): boolean =>
   (parsed.type === "user" || parsed.type === "assistant") &&
   parsed.isSidechain !== true;
 
+// How many leading lines a fork keeps: all of them for a whole-history
+// copy, otherwise up to and including the cutoff message's line, counting
+// messages exactly the way appendMessage does. `undefined` when the
+// cutoff is past the last message.
+const keptLineCount = (
+  lines: readonly string[],
+  cutoff: number | null,
+): number | undefined => {
+  if (cutoff === null) return lines.length;
+  let seen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = parseLine(lines[i]);
+    if (parsed !== undefined && isMessageLine(parsed)) {
+      if (seen === cutoff) return i + 1;
+      seen++;
+    }
+  }
+  return undefined;
+};
+
+const rebindLine = (line: string, forkId: string): string => {
+  const parsed = parseLine(line);
+  if (parsed === undefined) return line;
+  parsed.sessionId = forkId;
+  return JSON.stringify(parsed);
+};
+
+// Copies a transcript under a new session id, keeping the line prefix up
+// to the cutoff message. uuid/parentUuid chains stay intact (a prefix cut
+// never breaks a backwards-pointing chain), and the new file lands beside
+// the source in the same project directory so a resumed fork resolves the
+// same working dir. The source file is never written. Verified against
+// claude 2.1.289: `claude --resume <id>` loads a hand-forged transcript
+// exactly like this one.
 const forkTranscript = (
   root: string,
   sourceId: string,
@@ -344,31 +371,12 @@ const forkTranscript = (
     .replace(/^\uFEFF/, "")
     .split("\n");
 
-  // Count message lines exactly the way appendMessage does, remembering
-  // where the cutoff message's line ends.
-  let kept = lines.length;
-  if (cutoff !== null) {
-    let messageIndex = 0;
-    kept = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const parsed = parseLine(lines[i]);
-      if (parsed !== undefined && isMessageLine(parsed)) {
-        if (messageIndex === cutoff) {
-          kept = i + 1;
-          break;
-        }
-        messageIndex++;
-      }
-    }
-    if (kept === -1) return { ok: false, reason: "range" };
-  }
+  const kept = keptLineCount(lines, cutoff);
+  if (kept === undefined) return { ok: false, reason: "range" };
 
-  const rewritten = lines.slice(0, kept).map((line) => {
-    const parsed = parseLine(line);
-    if (parsed === undefined) return line;
-    parsed.sessionId = forkId;
-    return JSON.stringify(parsed);
-  });
+  const rewritten = lines
+    .slice(0, kept)
+    .map((line) => rebindLine(line, forkId));
   // A final newline leaves one trailing empty element behind; the fork
   // ends with exactly one terminator.
   while (rewritten.length > 0 && rewritten[rewritten.length - 1] === "")
