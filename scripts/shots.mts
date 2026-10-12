@@ -264,7 +264,7 @@ const captureForks = async (browser: Browser, env: IntegrationEnv) => {
   // The action sheet with the new Fork item, open.
   await page.click(".session-menu-toggle");
   await expect(page.locator(".session-menu-panel")).toBeVisible();
-  await capture(page, "fork-menu-desktop.png", ".session-menu");
+  await capture(page, "fork-menu-desktop.png");
 
   // The hover-revealed per-message fork buttons on a message head.
   await page.keyboard.press("Escape");
@@ -284,7 +284,7 @@ const captureForks = async (browser: Browser, env: IntegrationEnv) => {
   await page.locator("form.prompt-bar").waitFor();
   await page.click(".session-menu-toggle");
   await expect(page.locator(".session-menu-panel")).toBeVisible();
-  await capture(page, "fork-menu-mobile.png", ".session-menu");
+  await capture(page, "fork-menu-mobile.png");
 
   await context.close();
 };
