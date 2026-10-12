@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import { execa } from "execa";
+import { detectStopReason } from "../stop-reason.js";
 import type {
   InternalHandle,
   Invocation,
@@ -114,6 +115,11 @@ const runProcess = async (
     return;
   }
 
+  // Only this invocation's lines: a chained run keeps one buffer across
+  // its prompts, so a refusal announced by an earlier link must not
+  // colour the verdict on a later one.
+  const firstSeq = handle.output.drain(0).nextSeq;
+
   const stopEscalation = startStopEscalation(
     proc,
     handle,
@@ -127,9 +133,23 @@ const runProcess = async (
 
     const result = await proc.exit;
     if (handle.status === "stopped") return;
-    handle.status = result.exitCode === 0 ? "completed" : "error";
-    if (result.exitCode !== 0)
-      handle.error = describeFailure(result, handle.agent.name);
+
+    // A provider refusal the agent announced on its stream outranks the
+    // exit code: goose 1.45.0 prints its usage-limit error record and
+    // still exits 0, so the code alone reads as a clean finish — the
+    // silent stop this corrects. A detected refusal is surfaced as a run
+    // error carrying the human notice (reset time included), while exit
+    // codes keep explaining themselves when the stream said nothing.
+    const refusal = detectStopReason(handle.output.drain(firstSeq).lines);
+    if (refusal !== undefined) {
+      handle.status = "error";
+      handle.error = refusal.notice;
+      handle.stopNotice = refusal.notice;
+    } else {
+      handle.status = result.exitCode === 0 ? "completed" : "error";
+      if (result.exitCode !== 0)
+        handle.error = describeFailure(result, handle.agent.name);
+    }
   } finally {
     stopEscalation();
   }

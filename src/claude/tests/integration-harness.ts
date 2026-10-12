@@ -187,6 +187,15 @@ const claudeFixture: harness.FlavorFixture = {
         content: [{ type: "text", text }],
       },
     }),
+  // claude's stream-json failure record: headless runs print the failure
+  // as the final result record with is_error set.
+  refusalRecord: (detail) =>
+    JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      result: detail,
+    }),
   // The foreign dialect for claude is goose's top-level envelope.
   foreignLine: JSON.stringify({
     role: "assistant",
@@ -268,6 +277,7 @@ const claudeFixture: harness.FlavorFixture = {
     "groups.db",
     "cron.db",
     "suggestions.db",
+    "stop-notices.db",
     "claude-meta.db",
   ],
   assertNewRunArgs: (args) => {

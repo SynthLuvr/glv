@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ModelSelection } from "../models.js";
 import { createRingBuffer } from "./ring-buffer.js";
+import { isTerminalStatus } from "./runner.js";
 import { runProcess } from "./spawn.js";
 import type {
   AgentInvocation,
@@ -15,6 +16,25 @@ const failRun = (handle: InternalHandle, err: unknown): void => {
   if (handle.status === "stopped") return;
   handle.status = "error";
   handle.error = err instanceof Error ? err.message : String(err);
+};
+
+// Temp keys (pre-establishment handles) never name a viewable session,
+// so a run that settles under one stays silent: the launcher's rekey
+// re-fires the observer under the real id once the session exists.
+const isTempSessionKey = (sessionId: string): boolean =>
+  /^([a-z]+:)?tmp_/.test(sessionId);
+
+// Fires the run-end observer for a settled handle. Called after every
+// process exit (before advanceChain can flip the status for the next
+// chained prompt) and after a rekey lands an already-terminal run on its
+// real session id — a short-lived new-session run can refuse (usage
+// limit) and exit before establishment rekeys it, and its notice must
+// land under the id the routes read.
+const notifyRunEnd = (runner: Runner, handle: InternalHandle): void => {
+  if (runner.onRunEnd === undefined) return;
+  if (!isTerminalStatus(handle.status)) return;
+  if (isTempSessionKey(handle.sessionId)) return;
+  runner.onRunEnd(handle);
 };
 
 // Map preserves insertion order, so registry order mirrors queue order.
@@ -81,6 +101,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.startedPrompts.push(nextPrompt);
   handle.prompt = nextPrompt;
   handle.error = undefined;
+  handle.stopNotice = undefined;
   handle.status = "running";
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
@@ -110,6 +131,7 @@ const enqueueInvocation = (
     queuePosition: undefined,
     output: createRingBuffer(runner.config.maxLines),
     error: undefined,
+    stopNotice: undefined,
     cancelled: false,
     process: undefined,
     evictionTimer: undefined,
@@ -132,6 +154,7 @@ const enqueueInvocation = (
         failRun(handle, err);
       }
       handle.process = undefined;
+      notifyRunEnd(runner, handle);
 
       currentInvocation = advanceChain(handle);
     }
@@ -210,6 +233,10 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
   runner.registry.delete(oldKey);
   handle.sessionId = newKey;
   runner.registry.set(newKey, handle);
+  // A run that already settled under its temp key (a first prompt that
+  // hit the provider's usage limit and died instantly) notified under
+  // that key; re-notify so the observer sees the real id.
+  notifyRunEnd(runner, handle);
   return true;
 };
 

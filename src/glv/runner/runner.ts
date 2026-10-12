@@ -2,6 +2,7 @@ import PQueue from "p-queue";
 import { defaultSpawn } from "./spawn.js";
 import type {
   InternalHandle,
+  RunEndObserver,
   RunHandle,
   Runner,
   RunnerConfig,
@@ -12,10 +13,11 @@ import type {
 const createRunner = (
   config: RunnerConfig,
   spawn: SpawnFn = defaultSpawn,
+  onRunEnd?: RunEndObserver,
 ): Runner => {
   const queue = new PQueue({ concurrency: config.maxConcurrent });
   const registry = new Map<string, InternalHandle>();
-  return { config, queue, registry, spawn };
+  return { config, queue, registry, spawn, onRunEnd };
 };
 
 const isTerminalStatus = (status: RunStatus): boolean =>

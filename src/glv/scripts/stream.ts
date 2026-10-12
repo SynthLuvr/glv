@@ -333,7 +333,9 @@ const updateStatusHint = (data: SessionStatusPayload): void => {
       hint.textContent = toolHintText(data.tool, count);
       startToolTicker();
     } else hint.textContent = `Running…${queuedSuffix(count)}`;
-  } else if (data.status === "error" && data.error != null) {
+  } else if (data.error != null) {
+    // A stop-early explanation rides any non-busy status: a live run's
+    // error, or the persisted notice that an idle status re-delivers.
     hint.className = "status-hint error";
     hint.textContent = data.error;
   } else if (

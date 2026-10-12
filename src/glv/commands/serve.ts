@@ -43,6 +43,11 @@ import type { SessionStore } from "../sessions.js";
 import type { EphemeralAsk } from "../suggestions/ask.js";
 import { getSuggestionModel, openSuggestionsDb } from "../suggestions/db.js";
 import { createSuggestionService } from "../suggestions/service.js";
+import {
+  clearStopNotice,
+  openStopNoticesDb,
+  recordStopNotice,
+} from "../stop-notices.js";
 
 // One agent's wiring as a serve caller provides it: the flavor adapters
 // (store, launcher factory, argv builder, optional model picker) plus
@@ -86,6 +91,7 @@ type ServeOpts = {
   cronDbPath: string;
   /** The suggested-next-prompts store (setting + rows, model pin). */
   suggestionsDbPath: string;
+  stopNoticesDbPath: string;
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
@@ -208,9 +214,22 @@ const registerShutdown = (
 const runServe = (opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.assetsFlavor);
+  // The stop-notices sidecar: the runner reports every settled run, and
+  // provider-refusal notices (usage limit, network outage — the failures
+  // the agent announces on its own stream) outlive the run handle so the
+  // session view can still explain the stop after a reload or restart.
+  // Ordinary completions and stops clear the row; plain crashes keep
+  // today's transient treatment (the notice exists only while the handle
+  // does). Opened before the runner so the observer never races it.
+  const stopNotices = openStopNoticesDb(opts.stopNoticesDbPath);
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.
-  const runner = createRunner(opts.runner);
+  const runner = createRunner(opts.runner, undefined, (handle) => {
+    if (handle.stopNotice !== undefined)
+      recordStopNotice(stopNotices, handle.sessionId, handle.stopNotice);
+    else if (handle.status !== "error")
+      clearStopNotice(stopNotices, handle.sessionId);
+  });
   const runtimes: AgentRuntime[] = opts.agents.map((spec) => ({
     id: spec.profile.id,
     profile: spec.profile,
@@ -295,6 +314,7 @@ const runServe = (opts: ServeOpts): void => {
     groups: groupsDb,
     cronDb,
     suggestions: suggestionsDb,
+    stopNotices,
     onCronJobsChange: cron.reload,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
@@ -329,6 +349,7 @@ const runServe = (opts: ServeOpts): void => {
     groupsDb.close();
     cronDb.close();
     suggestionsDb.close();
+    stopNotices.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

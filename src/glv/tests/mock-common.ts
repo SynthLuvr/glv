@@ -1,4 +1,4 @@
-import { renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 
 // Behaviour shared by the per-flavor mock agent scripts (goose-mock-script,
 // claude-mock-script). Everything is driven by env vars named
@@ -7,13 +7,30 @@ import { renameSync, writeFileSync } from "node:fs";
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-// The env-driven output lines: the default line when none are configured,
-// else the newline-joined custom lines (empty entries dropped).
+// The env-driven output lines: the default line when none is configured,
+// else the newline-joined custom lines (empty entries dropped). A lines
+// *file* (newline-joined) takes precedence and is re-read on every
+// invocation, so a suite can change the mock's script mid-run — refusal
+// lines for one prompt, a happy reply for the next.
 const linesFromEnv = (prefix: string, defaultLine: string): string[] => {
-  const custom = process.env[prefix + "_MOCK_LINES"] ?? "";
+  const file = process.env[prefix + "_MOCK_LINES_FILE"];
+  const custom =
+    file !== undefined && file !== ""
+      ? readLinesFile(file)
+      : (process.env[prefix + "_MOCK_LINES"] ?? "");
   return (custom === "" ? [defaultLine] : custom.split("\n")).filter(
     (line) => line !== "",
   );
+};
+
+// A missing or unreadable lines file falls back to the default line —
+// a half-written fixture must not fake a silent agent.
+const readLinesFile = (path: string): string => {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
 };
 
 // Synchronous sleep — Node has none built in, so block on a shared

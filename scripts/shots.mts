@@ -15,6 +15,10 @@ import {
   setSuggestionsEnabled,
 } from "../src/glv/suggestions/db.js";
 import {
+  openStopNoticesDb,
+  recordStopNotice,
+} from "../src/glv/stop-notices.js";
+import {
   probeHeadlessRaster,
   startXvfbDisplay,
 } from "../src/glv/tests/browser-display.js";
@@ -123,7 +127,25 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
   mkdirSync(OUT, { recursive: true });
   gooseFixture.seedSessions(env, [
     { id: SESSION_ID, name: "Screenshot Session", workingDir },
+    { id: "shots-limit", name: "Usage Limit Session", workingDir },
   ]);
+  gooseFixture.seedMessages(env, "shots-limit", [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Run the full migration suite" }],
+    },
+  ]);
+  // A persisted stop notice for the limit session, exactly as the runner
+  // records one when the provider refuses service.
+  const notices = openStopNoticesDb(env.dbs.stopNoticesDb);
+  recordStopNotice(
+    notices,
+    gooseFixture.viewId("shots-limit"),
+    "Session stopped early: provider usage limit reached. " +
+      "Rate limit exceeded: usage limit reached. Your quota resets at " +
+      "17:01. Send a message to continue.",
+  );
+  notices.close();
   gooseFixture.seedMessages(env, SESSION_ID, [
     {
       role: "user",
@@ -214,6 +236,15 @@ const captureViews = async (
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-desktop.png");
   await capture(page, "prompt-bar-desktop.png", "form.prompt-bar");
+
+  // The stop-early notice: a session whose last run was refused by the
+  // provider explains why, with the reset time, until it continues.
+  await page.goto(
+    `${env.baseUrl}/sessions/${gooseFixture.viewId("shots-limit")}`,
+  );
+  await page.locator("form.prompt-bar .status-hint.error").waitFor();
+  await capture(page, "stop-notice-desktop.png");
+  await capture(page, "stop-notice-prompt-bar.png", "form.prompt-bar");
 
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);
