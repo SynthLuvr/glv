@@ -6,9 +6,10 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { mayFail } from "ts-handling";
 import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
 
@@ -308,6 +309,86 @@ const findTranscript = (root: string, id: string): string | undefined => {
   return undefined;
 };
 
+// The fork writer's outcome: the new transcript's path, or why the copy
+// never happened (the source transcript is missing, or the cutoff is
+// past its last message).
+type ForkTranscriptResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly reason: "missing" | "range" };
+
+// A line becomes a transcript message on exactly the conditions
+// appendMessage applies: a main-chain (non-sidechain) user or assistant
+// record.
+const isMessageLine = (parsed: Record<string, unknown>): boolean =>
+  (parsed.type === "user" || parsed.type === "assistant") &&
+  parsed.isSidechain !== true;
+
+// How many leading lines a fork keeps: all of them for a whole-history
+// copy, otherwise up to and including the cutoff message's line, counting
+// messages exactly the way appendMessage does. `undefined` when the
+// cutoff is past the last message.
+const keptLineCount = (
+  lines: readonly string[],
+  cutoff: number | null,
+): number | undefined => {
+  if (cutoff === null) return lines.length;
+  let seen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = parseLine(lines[i]);
+    if (parsed !== undefined && isMessageLine(parsed)) {
+      if (seen === cutoff) return i + 1;
+      seen++;
+    }
+  }
+  return undefined;
+};
+
+const rebindLine = (line: string, forkId: string): string => {
+  const parsed = parseLine(line);
+  if (parsed === undefined) return line;
+  parsed.sessionId = forkId;
+  return JSON.stringify(parsed);
+};
+
+// Copies a transcript under a new session id, keeping the line prefix up
+// to the cutoff message. uuid/parentUuid chains stay intact (a prefix cut
+// never breaks a backwards-pointing chain), and the new file lands beside
+// the source in the same project directory so a resumed fork resolves the
+// same working dir. The source file is never written. Verified against
+// claude 2.1.289: `claude --resume <id>` loads a hand-forged transcript
+// exactly like this one.
+const forkTranscript = (
+  root: string,
+  sourceId: string,
+  forkId: string,
+  cutoff: number | null,
+): ForkTranscriptResult => {
+  const sourcePath = findTranscript(root, sourceId);
+  if (sourcePath === undefined) return { ok: false, reason: "missing" };
+  // The BOM strip mirrors parseTranscriptText so the first line cuts and
+  // rewrites the same way it parses.
+  const lines = readTranscriptText(sourcePath)
+    .replace(/^\uFEFF/, "")
+    .split("\n");
+
+  const kept = keptLineCount(lines, cutoff);
+  if (kept === undefined) return { ok: false, reason: "range" };
+
+  const rewritten = lines
+    .slice(0, kept)
+    .map((line) => rebindLine(line, forkId));
+  // A final newline leaves one trailing empty element behind; the fork
+  // ends with exactly one terminator.
+  while (rewritten.length > 0 && rewritten[rewritten.length - 1] === "")
+    rewritten.pop();
+  const path = join(dirname(sourcePath), `${forkId}${SESSION_EXT}`);
+  writeFileSync(
+    path,
+    rewritten.length === 0 ? "" : `${rewritten.join("\n")}\n`,
+  );
+  return { ok: true, path };
+};
+
 // Best-effort shred before permanent removal: zero the bytes in place
 // (unlinking alone only forgets content), evict the cached parse, then
 // remove the file. No userspace writer can defeat SSD wear-leveling or
@@ -351,6 +432,7 @@ export type { SessionFile, Transcript };
 export {
   deleteTranscript,
   findTranscript,
+  forkTranscript,
   listSessionFiles,
   parseTranscriptFile,
   readTranscriptText,

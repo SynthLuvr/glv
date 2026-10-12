@@ -181,6 +181,20 @@ const pendingTool = (
   return undefined;
 };
 
+// A fork cutoff at index i keeps the message prefix [0..i]. A prefix is
+// unsafe when it ends on a tool call still awaiting its result — the
+// next model turn would see a dangling tool_use, which the providers
+// reject. That is exactly what pendingTool detects, so the disabled
+// per-message buttons can never disagree with the server's cutoff
+// validation.
+const unsafeForkCutoffs = (messages: readonly ParsedMessage[]): Set<number> => {
+  const unsafe = new Set<number>();
+  for (let cutoff = 0; cutoff < messages.length; cutoff++)
+    if (pendingTool(messages.slice(0, cutoff + 1)) !== undefined)
+      unsafe.add(cutoff);
+  return unsafe;
+};
+
 type MessageKind = "prompt" | "output" | "tool" | "context" | "summary";
 
 const MESSAGE_TAGS: Record<MessageKind, string> = {
@@ -233,4 +247,5 @@ export {
   thinkingText,
   toolCallInfo,
   toolResultInfo,
+  unsafeForkCutoffs,
 };

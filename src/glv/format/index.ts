@@ -23,6 +23,7 @@ export {
   thinkingText,
   toolCallInfo,
   toolResultInfo,
+  unsafeForkCutoffs,
 } from "./message.js";
 export {
   fmtRelative,

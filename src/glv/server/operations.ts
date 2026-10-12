@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseMessage, pendingTool } from "../format/index.js";
 import { pullRepo } from "../git.js";
 import { type EstablishOutcome, withCreateLock } from "../launch.js";
 import {
@@ -70,6 +71,19 @@ type StopOutcome =
       readonly ok: true;
       readonly sessionId: string;
       readonly session: SessionRow;
+    };
+
+// A fork outcome: "created" when the copy landed with no prompt to run,
+// otherwise where the submitted prompt sits (see RunStartStatus).
+type ForkSessionOutcome =
+  | OperationFailure
+  | {
+      readonly ok: true;
+      readonly sessionId: string;
+      readonly session: SessionRow;
+      readonly runStatus: RunStartStatus | "created";
+      // The prompt the transcript should highlight when a run started.
+      readonly activePrompt: string | undefined;
     };
 
 // The agent persists working_dir in canonical form, so the submitted dir
@@ -337,7 +351,61 @@ const createSessionOperations = (ctx: ServerContext) => {
     return { ok: true, sessionId: id, session };
   };
 
-  return { startSession, queueFollowUp, stopSession };
+  // Forks a session — a pure copy under a fresh id, optionally keeping
+  // only the messages up to a cutoff (the index of the last message to
+  // keep, in transcript order) and optionally carrying a first prompt
+  // through the exact follow-up path. A cutoff that would strand a tool
+  // call without its result is rejected up front: the next model turn
+  // would see a dangling tool_use and fail at the provider.
+  const forkSession = async (
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<ForkSessionOutcome> => {
+    const fail = (status: number, error: string): OperationFailure => ({
+      ok: false,
+      status,
+      error,
+    });
+
+    if (ctx.sessions.getSession(id) === undefined)
+      return fail(404, `No session ${id}.`);
+
+    const cutoffField = firstString(body.cutoff);
+    const cutoff = cutoffField === "" ? null : Number(cutoffField);
+    if (cutoff !== null) {
+      if (!Number.isInteger(cutoff) || cutoff < 0)
+        return fail(422, "The fork cutoff must be a message index.");
+      const messages = ctx.sessions.listMessages(id).map(parseMessage);
+      if (cutoff >= messages.length)
+        return fail(
+          422,
+          "The fork cutoff is past the end of the session's transcript.",
+        );
+      if (pendingTool(messages.slice(0, cutoff + 1)) !== undefined)
+        return fail(
+          422,
+          "Cannot fork between a tool call and its result — pick the " +
+            "message after the tool result.",
+        );
+    }
+
+    const forked = ctx.sessions.forkSession(id, cutoff);
+    if (!forked.ok) return forked;
+
+    // A submitted prompt rides the exact follow-up path against the new
+    // id, so the fork starts as an ordinary resumed session.
+    if (firstString(body.prompt) === "")
+      return {
+        ok: true,
+        sessionId: forked.row.id,
+        session: forked.row,
+        runStatus: "created",
+        activePrompt: undefined,
+      };
+    return queueFollowUp(forked.row.id, body);
+  };
+
+  return { startSession, queueFollowUp, stopSession, forkSession };
 };
 
 type SessionOperations = ReturnType<typeof createSessionOperations>;

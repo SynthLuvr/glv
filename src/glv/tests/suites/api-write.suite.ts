@@ -405,6 +405,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "/api/cron/{name}",
         "/api/sessions",
         "/api/sessions/{id}",
+        "/api/sessions/{id}/fork",
         "/api/sessions/{id}/prompt",
         "/api/sessions/{id}/stop",
       ]);
@@ -417,6 +418,8 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "CronJobForm",
         "Error",
         "FollowUpForm",
+        "ForkAccepted",
+        "ForkForm",
         "RunAccepted",
         "Session",
         "StartSessionForm",

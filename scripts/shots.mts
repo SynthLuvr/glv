@@ -4,6 +4,7 @@ import {
   type Browser,
   type BrowserContext,
   chromium,
+  expect,
   type Page,
 } from "@playwright/test";
 import {
@@ -248,12 +249,53 @@ const captureCombined = async (browser: Browser): Promise<void> => {
   }
 };
 
+// The fork flow: the action-menu item, the per-message button, and the
+// landed fork with its focused prompt bar. Runs on the shared seeded env
+// after the main captures so its forks don't leak into earlier shots.
+const captureForks = async (browser: Browser, env: IntegrationEnv) => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+
+  const id = gooseFixture.viewId(SESSION_ID);
+  await page.goto(`${env.baseUrl}/sessions/${id}`);
+  await page.locator("form.prompt-bar").waitFor();
+
+  // The action sheet with the new Fork item, open.
+  await page.click(".session-menu-toggle");
+  await expect(page.locator(".session-menu-panel")).toBeVisible();
+  await capture(page, "fork-menu-desktop.png");
+
+  // The hover-revealed per-message fork buttons on a message head.
+  await page.keyboard.press("Escape");
+  await page.locator(".message[data-msg-index='1']").hover();
+  await capture(page, "fork-here-buttons-desktop.png", "#messages");
+
+  // Fork from the second message: the fork lands in the detail pane with
+  // the prompt bar focused.
+  await page.locator(".message[data-msg-index='1'] .fork-here-btn").click();
+  await expect(page.locator(".session-header")).toContainText("(fork)");
+  await expect(page.locator("textarea.prompt-input")).toBeFocused();
+  await capture(page, "fork-landed-desktop.png");
+
+  // And the mobile bottom-sheet variant of the menu.
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await page.locator("form.prompt-bar").waitFor();
+  await page.click(".session-menu-toggle");
+  await expect(page.locator(".session-menu-panel")).toBeVisible();
+  await capture(page, "fork-menu-mobile.png");
+
+  await context.close();
+};
+
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
   await captureViews(browser, env);
   await captureTokens(browser, env);
-  await captureCombined(browser);
+  await captureForks(browser, env);
+  await captureCombined(browser, env);
 } finally {
   await browser.close();
   teardown();

@@ -39,13 +39,28 @@ type SessionFilter = {
   offset?: number;
 };
 
+// The name a fork of `sourceName` carries — user-set, so it survives the
+// agent's own retitling. A nameless source forks to a plain "Fork".
+const forkSessionName = (sourceName: string): string => {
+  const base = sourceName.trim();
+  return base === "" ? "Fork" : `${base} (fork)`;
+};
+
+// What a store's forkSession returns: the new session's row on success,
+// an HTTP-flavoured failure otherwise (404: source gone; 422: cutoff
+// outside the transcript; 500: the copy could not be read back).
+type ForkResult =
+  | { readonly ok: true; readonly row: SessionRow }
+  | { readonly ok: false; readonly status: number; readonly error: string };
+
 // The shared session model and the storage boundary between the glv
 // core and each flavor: each flavor implements `SessionStore` over its
 // own storage (goose: its SQLite sessions database; claude: transcript
 // JSONL plus a viewer-owned meta sidecar); core code consumes this
 // interface only. Browsing is
 // read-only against agent-owned data; the only mutations are viewer-managed
-// (rename, archive, permanent delete) and route through the same interface.
+// (rename, archive, permanent delete, fork — a pure copy the source
+// survives untouched) and route through the same interface.
 type SessionStore = {
   readonly listSessions: (filter: SessionFilter) => SessionRow[];
   readonly getSession: (id: string) => SessionRow | undefined;
@@ -54,8 +69,14 @@ type SessionStore = {
   readonly renameSession: (id: string, rawName: string) => void;
   // Unlike archive: every record of the session is destroyed, not hidden.
   readonly deleteSessions: (ids: string[]) => void;
+  // Copies the session's persisted state under a fresh id, keeping only
+  // the messages up to `cutoff` — the index of the last message to
+  // keep, in listMessages order; null keeps the whole history. The
+  // source is never modified.
+  readonly forkSession: (id: string, cutoff: number | null) => ForkResult;
   readonly firstPromptSessionName: (ids: string[]) => string | undefined;
   readonly prCandidateIds: (ids: string[]) => Set<string>;
 };
 
-export type { MessageRow, SessionFilter, SessionRow, SessionStore };
+export type { ForkResult, MessageRow, SessionFilter, SessionRow, SessionStore };
+export { forkSessionName };

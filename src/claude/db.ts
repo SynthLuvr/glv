@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { truncate } from "../glv/format/text.js";
@@ -10,14 +11,17 @@ import {
   renameSession as renameMeta,
 } from "../glv/session-meta.js";
 import type {
+  ForkResult,
   MessageRow,
   SessionFilter,
   SessionRow,
   SessionStore,
 } from "../glv/sessions.js";
+import { forkSessionName } from "../glv/sessions.js";
 import {
   deleteTranscript,
   findTranscript,
+  forkTranscript,
   listSessionFiles,
   parseTranscriptFile,
   readTranscriptText,
@@ -175,6 +179,40 @@ const firstPromptSessionName = (
   return bestId === undefined ? undefined : getSession(store, bestId)?.name;
 };
 
+// Forks a claude session by writing a second transcript: the line prefix
+// up to the cutoff rewritten under a fresh session id (claude --resume
+// accepts it — verified against 2.1.289), with the fork name mirrored
+// into the viewer-owned meta sidecar. The source transcript is only ever
+// read.
+const forkSession = (
+  store: ClaudeStoreData,
+  sourceId: string,
+  cutoff: number | null,
+): ForkResult => {
+  const source = getSession(store, sourceId);
+  if (source === undefined)
+    return { ok: false, status: 404, error: `No session ${sourceId}.` };
+  const forkId = randomUUID();
+  const result = forkTranscript(store.root, sourceId, forkId, cutoff);
+  if (!result.ok)
+    return result.reason === "missing"
+      ? { ok: false, status: 404, error: `No session ${sourceId}.` }
+      : {
+          ok: false,
+          status: 422,
+          error: `Cutoff ${cutoff} is past the end of the session's transcript.`,
+        };
+  renameMeta(store.meta, forkId, forkSessionName(source.name));
+  const row = getSession(store, forkId);
+  return row === undefined
+    ? {
+        ok: false,
+        status: 500,
+        error: "The forked session could not be read back.",
+      }
+    : { ok: true, row };
+};
+
 // The claude storage adapter: transcripts are only ever read; viewer-managed
 // rename/archive metadata routes through the viewer-owned sidecar.
 const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
@@ -190,6 +228,7 @@ const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
       for (const id of ids) deleteTranscript(store.root, id);
       deleteMeta(store.meta, ids);
     },
+    forkSession: (id, cutoff) => forkSession(store, id, cutoff),
     firstPromptSessionName: (ids) => firstPromptSessionName(store, ids),
     prCandidateIds: (ids) => prCandidateIds(store, ids),
   };

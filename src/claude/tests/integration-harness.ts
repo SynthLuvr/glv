@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -234,6 +235,10 @@ const claudeFixture: harness.FlavorFixture = {
   },
   readSessionField: (env, field, id) =>
     harness.readStoreField(env.dbs.flavor.metaDb, "session_meta", field, id),
+  snapshotStore: (env, id) => {
+    const path = findSessionFile(env.dbs.flavor.projectsDir, id);
+    return path === undefined ? "" : readFileSync(path, "utf8");
+  },
   systemFlag: "--append-system-prompt",
   resumeFlag: "--resume",
   binaryFlag: "--claude-binary",

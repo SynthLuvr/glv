@@ -21,6 +21,13 @@ const ApiRunAccepted = type({ id: "string", status: "'started' | 'queued'" });
 // The body POST /api/sessions/:id/stop returns (idempotent).
 const ApiStopAccepted = type({ id: "string", status: "'stopped'" });
 
+// The body POST /api/sessions/:id/fork returns: "created" when the copy
+// landed without a prompt, otherwise where the submitted prompt sits.
+const ApiForkAccepted = type({
+  id: "string",
+  status: "'created' | 'started' | 'queued'",
+});
+
 // The listing window: 1–500 rows, skipping forward from the newest.
 const MAX_LIST_LIMIT = 500;
 const ListLimit = type(`1 <= number.integer <= ${MAX_LIST_LIMIT}`);
@@ -63,6 +70,15 @@ const ApiStartSessionForm = type({
 const ApiFollowUpForm = type({
   prompt: "string",
   "location?": "string",
+});
+
+// The multipart form fields POST /api/sessions/:id/fork accepts: the
+// index of the last transcript message to keep (decimal, in transcript
+// order; omitted for the whole history) and an optional first prompt
+// that rides the follow-up path against the new session.
+const ApiForkForm = type({
+  "cutoff?": "string",
+  "prompt?": "string",
 });
 
 // One scheduled-run row exactly as the cron endpoints return it (the
@@ -294,6 +310,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         Error: component(ApiError),
         RunAccepted: component(ApiRunAccepted),
         StopAccepted: component(ApiStopAccepted),
+        ForkAccepted: component(ApiForkAccepted),
         Session: component(ApiSession),
         StartSessionForm: {
           ...component(ApiStartSessionForm),
@@ -309,6 +326,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             uploads: uploadsProperty(),
           },
         },
+        ForkForm: component(ApiForkForm),
         CronJob: component(ApiCronJob),
         CronJobForm: component(ApiCronJobForm),
         CronDeleted: component(ApiCronDeleted),
@@ -482,6 +500,40 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
           responses: {
             "200": jsonResponse("The session is stopped.", ref("StopAccepted")),
             "404": jsonResponse("Unknown session id.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/sessions/{id}/fork": {
+        post: {
+          summary: "Fork the session",
+          description:
+            "Multipart form. Copies the session's persisted state under a " +
+            'fresh id (name "<name> (fork)"), keeping only the messages ' +
+            "up to the optional cutoff — the index of the last transcript " +
+            "message to keep, in transcript order; omitted means the whole " +
+            "history. A cutoff that would strand a tool call without its " +
+            "result is rejected (422). The source is never modified. An " +
+            "optional prompt field starts the fork through the same path " +
+            'as a follow-up (status "started" or "queued"); without ' +
+            'one the answer is status "created" and the fork sits idle.',
+          parameters: [sessionParam()],
+          requestBody: multipartRequest("ForkForm"),
+          responses: {
+            "201": {
+              description: "The fork was created.",
+              headers: {
+                Location: {
+                  description: "The fork's detail URL.",
+                  schema: { type: "string" },
+                },
+              },
+              content: {
+                "application/json": { schema: ref("ForkAccepted") },
+              },
+            },
+            "404": jsonResponse("Unknown session id.", ref("Error")),
+            "422": jsonResponse("Invalid cutoff.", ref("Error")),
             ...bearerResponses(),
           },
         },
