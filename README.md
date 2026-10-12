@@ -65,12 +65,12 @@ the browser.
   Each job can pin the model its runs use (goose or a claude alias).
 - **Suggested next prompts.** When a session finishes a turn, GLV can
   quietly ask the same assistant for a few good follow-up prompts and
-  offer them as one-tap suggestions above the input box. The ask is
-  tiny (just the tail of the conversation), happens at most once per
-  finished turn, never occupies the queue real prompts use, and leaves
-  no session behind — no sidebar entry, no transcript, no activity.
-  Opt-in: the lightbulb switch in the sidebar header turns it on and
-  off (off by default).
+  offer them as one-tap suggestions above the input box. The ask is tiny
+  (just the tail of the conversation), happens at most once per finished
+  turn, never occupies the queue real prompts use, and leaves no session
+  behind — no sidebar entry, no transcript, no activity. Opt-in: the
+  lightbulb switch in the sidebar header turns it on and off (off by
+  default).
 - **Session management.** Rename sessions, fork a session — the whole
   transcript or from any message boundary — to explore a branch without
   touching the original (forks are ordinary sessions: rename, archive,
@@ -223,7 +223,7 @@ Options:
   `GLV_SUGGESTIONS_DB`).
 
 - `--suggestions-model <value>` — pin the model suggestion asks use, in
-  the combined picker spelling (e.g. `claude:haiku`); by default each
+  the combined picker spelling (e.g. `claude:haiku`); by default each
   agent answers on its own configured model.
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
