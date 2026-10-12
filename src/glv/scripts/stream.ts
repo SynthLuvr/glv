@@ -71,8 +71,8 @@ const teardown = (): void => {
 
 // ---- suggested next prompts ----
 
-// The strip is built node-by-node with textContent — suggestion text is
-// model output and is never markup.
+// Built node-by-node with textContent — suggestion text is model output
+// and is never markup.
 const buildSuggestionsStrip = (prompts: readonly string[]): HTMLElement => {
   const strip = document.createElement("div");
   strip.className = "suggestion-strip";
@@ -95,8 +95,7 @@ const buildSuggestionsStrip = (prompts: readonly string[]): HTMLElement => {
 
 // Renders (or clears) the strip inside the current prompt bar, directly
 // above the input row. Yields to the user: never renders while a run is
-// active, and never once typing has begun — the suggestions politely
-// stand down instead.
+// active, and never once typing has begun.
 const applySuggestions = (prompts: readonly string[]): void => {
   const bar = document.querySelector("[data-prompt-bar]");
   if (bar === null) return;
@@ -110,8 +109,7 @@ const applySuggestions = (prompts: readonly string[]): void => {
 };
 
 // One tap drops the suggestion into the input, ready to edit or send —
-// fillPromptInput's synthetic input event retires the strip (it has
-// served its purpose).
+// fillPromptInput's synthetic input event retires the strip afterwards.
 document.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) return;
   const chip = e.target.closest("[data-suggestion]");

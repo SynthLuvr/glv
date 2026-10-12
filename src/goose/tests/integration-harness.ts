@@ -266,8 +266,7 @@ const gooseFixture: harness.FlavorFixture = {
         .get();
       const count = (row: unknown): number => {
         if (typeof row !== "object" || row === null) return 0;
-        const value = (row as Record<string, unknown>).n;
-        return typeof value === "number" ? value : 0;
+        return "n" in row && typeof row.n === "number" ? row.n : 0;
       };
       return count(sessions) + count(messages);
     } finally {

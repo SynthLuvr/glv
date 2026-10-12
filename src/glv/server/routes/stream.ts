@@ -181,7 +181,7 @@ const pollDb = async (
 
 // Emits the visible suggestion set for the session's current turn when it
 // changes — the ask lands asynchronously, typically seconds after the turn
-// completes, and the strip must appear (or clear) without a page reload.
+// completes, so the strip must appear (or clear) without a page reload.
 // Reuses the session/message-count pollDb just stashed, so the check costs
 // one tiny sidecar read per poll, and only when the store is wired.
 const pollSuggestions = async (

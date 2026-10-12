@@ -263,12 +263,11 @@ const isRunActive = (run: RunHandle | undefined): boolean =>
   run !== undefined && (run.status === "queued" || run.status === "running");
 
 // Next-prompt suggestions above the input row: one subdued, tappable
-// chip per suggestion. Accepting fills the input (ready to edit or
-// send); typing or Escape stands the chips down until the next turn's
-// suggestions arrive. Rendered server-side inside the prompt bar so the
-// bar's busy/idle swaps carry it naturally, and swapped live by the
-// stream's `suggestions` event when the ask lands after the bar already
-// rendered.
+// chip per suggestion; accepting fills the input, and typing or Escape
+// stands the chips down until the next turn's set arrives. Rendered
+// server-side inside the prompt bar so busy/idle bar swaps carry it
+// naturally, and swapped live by the stream's `suggestions` event when
+// the ask lands after the bar already rendered.
 const SuggestionsStrip = ({
   suggestions,
 }: {

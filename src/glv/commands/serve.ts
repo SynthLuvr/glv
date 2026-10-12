@@ -98,9 +98,9 @@ type CloseableServer = {
 
 // The pinned model an agent's suggestion asks use, read fresh from the
 // suggestions store's settings row each ask (combined picker spelling,
-// "<agent>:<model value>"); a pin that no longer resolves against the
+// "<agent>:<model value>"). A pin that no longer resolves against the
 // live catalogue warns once and falls back to the agent's own default
-// (goose: whatever its config resolves) - a misconfiguration degrades,
+// (goose: whatever its config resolves) — a misconfiguration degrades,
 // never breaks.
 const makeSuggestionModelResolver = (
   runtimes: readonly AgentRuntime[],
@@ -259,10 +259,8 @@ const runServe = (opts: ServeOpts): void => {
     recordFire: (jobName, occurrence) =>
       recordCronFire(cronDb, jobName, occurrence),
   });
-  // The suggested-next-prompts store and watcher: the setting row, the
-  // per-session rows, and the background ask pipeline. The watcher
-  // polls the runner registry and reads the setting fresh, so toggling
-  // the feature applies without a restart.
+  // The suggested-next-prompts store and watcher. The setting is read
+  // fresh each poll, so toggling the feature applies without a restart.
   const suggestionsDb = openSuggestionsDb(opts.suggestionsDbPath);
   const suggestionsScratch = resolveDataPath(
     undefined,

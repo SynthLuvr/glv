@@ -39,11 +39,11 @@ const sessionIdFromArgs = (args: string[]): string | undefined => {
   return idx >= 0 ? args[idx + 1] : undefined;
 };
 
-// An ephemeral invocation (`run --no-session`, the behind-the-scenes
-// suggestions ask). Mirrors real goose 1.53.0: a hidden-type session row
-// is still inserted (the product's cleanup sweep deletes it), no message
-// rows are committed, and output lines come from the ephemeral fixture
-// env. Every invocation appends its argv to the ephemeral log.
+// Ephemeral-invocation helpers (the behind-the-scenes suggestions ask):
+// every invocation appends its argv to the ephemeral log, output lines
+// come from the ephemeral fixture env, and no message rows are ever
+// committed. Real goose 1.53.0 still inserts a hidden-type session row,
+// so one is inserted for the product's cleanup sweep to delete.
 const insertHiddenSession = (): string | undefined => {
   const dbPath = process.env.GOOSE_SESSIONS_DB;
   if (dbPath === undefined) return undefined;

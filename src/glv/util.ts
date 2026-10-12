@@ -3,7 +3,7 @@ const errorMessage = (err: unknown): string =>
 
 // `unref` keeps a pending timer (interval or timeout) from blocking
 // process exit; guarded because the global timer types may resolve to
-// numbers in DOM libs.
+// numbers under DOM libs.
 const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
   if (
     typeof timer === "object" &&

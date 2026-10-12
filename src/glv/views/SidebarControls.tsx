@@ -37,8 +37,8 @@ const BulkActionBar = () => (
 
 // The suggested-next-prompts switch: one tap flips the feature (a
 // server-side setting, default off). Swaps itself so the pressed state
-// travels with the button. Server-rendered only where the suggestions
-// store is wired (a plain glv render without one shows nothing).
+// travels with the button; rendered only where the suggestions store is
+// wired.
 const SuggestionsToggle = ({ enabled }: { enabled: boolean }) => (
   <button
     type="button"

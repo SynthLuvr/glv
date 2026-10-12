@@ -4,17 +4,16 @@ import { type ParsedMessage, parseMessage } from "../format/index.js";
 import type { ModelSelection } from "../models.js";
 import { isRecord } from "../parse.js";
 import type { MessageRow, SessionRow } from "../sessions.js";
-import { unrefTimer } from "../util.js";
+import { errorMessage, unrefTimer } from "../util.js";
 
 // The behind-the-scenes ask: one short, session-free run of the same
 // assistant the session uses. Each flavor provides the argv that keeps
-// the run off the books (goose `run --no-session`, claude
-// `--print --no-session-persistence`) plus any post-run cleanup its
-// store needs; everything here is agent-agnostic.
-
-// How one flavor performs an ephemeral ask. The prompt always travels
-// over stdin, exactly like real runs, so it never hits argument-length
+// the run off the books plus any post-run cleanup its store needs;
+// everything here is agent-agnostic. The prompt always travels over
+// stdin, exactly like real runs, so it never hits argument-length
 // limits.
+
+// How one flavor performs an ephemeral ask.
 type EphemeralAsk = {
   /** Agent name for diagnostics ("goose", "claude"). */
   readonly name: string;
@@ -25,9 +24,9 @@ type EphemeralAsk = {
   /** Extra environment variables for the agent process. */
   readonly env: () => Record<string, string>;
   /**
-   * Store cleanup after the ask finishes (goose: sweep the hidden
-   * session rows `--no-session` leaves behind). Best-effort — a throw
-   * is logged and swallowed; it must never affect the ask's result.
+   * Store cleanup after the ask finishes (goose sweeps the hidden
+   * session rows `--no-session` leaves behind). Best-effort by
+   * contract: a throw is logged and must never affect the ask's result.
    */
   readonly cleanup?: () => void;
 };
@@ -36,10 +35,9 @@ type EphemeralAsk = {
 // undefined when the run failed, timed out, or said nothing.
 type AskResult = { readonly text: string } | undefined;
 
-// One NDJSON stream record → its assistant text, when it carries any.
-// Both dialects are accepted (goose's top-level role/content records and
-// claude's message-nested ones): the ask only ever needs text blocks,
-// and accepting both keeps the parser stable across agent releases.
+// One NDJSON stream record → its assistant text. Both dialects are
+// accepted (goose's top-level role/content records and claude's
+// message-nested ones) so the parser stays stable across agent releases.
 const lineText = (line: string): string => {
   let value: unknown;
   try {
@@ -61,6 +59,20 @@ const lineText = (line: string): string => {
       return typeof item.text === "string" ? [item.text] : [];
     })
     .join("");
+};
+
+// Best-effort by contract (see EphemeralAsk.cleanup): a throw is logged,
+// never propagated.
+const runCleanup = (ask: EphemeralAsk): void => {
+  if (ask.cleanup === undefined) return;
+  try {
+    ask.cleanup();
+  } catch (err) {
+    console.error(
+      `suggestions: cleanup after the ${ask.name} ask failed: ` +
+        errorMessage(err),
+    );
+  }
 };
 
 // Runs the ask: spawns the binary outside the runner pool (it must never
@@ -99,20 +111,13 @@ const runEphemeralAsk = async (
   } catch {
     return undefined;
   } finally {
-    try {
-      ask.cleanup?.();
-    } catch (err) {
-      console.error(
-        `suggestions: cleanup after the ${ask.name} ask failed: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    runCleanup(ask);
   }
 };
 
 // ---- parsing the reply ----
 
-// The reply is expected to be a JSON array of strings; anything else the
+// The reply is expected to be a JSON array of strings; anything the
 // assistant wraps around it is tolerated by scanning for the outermost
 // bracketed array. Validated at the boundary like any JSON payload.
 const StringArray = type("string[]");
@@ -151,9 +156,8 @@ const parseSuggestionReply = (text: string): string[] | undefined => {
 
 // ---- the ask prompt ----
 
-// How much conversation feeds the ask: the last rows of the transcript,
-// each message's text capped, and the whole tail capped again — the ask
-// is deliberately tiny (cost stays small by design).
+// How much conversation feeds the ask — deliberately tiny, so the ask's
+// cost stays small by design.
 const TAIL_MESSAGES = 12;
 const TAIL_MESSAGE_CHARS = 400;
 const TAIL_TOTAL_CHARS = 4000;
@@ -186,7 +190,7 @@ const conversationTail = (rows: readonly MessageRow[]): string => {
   return lines.join("\n");
 };
 
-// The ask's instruction: propose a few short next prompts, reply with a
+// The ask's instruction: propose a few short follow-ups, reply with a
 // JSON array and nothing else. Framed as a private helper question about
 // an excerpt, never as a turn of the user's session.
 const buildAskPrompt = (agentName: string, tail: string): string =>
@@ -211,21 +215,19 @@ const buildAskPrompt = (agentName: string, tail: string): string =>
 // ---- turn identity ----
 
 // Fingerprint of a finished turn: the session's last-write timestamp
-// plus its committed message count. A later turn cannot produce the same
-// pair (messages only grow within a session), and a stable transcript
-// yields a stable key, so the pair identifies "this exact finished
-// turn" across polls, refreshes, and restarts.
+// plus its committed message count. Messages only grow within a session,
+// so a later turn can never produce the same pair, and a stable
+// transcript yields a stable key — the pair identifies "this exact
+// finished turn" across polls, refreshes, and restarts.
 const turnKeyOf = (
   session: Pick<SessionRow, "id" | "updated_at">,
   messageCount: number,
 ): string => `${session.updated_at}:${messageCount}`;
 
-export type { AskResult, EphemeralAsk };
+export type { EphemeralAsk };
 export {
   buildAskPrompt,
   conversationTail,
-  lineText,
-  MAX_SUGGESTIONS,
   parseSuggestionReply,
   runEphemeralAsk,
   turnKeyOf,

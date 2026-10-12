@@ -3,12 +3,12 @@ import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "../db-path.js";
 
 // Viewer-owned storage for suggested next prompts: one setting row
-// (feature on/off, default off) and one suggestion row per session — the
-// latest finished turn's prompts, keyed by a fingerprint of that turn so
-// a row can never be mistaken for a later turn's suggestions. An empty
-// prompts array means "asked, nothing usable came back" — the turn is
-// still marked served, so the same finished turn is never asked twice,
-// even across page refreshes or server restarts.
+// (feature on/off, pinned model) and one suggestion row per session —
+// the latest finished turn's prompts, keyed by a fingerprint of that
+// turn so a row can never be mistaken for a later turn's suggestions.
+// An empty prompts array means "asked, nothing usable came back" — the
+// turn is still marked served, so it is never asked twice, even across
+// page refreshes or server restarts.
 
 const SUGGESTIONS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -23,17 +23,11 @@ CREATE TABLE IF NOT EXISTS suggestions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
-
-// The setting keys this store owns: the feature switch and the pinned
-// model suggestion asks use (combined picker spelling,
-// "<agent>:<model value>"; unset or blank asks on each agent's own
-// default — goose: whatever its config resolves).
 const ENABLED_KEY = "enabled";
 const MODEL_KEY = "model";
 
-// Writable by design: glv owns every table in here, so the schema is
-// always created on open (safe to run before any suggestion was ever
-// asked).
+// glv owns every table here, so the schema is always safe to create on
+// open, before any suggestion was ever asked.
 const openSuggestionsDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SUGGESTIONS_SCHEMA);
@@ -51,9 +45,9 @@ const resolveSuggestionsDbPath = (
     "suggestions.db",
   );
 
-// One settings row's value, when it is a string; every read failure
-// (missing row, missing table, malformed value) reads as undefined so a
-// hand-edited database degrades to the default, never to a crash.
+// Every read failure (missing row, missing table, malformed value) reads
+// as undefined, so a hand-edited database degrades to the default rather
+// than crashing the server.
 const readSetting = (db: DatabaseSync, key: string): string | undefined => {
   try {
     const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
@@ -97,14 +91,19 @@ const setSuggestionModel = (db: DatabaseSync, value: string): void => {
 };
 
 // One stored suggestion set: the turn it answers (fingerprint) and the
-// prompts parsed out of the assistant's reply. `prompts` is the JSON
-// serialization of a (possibly empty) string array.
+// JSON-serialized prompts (a possibly empty string array).
 const StoredRow = type({ turn_key: "string", prompts: "string" });
 
-type StoredRow = typeof StoredRow.infer;
+const parsePrompts = (json: string): string[] | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed.filter((p): p is string => typeof p === "string");
+  } catch {
+    return undefined;
+  }
+};
 
-// The stored prompts for a session, with the empty-array marker decoded
-// back to "asked, nothing usable".
 const readRow = (
   db: DatabaseSync,
   sessionId: string,
@@ -119,20 +118,12 @@ const readRow = (
   }
   const valid = StoredRow(row);
   if (valid instanceof type.errors) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(valid.prompts);
-    if (!Array.isArray(parsed)) return undefined;
-    return {
-      turnKey: valid.turn_key,
-      prompts: parsed.filter((p): p is string => typeof p === "string"),
-    };
-  } catch {
-    return undefined;
-  }
+  const prompts = parsePrompts(valid.prompts);
+  return prompts === undefined
+    ? undefined
+    : { turnKey: valid.turn_key, prompts };
 };
 
-// Upserts the row for one session: the turn fingerprint plus the parsed
-// prompts (empty = asked, nothing usable — still a served turn).
 const putSuggestions = (
   db: DatabaseSync,
   sessionId: string,
@@ -153,12 +144,9 @@ const forgetSession = (db: DatabaseSync, sessionId: string): void => {
   db.prepare("DELETE FROM suggestions WHERE session_id = ?").run(sessionId);
 };
 
-export type { StoredRow };
 export {
-  ENABLED_KEY,
   forgetSession,
   getSuggestionModel,
-  MODEL_KEY,
   openSuggestionsDb,
   putSuggestions,
   readRow,

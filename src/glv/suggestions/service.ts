@@ -4,7 +4,7 @@ import { jobNameFor } from "../cron-sessions.js";
 import type { ModelSelection } from "../models.js";
 import type { Runner } from "../runner/index.js";
 import type { SessionStore } from "../sessions.js";
-import { positiveEnvNumber, unrefTimer } from "../util.js";
+import { errorMessage, positiveEnvNumber, unrefTimer } from "../util.js";
 import type { EphemeralAsk } from "./ask.js";
 import {
   buildAskPrompt,
@@ -24,12 +24,12 @@ import { putSuggestions, readRow, suggestionsEnabled } from "./db.js";
 // How often the watcher scans the runner registry for finished runs.
 // Terminal handles are retained for ~30s (terminalRetentionMs), so a
 // scan this sparse can never miss one. GLV_SUGGESTIONS_POLL_MS shrinks
-// it so tests observe fires quickly.
+// it for tests.
 const DEFAULT_POLL_MS = 1000;
 const pollMs = (): number =>
   positiveEnvNumber("GLV_SUGGESTIONS_POLL_MS", DEFAULT_POLL_MS);
 
-// Ceiling on one ask — a suggestion that never arrives is worth nothing;
+// Ceiling on one ask — a suggestion that never arrives is worth nothing:
 // the process is killed and the turn is marked served. The
 // GLV_SUGGESTIONS_TIMEOUT_MS override shrinks it for tests.
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -58,10 +58,7 @@ type ServiceDeps = {
   readonly scratchDir: string;
   /** The ephemeral ask of a session's agent, by agent id. */
   readonly askOf: (agentId: string) => EphemeralAsk | undefined;
-  /**
-   * Resolves the pinned model for an agent's asks; undefined → the
-   * agent's own default.
-   */
+  /** Resolves the pinned model for an agent's asks; undefined → default. */
   readonly modelFor: (agentId: string) => ModelSelection | undefined;
 };
 
@@ -88,9 +85,27 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
   // polls never double-fire one turn.
   const inFlight = new Set<string>();
 
-  // One ask, end to end. Fire-and-forget by design: no caller ever
-  // waits on it, and every failure path ends in a stored empty marker
-  // under the answered turn's key, so that turn is never re-asked.
+  // Marks the answered turn served and stores its prompts — the empty
+  // set for unusable replies too, so that turn is never re-asked.
+  const storeOutcome = (
+    sessionId: string,
+    turnKey: string,
+    prompts: readonly string[],
+  ): void => {
+    served.set(sessionId, turnKey);
+    try {
+      putSuggestions(deps.db, sessionId, turnKey, prompts);
+    } catch (err) {
+      console.error(
+        `suggestions: could not store suggestions for ${sessionId}: ` +
+          errorMessage(err),
+      );
+    }
+  };
+
+  // One ask, end to end. Fire-and-forget by design: no caller ever waits
+  // on it, and every failure path ends in a stored empty marker under
+  // the answered turn's key.
   const ask = (
     askSpec: EphemeralAsk,
     agentId: string,
@@ -114,15 +129,7 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
         prompts = undefined;
       } finally {
         inFlight.delete(sessionId);
-        served.set(sessionId, turn.turnKey);
-        try {
-          putSuggestions(deps.db, sessionId, turn.turnKey, prompts ?? []);
-        } catch (err) {
-          console.error(
-            `suggestions: could not store suggestions for ${sessionId}: ` +
-              `${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+        storeOutcome(sessionId, turn.turnKey, prompts ?? []);
       }
     })();
   };
@@ -144,15 +151,14 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
         continue;
       if (inFlight.has(sessionId)) continue;
       const agentId = agentOfId(sessionId);
-      const askSpec = agentId !== undefined ? deps.askOf(agentId) : undefined;
-      if (agentId === undefined || askSpec === undefined) continue;
+      if (agentId === undefined) continue;
+      const askSpec = deps.askOf(agentId);
+      if (askSpec === undefined) continue;
       const turn = currentTurn(deps.sessions, sessionId);
       if (turn === undefined) continue;
+      if (served.get(sessionId) === turn.turnKey) continue;
       const stored = readRow(deps.db, sessionId);
-      if (
-        served.get(sessionId) === turn.turnKey ||
-        stored?.turnKey === turn.turnKey
-      ) {
+      if (stored?.turnKey === turn.turnKey) {
         served.set(sessionId, turn.turnKey);
         continue;
       }
@@ -163,11 +169,7 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
 
   const timer = setInterval(poll, pollMs());
   unrefTimer(timer);
-  return {
-    stop: () => {
-      clearInterval(timer);
-    },
-  };
+  return { stop: () => clearInterval(timer) };
 };
 
 export type { ServiceDeps, SuggestionService };

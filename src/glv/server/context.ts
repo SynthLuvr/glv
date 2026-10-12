@@ -53,10 +53,7 @@ type ServerOptions = {
   auth?: AuthService;
   prompts?: DatabaseSync;
   groups?: DatabaseSync;
-  /**
-   * The suggestions store: one setting row (feature on/off) and one
-   * suggestion row per session. Optional so app-less tests work.
-   */
+  /** The suggestions store; optional so app-less tests work. */
   suggestions?: DatabaseSync;
   rpName?: string;
   rpIdOverride?: string;
@@ -104,7 +101,7 @@ type ServerContext = {
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;
   readonly groups: DatabaseSync | undefined;
-  /** The suggestions store, when the server opened one. */
+  /** The suggested-next-prompts store, when the server opened one. */
   readonly suggestions: DatabaseSync | undefined;
   readonly rpName: string | undefined;
   readonly rpIdOverride: string | undefined;

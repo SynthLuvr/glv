@@ -1,11 +1,11 @@
 import type { ModelSelection } from "../glv/models.js";
 import type { EphemeralAsk } from "../glv/suggestions/ask.js";
 
-// claude's behind-the-scenes ask. `--no-session-persistence` makes the
-// run leave nothing behind — no transcript is written to the projects
-// directory at all (verified empirically against claude 2.1.289: the
-// only artifact is an empty per-directory folder, and glv lists
-// transcript files only), so there is nothing to clean up afterwards.
+// claude's behind-the-scenes ask. `--no-session-persistence` leaves
+// nothing behind: verified empirically against claude 2.1.289, no
+// transcript is written at all (the only artifact is an empty
+// per-directory folder, and glv lists transcript files only), so there
+// is nothing to clean up afterwards.
 //
 // `manual` permission mode is deliberate: a headless --print run can
 // never answer a permission prompt, so under "manual" any tool call the

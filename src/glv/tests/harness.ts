@@ -284,15 +284,11 @@ type MockConfig = {
   acpDelayMs?: number;
   /** When set, the agent never creates the session's data (row/transcript). */
   neverCreateSession?: boolean;
-  /**
-   * Output lines for an ephemeral (suggestions) invocation — the
-   * behind-the-scenes ask the suggestion watcher runs. Unset means the
-   * ephemeral invocation answers with the default reply line.
-   */
+  /** Output lines for an ephemeral (suggestions) invocation; unset → default. */
   ephemeralLines?: string[];
   /**
-   * Log file the mock agent appends one JSON line to per ephemeral
-   * invocation (its argv), so suites can count asks and assert flags.
+   * Log file the mock agent appends one JSON argv line to per ephemeral
+   * invocation, so suites can count asks and assert flags.
    */
   ephemeralLog?: string;
   /**
@@ -521,12 +517,11 @@ type FlavorFixture = {
    */
   readonly ephemeralTraceCount?: (env: IntegrationEnv) => number;
   /**
-   * A model pin the suggestions suite stores in the suggestions
-   * database and expects to land in the ephemeral ask's argv: the
-   * combined picker spelling, the flags it must produce, and an
-   * optional hook preparing a fake home the flavor's model source
-   * reads (goose writes its config.yaml there). Undefined skips the
-   * model-pin test.
+   * A model pin the suggestions suite stores via SQLite and expects to
+   * land in the ephemeral ask's argv: the combined picker spelling, the
+   * flags it must produce, and an optional hook preparing a fake home
+   * the flavor's model source reads (goose writes its config.yaml
+   * there). Undefined skips the model-pin test.
    */
   readonly suggestionModelPin?: {
     readonly value: string;
