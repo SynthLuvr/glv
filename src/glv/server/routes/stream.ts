@@ -11,7 +11,9 @@ import {
   isTerminalStatus,
   type RunHandle,
 } from "../../runner/index.js";
+import type { SessionRow } from "../../sessions.js";
 import { type MessageEntry, sessionEventData } from "../../sse-events.js";
+import { currentSuggestions } from "../../suggestions/view.js";
 import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
@@ -43,6 +45,12 @@ type PollState = {
   pendingTool: ToolRun | undefined;
   /** Identity of pendingTool as last emitted, for delta detection. */
   lastToolKey: string;
+  /** The session row as last read by pollDb (undefined once deleted). */
+  session: SessionRow | undefined;
+  /** Committed message count as last read by pollDb. */
+  msgCount: number;
+  /** Suggestions last emitted (JSON), for delta detection. */
+  lastSuggestions: string | undefined;
 };
 
 // Resume cursor: stream.lastEventId (auto-sent by EventSource on reconnect)
@@ -111,6 +119,10 @@ const pollDb = async (
   const messages = rows.map(parseMessage);
   let metaChanged = false;
   state.previewCleared = false;
+  // Stashed for the suggestions poll below — it reuses this read rather
+  // than re-querying the store.
+  state.session = session;
+  state.msgCount = rows.length;
 
   // New rows supersede the transient preview: append, then clear it.
   if (rows.length > state.snapshots.length) {
@@ -165,6 +177,33 @@ const pollDb = async (
   if (metaChanged) await emitMeta(stream, session, state.msgCursor);
 
   return true;
+};
+
+// Emits the visible suggestion set for the session's current turn when it
+// changes — the ask lands asynchronously, typically seconds after the turn
+// completes, so the strip must appear (or clear) without a page reload.
+// Reuses the session/message-count pollDb just stashed, so the check costs
+// one tiny sidecar read per poll, and only when the store is wired.
+const pollSuggestions = async (
+  stream: SseStream,
+  ctx: ServerContext,
+  state: PollState,
+): Promise<void> => {
+  if (ctx.suggestions === undefined) return;
+  const prompts = currentSuggestions(
+    ctx.suggestions,
+    state.session,
+    state.msgCount,
+  );
+  const serialized = JSON.stringify(prompts);
+  if (serialized === state.lastSuggestions) return;
+  state.lastSuggestions = serialized;
+  await emit(
+    stream,
+    "suggestions",
+    sessionEventData("suggestions", { prompts }),
+    state.msgCursor,
+  );
 };
 
 // Emits runner deltas — status/queue shifts, chained prompt cards, and NDJSON
@@ -261,6 +300,9 @@ const registerStreamRoutes = (
           flushedTerminal: false,
           pendingTool: pendingTool(baselineMessages),
           lastToolKey: "",
+          session: initial,
+          msgCount: baselineRows.length,
+          lastSuggestions: undefined,
         };
 
         const catchup = renderCatchup(baselineMessages, cursor);
@@ -298,6 +340,11 @@ const registerStreamRoutes = (
             state.msgCursor,
           );
 
+        // The strip may already exist (a page refresh mid-view) or have
+        // landed since the transcript rendered — reconcile on connect, so
+        // the two ends can never disagree.
+        await pollSuggestions(stream, ctx, state);
+
         let polls = 0;
         while (!stream.aborted && polls < ctx.maxTailPolls) {
           const probe = getHandle(ctx.runner, id);
@@ -307,6 +354,7 @@ const registerStreamRoutes = (
           if (stream.aborted) return;
           polls++;
           if (!(await pollDb(stream, ctx, id, state))) return;
+          await pollSuggestions(stream, ctx, state);
           await pollRunner(
             stream,
             ctx,

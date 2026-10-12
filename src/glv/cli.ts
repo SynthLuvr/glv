@@ -8,6 +8,7 @@ import { makeClaudeLauncher } from "../claude/launch.js";
 import { makeClaudeModelSource } from "../claude/models.js";
 import { claudeProfile } from "../claude/profile.js";
 import { resolveProjectsRoot } from "../claude/store/working-dir.js";
+import { makeClaudeEphemeralAsk } from "../claude/suggest.js";
 import { makeGooseAgent } from "../goose/agent.js";
 import {
   createSessionStore as createGooseStore,
@@ -18,6 +19,7 @@ import {
 import { makeGooseLauncher } from "../goose/launch.js";
 import { makeGooseModelSource } from "../goose/models.js";
 import { gooseProfile } from "../goose/profile.js";
+import { makeGooseEphemeralAsk } from "../goose/suggest.js";
 import * as cli from "./cli-shared.js";
 import { runList } from "./commands/list.js";
 import { type AgentServeSpec, runServe } from "./commands/serve.js";
@@ -27,6 +29,7 @@ import { createCompositeSessionStore } from "./composite-store.js";
 import { resolveDataPath } from "./db-path.js";
 import { openMetaDb } from "./session-meta.js";
 import type { SessionFilter, SessionStore } from "./sessions.js";
+import { resolveSuggestionsDbPath } from "./suggestions/db.js";
 
 // The merged product's composition root: one `glv` binary serving both
 // agents behind one login, one sidebar, and one schedule. This CLI is
@@ -45,6 +48,7 @@ const GlobalOpts = type({
   "groupsDb?": "string",
   "cronDb?": "string",
   "metaDb?": "string",
+  "suggestionsDb?": "string",
 });
 
 // Overrides for the glv-owned databases under the unified data directory.
@@ -54,6 +58,7 @@ type GlvDataOverrides = {
   readonly groupsDb?: string;
   readonly cronDb?: string;
   readonly metaDb?: string;
+  readonly suggestionsDb?: string;
 };
 
 // A bare binary name must be found on PATH; an explicit path must exist.
@@ -102,7 +107,8 @@ program
   .option("--prompts-db <path>", "saved prompts database path")
   .option("--groups-db <path>", "session groups database path")
   .option("--cron-db <path>", "scheduled runs database path")
-  .option("--meta-db <path>", "claude viewer metadata database path");
+  .option("--meta-db <path>", "claude viewer metadata database path")
+  .option("--suggestions-db <path>", "suggested next prompts database path");
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);
 
@@ -138,6 +144,8 @@ const gooseSpec = (
         gooseProfile.sessionTimeoutError,
         gooseProfile.id,
       ),
+    ephemeralAsk: (scratchDir) =>
+      makeGooseEphemeralAsk(gooseBinary, dbWritable, scratchDir),
     closeStore: () => {
       db.close();
       dbWritable.close();
@@ -168,6 +176,7 @@ const claudeSpec = (
         claudeProfile.sessionTimeoutError,
         claudeProfile.id,
       ),
+    ephemeralAsk: () => makeClaudeEphemeralAsk(claudeBinary),
     closeStore: () => meta.close(),
   };
 };
@@ -276,6 +285,10 @@ serveCmd.action((opts: Record<string, unknown>) => {
     promptsDbPath: paths.promptsDbPath,
     groupsDbPath: paths.groupsDbPath,
     cronDbPath: paths.cronDbPath,
+    suggestionsDbPath: resolveSuggestionsDbPath(
+      DATA_DIR,
+      globals.suggestionsDb,
+    ),
     ...cli.serveTail(opts),
   });
 });

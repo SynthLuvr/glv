@@ -51,6 +51,13 @@ const SessionStatusPayload = type({
 });
 type SessionStatusPayload = typeof SessionStatusPayload.infer;
 
+// Next-prompt suggestions for the session's current finished turn: the
+// prompts to render above the input box, or an empty array to clear
+// whatever is rendered. Emitted whenever the visible set changes — the
+// ask lands asynchronously, typically seconds after the turn completes.
+const SuggestionsPayload = type({ prompts: type.string.array() });
+type SuggestionsPayload = typeof SuggestionsPayload.infer;
+
 // ---- status feed (/events/status) ----
 
 // A plain list of session ids — the active-set snapshot on reconnect,
@@ -79,6 +86,7 @@ const SESSION_JSON_EVENTS = {
   rename: SessionRenamePayload,
   meta: MetaUpdate,
   status: SessionStatusPayload,
+  suggestions: SuggestionsPayload,
 } as const;
 
 // Server-rendered fragments that travel as raw HTML text, not JSON.
@@ -274,6 +282,7 @@ export type {
   SessionEventName,
   SessionRenamePayload,
   SessionStatusPayload,
+  SuggestionsPayload,
   ToolEventPayload,
 };
 export {

@@ -2,6 +2,10 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { mockBin } from "type-a-bin";
+import {
+  TWO_PROVIDER_CONFIG_YAML,
+  writeGooseConfig,
+} from "../../glv/tests/goose-config.js";
 import * as harness from "../../glv/tests/harness.js";
 
 // The goose flavor of the shared test harness: everything generic (SSE,
@@ -234,6 +238,41 @@ const gooseFixture: harness.FlavorFixture = {
       db.close();
     }
   },
+  // A resolvable pin for the suggestions model test: the fake-home
+  // goose config names the zai provider, so "zai:glm-5.1" resolves and
+  // the ask's argv carries goose's provider+model flag pair.
+  suggestionModelPin: {
+    value: "goose:zai:glm-5.1",
+    flags: ["--provider", "zai", "--model", "glm-5.1"],
+    prepareHome: (home) => writeGooseConfig(home, TWO_PROVIDER_CONFIG_YAML),
+  },
+  // goose's --no-session helper runs leave a hidden session row (and
+  // message rows); the product's cleanup sweep must leave none behind.
+  ephemeralTraceCount: (env) => {
+    const db = new DatabaseSync(env.dbs.flavor.sessionsDb, {
+      readOnly: true,
+    });
+    try {
+      const sessions = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sessions WHERE session_type = 'hidden'",
+        )
+        .get();
+      const messages = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM messages WHERE session_id IN " +
+            "(SELECT id FROM sessions WHERE session_type = 'hidden')",
+        )
+        .get();
+      const count = (row: unknown): number => {
+        if (typeof row !== "object" || row === null) return 0;
+        return "n" in row && typeof row.n === "number" ? row.n : 0;
+      };
+      return count(sessions) + count(messages);
+    } finally {
+      db.close();
+    }
+  },
   systemFlag: "--system",
   resumeFlag: "--session-id",
   binaryFlag: "--goose-binary",
@@ -249,7 +288,13 @@ const gooseFixture: harness.FlavorFixture = {
     sdb.close();
     return ["--goose-db", sessionsDb, "--goose-binary", "goose"];
   },
-  defaultDbFiles: ["auth.db", "prompts.db", "groups.db", "cron.db"],
+  defaultDbFiles: [
+    "auth.db",
+    "prompts.db",
+    "groups.db",
+    "cron.db",
+    "suggestions.db",
+  ],
 };
 
 export {

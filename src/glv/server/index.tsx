@@ -31,6 +31,7 @@ import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { registerSuggestionsRoutes } from "./routes/suggestions.js";
 import { registerTokenRoutes } from "./routes/tokens.js";
 
 const createApp = (
@@ -64,6 +65,7 @@ const createApp = (
     auth: opts.auth,
     prompts: opts.prompts,
     groups: opts.groups,
+    suggestions: opts.suggestions,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
     listDirs: opts.listDirs ?? listHomeDirs,
@@ -148,6 +150,7 @@ const createApp = (
     registerPromptRoutes(scope, ctx);
     registerCronRoutes(scope, ctx, cronOps);
     registerStreamRoutes(scope, ctx);
+    registerSuggestionsRoutes(scope, ctx);
     registerEventsRoutes(scope, ctx);
     registerTokenRoutes(scope, ctx);
     registerApiRoutes(scope, ctx, ops, cronOps);

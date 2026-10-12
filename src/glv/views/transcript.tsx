@@ -262,6 +262,32 @@ const QueuedPrompt = ({ prompt }: { prompt: string }) => (
 const isRunActive = (run: RunHandle | undefined): boolean =>
   run !== undefined && (run.status === "queued" || run.status === "running");
 
+// Next-prompt suggestions above the input row: one subdued, tappable
+// chip per suggestion; accepting fills the input, and typing or Escape
+// stands the chips down until the next turn's set arrives. Rendered
+// server-side inside the prompt bar so busy/idle bar swaps carry it
+// naturally, and swapped live by the stream's `suggestions` event when
+// the ask lands after the bar already rendered.
+const SuggestionsStrip = ({
+  suggestions,
+}: {
+  suggestions: readonly string[];
+}) => (
+  <div class="suggestion-strip" data-suggestions>
+    <span class="suggestion-label">Next, you could:</span>
+    {suggestions.map((prompt) => (
+      <button
+        type="button"
+        class="suggestion-chip"
+        data-suggestion
+        title={prompt}
+      >
+        {prompt}
+      </button>
+    ))}
+  </div>
+);
+
 const PromptBar = ({
   agentName,
   sessionId,
@@ -269,6 +295,7 @@ const PromptBar = ({
   uploadError,
   pendingTool: tool,
   focusPrompt,
+  suggestions,
 }: {
   agentName: string;
   sessionId: string;
@@ -279,6 +306,8 @@ const PromptBar = ({
   /** Focus the textarea when the bar lands via an htmx swap (a fresh
    * fork waits on its first prompt). */
   focusPrompt?: boolean;
+  /** Next-prompt suggestions for the current finished turn, if any. */
+  suggestions?: readonly string[];
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
@@ -316,6 +345,9 @@ const PromptBar = ({
         <p class="status-hint error" aria-live="polite">
           {uploadError}
         </p>
+      )}
+      {!busy && suggestions !== undefined && suggestions.length > 0 && (
+        <SuggestionsStrip suggestions={suggestions} />
       )}
       <UploadFields />
       <LocationFields />
@@ -364,6 +396,7 @@ const Transcript = ({
   uploadError,
   cronJob,
   focusPrompt,
+  suggestions,
 }: {
   agentName: string;
   session: SessionRow;
@@ -375,6 +408,8 @@ const Transcript = ({
   cronJob?: string;
   /** Focus the prompt bar when this transcript renders (a fresh fork). */
   focusPrompt?: boolean;
+  /** Next-prompt suggestions for the current finished turn, if any. */
+  suggestions?: readonly string[];
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
@@ -437,6 +472,7 @@ const Transcript = ({
         uploadError={uploadError}
         pendingTool={tool}
         focusPrompt={focusPrompt}
+        suggestions={suggestions}
       />
     </div>
   );

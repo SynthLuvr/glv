@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   type Browser,
   type BrowserContext,
@@ -7,6 +8,12 @@ import {
   expect,
   type Page,
 } from "@playwright/test";
+import { turnKeyOf } from "../src/glv/suggestions/ask.js";
+import {
+  openSuggestionsDb,
+  putSuggestions,
+  setSuggestionsEnabled,
+} from "../src/glv/suggestions/db.js";
 import {
   probeHeadlessRaster,
   startXvfbDisplay,
@@ -151,6 +158,38 @@ const captureProxy413 = async (
   await page.unroute("**/sessions");
 };
 
+// The suggested-next-prompts surface: the feature enabled, a stored
+// suggestion set for the seeded session's finished turn (seeded straight
+// into the viewer-owned store — the shot needs no live ask), the strip
+// above the input, and the accept flow's filled input.
+const captureSuggestions = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const db = openSuggestionsDb(env.dbs.suggestionsDb);
+  setSuggestionsEnabled(db, true);
+  putSuggestions(
+    db,
+    gooseFixture.viewId(SESSION_ID),
+    turnKeyOf({ id: SESSION_ID, updated_at: seededUpdatedAt(env) }, 2),
+    ["Run the test suite", "Commit these changes", "Explain what you did"],
+  );
+  db.close();
+
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await page.locator("[data-suggestions]").waitFor();
+  await capture(page, "suggestions-desktop.png", "form.prompt-bar");
+  await page.locator("[data-suggestion]").nth(1).click();
+  await expect(page.locator("textarea.prompt-input")).toHaveValue(
+    "Commit these changes",
+  );
+  await capture(page, "suggestions-accepted-desktop.png", "form.prompt-bar");
+  await context.close();
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -289,9 +328,30 @@ const captureForks = async (browser: Browser, env: IntegrationEnv) => {
   await context.close();
 };
 
+// The seeded session row's updated_at, as the goose store reads it —
+// the suggestion row's turn fingerprint must match it exactly or the
+// strip stays hidden.
+const seededUpdatedAt = (env: IntegrationEnv): string => {
+  const db = new DatabaseSync(env.dbs.flavor.sessionsDb, { readOnly: true });
+  try {
+    const row = db
+      .prepare("SELECT updated_at FROM sessions WHERE id = ?")
+      .get(SESSION_ID);
+    if (typeof row !== "object" || row === null)
+      throw new Error("seeded session row missing");
+    const { updated_at } = row;
+    if (typeof updated_at !== "string")
+      throw new Error("seeded session row has no updated_at");
+    return updated_at;
+  } finally {
+    db.close();
+  }
+};
+
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
+  await captureSuggestions(browser, env);
   await captureViews(browser, env);
   await captureTokens(browser, env);
   await captureForks(browser, env);

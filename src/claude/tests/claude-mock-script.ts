@@ -99,8 +99,33 @@ const commitLine = (sessionId: string, line: string, ts: number): void => {
   );
 };
 
+// Ephemeral-invocation helpers (the behind-the-scenes suggestions ask):
+// every invocation appends its argv to the ephemeral log, and output
+// lines come from the ephemeral fixture env. Real claude 2.1.289 writes
+// no transcript for `--no-session-persistence`, so none is simulated.
+const appendEphemeralLog = (args: string[]): void => {
+  const path = process.env.CLAUDE_MOCK_EPHEMERAL_LOG;
+  if (path === undefined || path === "") return;
+  appendFileSync(path, JSON.stringify(args) + "\n");
+};
+
+const ephemeralLines = (): string[] => {
+  const custom = process.env.CLAUDE_MOCK_EPHEMERAL_LINES ?? "";
+  if (custom === "") return [DEFAULT_LINE];
+  return custom.split("\n").filter((line) => line !== "");
+};
+
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
+
+  // The ephemeral suggestions ask: log, stream the fixture lines, write
+  // no transcript, exit.
+  if (args.includes("--no-session-persistence")) {
+    appendEphemeralLog(args);
+    await captureStdinTo("CLAUDE_MOCK_CAPTURE_STDIN");
+    await streamLines(ephemeralLines(), 0);
+    process.exit(0);
+  }
 
   // A --resume flag means a follow-up on an existing session; otherwise this
   // is a new session whose id glv pre-assigned via --session-id. Create

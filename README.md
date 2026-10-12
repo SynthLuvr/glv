@@ -63,6 +63,14 @@ the browser.
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
   Each job can pin the model its runs use (goose or a claude alias).
+- **Suggested next prompts.** When a session finishes a turn, GLV can
+  quietly ask the same assistant for a few good follow-up prompts and
+  offer them as one-tap suggestions above the input box. The ask is tiny
+  (just the tail of the conversation), happens at most once per finished
+  turn, never occupies the queue real prompts use, and leaves no session
+  behind — no sidebar entry, no transcript, no activity. Opt-in: the
+  lightbulb switch in the sidebar header turns it on and off (off by
+  default).
 - **Session management.** Rename sessions, fork a session — the whole
   transcript or from any message boundary — to explore a branch without
   touching the original (forks are ordinary sessions: rename, archive,
@@ -209,6 +217,11 @@ Options:
   (default `~/.local/share/glv/cron.db` on Linux/macOS
   (`%APPDATA%\glv\cron.db` on Windows), or `GLV_CRON_DB`).
 
+- `--suggestions-db <path>` — override the suggested-next-prompts
+  database location (default `~/.local/share/glv/suggestions.db` on
+  Linux/macOS (`%APPDATA%\glv\suggestions.db` on Windows), or
+  `GLV_SUGGESTIONS_DB`).
+
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
 
@@ -318,6 +331,25 @@ Phrasings that would fire more often than once a minute are rejected.
 
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
+
+### Suggested next prompts
+
+The feature is opt-in: the lightbulb switch in the sidebar header turns
+it on and off (off by default), stored in the suggestions database
+(`suggestions.db`).
+
+The model the background asks use is configured in the same database,
+not a flag — one `settings` row, in the combined picker spelling, read
+fresh so an edit applies without a restart:
+
+``` sh
+sqlite3 ~/.local/share/glv/suggestions.db \
+  "INSERT INTO settings (key, value) VALUES ('model', 'claude:claude:haiku') \
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+```
+
+A blank or missing value asks on each agent’s own default (goose: the
+default its config resolves).
 
 ## Authentication
 

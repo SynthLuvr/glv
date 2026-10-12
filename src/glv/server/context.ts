@@ -53,6 +53,8 @@ type ServerOptions = {
   auth?: AuthService;
   prompts?: DatabaseSync;
   groups?: DatabaseSync;
+  /** The suggestions store; optional so app-less tests work. */
+  suggestions?: DatabaseSync;
   rpName?: string;
   rpIdOverride?: string;
   /** Subprocess runner for `gh pr view`; tests inject a fake. */
@@ -99,6 +101,8 @@ type ServerContext = {
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;
   readonly groups: DatabaseSync | undefined;
+  /** The suggested-next-prompts store, when the server opened one. */
+  readonly suggestions: DatabaseSync | undefined;
   readonly rpName: string | undefined;
   readonly rpIdOverride: string | undefined;
   readonly listDirs: () => string[];
