@@ -309,8 +309,7 @@ const PromptBar = ({
   focusPrompt?: boolean;
   /** Next-prompt suggestions for the current finished turn, if any. */
   suggestions?: readonly string[];
-  /** Why the last run stopped early (persisted), when there is no live
-   * run error to show instead. */
+  /** Persisted stop-early notice, shown once the run handle is gone. */
   stopNotice?: string;
 }) => {
   const busy = isRunActive(run);
@@ -424,7 +423,7 @@ const Transcript = ({
   focusPrompt?: boolean;
   /** Next-prompt suggestions for the current finished turn, if any. */
   suggestions?: readonly string[];
-  /** Why the last run stopped early, when the run handle is gone. */
+  /** Persisted stop-early notice, shown once the run handle is gone. */
   stopNotice?: string;
 }) => {
   const visible = messages

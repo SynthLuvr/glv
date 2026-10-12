@@ -34,10 +34,6 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     return path;
   };
 
-  const ensureDir = (dir: string): void => {
-    mkdirSync(dir, { recursive: true });
-  };
-
   const startRun = (
     e: IntegrationEnv,
     id: string,
@@ -106,7 +102,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       linesFile: linesFileFor("refuse-exit.txt"),
     });
     for (const e of [env, envExit, envRefuseExit]) {
-      ensureDir(join(e.scratchDir, "w"));
+      mkdirSync(join(e.scratchDir, "w"), { recursive: true });
       fx.seedSessions(e, [
         { id: "limit-1", name: "Limit", workingDir: join(e.scratchDir, "w") },
         { id: "net-1", name: "Net", workingDir: join(e.scratchDir, "w") },
@@ -240,7 +236,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
         .filter((e) => e.event === "status")
         .map((e) => parseSseData(e.data))
         .find((data) => data.status === "error");
-      expect(error?.error).toContain(`exited with code 1`);
+      expect(error?.error).toContain("exited with code 1");
       expect(error?.error).not.toContain("Send a message to continue");
 
       // Live handle still explains the crash; a restart (handle gone)

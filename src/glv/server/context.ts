@@ -68,10 +68,10 @@ type ServerOptions = {
    */
   cronDb?: DatabaseSync;
   /**
-   * The stop-notices database: why a session's last run stopped early
-   * (provider usage limit, network outage), persisted beyond the run
-   * handle's lifetime so the session view can still explain it after a
-   * reload or restart. Optional so app-less tests work.
+   * Stop-notices database: why a session's last run stopped early,
+   * persisted beyond the run handle's lifetime so the view can still
+   * explain it after a reload or restart. Optional so app-less tests
+   * work.
    */
   stopNotices?: DatabaseSync;
   /**

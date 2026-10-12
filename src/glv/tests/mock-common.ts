@@ -9,9 +9,8 @@ const sleep = (ms: number): Promise<void> =>
 
 // The env-driven output lines: the default line when none is configured,
 // else the newline-joined custom lines (empty entries dropped). A lines
-// *file* (newline-joined) takes precedence and is re-read on every
-// invocation, so a suite can change the mock's script mid-run — refusal
-// lines for one prompt, a happy reply for the next.
+// *file* takes precedence and is re-read on every invocation, so one
+// environment can walk a suite through refusal and recovery.
 const linesFromEnv = (prefix: string, defaultLine: string): string[] => {
   const file = process.env[prefix + "_MOCK_LINES_FILE"];
   const custom =

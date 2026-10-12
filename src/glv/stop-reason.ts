@@ -7,21 +7,11 @@ import { JsonObject, parseJson } from "./parse.js";
 // stream. Both agents stream NDJSON and *print* their failure record —
 // goose `{"type":"error","error":"..."}` (crates/goose-cli session/mod.rs,
 // StreamEvent::Error; verified against goose 1.45.0, which emits it and
-// still exits 0), claude `{"type":"result","is_error":true,"result":..."}`
+// still exits 0), claude `{"type":"result","is_error":true,"result":...}`
 // (the headless failure "printed as the result on stdout" per its docs).
 // Neither record lands in the session transcript the viewer renders, so
 // without this classifier a refused run is indistinguishable from a clean
 // finish — the agent's own announcement evaporates with the live preview.
-
-// Kinds the UI words differently. The detail text always rides along so
-// the provider's own phrasing (including any reset time) survives.
-type StopReasonKind = "usage-limit" | "network" | "provider";
-
-type StopReason = {
-  readonly kind: StopReasonKind;
-  /** Human-facing notice, ready to store and render as-is. */
-  readonly notice: string;
-};
 
 // How many trailing stream lines to inspect. A refusal record is the
 // agent's last word (or nearly so — goose follows it with a "complete"
@@ -30,8 +20,8 @@ type StopReason = {
 const SCAN_LINES = 20;
 
 // The detail text is capped so a provider's embedded JSON error body
-// cannot turn the prompt bar into a wall of text; the reset time the
-// success criteria demand lives well inside the cap.
+// cannot turn the prompt bar into a wall of text; a reset time lives
+// well inside the cap.
 const DETAIL_MAX = 280;
 
 // goose names the record's field "error" in both spellings it has shipped
@@ -44,14 +34,12 @@ const ResultRecord = type({
   result: "string",
 });
 
-// The refusal text one stream line carries, when it is a failure record.
 const refusalDetail = (line: string): string | undefined => {
   const parsed = parseJson(line, JsonObject);
   if (!parsed.ok) return undefined;
-  const record = parsed.data;
-  const asError = ErrorRecord(record);
+  const asError = ErrorRecord(parsed.data);
   if (!(asError instanceof type.errors)) return asError.error;
-  const asResult = ResultRecord(record);
+  const asResult = ResultRecord(parsed.data);
   if (!(asResult instanceof type.errors)) return asResult.result;
   return undefined;
 };
@@ -66,43 +54,39 @@ const isNetworkFailure = (detail: string): boolean =>
     detail,
   );
 
-// Classifies by the provider's own words rather than trusting one keyword:
-// quota refusals and connection failures read differently in the UI, and
-// everything else stays honest as a plain provider error.
-const classify = (detail: string): StopReasonKind => {
-  if (isUsageLimit(detail)) return "usage-limit";
-  if (isNetworkFailure(detail)) return "network";
-  return "provider";
-};
+// Kinds the notice words differently; the provider's own phrasing rides
+// along so a reset time survives verbatim.
+type StopKind = "usage-limit" | "network" | "provider";
 
-const LEADS: Record<StopReasonKind, string> = {
+const LEADS: Record<StopKind, string> = {
   "usage-limit": "Session stopped early: provider usage limit reached.",
   network: "Session stopped early: provider network error.",
   provider: "Session stopped early: the run ended with an error.",
 };
 
+// Classifies by the provider's own words; anything unrecognized stays an
+// honest plain provider error.
+const classify = (detail: string): StopKind => {
+  if (isUsageLimit(detail)) return "usage-limit";
+  if (isNetworkFailure(detail)) return "network";
+  return "provider";
+};
+
 const noticeFor = (detail: string): string =>
   `${LEADS[classify(detail)]} ${truncate(detail, DETAIL_MAX)} Send a message to continue.`;
 
-// Inspects a run's stream output (oldest first, as buffered) for a
-// provider refusal the agent announced. Structured failure records only —
-// an assistant *message about* a rate limit is conversation, not a
-// refusal, and must not trip this. Both agents treat the failure record
-// as terminal for the run (goose emits it, breaks its reply loop, then
-// only prints its closing token-count record), so the newest match is
-// the run's verdict.
-const detectStopReason = (lines: readonly string[]): StopReason | undefined => {
-  for (
-    let i = lines.length - 1;
-    i >= 0 && i >= lines.length - SCAN_LINES;
-    i--
-  ) {
-    const detail = refusalDetail(lines[i] ?? "");
-    if (detail !== undefined && detail.trim() !== "")
-      return { kind: classify(detail), notice: noticeFor(detail) };
+// Inspects a run's buffered stream lines (oldest first) for a provider
+// refusal the agent announced, newest match first: both agents treat the
+// failure record as terminal, so it is the run's verdict. Structured
+// failure records only — an assistant *message about* a rate limit is
+// conversation, not a refusal, and must not trip this.
+const detectStopNotice = (lines: readonly string[]): string | undefined => {
+  const newestFirst = lines.slice(-SCAN_LINES).reverse();
+  for (const line of newestFirst) {
+    const detail = refusalDetail(line);
+    if (detail !== undefined && detail.trim() !== "") return noticeFor(detail);
   }
   return undefined;
 };
 
-export type { StopReason, StopReasonKind };
-export { detectStopReason };
+export { detectStopNotice };

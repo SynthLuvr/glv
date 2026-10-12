@@ -81,9 +81,9 @@ type RunHandle = {
   error: string | undefined;
   /**
    * Provider-refusal notice (usage limit, network outage, ...) detected
-   * on the run's stream. Unlike `error`, which describes any failure,
-   * this is set only for refusals the agent announced itself — the ones
-   * worth persisting beyond the handle's lifetime.
+   * on the run's stream — unlike `error`, set only for refusals the
+   * agent announced itself, the ones worth persisting beyond the
+   * handle's lifetime.
    */
   stopNotice: string | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
@@ -145,10 +145,9 @@ type Runner = {
   readonly onRunEnd: RunEndObserver | undefined;
 };
 
-// Notified each time a run settles (every process exit, and once more per
-// chained prompt). The server layer uses it to persist provider-refusal
-// notices beyond the handle's short terminal retention; the runner itself
-// stays free of storage concerns.
+// Notified each time a run settles — every process exit, and once more
+// per chained prompt. The server uses it to persist stop notices beyond
+// the handle's short terminal retention; the runner stays storage-free.
 type RunEndObserver = (handle: RunHandle) => void;
 
 export type {

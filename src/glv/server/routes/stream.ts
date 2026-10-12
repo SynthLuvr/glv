@@ -331,8 +331,8 @@ const registerStreamRoutes = (
             sessionEventData("status", {
               status: "idle",
               // No live handle, but a persisted stop-early notice still
-              // explains the last run — carried so a reconnecting client
-              // restores the hint instead of blanking it.
+              // explains the last run; carrying it lets a reconnecting
+              // client restore the hint instead of blanking it.
               error: stopNoticeFor(ctx, id) ?? null,
             }),
             state.msgCursor,

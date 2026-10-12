@@ -1,6 +1,6 @@
 import { type } from "arktype";
 import { execa } from "execa";
-import { detectStopReason } from "../stop-reason.js";
+import { detectStopNotice } from "../stop-reason.js";
 import type {
   InternalHandle,
   Invocation,
@@ -96,6 +96,49 @@ const startStopEscalation = (
   return () => clearInterval(poll);
 };
 
+// execa's stream iterator rejects once the final line has been yielded
+// whenever the process exits non-zero — claude does exactly that after
+// printing its failure record. The record is already buffered by then, so
+// the drain returns the error instead of throwing and the exit verdict
+// below still runs; runProcess rethrows it only when the exit result
+// carries no code, so a spawn failure keeps its original message.
+const drainStdout = async (
+  proc: SpawnedProcess,
+  handle: InternalHandle,
+): Promise<unknown> => {
+  try {
+    for await (const line of proc.stdout) {
+      if (handle.status === "stopped") break;
+      handle.output.push(line);
+    }
+  } catch (err) {
+    return err;
+  }
+};
+
+// A provider refusal announced on the run's stream outranks the exit
+// code: goose 1.45.0 prints its usage-limit error record and still exits
+// 0, so the code alone would read as a clean finish — the silent stop
+// this corrects. A detected refusal becomes a run error carrying the
+// notice (reset time included); exit codes keep explaining themselves
+// when the stream said nothing.
+const settleRun = (
+  handle: InternalHandle,
+  result: ProcessResult,
+  firstSeq: number,
+): void => {
+  const notice = detectStopNotice(handle.output.drain(firstSeq).lines);
+  if (notice !== undefined) {
+    handle.status = "error";
+    handle.error = notice;
+    handle.stopNotice = notice;
+  } else {
+    handle.status = result.exitCode === 0 ? "completed" : "error";
+    if (result.exitCode !== 0)
+      handle.error = describeFailure(result, handle.agent.name);
+  }
+};
+
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
@@ -126,43 +169,11 @@ const runProcess = async (
     runner.config.stopGraceMs,
   );
   try {
-    // execa's stream iterator rejects once the final line has been
-    // yielded whenever the process exits non-zero — claude does exactly
-    // that after printing its failure record. The drain must not let
-    // that rejection preempt the verdict below (the refusal record is
-    // already buffered by then); it only remembers the error for the
-    // case where no process ever ran, so a spawn failure keeps its
-    // original message.
-    let drainError: unknown;
-    try {
-      for await (const line of proc.stdout) {
-        if (handle.status === "stopped") break;
-        handle.output.push(line);
-      }
-    } catch (err) {
-      drainError = err;
-    }
-
+    const drainError = await drainStdout(proc, handle);
     const result = await proc.exit;
     if (handle.status === "stopped") return;
     if (result.exitCode === null && drainError !== undefined) throw drainError;
-
-    // A provider refusal the agent announced on its stream outranks the
-    // exit code: goose 1.45.0 prints its usage-limit error record and
-    // still exits 0, so the code alone reads as a clean finish — the
-    // silent stop this corrects. A detected refusal is surfaced as a run
-    // error carrying the human notice (reset time included), while exit
-    // codes keep explaining themselves when the stream said nothing.
-    const refusal = detectStopReason(handle.output.drain(firstSeq).lines);
-    if (refusal !== undefined) {
-      handle.status = "error";
-      handle.error = refusal.notice;
-      handle.stopNotice = refusal.notice;
-    } else {
-      handle.status = result.exitCode === 0 ? "completed" : "error";
-      if (result.exitCode !== 0)
-        handle.error = describeFailure(result, handle.agent.name);
-    }
+    settleRun(handle, result, firstSeq);
   } finally {
     stopEscalation();
   }

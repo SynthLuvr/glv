@@ -253,10 +253,10 @@ type MockConfig = {
   /** NDJSON lines to emit (newline-joined); default is a single reply. */
   lines?: string[];
   /**
-   * Path the mock re-reads for its output lines on every invocation
-   * (newline-joined), letting one environment change behaviour between
-   * runs — refusal lines for one prompt, a happy reply for the next.
-   * Takes precedence over `lines`.
+   * Output-lines file (newline-joined) re-read on every invocation, so
+   * one environment can change behaviour between runs — refusal lines
+   * for one prompt, a happy reply for the next. Takes precedence over
+   * `lines`.
    */
   linesFile?: string;
   /** Name written into a new session (ai-title row/line). */
@@ -475,9 +475,8 @@ type FlavorFixture = {
   /** One NDJSON preview line in the flavor's stream dialect. */
   readonly streamLine: (text: string) => string;
   /**
-   * One NDJSON failure record in the flavor's stream dialect — the
-   * shape the agent prints when the provider refuses service (a usage
-   * limit, a network outage) and the viewer must classify.
+   * One NDJSON failure record in the flavor's stream dialect — the shape
+   * the agent prints when the provider refuses service.
    */
   readonly refusalRecord: (detail: string) => string;
   /** One NDJSON line in the foreign envelope — the viewer must drop it. */
