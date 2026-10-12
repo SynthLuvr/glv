@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import type { Socket } from "node:net";
+import type { DatabaseSync } from "node:sqlite";
 import { openAuthDb } from "../auth/db.js";
 import { makeAuthService } from "../auth/service.js";
 import { buildAssets } from "../build.js";
@@ -40,7 +41,7 @@ import type { AgentRuntime } from "../server/context.js";
 import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
 import type { EphemeralAsk } from "../suggestions/ask.js";
-import { openSuggestionsDb } from "../suggestions/db.js";
+import { getSuggestionModel, openSuggestionsDb } from "../suggestions/db.js";
 import { createSuggestionService } from "../suggestions/service.js";
 
 // One agent's wiring as a serve caller provides it: the flavor adapters
@@ -83,14 +84,8 @@ type ServeOpts = {
   promptsDbPath: string;
   groupsDbPath: string;
   cronDbPath: string;
-  /** The suggested-next-prompts store (setting + rows). */
+  /** The suggested-next-prompts store (setting + rows, model pin). */
   suggestionsDbPath: string;
-  /**
-   * A pinned model for suggestion asks, in the combined picker's
-   * spelling ("<agent>:<model value>"); unset asks on each agent's own
-   * default.
-   */
-  suggestionsModel?: string;
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
@@ -101,16 +96,19 @@ type CloseableServer = {
   close: (callback?: (err?: Error) => void) => void;
 };
 
-// The pinned model an agent's suggestion asks use, from the combined
-// picker spelling ("<agent>:<model value>"); a pin that no longer
-// resolves against the live catalogue warns once and falls back to the
-// agent's own default - a misconfiguration degrades, never breaks.
+// The pinned model an agent's suggestion asks use, read fresh from the
+// suggestions store's settings row each ask (combined picker spelling,
+// "<agent>:<model value>"); a pin that no longer resolves against the
+// live catalogue warns once and falls back to the agent's own default
+// (goose: whatever its config resolves) - a misconfiguration degrades,
+// never breaks.
 const makeSuggestionModelResolver = (
   runtimes: readonly AgentRuntime[],
-  pinned: string | undefined,
+  db: DatabaseSync,
 ): ((agentId: string) => ModelSelection | undefined) => {
   const warned = new Set<string>();
   return (agentId) => {
+    const pinned = getSuggestionModel(db);
     if (pinned === undefined) return undefined;
     const pick = decodeAgentModelValue(pinned);
     if (pick.kind !== "pick" || pick.agent !== agentId) return undefined;
@@ -283,7 +281,7 @@ const runServe = (opts: ServeOpts): void => {
       opts.agents
         .find((spec) => spec.profile.id === agentId)
         ?.ephemeralAsk(suggestionsScratch),
-    modelFor: makeSuggestionModelResolver(runtimes, opts.suggestionsModel),
+    modelFor: makeSuggestionModelResolver(runtimes, suggestionsDb),
   });
 
   const authDb = openAuthDb(opts.authDbPath);

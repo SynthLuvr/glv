@@ -244,11 +244,6 @@ const serveCmd = program
     "max concurrent agent runs across both agents",
     cli.parsePositiveInt,
     6,
-  )
-  .option(
-    "--suggestions-model <value>",
-    "model for suggested next prompts, in the combined picker spelling " +
-      '(e.g. "claude:haiku"); defaults to each agent\'s own default',
   );
 
 cli.addServeTailOptions(serveCmd);
@@ -294,10 +289,6 @@ serveCmd.action((opts: Record<string, unknown>) => {
       DATA_DIR,
       globals.suggestionsDb,
     ),
-    suggestionsModel:
-      typeof opts.suggestionsModel === "string" && opts.suggestionsModel !== ""
-        ? opts.suggestionsModel
-        : undefined,
     ...cli.serveTail(opts),
   });
 });

@@ -520,6 +520,19 @@ type FlavorFixture = {
    * when the flavor's helper runs are trace-free by construction.
    */
   readonly ephemeralTraceCount?: (env: IntegrationEnv) => number;
+  /**
+   * A model pin the suggestions suite stores in the suggestions
+   * database and expects to land in the ephemeral ask's argv: the
+   * combined picker spelling, the flags it must produce, and an
+   * optional hook preparing a fake home the flavor's model source
+   * reads (goose writes its config.yaml there). Undefined skips the
+   * model-pin test.
+   */
+  readonly suggestionModelPin?: {
+    readonly value: string;
+    readonly flags: readonly string[];
+    readonly prepareHome?: (home: string) => void;
+  };
   /** Flavor-specific extra assertions on a new run's captured argv. */
   readonly assertNewRunArgs?: (args: string[]) => void;
   /** Flavor-specific extra assertions on a resume run's captured argv. */

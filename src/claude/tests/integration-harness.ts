@@ -239,6 +239,13 @@ const claudeFixture: harness.FlavorFixture = {
     const path = findSessionFile(env.dbs.flavor.projectsDir, id);
     return path === undefined ? "" : readFileSync(path, "utf8");
   },
+  // A resolvable pin for the suggestions model test: claude's source
+  // resolves the documented alias statically, so "claude:haiku" needs
+  // no config and lands as a single --model flag.
+  suggestionModelPin: {
+    value: "claude:claude:haiku",
+    flags: ["--model", "haiku"],
+  },
   systemFlag: "--append-system-prompt",
   resumeFlag: "--resume",
   binaryFlag: "--claude-binary",

@@ -128,19 +128,21 @@ const runTurn = async (
 };
 
 // Boots an environment with the ephemeral ask scripted, the feature's
-// test poll interval, and a fresh invocation log.
+// test poll interval, and a fresh invocation log. `homeDir` optionally
+// fakes the home the server (and its model source) reads.
 const startSuggestionEnv = async (
   fx: FlavorFixture,
   prefix: string,
   ephemeralLines: string[],
   extra: Record<string, string | number> = {},
+  homeDir?: string,
 ): Promise<{ env: IntegrationEnv; log: string; logDir: string }> => {
   const logDir = mkdtempSync(join(tmpdir(), `${prefix}log-`));
   const log = join(logDir, "ephemeral.log");
   const env = await fx.startEnv(
     prefix,
     { writeDb: true, ephemeralLines, ephemeralLog: log, ...extra },
-    undefined,
+    homeDir,
     { GLV_SUGGESTIONS_POLL_MS: "100" },
   );
   return { env, log, logDir };
@@ -228,6 +230,9 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
           args.includes("--no-session") ||
             args.includes("--no-session-persistence"),
         ).toBe(true);
+        // No pin configured: the ask runs on the agent's own default,
+        // which means no model flag reaches the binary.
+        expect(args).not.toContain("--model");
         if (fx.ephemeralTraceCount !== undefined)
           expect(fx.ephemeralTraceCount(env)).toBe(0);
 
@@ -309,6 +314,56 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         expect(ephemeralInvocations(log)).toHaveLength(before);
         const bar = await waitForBar(env, fx.viewId("cron-tagged"));
         expect(bar).not.toContain("suggestion-strip");
+      });
+    });
+
+    describe("model pin", () => {
+      const pin = fx.suggestionModelPin;
+      // Skipped wholesale when the flavor offers no resolvable pin.
+      if (pin === undefined) return;
+
+      let env: IntegrationEnv;
+      let log: string;
+      let logDir: string;
+      let homeDir: string;
+
+      beforeAll(async () => {
+        homeDir = mkdtempSync(join(tmpdir(), "glv-sugg-model-home-"));
+        pin.prepareHome?.(homeDir);
+        const started = await startSuggestionEnv(
+          fx,
+          "glv-suggestions-model-",
+          [ephemeralReplyLine(SUGGESTIONS)],
+          {},
+          homeDir,
+        );
+        env = started.env;
+        log = started.log;
+        logDir = started.logDir;
+        // The pin, stored the way the settings row documents it —
+        // the same SQLite contract an operator or future UI writes.
+        const db = new DatabaseSync(env.dbs.suggestionsDb);
+        db.exec("PRAGMA busy_timeout=5000");
+        db.prepare(
+          "INSERT INTO settings (key, value) VALUES ('model', ?) " +
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ).run(pin.value);
+        db.close();
+      }, 180000);
+
+      afterAll(async () => {
+        await env?.cleanup();
+        rmScratch(logDir);
+        rmScratch(homeDir);
+      });
+
+      it("asks on the pinned model, read from the settings row", async () => {
+        await enableSuggestions(env);
+        await runTurn(env, "a turn with a pinned suggestion model");
+        await waitForInvocations(log, 1);
+
+        const args = ephemeralInvocations(log)[0];
+        for (const flag of pin.flags) expect(args).toContain(flag);
       });
     });
 

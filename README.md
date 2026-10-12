@@ -222,10 +222,6 @@ Options:
   Linux/macOS (`%APPDATA%\glv\suggestions.db` on Windows), or
   `GLV_SUGGESTIONS_DB`).
 
-- `--suggestions-model <value>` — pin the model suggestion asks use, in
-  the combined picker spelling (e.g. `claude:haiku`); by default each
-  agent answers on its own configured model.
-
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
 
@@ -335,6 +331,25 @@ Phrasings that would fire more often than once a minute are rejected.
 
 - `GLV_CRON_SESSION_TIMEOUT_MS` (default 60000) bounds how long a fire
   waits for the agent to create its session before the run is stopped.
+
+### Suggested next prompts
+
+The feature is opt-in: the lightbulb switch in the sidebar header turns
+it on and off (off by default), stored in the suggestions database
+(`suggestions.db`).
+
+The model the background asks use is configured in the same database,
+not a flag — one `settings` row, in the combined picker spelling, read
+fresh so an edit applies without a restart:
+
+``` sh
+sqlite3 ~/.local/share/glv/suggestions.db \
+  "INSERT INTO settings (key, value) VALUES ('model', 'claude:claude:haiku') \
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+```
+
+A blank or missing value asks on each agent’s own default (goose: the
+default its config resolves).
 
 ## Authentication
 

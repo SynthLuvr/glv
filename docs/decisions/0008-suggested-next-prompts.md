@@ -88,10 +88,14 @@ so **the same finished turn is never asked twice**, even across page
 refreshes. Every failure path fails silently: suggestions are a bonus,
 never a new way to show an error.
 
-A pinned cheap model can be configured per agent at serve time
-(`--suggestions-model`, the combined picker spelling); by default each
-agent answers on its own configured model, because provider and model
-names are user-specific.
+The model the asks use is configured in the same database, not a flag:
+the `model` settings row holds one combined picker spelling
+(“<agent>:<model value>”), read fresh per ask so an edit applies without
+a restart. A pin that no longer resolves against the live catalogue
+warns once and falls back to the agent’s own default. By default (unset
+or blank) each agent answers on its own configured model — goose:
+whatever its config resolves — because provider and model names are
+user-specific.
 
 ### Delivery
 
