@@ -10,7 +10,7 @@ import {
   flagValue,
   type IntegrationEnv,
   seedApiToken,
-  waitForArgs,
+  waitForFile,
   withPage,
 } from "../harness.js";
 
@@ -171,14 +171,18 @@ const runSessionForkSuite = (fx: FlavorFixture): void => {
       expect(body.id).not.toBe(fx.viewId("fk-src"));
 
       // The mock agent resumes the fork id — the run is recorded under
-      // the copy, exactly like a real follow-up.
-      const args = await waitForArgs(join(env.scratchDir, "args.json"));
+      // the copy, exactly like a real follow-up. The capture read waits
+      // for a settled file (mid-write reads must not leak in) and as
+      // patiently as the boot helpers — a loaded shard can push a cold
+      // mock spawn past many seconds.
+      const argsText = await waitForFile(join(captureDir, "args.json"), 90_000);
+      const args = JSON.parse(argsText) as string[];
       expect(flagValue(args, fx.resumeFlag)).toBe(nativeOf(body.id));
 
       // The reply lands in the fork once the run finishes.
       await expect
         .poll(async () => messageTexts(await readApi(body.id)), {
-          timeout: 30000,
+          timeout: 60000,
         })
         .toContain(fx.mockReply);
 
@@ -321,7 +325,7 @@ const runSessionForkSuite = (fx: FlavorFixture): void => {
       // what the copy found.
       await expect
         .poll(async () => messageTexts(await readApi(fx.viewId("fk-src"))), {
-          timeout: 30000,
+          timeout: 60000,
         })
         .toContain(fx.mockReply);
       const forkAfter = await readApi(body.id);
@@ -360,7 +364,15 @@ const runSessionForkSuite = (fx: FlavorFixture): void => {
       const source = await authedFetch(env, `/sessions/${fx.viewId("fk-src")}`);
       expect(source.status).toBe(200);
       const sourceBody = await readApi(fx.viewId("fk-src"));
-      expect(messageTexts(sourceBody)).toHaveLength(4);
+      // The earlier running-session test appends its reply to the source,
+      // so the invariant is the seeded prefix in order — deleting the fork
+      // never touches the source's own history.
+      expect(messageTexts(sourceBody).slice(0, 4)).toEqual([
+        "first prompt",
+        "first reply",
+        "second prompt",
+        "second reply",
+      ]);
     });
   });
 
