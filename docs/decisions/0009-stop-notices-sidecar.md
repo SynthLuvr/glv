@@ -1,4 +1,4 @@
-# Decision 0008: stop-early notices in a viewer-owned sidecar
+# Decision 0009: stop-early notices in a viewer-owned sidecar
 
 Date: 2026-10-12
 
