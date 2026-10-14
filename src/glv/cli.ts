@@ -29,6 +29,7 @@ import { createCompositeSessionStore } from "./composite-store.js";
 import { resolveDataPath } from "./db-path.js";
 import { openMetaDb } from "./session-meta.js";
 import type { SessionFilter, SessionStore } from "./sessions.js";
+import { resolveStopNoticesDbPath } from "./stop-notices.js";
 import { resolveSuggestionsDbPath } from "./suggestions/db.js";
 
 // The merged product's composition root: one `glv` binary serving both
@@ -49,6 +50,7 @@ const GlobalOpts = type({
   "cronDb?": "string",
   "metaDb?": "string",
   "suggestionsDb?": "string",
+  "stopNoticesDb?": "string",
 });
 
 // Overrides for the glv-owned databases under the unified data directory.
@@ -59,6 +61,7 @@ type GlvDataOverrides = {
   readonly cronDb?: string;
   readonly metaDb?: string;
   readonly suggestionsDb?: string;
+  readonly stopNoticesDb?: string;
 };
 
 // A bare binary name must be found on PATH; an explicit path must exist.
@@ -108,7 +111,8 @@ program
   .option("--groups-db <path>", "session groups database path")
   .option("--cron-db <path>", "scheduled runs database path")
   .option("--meta-db <path>", "claude viewer metadata database path")
-  .option("--suggestions-db <path>", "suggested next prompts database path");
+  .option("--suggestions-db <path>", "suggested next prompts database path")
+  .option("--stop-notices-db <path>", "run stop-notice database path");
 
 const globalOpts = () => cli.readGlobalOpts(program, GlobalOpts);
 
@@ -117,6 +121,7 @@ const glvDbPaths = (globals: GlvDataOverrides) => ({
   promptsDbPath: cli.resolvePromptsDbPath(DATA_DIR, globals.promptsDb),
   groupsDbPath: cli.resolveGroupsDbPath(DATA_DIR, globals.groupsDb),
   cronDbPath: cli.resolveCronDbPath(DATA_DIR, globals.cronDb),
+  stopNoticesDbPath: resolveStopNoticesDbPath(DATA_DIR, globals.stopNoticesDb),
   claudeMetaDbPath: resolveDataPath(
     globals.metaDb,
     "GLV_META_DB",
@@ -289,6 +294,7 @@ serveCmd.action((opts: Record<string, unknown>) => {
       DATA_DIR,
       globals.suggestionsDb,
     ),
+    stopNoticesDbPath: paths.stopNoticesDbPath,
     ...cli.serveTail(opts),
   });
 });

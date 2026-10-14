@@ -296,6 +296,7 @@ const PromptBar = ({
   pendingTool: tool,
   focusPrompt,
   suggestions,
+  stopNotice,
 }: {
   agentName: string;
   sessionId: string;
@@ -308,9 +309,20 @@ const PromptBar = ({
   focusPrompt?: boolean;
   /** Next-prompt suggestions for the current finished turn, if any. */
   suggestions?: readonly string[];
+  /** Persisted stop-early notice, shown once the run handle is gone. */
+  stopNotice?: string;
 }) => {
   const busy = isRunActive(run);
   const pendingCount = run?.pendingPrompts.length ?? 0;
+  // A live run error (provider refusal included) is the freshest wording;
+  // once the handle is gone — evicted after its retention window, or a
+  // server restart — the persisted notice explains the same stop.
+  const stopEarly =
+    run?.status === "error" && run.error !== undefined
+      ? run.error
+      : busy
+        ? undefined
+        : stopNotice;
   return (
     <form
       class="prompt-bar"
@@ -336,9 +348,9 @@ const PromptBar = ({
           {queuedSuffix(pendingCount)}
         </p>
       )}
-      {run?.status === "error" && run.error !== undefined && (
+      {stopEarly !== undefined && (
         <p class="status-hint error" aria-live="polite">
-          {run.error}
+          {stopEarly}
         </p>
       )}
       {uploadError !== undefined && (
@@ -397,6 +409,7 @@ const Transcript = ({
   cronJob,
   focusPrompt,
   suggestions,
+  stopNotice,
 }: {
   agentName: string;
   session: SessionRow;
@@ -410,6 +423,8 @@ const Transcript = ({
   focusPrompt?: boolean;
   /** Next-prompt suggestions for the current finished turn, if any. */
   suggestions?: readonly string[];
+  /** Persisted stop-early notice, shown once the run handle is gone. */
+  stopNotice?: string;
 }) => {
   const visible = messages
     .map((message, index) => ({ message, index }))
@@ -473,6 +488,7 @@ const Transcript = ({
         pendingTool={tool}
         focusPrompt={focusPrompt}
         suggestions={suggestions}
+        stopNotice={stopNotice}
       />
     </div>
   );

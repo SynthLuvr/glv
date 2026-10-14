@@ -68,6 +68,13 @@ type ServerOptions = {
    */
   cronDb?: DatabaseSync;
   /**
+   * Stop-notices database: why a session's last run stopped early,
+   * persisted beyond the run handle's lifetime so the view can still
+   * explain it after a reload or restart. Optional so app-less tests
+   * work.
+   */
+  stopNotices?: DatabaseSync;
+  /**
    * Nudges the cron scheduler to re-read the job table; the UI routes
    * call it after every mutation so edits apply instantly.
    */
@@ -114,6 +121,7 @@ type ServerContext = {
   readonly runPrState: CommandRunner | undefined;
   readonly runGit: GitRunner | undefined;
   readonly cronDb: DatabaseSync | undefined;
+  readonly stopNotices: DatabaseSync | undefined;
   readonly onCronJobsChange: (() => void) | undefined;
   readonly assets: AssetBundle;
 };

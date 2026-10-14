@@ -36,10 +36,15 @@ import {
   type RunnerConfig,
   stopAll,
 } from "../runner/index.js";
-import type { AgentInvocation } from "../runner/types.js";
+import type { AgentInvocation, RunHandle } from "../runner/types.js";
 import type { AgentRuntime } from "../server/context.js";
 import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
+import {
+  clearStopNotice,
+  openStopNoticesDb,
+  recordStopNotice,
+} from "../stop-notices.js";
 import type { EphemeralAsk } from "../suggestions/ask.js";
 import { getSuggestionModel, openSuggestionsDb } from "../suggestions/db.js";
 import { createSuggestionService } from "../suggestions/service.js";
@@ -86,6 +91,7 @@ type ServeOpts = {
   cronDbPath: string;
   /** The suggested-next-prompts store (setting + rows, model pin). */
   suggestionsDbPath: string;
+  stopNoticesDbPath: string;
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
@@ -208,9 +214,25 @@ const registerShutdown = (
 const runServe = (opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.assetsFlavor);
+  // The stop-notices sidecar: provider-refusal notices (usage limit,
+  // network outage — failures the agent announces on its own stream)
+  // outlive the run handle so the session view can still explain the
+  // stop after a reload or restart. Opened before the runner so the
+  // observer never races it.
+  const stopNotices = openStopNoticesDb(opts.stopNoticesDbPath);
+  // A refusal is recorded for the session; a clean settle or manual stop
+  // clears the row ("continue" resolves the outage). A plain crash —
+  // error status, no stopNotice — keeps today's transient treatment:
+  // the message exists only while the handle does.
+  const syncStopNotice = (handle: RunHandle): void => {
+    if (handle.stopNotice !== undefined)
+      recordStopNotice(stopNotices, handle.sessionId, handle.stopNotice);
+    else if (handle.status !== "error")
+      clearStopNotice(stopNotices, handle.sessionId);
+  };
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.
-  const runner = createRunner(opts.runner);
+  const runner = createRunner(opts.runner, undefined, syncStopNotice);
   const runtimes: AgentRuntime[] = opts.agents.map((spec) => ({
     id: spec.profile.id,
     profile: spec.profile,
@@ -295,6 +317,7 @@ const runServe = (opts: ServeOpts): void => {
     groups: groupsDb,
     cronDb,
     suggestions: suggestionsDb,
+    stopNotices,
     onCronJobsChange: cron.reload,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
@@ -329,6 +352,7 @@ const runServe = (opts: ServeOpts): void => {
     groupsDb.close();
     cronDb.close();
     suggestionsDb.close();
+    stopNotices.close();
   };
 
   // Last-resort synchronous reap: fires on any JS-executing exit but not

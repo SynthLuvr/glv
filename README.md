@@ -47,6 +47,11 @@ the browser.
 - **Queued follow-ups.** While a session is running you can queue
   follow-up prompts that chain together once the current run finishes.
   Runs are governed by a concurrency-limited queue (six by default).
+- **Stop-early notices.** When the provider refuses to serve a session —
+  a usage limit (reset time included) or a network outage — the session
+  view says why the run stopped early and that sending a message
+  continues it. The notice survives closing and reopening the session
+  and clears itself once the session runs again.
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
   database and streams only the deltas, so you can keep an eye on a run
@@ -221,6 +226,15 @@ Options:
   database location (default `~/.local/share/glv/suggestions.db` on
   Linux/macOS (`%APPDATA%\glv\suggestions.db` on Windows), or
   `GLV_SUGGESTIONS_DB`).
+
+- `--stop-notices-db <path>` — override the stop-notice database
+  location (default `~/.local/share/glv/stop-notices.db` on Linux/macOS
+  (`%APPDATA%\glv\stop-notices.db` on Windows), or
+  `GLV_STOP_NOTICES_DB`). When a provider refuses to serve a session — a
+  usage limit (with its reset time) or a network outage — the session
+  view explains why the run stopped early and that sending a message
+  continues it; the notice survives reloads and restarts and clears
+  itself once the session runs again.
 
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).

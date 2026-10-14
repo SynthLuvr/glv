@@ -176,6 +176,9 @@ const gooseFixture: harness.FlavorFixture = {
       role: "assistant",
       content: [{ type: "text", text }],
     }),
+  // goose's stream-json failure record (StreamEvent::Error, snake_case
+  // tag since 1.x; goose 1.45.0 prints it and still exits 0).
+  refusalRecord: (detail) => JSON.stringify({ type: "error", error: detail }),
   // The foreign dialect for goose is claude's message-nested envelope.
   foreignLine: JSON.stringify({
     type: "assistant",
@@ -294,6 +297,7 @@ const gooseFixture: harness.FlavorFixture = {
     "groups.db",
     "cron.db",
     "suggestions.db",
+    "stop-notices.db",
   ],
 };
 

@@ -5,6 +5,7 @@ import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { removeMember } from "../../groups/db.js";
 import { clearPending, getHandle, stop } from "../../runner/index.js";
 import type { SessionRow } from "../../sessions.js";
+import { clearStopNotice } from "../../stop-notices.js";
 import { forgetSession } from "../../suggestions/db.js";
 import { currentSuggestions } from "../../suggestions/view.js";
 import { ModelSelect } from "../../views/new-session.js";
@@ -23,7 +24,7 @@ import {
   renderNotFound,
   sidebarEntries,
 } from "../render.js";
-import { activeRunPrompt } from "../session.js";
+import { activeRunPrompt, stopNoticeFor } from "../session.js";
 import { activeSessionIds } from "../status.js";
 import { deleteTempDir, deleteUploads } from "../uploads.js";
 
@@ -113,6 +114,7 @@ const registerSessionRoutes = (
           session,
           messages.length,
         )}
+        stopNotice={includeRun ? stopNoticeFor(ctx, id) : undefined}
       />,
       { refreshSidebar, title: sessionTitle(session.name) },
     );
@@ -253,6 +255,7 @@ const registerSessionRoutes = (
             session,
             messages.length,
           )}
+          stopNotice={stopNoticeFor(ctx, id)}
         />,
       );
     },
@@ -287,6 +290,7 @@ const registerSessionRoutes = (
       if (ctx.groups !== undefined) removeMember(ctx.groups, id);
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
       if (ctx.suggestions !== undefined) forgetSession(ctx.suggestions, id);
+      if (ctx.stopNotices !== undefined) clearStopNotice(ctx.stopNotices, id);
       deleteUploads(ctx.dataDirName, id);
       deleteTempDir(ctx.dataDirName, id);
       return newSessionLanding(request, reply);

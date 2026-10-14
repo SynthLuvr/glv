@@ -14,6 +14,7 @@ import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
 import type {
   AgentInvocation,
   ProcessResult,
+  RunEndObserver,
   RunHandle,
   Runner,
   RunnerConfig,
@@ -27,6 +28,7 @@ export type {
   AgentInvocation,
   LineBuffer,
   ProcessResult,
+  RunEndObserver,
   RunHandle,
   Runner,
   RunnerConfig,

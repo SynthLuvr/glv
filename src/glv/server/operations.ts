@@ -11,6 +11,7 @@ import {
 import { bumpUsage } from "../prompts/db.js";
 import { enqueueOrQueue, getHandle, stop } from "../runner/index.js";
 import type { SessionRow } from "../sessions.js";
+import { clearStopNotice } from "../stop-notices.js";
 import type { AgentRuntime, ServerContext } from "./context.js";
 import { firstString } from "./forms.js";
 import { buildLocationContext, parseSharedLocation } from "./location.js";
@@ -328,6 +329,11 @@ const createSessionOperations = (ctx: ServerContext) => {
       fullPrompt,
       session.working_dir,
     );
+
+    // Continuing the session resolves whatever the last run's notice
+    // explained (the new run's own outcome — a fresh refusal included —
+    // will re-record one if it stops early again).
+    if (ctx.stopNotices !== undefined) clearStopNotice(ctx.stopNotices, id);
 
     return {
       ok: true,

@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import { execa } from "execa";
+import { detectStopNotice } from "../stop-reason.js";
 import type {
   InternalHandle,
   Invocation,
@@ -95,6 +96,49 @@ const startStopEscalation = (
   return () => clearInterval(poll);
 };
 
+// execa's stream iterator rejects once the final line has been yielded
+// whenever the process exits non-zero — claude does exactly that after
+// printing its failure record. The record is already buffered by then, so
+// the drain returns the error instead of throwing and the exit verdict
+// below still runs; runProcess rethrows it only when the exit result
+// carries no code, so a spawn failure keeps its original message.
+const drainStdout = async (
+  proc: SpawnedProcess,
+  handle: InternalHandle,
+): Promise<unknown> => {
+  try {
+    for await (const line of proc.stdout) {
+      if (handle.status === "stopped") break;
+      handle.output.push(line);
+    }
+  } catch (err) {
+    return err;
+  }
+};
+
+// A provider refusal announced on the run's stream outranks the exit
+// code: goose 1.45.0 prints its usage-limit error record and still exits
+// 0, so the code alone would read as a clean finish — the silent stop
+// this corrects. A detected refusal becomes a run error carrying the
+// notice (reset time included); exit codes keep explaining themselves
+// when the stream said nothing.
+const settleRun = (
+  handle: InternalHandle,
+  result: ProcessResult,
+  firstSeq: number,
+): void => {
+  const notice = detectStopNotice(handle.output.drain(firstSeq).lines);
+  if (notice !== undefined) {
+    handle.status = "error";
+    handle.error = notice;
+    handle.stopNotice = notice;
+  } else {
+    handle.status = result.exitCode === 0 ? "completed" : "error";
+    if (result.exitCode !== 0)
+      handle.error = describeFailure(result, handle.agent.name);
+  }
+};
+
 const runProcess = async (
   runner: Runner,
   handle: InternalHandle,
@@ -114,22 +158,22 @@ const runProcess = async (
     return;
   }
 
+  // Only this invocation's lines: a chained run keeps one buffer across
+  // its prompts, so a refusal announced by an earlier link must not
+  // colour the verdict on a later one.
+  const firstSeq = handle.output.drain(0).nextSeq;
+
   const stopEscalation = startStopEscalation(
     proc,
     handle,
     runner.config.stopGraceMs,
   );
   try {
-    for await (const line of proc.stdout) {
-      if (handle.status === "stopped") break;
-      handle.output.push(line);
-    }
-
+    const drainError = await drainStdout(proc, handle);
     const result = await proc.exit;
     if (handle.status === "stopped") return;
-    handle.status = result.exitCode === 0 ? "completed" : "error";
-    if (result.exitCode !== 0)
-      handle.error = describeFailure(result, handle.agent.name);
+    if (result.exitCode === null && drainError !== undefined) throw drainError;
+    settleRun(handle, result, firstSeq);
   } finally {
     stopEscalation();
   }

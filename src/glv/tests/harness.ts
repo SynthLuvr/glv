@@ -252,6 +252,13 @@ type MockConfig = {
   exitCode?: number;
   /** NDJSON lines to emit (newline-joined); default is a single reply. */
   lines?: string[];
+  /**
+   * Output-lines file (newline-joined) re-read on every invocation, so
+   * one environment can change behaviour between runs — refusal lines
+   * for one prompt, a happy reply for the next. Takes precedence over
+   * `lines`.
+   */
+  linesFile?: string;
   /** Name written into a new session (ai-title row/line). */
   sessionName?: string;
   /** Pause (ms) between streamed lines so a tail fills incrementally. */
@@ -306,6 +313,7 @@ type Databases = {
   readonly groupsDb: string;
   readonly cronDb: string;
   readonly suggestionsDb: string;
+  readonly stopNoticesDb: string;
   readonly token: string;
   /**
    * Flavor-specific store paths (goose: sessionsDb; claude: projectsDir,
@@ -362,6 +370,7 @@ const baseDatabases = (
     groupsDb: join(scratchDir, "groups.db"),
     cronDb: join(scratchDir, "cron.db"),
     suggestionsDb: join(scratchDir, "suggestions.db"),
+    stopNoticesDb: join(scratchDir, "stop-notices.db"),
     token: seedAuthDb(authDb),
     flavor,
   };
@@ -379,6 +388,8 @@ const dbOverrideArgs = (dbs: Databases): string[] => [
   dbs.cronDb,
   "--suggestions-db",
   dbs.suggestionsDb,
+  "--stop-notices-db",
+  dbs.stopNoticesDb,
 ];
 
 type SseEvent = { event: string; data: string; id: string | undefined };
@@ -463,6 +474,11 @@ type FlavorFixture = {
   readonly toolResponse: (text: string, isError: boolean) => unknown;
   /** One NDJSON preview line in the flavor's stream dialect. */
   readonly streamLine: (text: string) => string;
+  /**
+   * One NDJSON failure record in the flavor's stream dialect — the shape
+   * the agent prints when the provider refuses service.
+   */
+  readonly refusalRecord: (detail: string) => string;
   /** One NDJSON line in the foreign envelope — the viewer must drop it. */
   readonly foreignLine: string;
   /** Non-JSON banner text the flavor's agent may emit. */
@@ -570,6 +586,7 @@ const mockEnv = (prefix: string, mock: MockConfig): Record<string, string> => ({
   [`${prefix}_MOCK_SLEEP_MS`]: String(mock.sleepMs ?? 0),
   [`${prefix}_MOCK_EXIT_CODE`]: String(mock.exitCode ?? 0),
   [`${prefix}_MOCK_LINES`]: (mock.lines ?? []).join("\n"),
+  [`${prefix}_MOCK_LINES_FILE`]: mock.linesFile ?? "",
   [`${prefix}_MOCK_LINE_DELAY_MS`]: String(mock.lineDelayMs ?? 0),
   [`${prefix}_MOCK_WRITE_DB`]: mock.writeDb === true ? "1" : "",
   [`${prefix}_MOCK_CAPTURE_STDIN`]: mock.captureStdin ?? "",

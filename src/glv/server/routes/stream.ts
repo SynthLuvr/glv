@@ -18,6 +18,7 @@ import { renderMessage } from "../../views/message-blocks.js";
 import { renderPromptCard } from "../../views/transcript.js";
 import type { ServerContext } from "../context.js";
 import { queryValue, sendText } from "../http.js";
+import { stopNoticeFor } from "../session.js";
 import {
   emit,
   emitMeta,
@@ -327,7 +328,13 @@ const registerStreamRoutes = (
           await emit(
             stream,
             "status",
-            sessionEventData("status", { status: "idle" }),
+            sessionEventData("status", {
+              status: "idle",
+              // No live handle, but a persisted stop-early notice still
+              // explains the last run; carrying it lets a reconnecting
+              // client restore the hint instead of blanking it.
+              error: stopNoticeFor(ctx, id) ?? null,
+            }),
             state.msgCursor,
           );
 

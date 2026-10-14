@@ -77,6 +77,7 @@ const createApp = (
     runPrState: opts.runPrState,
     runGit: opts.runGit,
     cronDb: opts.cronDb,
+    stopNotices: opts.stopNotices,
     onCronJobsChange: opts.onCronJobsChange,
     assets: buildAssetBundle(opts.assetsFlavor),
   };
