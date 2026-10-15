@@ -80,6 +80,15 @@ the browser.
   transcript or from any message boundary — to explore a branch without
   touching the original (forks are ordinary sessions: rename, archive,
   delete, fork again), and archive one at a time or in bulk.
+- **Prompt library.** Save reusable prompts — title, body, optional
+  category — then fill the prompt box or run one directly from the
+  library. Cards drag to reorder, can sort by manual order or usage, and
+  usage counts accumulate; everything lives in glv’s own database, safe
+  alongside the agents’ session data.
+- **Session groups.** Group related sessions under one collapsible
+  sidebar section whose header shows a running indicator while any
+  member runs. Archiving a member hides it but keeps its membership —
+  un-archive it and the group is restored.
 - **Dark and light themes.**
 - **Passkey login.** The whole app is gated behind WebAuthn passkey
   authentication — no emails, no passwords.
@@ -169,7 +178,10 @@ Windows notes:
 
 ### Prerequisites
 
-- **Node.js ≥ 24** and **pnpm ≥ 10**.
+- **Node.js 26** — what `package.json` pins in `engines`, and the
+  version CI installs.
+- **pnpm ≥ 12** — the repo pins the exact version via `packageManager`
+  (currently `pnpm@12.11.2`); Corepack honors the pin automatically.
 - The **`goose`** binary on your `PATH` (to start new runs from the
   viewer).
 - The **`gh`** CLI, authenticated, to use the GitHub repository source
@@ -236,11 +248,20 @@ Options:
   continues it; the notice survives reloads and restarts and clears
   itself once the session runs again.
 
+- `--prompts-db <path>`, `--groups-db <path>`, `--meta-db <path>` —
+  override the remaining glv-owned databases the same way: the saved
+  prompt library, the session groups, and the claude viewer metadata
+  (defaults `~/.local/share/glv/prompts.db`, `groups.db`,
+  `claude-meta.db` on Linux/macOS, `%APPDATA%\glv\…` on Windows, or env
+  `GLV_PROMPTS_DB`, `GLV_GROUPS_DB`, `GLV_META_DB`).
+
 - `--rp-name <name>` — WebAuthn relying party name shown in the OS
   passkey prompt (default `GLV`).
 
 - `--rp-id <domain>` — WebAuthn relying party ID; must match the domain
   the browser uses (defaults to the request host, e.g. `localhost`).
+
+- `--debug` — enable debug logging (equivalent to `GLV_DEBUG=1`).
 
 The viewer rebuilds its stylesheet and client scripts on every start, so
 it always serves current assets.
@@ -597,45 +618,51 @@ pnpm lint     # lint all files
 
 Build and lint are fast — run both locally before every push. The test
 suite is slow (every file boots a real `glv serve` process plus a
-headless Chromium), so testing is split by pull-request state: run
-`pnpm test` locally **before opening a pull request**, and once a PR is
-open let CI do the testing — it exercises the suite on Linux and Windows
-on every push (`.github/workflows/ci.yml`), so don’t re-run it locally
-per iteration; watch the PR checks instead. While no PR is open, testing
-stays local. One caveat on Windows: the claude-flavored suites that
-spawn the mocked agent binary are excluded (see `vitest.config.ts` for
-why); they still run there through the goose flavor, which drives the
-same core.
+headless Chromium), so testing happens in CI on every pull request,
+including the first: as soon as build and lint pass, push and open the
+PR — a draft if the work is not ready for review — and watch the checks
+instead of running the suite locally first. CI runs the suite in four
+shards on Ubuntu on every push (`.github/workflows/ci.yml`; prose-only
+changes skip it via `paths-ignore`). Run the suite locally only to
+reproduce a failure CI reported.
 
 Every test file boots a real `glv serve` process plus a headless
 Chromium, so the suite runs at most two files at a time to keep peak
-memory in check on local machines.
+memory in check on local machines (CI, with dedicated vCPUs, runs four
+at once per shard).
 
 `pnpm test` collects coverage across those spawned processes, not just
 the in-process test files: each launcher is pointed at Node’s built-in
-V8 profiler (`NODE_V8_COVERAGE`) and a load hook records the tsx
-transforms, so the vitest report includes the server, runner, and view
-code the suite actually drives (see
-`src/glv/tests/subprocess- coverage.ts` for the pipeline). Coverage
-floors live in `vitest.config.ts`. A bare `vitest run --coverage`
-reports only in-process code. Serve-process coverage requires a graceful
-exit to flush profiles; Node’s `kill()` on Windows terminates
-unconditionally, so there it is limited to CLI invocations (which exit
-normally) and the propagation suites are skipped — see the exclusion
-list in `vitest.config.ts`.
+V8 profiler (`NODE_V8_COVERAGE`) and type-a-bin’s subprocess-coverage
+provider, wired up in `vitest.config.ts`, merges those raw profiles (and
+the recorded tsx transforms) into the vitest report, so it includes the
+server, runner, and view code the suite actually drives. Coverage floors
+live in `vitest.config.ts`. A bare `vitest run --coverage` reports only
+in-process code. Serve-process coverage requires a graceful exit to
+flush profiles; Node’s `kill()` on Windows terminates unconditionally,
+so there it is limited to CLI invocations (which exit normally) and the
+coverage-propagation suites are excluded on `win32` — see the exclusion
+list in `vitest.config.ts`. (Windows is out of CI today, so that
+exclusion matters only for local Windows runs.)
 
-The repository hosts two viewers with parallel structure: `src/goose/`
-(goose sessions) and `src/claude/` (claude sessions). Each is styled
-with [Tailwind CSS v4](https://tailwindcss.com): the stylesheet source
-(`src/<app>/styles/app.css`) uses Tailwind’s CSS-first setup —
-`@import "tailwindcss"` plus a `@theme` block of design tokens — and is
-compiled to `dist/<app>/app.css` by `pnpm build:assets` (see
-`src/<app>/build.ts`). Browser client scripts are written as TypeScript
-in `src/<app>/scripts/` and compiled to minified `dist/<app>/*.js` by
-the same command. The two flavor trees remain as adapters (profile,
-store, launcher, argv builder, fixtures); the product itself — one
-server, one sidebar, one schedule serving both agents — is launched with
-`glv`.
+Product code lives once, in `src/glv/` — the views, client scripts,
+server, runner, stylesheet, and the test harness — while the two flavor
+trees (`src/goose/`, `src/claude/`) hold only the adapters that
+genuinely differ: agent invocation, the storage adapter, the new-session
+launch strategy, model catalogues, and profile metadata. `pnpm lint`
+enforces that one-location rule (no mirrored files, no cross-tree code
+clones). The stylesheet ([Tailwind CSS v4](https://tailwindcss.com),
+`src/glv/styles/app.css`, CSS-first setup with a `@theme` block of
+design tokens) and the client scripts (`src/glv/scripts/*.ts`) are
+compiled by `pnpm build:assets` into `dist/<flavor>/` — one shared
+build, emitted once per flavor so the `glv`, `goose`, and `claude` entry
+points all serve current assets. The product itself — one server, one
+sidebar, one schedule serving both agents — is launched with `glv`.
+
+UI-facing changes ship before-and-after screenshots in the PR
+description: `pnpm shots` builds the assets, boots a real server against
+the mock agent, drives the UI with Playwright, and writes the PNGs to
+`pr-shots/` (gitignored).
 
 ## The CLI
 
