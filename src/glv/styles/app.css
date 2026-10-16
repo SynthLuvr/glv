@@ -654,12 +654,6 @@ body {
   margin: 0 auto;
   padding: 2.25rem 2.5rem 4rem;
 }
-
-/* The sticky prompt bar's containing block is this wrapper's content box, so a
-   non-zero padding-bottom would lift it off the viewport's bottom edge. */
-.detail-inner:has(.prompt-bar) {
-  padding-bottom: 0;
-}
 .placeholder {
   height: 100%;
   display: flex;
@@ -1417,7 +1411,9 @@ textarea.prompt-input,
 .scroll-latest {
   position: fixed;
   right: 1.5rem;
-  bottom: 5.5rem;
+  /* Cleared the pinned composer; in flow the composer waits at the end of
+     the page, so the button sits in the free bottom corner. */
+  bottom: 1.5rem;
   z-index: 20;
   display: inline-flex;
   align-items: center;
@@ -1665,10 +1661,9 @@ pre::-webkit-scrollbar-thumb {
 }
 
 /* ---------- prompt bar ---------- */
+/* The composer sits in normal flow at the end of the page: it scrolls
+   with the transcript instead of pinning over its contents. */
 .prompt-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   padding: 0.75rem 0;
