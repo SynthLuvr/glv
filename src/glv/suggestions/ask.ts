@@ -153,11 +153,28 @@ const nearDuplicate = (a: Set<string>, b: Set<string>): boolean => {
   return shared / (a.size + b.size - shared) >= DUPLICATE_JACCARD;
 };
 
+// Trims and normalizes the reply's items into up to MAX_SUGGESTIONS
+// distinct prompts: one that near-duplicates an already-kept prompt is
+// dropped (the first of a pair wins), freeing its slot for a later
+// distinct prompt.
+const distinctPrompts = (items: readonly string[]): string[] => {
+  const prompts: string[] = [];
+  const kept: Set<string>[] = [];
+  for (const item of items) {
+    const prompt = item.trim().replaceAll(/\s+/g, " ");
+    if (prompt === "" || prompt.length > MAX_SUGGESTION_LENGTH) continue;
+    const words = wordsOf(prompt);
+    if (kept.some((seen) => nearDuplicate(words, seen))) continue;
+    kept.push(words);
+    prompts.push(prompt);
+    if (prompts.length === MAX_SUGGESTIONS) break;
+  }
+  return prompts;
+};
+
 // Parses the assistant's reply into up to MAX_SUGGESTIONS distinct,
-// non-empty prompts. Near-duplicates collapse (the first of a pair
-// wins); a dropped duplicate frees the slot for a later distinct
-// prompt. Returns undefined when nothing usable is in there — the
-// caller stores the empty marker so the turn is never re-asked.
+// non-empty prompts. Returns undefined when nothing usable is in there —
+// the caller stores the empty marker so the turn is never re-asked.
 const parseSuggestionReply = (text: string): string[] | undefined => {
   // A fenced code block beats the raw text when present — a prose
   // preamble containing "[" would otherwise mislead the scan below.
@@ -175,17 +192,7 @@ const parseSuggestionReply = (text: string): string[] | undefined => {
     }
     const items = StringArray(value);
     if (items instanceof type.errors) continue;
-    const usable: string[] = [];
-    const seen: Set<string>[] = [];
-    for (const item of items) {
-      const prompt = item.trim().replaceAll(/\s+/g, " ");
-      if (prompt === "" || prompt.length > MAX_SUGGESTION_LENGTH) continue;
-      const words = wordsOf(prompt);
-      if (seen.some((kept) => nearDuplicate(words, kept))) continue;
-      seen.push(words);
-      usable.push(prompt);
-      if (usable.length === MAX_SUGGESTIONS) break;
-    }
+    const usable = distinctPrompts(items);
     if (usable.length > 0) return usable;
   }
   return undefined;
@@ -228,70 +235,71 @@ const oneLine = (text: string): string => text.replaceAll(/\s+/g, " ").trim();
 
 // The most telling argument of a tool call: its first non-empty string
 // value. Command tools yield the command; editors yield the file path;
-// anything else yields whatever text it carries. Validated, never cast.
+// anything else yields whatever text it carries.
 const toolArgText = (args: unknown): string => {
   if (typeof args === "string") return oneLine(args);
   if (!isRecord(args)) return "";
-  for (const value of Object.values(args))
-    if (typeof value === "string" && oneLine(value) !== "")
-      return oneLine(value);
-
+  for (const value of Object.values(args)) {
+    if (typeof value !== "string") continue;
+    const text = oneLine(value);
+    if (text !== "") return text;
+  }
   return "";
 };
 
-// "[Session goal] / [Recent actions] / [Last failure] / [Conversation
-// tail]" — the grounded context the ask reasons over. The goal is the
-// session's first real user message (prompts and compacted summaries
-// count; goose's injected turn-context rows and tool-result rows do
-// not), so a long session still suggests toward the original aim.
-// Actions and failures come from the tail window's tool blocks, which
-// plain text extraction drops — without them the ask cannot know what
-// was edited, what ran, or that something failed.
-const conversationContext = (rows: readonly MessageRow[]): string => {
-  const window = rows.slice(-TAIL_MESSAGES);
-  const parsed = window.map(parseMessage);
-
-  const sections: string[] = [];
-
+// The window's earliest prompt or compacted summary stands in for the
+// session's goal — goose's injected turn-context rows and tool-result
+// rows are neither — so suggestions stay aimed at what the session set
+// out to do rather than the tail's local topic.
+const goalSection = (parsed: readonly ParsedMessage[]): string | undefined => {
   const goal = parsed.find((message) => {
     const kind = messageKind(message.role, message.items);
     return kind === "prompt" || kind === "summary";
   });
-  if (goal !== undefined) {
-    const text = clip(oneLine(textOf(goal)), GOAL_CHARS);
-    if (text !== "") sections.push(`[Session goal]\n${text}`);
-  }
+  if (goal === undefined) return undefined;
+  const text = clip(oneLine(textOf(goal)), GOAL_CHARS);
+  return text === "" ? undefined : `[Session goal]\n${text}`;
+};
 
+// "→ shell(npm test)" — the call plus its most telling argument.
+const actionLine = (name: string, args: unknown): string => {
+  const arg = clip(toolArgText(args), ACTION_ARG_CHARS);
+  return oneLine(arg === "" ? `→ ${name}` : `→ ${name}(${arg})`);
+};
+
+// The window's tool blocks — plain text extraction drops them — yield
+// what the agent did and, when something failed, the last failure.
+const toolSections = (parsed: readonly ParsedMessage[]): string[] => {
   const actions: string[] = [];
   let actionsChars = 0;
   let lastFailure: string | undefined;
-  for (const message of parsed)
-    for (const item of message.items) {
+  for (const { items } of parsed)
+    for (const item of items) {
       const call = toolCallInfo(item);
-      if (call !== undefined) {
-        if (actions.length >= ACTION_LINES_MAX) continue;
-        const arg = clip(toolArgText(call.args), ACTION_ARG_CHARS);
-        const line = oneLine(
-          arg === "" ? `→ ${call.name}` : `→ ${call.name}(${arg})`,
-        );
-        if (actionsChars + line.length > ACTIONS_CHARS) continue;
-        actionsChars += line.length;
-        actions.push(line);
+      if (call !== undefined && actions.length < ACTION_LINES_MAX) {
+        const line = actionLine(call.name, call.args);
+        if (actionsChars + line.length <= ACTIONS_CHARS) {
+          actionsChars += line.length;
+          actions.push(line);
+        }
       }
       const result = toolResultInfo(item);
       if (result?.isError === true) lastFailure = result.text;
     }
 
+  const sections: string[] = [];
   if (actions.length > 0)
     sections.push(`[Recent actions]\n${actions.join("\n")}`);
-
   if (lastFailure !== undefined) {
     const failure = clip(oneLine(lastFailure), FAILURE_CHARS);
     if (failure !== "") sections.push(`[Last failure]\n${failure}`);
   }
+  return sections;
+};
 
-  // "user: …" / "assistant: …" lines for the tail of the conversation,
-  // oldest first, budgeted.
+// "user: …" / "assistant: …" lines for the tail of the conversation,
+// oldest first, budgeted per message and in total.
+const tailSection = (parsed: readonly ParsedMessage[]): string | undefined => {
   const lines: string[] = [];
   let total = 0;
   for (const message of parsed) {
@@ -302,9 +310,21 @@ const conversationContext = (rows: readonly MessageRow[]): string => {
     total += line.length;
     lines.push(line);
   }
-  if (lines.length > 0)
-    sections.push(`[Conversation tail]\n${lines.join("\n")}`);
+  return lines.length === 0
+    ? undefined
+    : `[Conversation tail]\n${lines.join("\n")}`;
+};
 
+// "[Session goal] / [Recent actions] / [Last failure] / [Conversation
+// tail]" — the grounded context the ask reasons over. Sections that
+// would be empty are omitted.
+const conversationContext = (rows: readonly MessageRow[]): string => {
+  const parsed = rows.slice(-TAIL_MESSAGES).map(parseMessage);
+  const sections = [
+    goalSection(parsed),
+    ...toolSections(parsed),
+    tailSection(parsed),
+  ].flatMap((section) => (section === undefined ? [] : [section]));
   return sections.join("\n\n");
 };
 

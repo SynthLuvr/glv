@@ -85,6 +85,30 @@ const eventPrompts = (event: SseEvent | undefined): string[] | undefined => {
     : undefined;
 };
 
+// The prompts the turn's suggestions event carried. The event may land
+// mid-stream (the ask finishes while the client watches) or at connect
+// (it finished earlier) — both paths must deliver it.
+const waitForSuggestions = async (
+  env: IntegrationEnv,
+  sessionId: string,
+): Promise<string[]> => {
+  const events = await collectSse(
+    env,
+    `/sessions/${sessionId}/events`,
+    (seen) =>
+      seen.some(
+        (e) => e.event === "suggestions" && (eventPrompts(e) ?? []).length > 0,
+      ),
+    SUGGESTION_EVENT_TIMEOUT_MS,
+  );
+  const prompts = events
+    .filter((e) => e.event === "suggestions")
+    .map((e) => eventPrompts(e))
+    .find((p) => p !== undefined && p.length > 0);
+  expect(prompts).toBeDefined();
+  return prompts ?? [];
+};
+
 // Polls the prompt-bar fragment until the predicate passes (default:
 // the idle bar — a Send button, no Queue/Stop — i.e. the run settled).
 const waitForBar = async (
@@ -195,24 +219,9 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       it("asks once after a finished turn, streams the suggestions, and leaves no session behind", async () => {
         suggestedSessionId = await runTurn(env, "a session, feature on");
 
-        // The event may land mid-stream (the ask finishes while the
-        // client watches) or at connect (it finished earlier) — both
-        // paths must deliver it.
-        const events = await collectSse(
-          env,
-          `/sessions/${suggestedSessionId}/events`,
-          (seen) =>
-            seen.some(
-              (e) =>
-                e.event === "suggestions" && (eventPrompts(e) ?? []).length > 0,
-            ),
-          SUGGESTION_EVENT_TIMEOUT_MS,
+        expect(await waitForSuggestions(env, suggestedSessionId)).toEqual(
+          SUGGESTIONS,
         );
-        const prompts = events
-          .filter((e) => e.event === "suggestions")
-          .map((e) => eventPrompts(e))
-          .find((p) => p !== undefined && p.length > 0);
-        expect(prompts).toEqual(SUGGESTIONS);
 
         // Server-rendered path: a fresh prompt-bar fragment carries the
         // chips for this finished turn.
@@ -456,26 +465,13 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         expect(res.status).toBe(200);
         await waitForBar(env, fx.viewId("grounded"));
 
-        // The event may land mid-stream or at connect — both paths must
-        // deliver the same deduped set.
-        const events = await collectSse(
-          env,
-          `/sessions/${fx.viewId("grounded")}/events`,
-          (seen) =>
-            seen.some(
-              (e) =>
-                e.event === "suggestions" && (eventPrompts(e) ?? []).length > 0,
-            ),
-          SUGGESTION_EVENT_TIMEOUT_MS,
+        // Both delivery paths — the SSE event and the server-rendered
+        // bar — must carry the same deduped set: the near-duplicate
+        // never reaches a chip, and the fourth item fills its slot.
+        expect(await waitForSuggestions(env, fx.viewId("grounded"))).toEqual(
+          DEDUPED,
         );
-        const prompts = events
-          .filter((e) => e.event === "suggestions")
-          .map((e) => eventPrompts(e))
-          .find((p) => p !== undefined && p.length > 0);
-        expect(prompts).toEqual(DEDUPED);
 
-        // The server-rendered bar carries the same deduped set — the
-        // near-duplicate never reaches a chip.
         const bar = await waitForBar(env, fx.viewId("grounded"));
         expect(bar).toContain(DEDUPED[0]);
         expect(bar).toContain(DEDUPED[2]);
