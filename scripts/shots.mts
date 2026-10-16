@@ -162,9 +162,8 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
       ],
     },
   ]);
-  // A long transcript so the composer's placement relative to the
-  // contents — below the fold mid-scroll, closing the page at the end —
-  // can be captured.
+  // Long enough to push the composer below the fold for the placement
+  // shots.
   gooseFixture.seedMessages(
     env,
     "shots-scroll",
@@ -232,10 +231,9 @@ const captureSuggestions = async (
   await context.close();
 };
 
-// The composer's placement relative to the transcript contents: one
-// viewport shot scrolled into the middle of a long transcript and one
-// scrolled to the end, so a layout regression (composer pinning over the
-// contents, or failing to close the page) is visible in the PR shots.
+// Composer placement on a long transcript: one viewport shot mid-scroll
+// and one at the end, so pinning-over-content or open-page layout
+// regressions show up directly in the PR shots.
 const capturePromptBarPlacement = async (
   browser: Browser,
   env: IntegrationEnv,
