@@ -85,6 +85,30 @@ const eventPrompts = (event: SseEvent | undefined): string[] | undefined => {
     : undefined;
 };
 
+// The prompts the turn's suggestions event carried. The event may land
+// mid-stream (the ask finishes while the client watches) or at connect
+// (it finished earlier) — both paths must deliver it.
+const waitForSuggestions = async (
+  env: IntegrationEnv,
+  sessionId: string,
+): Promise<string[]> => {
+  const events = await collectSse(
+    env,
+    `/sessions/${sessionId}/events`,
+    (seen) =>
+      seen.some(
+        (e) => e.event === "suggestions" && (eventPrompts(e) ?? []).length > 0,
+      ),
+    SUGGESTION_EVENT_TIMEOUT_MS,
+  );
+  const prompts = events
+    .filter((e) => e.event === "suggestions")
+    .map((e) => eventPrompts(e))
+    .find((p) => p !== undefined && p.length > 0);
+  expect(prompts).toBeDefined();
+  return prompts ?? [];
+};
+
 // Polls the prompt-bar fragment until the predicate passes (default:
 // the idle bar — a Send button, no Queue/Stop — i.e. the run settled).
 const waitForBar = async (
@@ -195,24 +219,9 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       it("asks once after a finished turn, streams the suggestions, and leaves no session behind", async () => {
         suggestedSessionId = await runTurn(env, "a session, feature on");
 
-        // The event may land mid-stream (the ask finishes while the
-        // client watches) or at connect (it finished earlier) — both
-        // paths must deliver it.
-        const events = await collectSse(
-          env,
-          `/sessions/${suggestedSessionId}/events`,
-          (seen) =>
-            seen.some(
-              (e) =>
-                e.event === "suggestions" && (eventPrompts(e) ?? []).length > 0,
-            ),
-          SUGGESTION_EVENT_TIMEOUT_MS,
+        expect(await waitForSuggestions(env, suggestedSessionId)).toEqual(
+          SUGGESTIONS,
         );
-        const prompts = events
-          .filter((e) => e.event === "suggestions")
-          .map((e) => eventPrompts(e))
-          .find((p) => p !== undefined && p.length > 0);
-        expect(prompts).toEqual(SUGGESTIONS);
 
         // Server-rendered path: a fresh prompt-bar fragment carries the
         // chips for this finished turn.
@@ -314,6 +323,159 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         expect(ephemeralInvocations(log)).toHaveLength(before);
         const bar = await waitForBar(env, fx.viewId("cron-tagged"));
         expect(bar).not.toContain("suggestion-strip");
+      });
+    });
+
+    // The ask's usefulness: what goes into the prompt it receives and
+    // what survives parsing on the way out. The ask is grounded in the
+    // session's goal, the agent's tool activity, and the turn's failure
+    // state — none of which plain text extraction sees — and its reply
+    // keeps one idea from crowding the strip with near-duplicates.
+    describe("grounded ask", () => {
+      const GOAL = "Migrate the auth module from passwords to passkeys";
+      const FAILURE_TEXT = "FAIL src/auth.test.ts — passkey challenge missing";
+      // One near-duplicate pair plus a fourth distinct prompt: the pair
+      // must collapse and the fourth must take the freed slot.
+      const DUPLICATED = [
+        "Fix the failing login test",
+        "Fix the failing login test now",
+        "Run the auth test suite",
+        "also add tests",
+      ];
+      const DEDUPED = [
+        "Fix the failing login test",
+        "Run the auth test suite",
+        "also add tests",
+      ];
+
+      let env: IntegrationEnv;
+      let log: string;
+      let logDir: string;
+      let captureDir: string;
+      let capturePath: string;
+
+      // waitForFile returns stable content, so a marker-poll is used
+      // when the capture file may still hold the session run's prompt.
+      const waitForCaptureMarker = async (marker: string): Promise<string> => {
+        const deadline = Date.now() + 30000;
+        for (;;) {
+          try {
+            const content = readFileSync(capturePath, "utf-8");
+            if (content.includes(marker)) return content;
+          } catch {
+            // the mock has not written the capture yet — keep polling
+          }
+          if (Date.now() > deadline)
+            throw new Error(`captured ask never contained "${marker}"`);
+          await sleep(100);
+        }
+      };
+
+      beforeAll(async () => {
+        captureDir = mkdtempSync(join(tmpdir(), "glv-sugg-ground-cap-"));
+        capturePath = join(captureDir, "ask-stdin.txt");
+        const started = await startSuggestionEnv(
+          fx,
+          "glv-suggestions-ground-",
+          [ephemeralReplyLine(DUPLICATED)],
+          { captureStdin: capturePath },
+        );
+        env = started.env;
+        log = started.log;
+        logDir = started.logDir;
+      }, 180000);
+
+      afterAll(async () => {
+        await env?.cleanup();
+        rmScratch(logDir);
+        rmScratch(captureDir);
+      });
+
+      it("grounds the ask in the goal, the tool activity, and the failure", async () => {
+        await enableSuggestions(env);
+
+        // The seeded transcript carries what text extraction alone
+        // loses: an opening goal, a tool call, a failing result, and
+        // the follow-up prompt (the mock commits streamed lines only,
+        // never the prompt). Timestamps sit strictly in the past so
+        // both stores order them before the run's committed reply.
+        fx.seedSessions(env, [
+          { id: "grounded", name: "Grounded", workingDir: env.scratchDir },
+        ]);
+        const base = Date.now();
+        fx.seedMessages(env, "grounded", [
+          {
+            role: "user",
+            content: [{ type: "text", text: GOAL }],
+            createdTimestamp: base - 5000,
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Migrating the login route." }],
+            createdTimestamp: base - 4000,
+          },
+          {
+            role: "assistant",
+            content: [fx.toolRequest("shell", { command: "npm test" })],
+            createdTimestamp: base - 3000,
+          },
+          {
+            role: "user",
+            content: [fx.toolResponse(FAILURE_TEXT, true)],
+            createdTimestamp: base - 2000,
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Why did the tests fail?" }],
+            createdTimestamp: base - 1000,
+          },
+        ]);
+
+        const res = await postFollowUp(
+          env,
+          fx.viewId("grounded"),
+          "Why did the tests fail?",
+        );
+        expect(res.status).toBe(200);
+        await waitForBar(env, fx.viewId("grounded"));
+
+        await waitForInvocations(log, 1);
+        const ask = await waitForCaptureMarker(
+          "You are the prompt-suggestion helper",
+        );
+        expect(ask).toContain("[Session goal]");
+        expect(ask).toContain(GOAL);
+        expect(ask).toContain("[Recent actions]");
+        expect(ask).toContain("npm test");
+        expect(ask).toContain("[Last failure]");
+        expect(ask).toContain("passkey challenge missing");
+        expect(ask).toContain("[Conversation tail]");
+        expect(ask).toContain("Why did the tests fail?");
+        // The sharpened instruction travels with the context.
+        expect(ask).toContain("generic chores");
+        expect(ask).toContain("JSON array");
+      });
+
+      it("collapses near-duplicates and promotes the next distinct prompt", async () => {
+        const res = await postFollowUp(
+          env,
+          fx.viewId("grounded"),
+          "a second turn on the grounded session",
+        );
+        expect(res.status).toBe(200);
+        await waitForBar(env, fx.viewId("grounded"));
+
+        // Both delivery paths — the SSE event and the server-rendered
+        // bar — must carry the same deduped set: the near-duplicate
+        // never reaches a chip, and the fourth item fills its slot.
+        expect(await waitForSuggestions(env, fx.viewId("grounded"))).toEqual(
+          DEDUPED,
+        );
+
+        const bar = await waitForBar(env, fx.viewId("grounded"));
+        expect(bar).toContain(DEDUPED[0]);
+        expect(bar).toContain(DEDUPED[2]);
+        expect(bar).not.toContain("Fix the failing login test now");
       });
     });
 
