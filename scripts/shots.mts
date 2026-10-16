@@ -128,6 +128,7 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
   gooseFixture.seedSessions(env, [
     { id: SESSION_ID, name: "Screenshot Session", workingDir },
     { id: "shots-limit", name: "Usage Limit Session", workingDir },
+    { id: "shots-scroll", name: "Long Transcript Session", workingDir },
   ]);
   gooseFixture.seedMessages(env, "shots-limit", [
     {
@@ -161,6 +162,24 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
       ],
     },
   ]);
+  // Long enough to push the composer below the fold for the placement
+  // shots.
+  gooseFixture.seedMessages(
+    env,
+    "shots-scroll",
+    Array.from({ length: 40 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [
+        {
+          type: "text",
+          text: (
+            `Transcript line ${i}: worked through step ${i} of the plan ` +
+            "and reported the result back to the session. "
+          ).repeat(2),
+        },
+      ],
+    })),
+  );
   return env;
 };
 
@@ -209,6 +228,32 @@ const captureSuggestions = async (
     "Commit these changes",
   );
   await capture(page, "suggestions-accepted-desktop.png", "form.prompt-bar");
+  await context.close();
+};
+
+// Composer placement on a long transcript: one viewport shot mid-scroll
+// and one at the end, so pinning-over-content or open-page layout
+// regressions show up directly in the PR shots.
+const capturePromptBarPlacement = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(
+    `${env.baseUrl}/sessions/${gooseFixture.viewId("shots-scroll")}`,
+  );
+  const pane = page.locator("#detail-pane");
+  await page.locator("form.prompt-bar").waitFor();
+  await pane.evaluate((el) => {
+    el.scrollTop = (el.scrollHeight - el.clientHeight) / 2;
+  });
+  await capture(page, "session-scrolled-desktop.png");
+  await pane.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await capture(page, "session-end-desktop.png");
   await context.close();
 };
 
@@ -384,6 +429,7 @@ const { browser, teardown } = await launchBrowser();
 try {
   await captureSuggestions(browser, env);
   await captureViews(browser, env);
+  await capturePromptBarPlacement(browser, env);
   await captureTokens(browser, env);
   await captureForks(browser, env);
   await captureCombined(browser, env);
