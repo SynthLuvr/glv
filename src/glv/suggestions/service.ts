@@ -8,7 +8,7 @@ import { errorMessage, positiveEnvNumber, unrefTimer } from "../util.js";
 import type { EphemeralAsk } from "./ask.js";
 import {
   buildAskPrompt,
-  conversationTail,
+  conversationContext,
   parseSuggestionReply,
   runEphemeralAsk,
   turnKeyOf,
@@ -66,13 +66,13 @@ type ServiceDeps = {
 const currentTurn = (
   sessions: SessionStore,
   sessionId: string,
-): { turnKey: string; tail: string } | undefined => {
+): { turnKey: string; context: string } | undefined => {
   const session = sessions.getSession(sessionId);
   if (session === undefined) return undefined;
   const rows = sessions.listMessages(sessionId);
   return {
     turnKey: turnKeyOf(session, rows.length),
-    tail: conversationTail(rows),
+    context: conversationContext(rows),
   };
 };
 
@@ -110,7 +110,7 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
     askSpec: EphemeralAsk,
     agentId: string,
     sessionId: string,
-    turn: { turnKey: string; tail: string },
+    turn: { turnKey: string; context: string },
   ): void => {
     inFlight.add(sessionId);
     void (async () => {
@@ -118,7 +118,7 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
       try {
         const result = await runEphemeralAsk(
           askSpec,
-          buildAskPrompt(askSpec.name, turn.tail),
+          buildAskPrompt(askSpec.name, turn.context),
           deps.scratchDir,
           askTimeoutMs(),
           deps.modelFor(agentId),

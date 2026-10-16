@@ -79,14 +79,20 @@ same sign-in, same setup, nothing to configure:
 
 The ask never goes through the runner’s concurrency pool: it is its own
 subprocess, so it cannot slow down or queue behind real work. It
-receives only the tail of the conversation (last 12 messages, capped per
-message and in total) and a fixed instruction to reply with a JSON array
-of three short prompts. The reply is parsed leniently (a fenced array is
-tolerated), validated, capped at three prompts of ≤120 characters, and
-stored — or, when nothing usable comes back, stored as the empty marker
-so **the same finished turn is never asked twice**, even across page
-refreshes. Every failure path fails silently: suggestions are a bonus,
-never a new way to show an error.
+receives a grounded but deliberately small context — the session’s
+opening goal, a digest of the tail window’s tool activity (commands run,
+files touched), the last tool failure when there was one, and the
+conversation tail (last 12 messages, capped per message and in total,
+cut at word boundaries) — plus a fixed instruction to reply with a JSON
+array of three short prompts, each naming something concrete from that
+context, pulling toward different next moves, and never generic chores.
+The reply is parsed leniently (a fenced array is tolerated), validated,
+deduplicated (near-paraphrases collapse; word-set Jaccard ≥ 0.6), capped
+at three prompts of ≤120 characters, and stored — or, when nothing
+usable comes back, stored as the empty marker so **the same finished
+turn is never asked twice**, even across page refreshes. Every failure
+path fails silently: suggestions are a bonus, never a new way to show an
+error.
 
 The model the asks use is configured in the same database, not a flag:
 the `model` settings row holds one combined picker spelling

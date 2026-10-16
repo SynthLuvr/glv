@@ -1,6 +1,12 @@
 import { type } from "arktype";
 import { execa } from "execa";
-import { type ParsedMessage, parseMessage } from "../format/index.js";
+import {
+  messageKind,
+  type ParsedMessage,
+  parseMessage,
+  toolCallInfo,
+  toolResultInfo,
+} from "../format/index.js";
 import type { ModelSelection } from "../models.js";
 import { isRecord } from "../parse.js";
 import type { MessageRow, SessionRow } from "../sessions.js";
@@ -125,8 +131,32 @@ const StringArray = type("string[]");
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 120;
 
-// Parses the assistant's reply into 1..MAX_SUGGESTIONS non-empty
-// prompts. Returns undefined when nothing usable is in there — the
+// Two suggestions are near-duplicates when their normalized word sets
+// overlap this much (Jaccard). Paraphrase pairs ("fix the failing test" /
+// "fix the failing tests now") land well above the bar; genuinely
+// different directions land well below it. Keeps one idea from crowding
+// the strip's three slots.
+const DUPLICATE_JACCARD = 0.6;
+
+const wordsOf = (prompt: string): Set<string> =>
+  new Set(
+    prompt
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word !== ""),
+  );
+
+const nearDuplicate = (a: Set<string>, b: Set<string>): boolean => {
+  if (a.size === 0 || b.size === 0) return false;
+  let shared = 0;
+  for (const word of a) if (b.has(word)) shared++;
+  return shared / (a.size + b.size - shared) >= DUPLICATE_JACCARD;
+};
+
+// Parses the assistant's reply into up to MAX_SUGGESTIONS distinct,
+// non-empty prompts. Near-duplicates collapse (the first of a pair
+// wins); a dropped duplicate frees the slot for a later distinct
+// prompt. Returns undefined when nothing usable is in there — the
 // caller stores the empty marker so the turn is never re-asked.
 const parseSuggestionReply = (text: string): string[] | undefined => {
   // A fenced code block beats the raw text when present — a prose
@@ -145,22 +175,35 @@ const parseSuggestionReply = (text: string): string[] | undefined => {
     }
     const items = StringArray(value);
     if (items instanceof type.errors) continue;
-    const usable = items
-      .map((item) => item.trim().replaceAll(/\s+/g, " "))
-      .filter((item) => item !== "" && item.length <= MAX_SUGGESTION_LENGTH)
-      .slice(0, MAX_SUGGESTIONS);
+    const usable: string[] = [];
+    const seen: Set<string>[] = [];
+    for (const item of items) {
+      const prompt = item.trim().replaceAll(/\s+/g, " ");
+      if (prompt === "" || prompt.length > MAX_SUGGESTION_LENGTH) continue;
+      const words = wordsOf(prompt);
+      if (seen.some((kept) => nearDuplicate(words, kept))) continue;
+      seen.push(words);
+      usable.push(prompt);
+      if (usable.length === MAX_SUGGESTIONS) break;
+    }
     if (usable.length > 0) return usable;
   }
   return undefined;
 };
 
-// ---- the ask prompt ----
+// ---- the ask's context ----
 
 // How much conversation feeds the ask — deliberately tiny, so the ask's
-// cost stays small by design.
+// cost stays small by design. The grounding sections around the tail
+// (goal, actions, failure) are cheap relative to what they buy.
 const TAIL_MESSAGES = 12;
-const TAIL_MESSAGE_CHARS = 400;
-const TAIL_TOTAL_CHARS = 4000;
+const TAIL_MESSAGE_CHARS = 480;
+const TAIL_TOTAL_CHARS = 6000;
+const GOAL_CHARS = 240;
+const ACTION_LINES_MAX = 10;
+const ACTIONS_CHARS = 640;
+const ACTION_ARG_CHARS = 80;
+const FAILURE_CHARS = 240;
 
 const textOf = (message: ParsedMessage): string =>
   message.items
@@ -170,16 +213,88 @@ const textOf = (message: ParsedMessage): string =>
     .join("\n")
     .trim();
 
-const clip = (text: string, max: number): string =>
-  text.length <= max ? text : `${text.slice(0, max)}…`;
+const clip = (text: string, max: number): string => {
+  if (text.length <= max) return text;
+  // Cut at a word boundary when one is reasonably near the limit — a
+  // mid-word cut can invert a sentence's meaning ("don't do X" → "do X")
+  // and the ask then grounds suggestions in a corruption.
+  const cut = text.slice(0, max);
+  const boundary = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("\n"));
+  const at = boundary > max * 0.6 ? boundary : max;
+  return `${cut.slice(0, at).trimEnd()}…`;
+};
 
-// "user: …" / "assistant: …" lines for the tail of the conversation,
-// oldest first, budgeted.
-const conversationTail = (rows: readonly MessageRow[]): string => {
+const oneLine = (text: string): string => text.replaceAll(/\s+/g, " ").trim();
+
+// The most telling argument of a tool call: its first non-empty string
+// value. Command tools yield the command; editors yield the file path;
+// anything else yields whatever text it carries. Validated, never cast.
+const toolArgText = (args: unknown): string => {
+  if (typeof args === "string") return oneLine(args);
+  if (!isRecord(args)) return "";
+  for (const value of Object.values(args))
+    if (typeof value === "string" && oneLine(value) !== "")
+      return oneLine(value);
+
+  return "";
+};
+
+// "[Session goal] / [Recent actions] / [Last failure] / [Conversation
+// tail]" — the grounded context the ask reasons over. The goal is the
+// session's first real user message (prompts and compacted summaries
+// count; goose's injected turn-context rows and tool-result rows do
+// not), so a long session still suggests toward the original aim.
+// Actions and failures come from the tail window's tool blocks, which
+// plain text extraction drops — without them the ask cannot know what
+// was edited, what ran, or that something failed.
+const conversationContext = (rows: readonly MessageRow[]): string => {
+  const window = rows.slice(-TAIL_MESSAGES);
+  const parsed = window.map(parseMessage);
+
+  const sections: string[] = [];
+
+  const goal = parsed.find((message) => {
+    const kind = messageKind(message.role, message.items);
+    return kind === "prompt" || kind === "summary";
+  });
+  if (goal !== undefined) {
+    const text = clip(oneLine(textOf(goal)), GOAL_CHARS);
+    if (text !== "") sections.push(`[Session goal]\n${text}`);
+  }
+
+  const actions: string[] = [];
+  let actionsChars = 0;
+  let lastFailure: string | undefined;
+  for (const message of parsed)
+    for (const item of message.items) {
+      const call = toolCallInfo(item);
+      if (call !== undefined) {
+        if (actions.length >= ACTION_LINES_MAX) continue;
+        const arg = clip(toolArgText(call.args), ACTION_ARG_CHARS);
+        const line = oneLine(
+          arg === "" ? `→ ${call.name}` : `→ ${call.name}(${arg})`,
+        );
+        if (actionsChars + line.length > ACTIONS_CHARS) continue;
+        actionsChars += line.length;
+        actions.push(line);
+      }
+      const result = toolResultInfo(item);
+      if (result?.isError === true) lastFailure = result.text;
+    }
+
+  if (actions.length > 0)
+    sections.push(`[Recent actions]\n${actions.join("\n")}`);
+
+  if (lastFailure !== undefined) {
+    const failure = clip(oneLine(lastFailure), FAILURE_CHARS);
+    if (failure !== "") sections.push(`[Last failure]\n${failure}`);
+  }
+
+  // "user: …" / "assistant: …" lines for the tail of the conversation,
+  // oldest first, budgeted.
   const lines: string[] = [];
   let total = 0;
-  for (const row of rows.slice(-TAIL_MESSAGES)) {
-    const message = parseMessage(row);
+  for (const message of parsed) {
     const text = clip(textOf(message), TAIL_MESSAGE_CHARS);
     if (text === "") continue;
     const line = clip(`${message.role}: ${text}`, TAIL_MESSAGE_CHARS + 32);
@@ -187,29 +302,41 @@ const conversationTail = (rows: readonly MessageRow[]): string => {
     total += line.length;
     lines.push(line);
   }
-  return lines.join("\n");
+  if (lines.length > 0)
+    sections.push(`[Conversation tail]\n${lines.join("\n")}`);
+
+  return sections.join("\n\n");
 };
 
-// The ask's instruction: propose a few short follow-ups, reply with a
-// JSON array and nothing else. Framed as a private helper question about
-// an excerpt, never as a turn of the user's session.
-const buildAskPrompt = (agentName: string, tail: string): string =>
+// The ask's instruction: propose a few short follow-ups grounded in the
+// sections above, reply with a JSON array and nothing else. Framed as a
+// private helper question about an excerpt, never as a turn of the
+// user's session.
+const buildAskPrompt = (agentName: string, context: string): string =>
   [
-    "You are helping build a prompt suggestion feature. Below is the " +
-      "tail of a conversation between a user and their coding agent " +
-      `(${agentName}). Your job is to propose what the user might sensibly ` +
-      "ask next.",
+    "You are the prompt-suggestion helper for a coding-agent viewer. " +
+      "Below is grounded context about a session between a user and " +
+      `their coding agent (${agentName}): what the user set out to do, ` +
+      "what the agent just did, and the tail of the conversation. " +
+      "Propose what the user should ask next.",
     "",
     "Rules:",
-    "- Propose 3 short follow-up prompts the user could send next.",
-    "- Each prompt: at most 12 words, concrete, grounded in what just " +
-      "happened — not generic filler.",
+    "- Propose 3 short follow-up prompts, at most 12 words each.",
+    "- Every suggestion must name the concrete thing it is about — a " +
+      "file, command, error, or entity that appears in the context. A " +
+      "suggestion that would fit any coding session is useless.",
+    '- Never suggest generic chores ("add tests", "update the docs", ' +
+      '"commit the changes") unless the conversation directly implies ' +
+      "that exact next step.",
+    "- The 3 suggestions must pull toward different next moves (for " +
+      "example: continue the task, verify the result, address an open " +
+      "risk) — never paraphrases of one another.",
+    "- If the context shows a failure, one suggestion must deal with it.",
     "- Do not repeat a prompt the user already sent.",
     "- Reply with ONLY a JSON array of 3 strings. No markdown, no " +
       "commentary, no tools.",
     "",
-    "Conversation tail:",
-    tail,
+    context,
   ].join("\n");
 
 // ---- turn identity ----
@@ -227,7 +354,7 @@ const turnKeyOf = (
 export type { EphemeralAsk };
 export {
   buildAskPrompt,
-  conversationTail,
+  conversationContext,
   parseSuggestionReply,
   runEphemeralAsk,
   turnKeyOf,
