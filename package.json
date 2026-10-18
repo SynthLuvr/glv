@@ -2,6 +2,7 @@
   "name": "guided-live-velocity",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Self-hosted web UI that increases development speed with agentic coding",
   "bin": {
     "glv": "bin/glv.mjs"
