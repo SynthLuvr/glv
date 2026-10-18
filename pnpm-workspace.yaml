@@ -16,6 +16,7 @@ minimumReleaseAgeExclude:
   - jscpd-windows-x64-msvc@5.2.0
   - jscpd@5.2.0
   - tsx@4.23.15
+  - croner@11.0.0-dev.6
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
 # 127; pnpm's per-platform default handles every script fine.
