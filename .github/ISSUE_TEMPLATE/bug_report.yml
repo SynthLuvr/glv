@@ -1,0 +1,77 @@
+name: Bug report
+description: Something in glv is broken or behaving unexpectedly
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thanks for taking the time to file a bug. glv drives both the
+        goose and claude agents from one server, so please say which
+        agent you were using when it happened — it is often the
+        difference between a five-minute fix and a day of guessing.
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent?
+      options:
+        - goose
+        - claude
+        - both / not agent-specific
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: What part of glv?
+      options:
+        - Session viewer / transcript
+        - Live streaming / tailing external sessions
+        - New session / follow-up prompts / uploads
+        - Scheduled runs (cron)
+        - Prompt library / session groups
+        - Authentication (passkeys)
+        - CLI (`glv sessions` / `glv view` / `glv logs`)
+        - Docs / setup
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest sequence that triggers it, including the exact
+        `glv serve` flags if you used any.
+      placeholder: |
+        1. `glv serve`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - OS:
+        - Node: (output of `node --version`)
+        - Browser (for viewer issues):
+        - glv commit or version:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Restart the server with `glv serve --debug` (or `GLV_DEBUG=1`)
+        and paste anything relevant. Screenshots help too — drag them
+        straight into this field.
+      render: shell

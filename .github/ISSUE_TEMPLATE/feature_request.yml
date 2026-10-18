@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest an idea or an improvement for glv
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Feature ideas are welcome. The bar for shipping one is an
+        integration test that exercises the real code path end to end,
+        so it helps to know what you are trying to get done, not just
+        what you want built.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The problem or workflow, in your own words — before proposing a
+        solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should glv do?
+      description: >
+        The change you would like to see and roughly how you expect it
+        to behave.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >
+        Workarounds you have tried or other approaches you considered,
+        including ones that almost work.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Are you willing to help build it?
+      options:
+        - "Yes — I can open a pull request"
+        - "Maybe — with guidance"
+        - "No — just suggesting"
+    validations:
+      required: true
