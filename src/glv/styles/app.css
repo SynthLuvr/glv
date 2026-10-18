@@ -1355,7 +1355,8 @@ pre code {
 
 /* ---------- prompt textarea auto-grow ---------- */
 textarea.prompt-input,
-.form-input.prompt-input {
+.form-input.prompt-input,
+textarea[data-autogrow] {
   resize: none;
 }
 

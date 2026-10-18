@@ -5,6 +5,14 @@ const UI_TITLE_SUFFIX = " \u2014 GLV";
 const UI_HOME_TITLE = "GLV";
 const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
+// Cron edit-form boxes grow to most of the viewport — seeing the whole
+// prompt is the point of the form, and the same text wraps far taller
+// on a phone than on a desktop, so the cap is a ratio, not fixed px.
+const UI_CRON_MAX_VIEWPORT_RATIO = 0.7;
+// Textareas that size to their content: the New Session composer and
+// the cron edit form's boxes (the data-autogrow marker both the server
+// render and the client-cloned follow-on block carry).
+const UI_AUTOGROW_SELECTOR = "textarea.prompt-input, textarea[data-autogrow]";
 const UI_COPIED_MS = 1500;
 const UI_THEME_KEY = "glv-theme";
 
@@ -88,13 +96,20 @@ const uiSyncTitle = (): void => {
 };
 
 const uiGrow = (el: HTMLTextAreaElement): void => {
+  // A hidden box (the detail pane while the sidebar pane is up) measures
+  // zero; growing it would collapse it, so keep its last visible height
+  // (or the rows-attribute default).
+  if (el.clientHeight === 0) return;
+  const max = el.hasAttribute("data-autogrow")
+    ? Math.round(window.innerHeight * UI_CRON_MAX_VIEWPORT_RATIO)
+    : UI_MAX_TEXTAREA_HEIGHT;
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, UI_MAX_TEXTAREA_HEIGHT)}px`;
+  el.style.height = `${Math.min(el.scrollHeight, max)}px`;
 };
 
 const uiAutogrowAll = (): void => {
   for (const el of document.querySelectorAll<HTMLTextAreaElement>(
-    "textarea.prompt-input",
+    UI_AUTOGROW_SELECTOR,
   ))
     uiGrow(el);
 };
@@ -176,7 +191,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("input", (e) => {
   if (
     e.target instanceof HTMLTextAreaElement &&
-    e.target.classList.contains("prompt-input")
+    e.target.matches(UI_AUTOGROW_SELECTOR)
   )
     uiGrow(e.target);
 });
@@ -361,10 +376,13 @@ document.addEventListener("DOMContentLoaded", uiInit);
 // MutationObserver picks up the new nodes for code-block enhancement. The
 // mobile pane switch is deliberately NOT done here: a swap that lands after
 // the user clicked "Sessions" would bounce them back to the detail pane.
+// Autogrow runs for every swap target first: an edit card swaps into its
+// own .cron-job-card (not #detail-pane), and its pre-filled boxes must
+// size themselves as they land.
 document.body.addEventListener("htmx:afterSwap", (e) => {
+  uiAutogrowAll();
   if (htmxSwapTarget(e)?.id !== "detail-pane") return;
   uiSyncTitle();
-  uiAutogrowAll();
   uiFocusAutofocus();
   uiInitSourceToggle();
 });

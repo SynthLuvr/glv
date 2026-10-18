@@ -432,15 +432,15 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
 };
 
 // One follow-on step block on the edit form. scripts/schedule.ts
-// clones this exact structure when "+ Add follow-on" is clicked, so
-// server-rendered and client-added blocks behave identically.
+// clones this exact structure for "+ Add follow-on", so server-rendered
+// and client-added blocks behave identically — marker included.
 const FollowOnStep = ({ prompt = "" }: { prompt?: string }) => (
   <div class="cron-step" data-cron-step="">
     <label class="form-field">
       <span class="form-label">
         Then run — starts a new session after the one above finishes
       </span>
-      <textarea name="follow_up" class="form-input" rows={3}>
+      <textarea name="follow_up" class="form-input" rows={3} data-autogrow="">
         {prompt}
       </textarea>
     </label>
@@ -533,7 +533,9 @@ const ScheduleJobEditForm = ({
         )}
         <label class="form-field">
           <span class="form-label">Prompt</span>
-          <textarea name="prompt" class="form-input" rows={4}>
+          {/* rows is the no-JS fallback; ui.js grows the box to the
+              stored prompt via data-autogrow. */}
+          <textarea name="prompt" class="form-input" rows={4} data-autogrow="">
             {job.prompt}
           </textarea>
         </label>

@@ -26,6 +26,11 @@ import {
   startCombinedEnv,
 } from "../src/glv/tests/combined-harness.js";
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
+import { seedCronJobRow } from "../src/glv/tests/harness.js";
+import {
+  LONG_FOLLOW_UP,
+  LONG_PROMPT,
+} from "../src/glv/tests/suites/cron-ui.suite.js";
 import { serveNginx413 } from "../src/glv/tests/suites/upload-413.suite.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
@@ -402,6 +407,38 @@ const captureForks = async (browser: Browser, env: IntegrationEnv) => {
   await context.close();
 };
 
+// The edit form holding a long stored prompt: its prompt and follow-on
+// boxes grow to the content (data-autogrow) instead of clipping it
+// behind the rows-attribute scroll box.
+const captureCronEdit = async (browser: Browser, env: IntegrationEnv) => {
+  const workingDir = join(env.scratchDir, "cron-edit");
+  mkdirSync(workingDir, { recursive: true });
+  seedCronJobRow(env.dbs.cronDb, {
+    name: "morning-refresh",
+    schedule: "0 6 * * 1-5",
+    prompt: LONG_PROMPT,
+    workingDir,
+    enabled: true,
+    followUps: [LONG_FOLLOW_UP],
+  });
+
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(env.baseUrl);
+  await page.locator("form.new-session-form").waitFor();
+  const card = page.locator('.cron-job-card[data-cron-job="morning-refresh"]');
+  await card.getByRole("button", { name: "Edit" }).click();
+  const promptBox = card.locator('textarea[name="prompt"]');
+  await expect(promptBox).toBeVisible({ timeout: 15_000 });
+  await expect(promptBox).toHaveValue(LONG_PROMPT);
+  await capture(page, "cron-edit-desktop.png", ".cron-job-card.editing");
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await capture(page, "cron-edit-mobile.png", ".cron-job-card.editing");
+  await context.close();
+};
+
 // The seeded session row's updated_at, as the goose store reads it —
 // the suggestion row's turn fingerprint must match it exactly or the
 // strip stays hidden.
@@ -430,6 +467,7 @@ try {
   await capturePromptBarPlacement(browser, env);
   await captureTokens(browser, env);
   await captureForks(browser, env);
+  await captureCronEdit(browser, env);
   await captureCombined(browser, env);
 } finally {
   await browser.close();
