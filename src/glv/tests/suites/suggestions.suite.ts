@@ -194,6 +194,31 @@ const startSuggestionEnv = async (
   return { env, log, logDir };
 };
 
+// The same, plus a scratch file capturing the ask's own stdin — lets a
+// test assert on the exact prompt the ask received.
+const startCaptureEnv = async (
+  fx: FlavorFixture,
+  prefix: string,
+  replyPrompts: string[],
+  extra: MockConfig = {},
+): Promise<{
+  env: IntegrationEnv;
+  log: string;
+  logDir: string;
+  captureDir: string;
+  capturePath: string;
+}> => {
+  const captureDir = mkdtempSync(join(tmpdir(), `${prefix}cap-`));
+  const capturePath = join(captureDir, "ask-stdin.txt");
+  const started = await startSuggestionEnv(
+    fx,
+    prefix,
+    [ephemeralReplyLine(replyPrompts)],
+    { captureStdin: capturePath, ...extra },
+  );
+  return { ...started, captureDir, capturePath };
+};
+
 const runSuggestionsSuite = (fx: FlavorFixture): void => {
   describe("suggested next prompts", () => {
     describe("feature flow", () => {
@@ -367,17 +392,16 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       let capturePath: string;
 
       beforeAll(async () => {
-        captureDir = mkdtempSync(join(tmpdir(), "glv-sugg-ground-cap-"));
-        capturePath = join(captureDir, "ask-stdin.txt");
-        const started = await startSuggestionEnv(
+        const started = await startCaptureEnv(
           fx,
           "glv-suggestions-ground-",
-          [ephemeralReplyLine(DUPLICATED)],
-          { captureStdin: capturePath },
+          DUPLICATED,
         );
         env = started.env;
         log = started.log;
         logDir = started.logDir;
+        captureDir = started.captureDir;
+        capturePath = started.capturePath;
       }, 180000);
 
       afterAll(async () => {
@@ -473,21 +497,14 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       });
     });
 
-    // The failure that motivated the anchoring: a session whose closing
-    // reply offered two concrete options ("say the word and I'll flip
-    // the extension off, or swap it to the local Docker server") got
-    // chips about whatever the earlier turns had discussed. The old
-    // context carried the last reply only as a tail line clipped to its
-    // first 480 characters — and a closing reply puts its actionable
-    // part (offers, questions, asks for a decision) at the end — so the
-    // ask saw the recap but never the options, and the suggestions
-    // drifted to older topics. Here the turn's own committed reply
-    // carries the offer, the surrounding rows are deliberately verbose,
-    // and the ask must see the reply's ending — where the offer lives —
-    // as its anchor, with the grounding sections still intact around it.
+    // The motivating failure: a closing reply offering two concrete
+    // options ("say the word and I'll flip the extension off, or swap
+    // it to the local Docker server") got chips about the earlier turns,
+    // because the tail line head-clipped the reply and a closing reply
+    // puts its offers at the end. The ask must anchor on the reply's
+    // ending, with the grounding sections still around it.
     describe("anchored on the last reply", () => {
-      // Long enough that a tail line keeps only its opening — under the
-      // old head-clip the ending (and its offer) never reached the ask.
+      // Long enough that a tail line keeps only its opening.
       const GOAL =
         "Sort out the mcp-remote GitHub extension: every tool call " +
         "drops the Mcp-Session-Id header and reopens the session, so " +
@@ -495,16 +512,14 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         "unauthenticated callers. Start from the extension config and " +
         "decide whether the remote server or the client is at fault " +
         "before touching anything else in the setup.";
-      // Verbose surrounding turns: the tail budget carries thousands of
-      // chars around the anchor, and the ask must keep its grounding
-      // while the last reply takes its own, larger slice.
+      // Verbose surrounding turns, so the tail budget is under real
+      // pressure around the anchor.
       const filler = (n: number): string =>
         `Filler message ${n}: earlier turns of this session run long, ` +
         "and this is the bulk the tail budget has to carry. " +
         "context padding for the conversation tail budget. ".repeat(18);
-      // The turn's committed reply: well past the last-reply budget, so
-      // only its ending survives the ending-biased clip — and the
-      // ending is exactly where the offered options live.
+      // Well past the last-reply budget, so only its ending survives the
+      // ending-biased clip — and the ending is where the offer lives.
       const LAST_REPLY =
         "AUDIT-COMPLETE: audited the mcp-remote wiring end to end. The " +
         "remote server drops the Mcp-Session-Id header on the first " +
@@ -529,17 +544,17 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       let capturePath: string;
 
       beforeAll(async () => {
-        captureDir = mkdtempSync(join(tmpdir(), "glv-sugg-anchor-cap-"));
-        capturePath = join(captureDir, "ask-stdin.txt");
-        const started = await startSuggestionEnv(
+        const started = await startCaptureEnv(
           fx,
           "glv-suggestions-anchor-",
-          [ephemeralReplyLine(OFFER_CHIPS)],
-          { captureStdin: capturePath, lines: [fx.streamLine(LAST_REPLY)] },
+          OFFER_CHIPS,
+          { lines: [fx.streamLine(LAST_REPLY)] },
         );
         env = started.env;
         log = started.log;
         logDir = started.logDir;
+        captureDir = started.captureDir;
+        capturePath = started.capturePath;
       }, 180000);
 
       afterAll(async () => {
@@ -550,13 +565,13 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
 
       it("grounds the ask in the last reply's offered options", async () => {
         // Eleven seeded rows + the turn's committed reply = exactly the
-        // 12-row window the ask reads. Timestamps sit strictly in the
+        // 12-row window the ask reads; timestamps sit strictly in the
         // past so both stores order them before the committed reply.
         fx.seedSessions(env, [
           { id: "anchored", name: "Anchored", workingDir: env.scratchDir },
         ]);
         const base = Date.now();
-        const seeded = [
+        fx.seedMessages(env, "anchored", [
           {
             role: "user",
             content: [{ type: "text", text: GOAL }],
@@ -567,8 +582,7 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
             content: [{ type: "text", text: filler(i + 1) }],
             createdTimestamp: base - (11000 - i * 1000),
           })),
-        ];
-        fx.seedMessages(env, "anchored", seeded);
+        ]);
 
         const res = await postFollowUp(
           env,
@@ -584,23 +598,22 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
           "[Assistant's last reply]",
         );
 
-        // The anchor: the ask sees the last reply's ending, where the
-        // options live — and not its recap head, which the ending-biased
-        // clip traded away.
+        // The anchor: the reply's ending, where the options live — and
+        // not its recap head, which the ending-biased clip traded away.
         expect(ask).toContain("flip the extension off");
         expect(ask).toContain("swap it to the local Docker server");
         expect(ask).not.toContain("AUDIT-COMPLETE");
 
         // The surrounding grounding survives: goal, older tail, and the
-        // sharpened instruction that ranks the offered options first.
+        // rule that ranks the offered options first.
         expect(ask).toContain("[Session goal]");
         expect(ask).toContain("decide whether the remote server");
         expect(ask).toContain("[Conversation tail]");
         expect(ask).toContain("Filler message 10");
         expect(ask).toContain("offered options");
 
-        // Delivered end to end: the chips above the input box are the
-        // offered options, not leftovers from the earlier turns.
+        // Delivered end to end: the chips are the offered options, not
+        // leftovers from the earlier turns.
         expect(await waitForSuggestions(env, fx.viewId("anchored"))).toEqual(
           OFFER_CHIPS,
         );

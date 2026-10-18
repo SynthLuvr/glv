@@ -245,16 +245,10 @@ const LAST_REPLY_CHARS = 1200;
 const clipEnd = (text: string, max: number): string => {
   if (text.length <= max) return text;
   const cut = text.slice(-max);
-  // Prefer starting just after a word break; a run with no break at all
-  // (an unbroken 1200 chars) starts at the raw edge.
-  const space = cut.indexOf(" ");
-  const newline = cut.indexOf("\n");
-  const boundary = Math.min(
-    space === -1 ? max : space,
-    newline === -1 ? max : newline,
-  );
-  const at = boundary < max ? boundary + 1 : 0;
-  return `…${cut.slice(at).trimStart()}`;
+  // Start just after the first word break so the leading fragment stays
+  // readable; an unbroken run starts at the raw edge.
+  const boundary = cut.search(/[ \n]/);
+  return `…${cut.slice(boundary === -1 ? 0 : boundary + 1).trimStart()}`;
 };
 
 const oneLine = (text: string): string => text.replaceAll(/\s+/g, " ").trim();
@@ -331,23 +325,21 @@ const toolSections = (parsed: readonly ParsedMessage[]): string[] => {
 const lastReplySection = (
   parsed: readonly ParsedMessage[],
 ): { readonly section: string; readonly index: number } | undefined => {
-  for (let index = parsed.length - 1; index >= 0; index--) {
-    const message = parsed[index];
-    if (messageKind(message.role, message.items) !== "output") continue;
-    const text = clipEnd(textOf(message), LAST_REPLY_CHARS);
-    if (text === "") continue;
-    return { section: `[Assistant's last reply]\n${text}`, index };
-  }
-  return undefined;
+  const index = parsed.findLastIndex(
+    (message) =>
+      messageKind(message.role, message.items) === "output" &&
+      textOf(message) !== "",
+  );
+  if (index === -1) return undefined;
+  const text = clipEnd(textOf(parsed[index]), LAST_REPLY_CHARS);
+  return { section: `[Assistant's last reply]\n${text}`, index };
 };
 
 // "user: …" / "assistant: …" lines for the tail of the conversation,
-// budgeted per message and in total. Selection walks newest-first so
-// the section keeps what it is named for — the rows nearest the finished
-// turn — no matter how the budgets are tuned; the previous oldest-first
-// walk kept the window's head and dropped its tail when the budget ran
-// short, the exact opposite of a conversation tail. Selected
-// newest-first, emitted oldest-first for reading order.
+// budgeted per message and in total. Selected newest-first — a short
+// budget must drop the oldest rows, never the ones nearest the finished
+// turn — and emitted oldest-first for reading order. `skipIndex` leaves
+// the last-reply message out so it is not carried twice.
 const tailSection = (
   parsed: readonly ParsedMessage[],
   skipIndex: number | undefined,
@@ -388,8 +380,8 @@ const conversationContext = (rows: readonly MessageRow[]): string => {
 // The ask's instruction: propose a few short follow-ups grounded in the
 // sections above, reply with a JSON array and nothing else. Framed as a
 // private helper question about an excerpt, never as a turn of the
-// user's session. The first rule ranks the sections: the last reply is
-// the anchor; when it offers options, the chips must be those options.
+// user's session. The first rules rank the sections: the last reply is
+// the anchor; offered options become the first chips.
 const buildAskPrompt = (agentName: string, context: string): string =>
   [
     "You are the prompt-suggestion helper for a coding-agent viewer. " +
