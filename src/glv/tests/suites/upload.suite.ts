@@ -18,6 +18,7 @@ import {
   waitForFile,
   withPage,
 } from "../harness.js";
+import { stdinTranscriptPath } from "../mock-common.js";
 
 const runUploadSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Upload Test Session";
@@ -126,8 +127,11 @@ const runUploadSuite = (fx: FlavorFixture): void => {
         expect(existsSync(savedPath)).toBe(true);
         expect(readFileSync(savedPath, "utf-8")).toBe(uploadContent);
 
-        // the agent received the absolute file path in its stdin (the prompt).
-        const captured = await waitForFile(capturePath);
+        // The agent received the absolute file path in its stdin (the
+        // prompt). Read the transcript, not the latest-stdin capture:
+        // the always-on suggestion ask overwrites that once the reply
+        // lands.
+        const captured = await waitForFile(stdinTranscriptPath(capturePath));
         expect(captured).toContain(PROMPT_TEXT);
         expect(captured).toContain(savedPath);
         expect(captured).toContain("Attached files");

@@ -18,6 +18,7 @@ import {
   waitForFile,
   withPage,
 } from "../harness.js";
+import { stdinTranscriptPath } from "../mock-common.js";
 
 const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Follow-up Upload Session";
@@ -114,7 +115,9 @@ const runFollowUpUploadSuite = (fx: FlavorFixture): void => {
 
         // the agent (resume invocation) received the prompt with the appended file
         // paths in its stdin.
-        const captured = await waitForFile(capturePath);
+        // The transcript, not the latest-stdin capture: the always-on
+        // suggestion ask overwrites that once the reply lands.
+        const captured = await waitForFile(stdinTranscriptPath(capturePath));
         expect(captured).toContain(FOLLOWUP_PROMPT);
         expect(captured).toContain("Attached files");
 

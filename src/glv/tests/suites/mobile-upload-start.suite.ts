@@ -9,6 +9,7 @@ import {
   waitForFile,
   withPage,
 } from "../harness.js";
+import { stdinTranscriptPath } from "../mock-common.js";
 
 const runMobileUploadStartSuite = (fx: FlavorFixture): void => {
   // iOS Safari blocks app code from reassigning input.files — the DataTransfer
@@ -64,7 +65,9 @@ globalThis.DataTransfer = class {
         await page.locator("textarea.prompt-input").fill(PROMPT);
         await page.locator("button.send-btn").click();
 
-        const captured = await waitForFile(capturePath);
+        // The transcript, not the latest-stdin capture: the always-on
+        // suggestion ask overwrites that once the reply lands.
+        const captured = await waitForFile(stdinTranscriptPath(capturePath));
         expect(captured).toContain(PROMPT);
         expect(captured).toContain("Attached files");
         expect(captured).toContain(FILENAME);

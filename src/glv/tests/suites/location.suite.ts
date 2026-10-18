@@ -9,6 +9,7 @@ import {
   waitForFile,
   withPage,
 } from "../harness.js";
+import { stdinTranscriptPath } from "../mock-common.js";
 
 // "Share my location" — the geolocation twin of the paperclip upload flow,
 // on both the New Session form and the in-session prompt bar.
@@ -144,7 +145,9 @@ const runLocationSuite = (fx: FlavorFixture): void => {
         await page.locator("textarea[name='prompt']").fill(START_PROMPT);
         await page.locator("button.send-btn").click();
 
-        const captured = await waitForFile(capturePath);
+        // The transcript, not the latest-stdin capture: the always-on
+        // suggestion ask overwrites that once the reply lands.
+        const captured = await waitForFile(stdinTranscriptPath(capturePath));
         expect(captured).toContain(START_PROMPT);
         expect(captured).toContain("User's current location");
         expect(captured).toContain(LAT_FMT);

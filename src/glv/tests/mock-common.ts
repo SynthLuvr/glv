@@ -1,4 +1,9 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 
 // Behaviour shared by the per-flavor mock agent scripts (goose-mock-script,
 // claude-mock-script). Everything is driven by env vars named
@@ -62,6 +67,18 @@ const writeFileAtomic = (path: string, data: string | Buffer): void => {
   }
 };
 
+// Suffix of the append-only transcript written alongside every capture
+// file: each captured invocation is appended there, newline-terminated.
+// The main capture always holds only the latest invocation, and the
+// always-on suggestion ask is itself an invocation — it lands right
+// after a session's reply and overwrites the prompt the suite is
+// asserting on. Readers that must still see an earlier prompt read the
+// transcript instead, where nothing is ever lost.
+const TRANSCRIPT_SUFFIX = ".invocations";
+
+const stdinTranscriptPath = (capturePath: string): string =>
+  `${capturePath}${TRANSCRIPT_SUFFIX}`;
+
 // Reads all of stdin (the full prompt including file-path context) and
 // writes it to the capture file named by the env var, when set.
 const captureStdinTo = async (envVar: string): Promise<void> => {
@@ -69,7 +86,14 @@ const captureStdinTo = async (envVar: string): Promise<void> => {
   if (captureTo === undefined || captureTo === "") return;
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  writeFileAtomic(captureTo, Buffer.concat(chunks));
+  const content = Buffer.concat(chunks);
+  writeFileAtomic(captureTo, content);
+  // Appends are small single writes; a concurrent invocation's append
+  // can interleave but never loses an already-written entry.
+  appendFileSync(
+    stdinTranscriptPath(captureTo),
+    Buffer.concat([content, Buffer.from("\n")]),
+  );
 };
 
 const captureTo = (envVar: string, content: string): void => {
@@ -94,4 +118,11 @@ const streamLines = async (
   }
 };
 
-export { captureStdinTo, captureTo, linesFromEnv, sleep, streamLines };
+export {
+  captureStdinTo,
+  captureTo,
+  linesFromEnv,
+  sleep,
+  stdinTranscriptPath,
+  streamLines,
+};
