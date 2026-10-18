@@ -6,12 +6,11 @@
 # before a risky merge.
 #
 # Job bodies mirror ci.yml: if you change the test invocation or cache
-# strategy there, change them here too. Two deliberate divergences: the
-# test job's timeout (shards finish in 5–7 minutes on Ubuntu but far
-# longer on Windows — the suite spawns a real server plus headless
-# Chromium per file, and Windows pays several times the POSIX price per
-# spawn), and vitest.config.ts caps Windows CI at two concurrent files
-# for the same reason: four-way concurrency starved the runners into
+# strategy there, change them here too. Two deliberate divergences,
+# both from Windows paying several times the POSIX price per spawn
+# (each file runs a real server plus headless Chromium): the test job's
+# timeout is 25 minutes, and vitest.config.ts caps Windows CI at two
+# concurrent files — four-way concurrency starved the runners into
 # multi-second request stalls and failed the weekly run outright.
 name: Windows CI (weekly)
 
