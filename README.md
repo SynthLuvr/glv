@@ -68,15 +68,14 @@ the browser.
   edit, and delete from the same section; jobs live in the cron database
   (`cron.db`). Sessions a job starts carry a clock badge naming the job.
   Each job can pin the model its runs use (goose or a claude alias).
-- **Suggested next prompts.** When a session finishes a turn, GLV can
-  quietly ask the same assistant for a few good follow-up prompts and
-  offer them as one-tap suggestions above the input box. The ask is tiny
-  and grounded — the session’s goal, what the agent just did (commands,
-  files), the last failure, and the conversation tail — happens at most
-  once per finished turn, never occupies the queue real prompts use, and
-  leaves no session behind — no sidebar entry, no transcript, no
-  activity. Opt-in: the lightbulb switch in the sidebar header turns it
-  on and off (off by default).
+- **Suggested next prompts.** When a session finishes a turn, GLV
+  quietly asks the same assistant for a few good follow-up prompts and
+  offers them as one-tap suggestions above the input box. The ask is
+  tiny and grounded — the session’s goal, what the agent just did
+  (commands, files), the last failure, and the conversation tail —
+  happens at most once per finished turn, never occupies the queue real
+  prompts use, and leaves no session behind — no sidebar entry, no
+  transcript, no activity.
 - **Session management.** Rename sessions, fork a session — the whole
   transcript or from any message boundary — to explore a branch without
   touching the original (forks are ordinary sessions: rename, archive,
@@ -370,13 +369,12 @@ Phrasings that would fire more often than once a minute are rejected.
 
 ### Suggested next prompts
 
-The feature is opt-in: the lightbulb switch in the sidebar header turns
-it on and off (off by default), stored in the suggestions database
-(`suggestions.db`).
+The feature is always on: when a session finishes a turn, the
+suggestions arrive on their own — there is nothing to switch.
 
-The model the background asks use is configured in the same database,
-not a flag — one `settings` row, in the combined picker spelling, read
-fresh so an edit applies without a restart:
+The model the background asks use is configured in the suggestions
+database, not a flag — one `settings` row, in the combined picker
+spelling, read fresh so an edit applies without a restart:
 
 ``` sh
 sqlite3 ~/.local/share/glv/suggestions.db \

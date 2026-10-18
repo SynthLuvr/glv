@@ -172,15 +172,6 @@ const startSuggestionEnv = async (
   return { env, log, logDir };
 };
 
-// Flips the feature on over HTTP.
-const enableSuggestions = async (env: IntegrationEnv): Promise<void> => {
-  const res = await authedFetch(env, "/suggestions/toggle", {
-    method: "POST",
-  });
-  expect(res.status).toBe(200);
-  expect(await res.text()).toContain('aria-pressed="true"');
-};
-
 const runSuggestionsSuite = (fx: FlavorFixture): void => {
   describe("suggested next prompts", () => {
     describe("feature flow", () => {
@@ -205,19 +196,18 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         rmScratch(logDir);
       });
 
-      it("renders the toggle in the sidebar, off by default", async () => {
-        const page = await authedFetch(env, "/");
-        const html = await page.text();
-        expect(html).toContain("suggestions-toggle");
-        expect(html).toContain('aria-pressed="false"');
-      });
-
-      it("toggles the feature on", async () => {
-        await enableSuggestions(env);
+      it("is always on: no sidebar switch and no toggle endpoint", async () => {
+        const home = await authedFetch(env, "/");
+        const html = await home.text();
+        expect(html).not.toContain("suggestions-toggle");
+        const toggle = await authedFetch(env, "/suggestions/toggle", {
+          method: "POST",
+        });
+        expect(toggle.status).toBe(404);
       });
 
       it("asks once after a finished turn, streams the suggestions, and leaves no session behind", async () => {
-        suggestedSessionId = await runTurn(env, "a session, feature on");
+        suggestedSessionId = await runTurn(env, "a session, always on");
 
         expect(await waitForSuggestions(env, suggestedSessionId)).toEqual(
           SUGGESTIONS,
@@ -392,8 +382,6 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       });
 
       it("grounds the ask in the goal, the tool activity, and the failure", async () => {
-        await enableSuggestions(env);
-
         // The seeded transcript carries what text extraction alone
         // loses: an opening goal, a tool call, a failing result, and
         // the follow-up prompt (the mock commits streamed lines only,
@@ -520,42 +508,11 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       });
 
       it("asks on the pinned model, read from the settings row", async () => {
-        await enableSuggestions(env);
         await runTurn(env, "a turn with a pinned suggestion model");
         await waitForInvocations(log, 1);
 
         const args = ephemeralInvocations(log)[0];
         for (const flag of pin.flags) expect(args).toContain(flag);
-      });
-    });
-
-    describe("off by default", () => {
-      let env: IntegrationEnv;
-      let log: string;
-      let logDir: string;
-
-      beforeAll(async () => {
-        const started = await startSuggestionEnv(fx, "glv-suggestions-off-", [
-          ephemeralReplyLine(SUGGESTIONS),
-        ]);
-        env = started.env;
-        log = started.log;
-        logDir = started.logDir;
-      }, 180000);
-
-      afterAll(async () => {
-        await env?.cleanup();
-        rmScratch(logDir);
-      });
-
-      it("does none of this work while the setting is off", async () => {
-        await runTurn(env, "a turn while the feature is off");
-        await sleep(SETTLE_MS);
-        expect(ephemeralInvocations(log)).toHaveLength(0);
-      });
-
-      it("toggles on with one tap", async () => {
-        await enableSuggestions(env);
       });
     });
 
@@ -579,8 +536,6 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       });
 
       it("fails silently and never re-asks the served turn", async () => {
-        await enableSuggestions(env);
-
         const sessionId = await runTurn(env, "turn whose ask answers garbage");
         // The ask happened exactly once...
         await waitForInvocations(log, 1);
@@ -622,8 +577,6 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       });
 
       it("asks nothing for a run the user stopped", async () => {
-        await enableSuggestions(env);
-
         const res = await postNewSession(env, env.scratchDir, "stop me");
         expect(res.status).toBe(200);
         const sessionId = sessionIdOf(await res.text());
