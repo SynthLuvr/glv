@@ -46,6 +46,17 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     // The busy-composer test submits a run, and the agent spawns with this
     // workingDir as its cwd.
     mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
+    fx.seedSessions(env, [
+      {
+        id: "mobile-header",
+        name: "Mobile Header Session With A Deliberately Long Wrapping Title",
+        workingDir: join(env.scratchDir, "mobile-header-project"),
+        model: "header-model",
+      },
+    ]);
+    mkdirSync(join(env.scratchDir, "mobile-header-project"), {
+      recursive: true,
+    });
   }, 180000);
 
   afterAll(async () => {
@@ -67,6 +78,41 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   ): Promise<void> => {
     await page.locator(`.mobile-pane-btn[data-pane="${pane}"]`).click();
   };
+
+  // The B1/B2 header proof: at the phone viewport the title truncates to
+  // one line and the quiet metadata row collapses to a single scrollable
+  // line instead of stacking ~200px of chips above the transcript.
+  describe("session header collapses on mobile", () => {
+    it("keeps the title and meta row to one line each with no overflow", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page, "mobile-header");
+        const header = await page.evaluate(() => {
+          const title = document.querySelector(
+            ".session-header .session-title",
+          );
+          const meta = document.querySelector(".session-meta");
+          const pane = document.querySelector("#detail-pane");
+          if (title === null || meta === null || pane === null) return null;
+          return {
+            titleHeight: title.getBoundingClientRect().height,
+            titleTruncated: title.scrollWidth > title.clientWidth + 1,
+            metaHeight: meta.getBoundingClientRect().height,
+            metaScrollable: meta.scrollWidth > meta.clientWidth + 1,
+            paneOverflow: pane.scrollWidth - pane.clientWidth,
+          };
+        });
+        expect(header).not.toBeNull();
+        // One line each: 1.05rem text on a 1.6 line-height ≈ 27px; a wrap
+        // would double it.
+        expect(header!.titleHeight).toBeLessThanOrEqual(32);
+        expect(header!.titleTruncated).toBe(true);
+        expect(header!.metaHeight).toBeLessThanOrEqual(34);
+        expect(header!.metaScrollable).toBe(true);
+        // And nothing forces the pane itself sideways.
+        expect(header!.paneOverflow).toBeLessThanOrEqual(1);
+      });
+    }, 30000);
+  });
 
   // Read the toggle bar's box straight from the DOM rather than via
   // locator.boundingBox(), which can return null for actionability reasons.
