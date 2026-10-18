@@ -36,7 +36,10 @@ const config = vitestPreset({
   // concurrent file costs several hundred MB. CI runners have dedicated
   // vCPUs and no competing dev load, so they can safely run more files at
   // once; locally two workers keep the peak low alongside normal load.
-  maxWorkers: process.env.CI ? 4 : 2,
+  // Windows CI is the exception: spawns cost several times the POSIX
+  // price there, and four-way concurrency stalls requests for whole
+  // seconds — it failed the weekly Windows run.
+  maxWorkers: process.env.CI && platform() !== "win32" ? 4 : 2,
   // Integration tests boot a real `glv-goose serve` / `glv-claude serve`
   // subprocess and drive it with a headless browser, so they need
   // generous timeouts.

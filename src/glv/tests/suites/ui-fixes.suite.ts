@@ -116,8 +116,12 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await input.fill("Alpha renamed");
         await input.press("Enter");
 
+        // Like the oob-swap rename proof: on a contended runner the
+        // rename POST's response (title fragment + sidebar swap) can
+        // outlast the default 5s window.
         await expect(page.locator("#session-list")).toContainText(
           "Alpha renamed",
+          { timeout: 10000 },
         );
         await expect(
           page.locator(
