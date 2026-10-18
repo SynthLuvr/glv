@@ -189,10 +189,9 @@ const ApiTokensLink = () => (
   </a>
 );
 
-// Lives in the sidebar footer beside "API tokens" — a low-frequency
-// control that must not compete for header space (five icon buttons +
-// title + count chip overflowed the 19rem sidebar and clipped this
-// glyph at the right edge).
+// A footer link beside "API tokens": logout is low-frequency, and the
+// header row (title + count chip + icon buttons) had no room left in the
+// 19rem sidebar — the glyph clipped at the right edge.
 const LogoutButton = () => (
   <form action="/auth/logout" method="post" class="logout-form">
     <button

@@ -116,11 +116,9 @@ body {
   border: 0;
 }
 
-/* One shared keyboard-focus ring: every focusable control gets the
-   same accent outline on :focus-visible. Component rules used to repeat
-   these two declarations; they were folded into this rule, leaving only
-   the genuine variants (the menu items' inset ring, the scroll
-   button's wider offset) as per-element overrides. */
+/* One shared keyboard-focus ring for every focusable control; only the
+   genuine variants (the menu items' inset ring, the scroll button's
+   wider offset) override it below. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
@@ -1945,8 +1943,8 @@ select.form-input {
   color: var(--color-faint);
 }
 /* Loading stand-in, swapped out by the /sessions/model-picker fragment.
-   The form never waits on the catalogue (Start session stays enabled);
-   the spinner makes the pending state explicit while it loads. */
+   The spinner makes the pending state explicit; Start session never
+   waits on the catalogue. */
 .model-slot-loading {
   display: flex;
   align-items: center;
@@ -2590,10 +2588,6 @@ select.form-input {
 }
 
 /* ---------- logout ---------- */
-/* A footer link beside "API tokens": the header row (title + count chip
-   + icon buttons) overflowed the 19rem sidebar and clipped this
-   control's glyph at the right edge, and logging out is low-frequency
-   enough to not need prime header real estate. */
 .logout-form {
   margin-left: auto;
 }
@@ -3531,12 +3525,9 @@ select.form-input {
 }
 
 /* ---------- reduced motion ---------- */
-/* Honor the OS-level ask for less motion: the ambient pulse loops (run
-   dots, PR loading, the location pin), the stream fade-in and the
-   micro color/opacity transitions all stop. The `!important`s are
-   deliberate — the animations are set by many scattered class rules
-   with higher specificity than `*`, and this one block must win over
-   every one of them when the user has asked for stillness. */
+/* !important is deliberate: the animations live in many scattered class
+   rules with higher specificity than *, and this block must win over
+   every one of them when the OS asks for stillness. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -231,11 +231,9 @@ const captureSuggestions = async (
   await context.close();
 };
 
-// Dark-theme pass: the same key surfaces as the light captures, through
-// a `colorScheme: "dark"` context. The theme bootstrap in Layout.tsx
-// honors the OS preference when nothing is stored, so a fresh context
-// lands on the dark palette with no clicks. UI PRs must prove both
-// themes; this pass is what makes that possible.
+// Dark-theme pass over the same key surfaces. The theme bootstrap honors
+// the OS preference when nothing is stored, so a `colorScheme: "dark"`
+// context lands on the dark palette with no clicks.
 const captureDarkViews = async (
   browser: Browser,
   env: IntegrationEnv,

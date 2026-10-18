@@ -198,12 +198,10 @@ const NewSessionForm = ({
       Start a fresh {agentName} run. The session appears in the sidebar the
       moment {agentName} creates it.
     </p>
-    {/* hx-disabled-elt guards this form's POST against double submits;
-        and hx-disinherit keeps that attribute scoped to the form's own
-        request: without it every descendant request inherited it, and the
-        lazy model-picker GET disabled Start session document-wide until
-        the catalogue resolved — gating the form on the one thing it must
-        never wait on. */}
+    {/* hx-disinherit scopes the double-submit guard (hx-disabled-elt) to
+        this form's own POST: htmx hands attributes down to descendant
+        requests, so without it the lazy model-picker GET disabled Start
+        session document-wide until the catalogue resolved. */}
     <form
       class="new-session-form"
       data-upload-form

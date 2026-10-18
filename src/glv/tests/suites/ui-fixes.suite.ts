@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type FlavorFixture,
@@ -14,11 +14,10 @@ import {
 // like dead buttons); server re-renders of the session list wiped the
 // client-side open-session highlight; the session-count badge only rendered
 // on full page loads; and the busy/idle prompt-bar swap dropped files
-// staged for a follow-up. Later describe blocks add the UI-polish
-// regression proofs (sidebar fit, reduced motion, focus reveals, keyboard
-// rings) from the issue-314 fixes. The model-picker gate proof lives in
-// goose's model-select suite, where a configured default guarantees the
-// picker renders at all.
+// staged for a follow-up. The later blocks pin the issue-314 UI polish
+// (sidebar fit, reduced motion, focus reveals, keyboard rings); the
+// model-picker gate proof lives in goose's model-select suite, where a
+// configured default guarantees the picker renders at all.
 const runUiFixesSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;
@@ -223,37 +222,40 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
     it("keeps the header row free of horizontal clipping", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
-        const overflow = await page.evaluate(() => {
-          const head = document.querySelector(".sidebar-head");
-          return head === null ? null : head.scrollWidth - head.clientWidth;
-        });
-        expect(overflow).not.toBeNull();
-        expect(overflow!).toBeLessThanOrEqual(0);
+        const overflow = await page
+          .locator(".sidebar-head")
+          .evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
       });
     }, 30000);
 
     it("fits the logout control fully inside the sidebar footer", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
-        const fit = await page.evaluate(() => {
-          const foot = document.querySelector(".sidebar-foot");
-          const btn = document.querySelector(".sidebar-foot .logout-btn");
-          const sidebar = document.querySelector(".sidebar");
-          if (foot === null || btn === null || sidebar === null) return null;
-          const f = foot.getBoundingClientRect();
-          const b = btn.getBoundingClientRect();
-          const s = sidebar.getBoundingClientRect();
-          return { b, f, s };
-        });
-        expect(fit).not.toBeNull();
-        // Fully inside the footer row…
-        expect(fit!.b.left).toBeGreaterThanOrEqual(fit!.f.left - 0.5);
-        expect(fit!.b.right).toBeLessThanOrEqual(fit!.f.right + 0.5);
-        expect(fit!.b.top).toBeGreaterThanOrEqual(fit!.f.top - 0.5);
-        expect(fit!.b.bottom).toBeLessThanOrEqual(fit!.f.bottom + 0.5);
-        // …and inside the sidebar itself (the old header placement clipped
-        // the glyph past the sidebar's right edge).
-        expect(fit!.b.right).toBeLessThanOrEqual(fit!.s.right + 0.5);
+        // The old header placement clipped the glyph past the sidebar's
+        // right edge; the whole button must sit inside the footer row and
+        // the sidebar box.
+        const fit = await page
+          .locator(".sidebar-foot .logout-btn")
+          .evaluate((btn) => {
+            const box = btn.getBoundingClientRect();
+            const inside = (host: Element | null): boolean => {
+              if (host === null) return false;
+              const h = host.getBoundingClientRect();
+              return (
+                box.left >= h.left - 0.5 &&
+                box.right <= h.right + 0.5 &&
+                box.top >= h.top - 0.5 &&
+                box.bottom <= h.bottom + 0.5
+              );
+            };
+            return {
+              footer: inside(document.querySelector(".sidebar-foot")),
+              sidebar: inside(document.querySelector(".sidebar")),
+            };
+          });
+        expect(fit.footer).toBe(true);
+        expect(fit.sidebar).toBe(true);
       });
     }, 30000);
   });
@@ -262,8 +264,8 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
     it("stops the running-dot pulse under prefers-reduced-motion", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(env.baseUrl);
-        // Start a run on the seeded session through the real endpoint; the
-        // 6s mock sleep keeps the dot pulsing while styles are read.
+        // Start a run through the real endpoint; the 6s mock sleep keeps
+        // the dot pulsing while styles are read.
         await fetch(
           `${env.baseUrl}/sessions/${fx.viewId("fix-alpha")}/prompt`,
           {
@@ -288,8 +290,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await page.emulateMedia({ reducedMotion: "reduce" });
         const still = await dot.evaluate((el) => {
           const style = getComputedStyle(el);
-          // Computed durations come back in seconds ("1e-05s") — normalize
-          // to milliseconds before comparing.
+          // Computed durations are seconds ("1e-05s"); normalize to ms.
           const ms = parseFloat(style.animationDuration) * 1000;
           return `${ms}/${style.animationIterationCount}`;
         });
@@ -302,40 +303,31 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
     it("reveals copy and fork buttons when a message child is focused", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-alpha")}`);
-        // The reveal is a cascade question (:focus-within selectors), not a
-        // transition-timing one — and on hosts that fall back to a headed
-        // launch under Xvfb the document timeline can stall mid-transition,
-        // freezing the load-time 1→0 fade. Kill transitions so computed
-        // styles reflect the rules exactly.
+        // Assert the cascade, not transition timing: under the Xvfb headed
+        // fallback the document timeline can stall mid-transition, freezing
+        // the load-time fade. Kill transitions so computed styles reflect
+        // the rules exactly.
         await page.addStyleTag({
           content: "*, *::before, *::after { transition: none !important; }",
         });
-        // On hosts that fall back to a headed launch under Xvfb, the real
-        // pointer parks mid-screen and can hover a message head, tripping
-        // the hover reveal. Park it in the corner so only focus drives the
-        // assertions.
+        // The Xvfb fallback's real pointer parks mid-screen and can hover a
+        // message head, tripping the hover reveal — park it in the corner
+        // so only focus drives the assertions.
         await page.mouse.move(1, 1);
         const output = page.locator(".message.output").first();
         const copy = output.locator(".copy-md-btn");
         const fork = output.locator(".fork-here-btn");
+        const opacityOf = (btn: Locator): Promise<string> =>
+          btn.evaluate((el) => getComputedStyle(el).opacity);
 
-        // Hidden (opacity 0) until something inside the message has focus.
-        expect(await copy.evaluate((el) => getComputedStyle(el).opacity)).toBe(
-          "0",
-        );
-        expect(await fork.evaluate((el) => getComputedStyle(el).opacity)).toBe(
-          "0",
-        );
+        // Hidden (opacity 0) until something inside the message has focus…
+        expect(await opacityOf(copy)).toBe("0");
+        expect(await opacityOf(fork)).toBe("0");
 
-        // Tab-equivalent: focusing a link inside the rendered markdown
-        // must reveal the wrap's copy button and the message's fork button.
+        // …then focusing the rendered markdown link reveals both.
         await output.locator(".markdown a").focus();
-        expect(await copy.evaluate((el) => getComputedStyle(el).opacity)).toBe(
-          "1",
-        );
-        expect(await fork.evaluate((el) => getComputedStyle(el).opacity)).toBe(
-          "1",
-        );
+        expect(await opacityOf(copy)).toBe("1");
+        expect(await opacityOf(fork)).toBe("1");
       });
     }, 30000);
   });
