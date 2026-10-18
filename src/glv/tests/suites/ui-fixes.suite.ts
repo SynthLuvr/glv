@@ -16,7 +16,9 @@ import {
 // on full page loads; and the busy/idle prompt-bar swap dropped files
 // staged for a follow-up. Later describe blocks add the UI-polish
 // regression proofs (sidebar fit, reduced motion, focus reveals, keyboard
-// rings, model-picker loading) from the issue-314 fixes.
+// rings) from the issue-314 fixes. The model-picker gate proof lives in
+// goose's model-select suite, where a configured default guarantees the
+// picker renders at all.
 const runUiFixesSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;
@@ -374,39 +376,6 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         expect(await outlineOf(page, "button.archive-btn")).toContain("solid");
       });
     }, 30000);
-  });
-
-  describe("model picker loading", () => {
-    it("shows the loading spinner and never gates session start", async () => {
-      await withPage(env.context, async (page) => {
-        // Hold the picker fragment back so the form stays in its loading
-        // state while a session is started around it.
-        let release = (): void => undefined;
-        const gate = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        await page.route("**/sessions/model-picker*", async (route) => {
-          await gate;
-          await route.continue();
-        });
-        try {
-          await page.goto(env.baseUrl);
-          await expect(page.locator(".model-slot-loading")).toBeVisible();
-          await page
-            .locator('textarea[name="prompt"]')
-            .fill("Start without waiting for models");
-          await page.locator('input[name="working_dir"]').fill(workDir);
-          await page.locator("button.send-btn").click();
-          // The session starts anyway: the detail pane swaps to its
-          // transcript with a prompt bar.
-          await expect(page.locator("form.prompt-bar")).toBeVisible({
-            timeout: 20000,
-          });
-        } finally {
-          release();
-        }
-      });
-    }, 60000);
   });
 };
 

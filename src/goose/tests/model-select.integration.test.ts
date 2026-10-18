@@ -160,6 +160,39 @@ describe("new-session model picker (goose)", () => {
     expect(html).toContain('hx-trigger="load"');
   });
 
+  // The lazy load must not gate the form either: hx-disabled-elt on the
+  // new-session form used to be inherited by the picker's load GET, whose
+  // document-wide selector kept Start session disabled until the catalogue
+  // resolved. Hold the fragment back and start a session anyway.
+  it("shows the loading spinner and never gates session start", async () => {
+    await withPage(env.context, async (page) => {
+      let release = (): void => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route("**/sessions/model-picker*", async (route) => {
+        await gate;
+        await route.continue();
+      });
+      try {
+        await page.goto(`${env.baseUrl}/sessions/new`);
+        await expect(page.locator(".model-slot-loading")).toBeVisible();
+        await page
+          .locator('textarea[name="prompt"]')
+          .fill("Start without waiting for models");
+        await page.locator('input[name="working_dir"]').fill(workDir);
+        await expect(page.locator("button.send-btn")).toBeEnabled();
+        await page.locator("button.send-btn").click();
+        // The session starts anyway: the detail pane swaps to its
+        // transcript with a prompt bar.
+        await expect(page.locator("form.prompt-bar")).toBeVisible({
+          timeout: 20000,
+        });
+      } finally {
+        release();
+      }
+    });
+  }, 60000);
   it("lists every model each configured provider offers", async () => {
     const html = await fetchModelPicker(env);
     expect(html).toContain('name="model"');
