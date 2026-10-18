@@ -154,6 +154,9 @@ const ApiTokensLink = () => (
   </a>
 );
 
+// A footer link beside "API tokens": logout is low-frequency, and the
+// header row (title + count chip + icon buttons) had no room left in the
+// 19rem sidebar — the glyph clipped at the right edge.
 const LogoutButton = () => (
   <form action="/auth/logout" method="post" class="logout-form">
     <button
@@ -176,6 +179,7 @@ const LogoutButton = () => (
         <polyline points="16 17 21 12 16 7" />
         <line x1="21" y1="12" x2="9" y2="12" />
       </svg>
+      <span>Log out</span>
     </button>
   </form>
 );

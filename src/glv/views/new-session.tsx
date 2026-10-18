@@ -198,6 +198,10 @@ const NewSessionForm = ({
       Start a fresh {agentName} run. The session appears in the sidebar the
       moment {agentName} creates it.
     </p>
+    {/* hx-disinherit scopes the double-submit guard (hx-disabled-elt) to
+        this form's own POST: htmx hands attributes down to descendant
+        requests, so without it the lazy model-picker GET disabled Start
+        session document-wide until the catalogue resolved. */}
     <form
       class="new-session-form"
       data-upload-form
@@ -206,6 +210,7 @@ const NewSessionForm = ({
       hx-swap="innerHTML"
       hx-encoding="multipart/form-data"
       hx-disabled-elt="button[type=submit]"
+      hx-disinherit="hx-disabled-elt"
     >
       {error !== undefined && <p class="status-hint error">{error}</p>}
       <input type="hidden" name="prompt_id" value="" data-prompt-id />
