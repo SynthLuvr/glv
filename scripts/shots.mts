@@ -16,7 +16,6 @@ import { turnKeyOf } from "../src/glv/suggestions/ask.js";
 import {
   openSuggestionsDb,
   putSuggestions,
-  setSuggestionsEnabled,
 } from "../src/glv/suggestions/db.js";
 import {
   probeHeadlessRaster,
@@ -199,16 +198,15 @@ const captureProxy413 = async (
   await page.unroute("**/sessions");
 };
 
-// The suggested-next-prompts surface: the feature enabled, a stored
-// suggestion set for the seeded session's finished turn (seeded straight
-// into the viewer-owned store — the shot needs no live ask), the strip
-// above the input, and the accept flow's filled input.
+// The suggested-next-prompts surface: a stored suggestion set for the
+// seeded session's finished turn (seeded straight into the viewer-owned
+// store — the shot needs no live ask), the strip above the input, and
+// the accept flow's filled input.
 const captureSuggestions = async (
   browser: Browser,
   env: IntegrationEnv,
 ): Promise<void> => {
   const db = openSuggestionsDb(env.dbs.suggestionsDb);
-  setSuggestionsEnabled(db, true);
   putSuggestions(
     db,
     gooseFixture.viewId(SESSION_ID),

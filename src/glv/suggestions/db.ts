@@ -3,7 +3,7 @@ import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "../db-path.js";
 
 // Viewer-owned storage for suggested next prompts: one setting row
-// (feature on/off, pinned model) and one suggestion row per session —
+// (pinned model) and one suggestion row per session —
 // the latest finished turn's prompts, keyed by a fingerprint of that
 // turn so a row can never be mistaken for a later turn's suggestions.
 // An empty prompts array means "asked, nothing usable came back" — the
@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS suggestions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
-const ENABLED_KEY = "enabled";
 const MODEL_KEY = "model";
 
 // glv owns every table here, so the schema is always safe to create on
@@ -65,16 +64,6 @@ const writeSetting = (db: DatabaseSync, key: string, value: string): void => {
       "ON CONFLICT(key) DO UPDATE SET value = excluded.value, " +
       "updated_at = datetime('now')",
   ).run(key, value);
-};
-
-// The feature is opt-in: absent, malformed, or unknown values all read
-// as off — a hand-edited row can only ever disable, never silently
-// enable.
-const suggestionsEnabled = (db: DatabaseSync): boolean =>
-  readSetting(db, ENABLED_KEY) === "1";
-
-const setSuggestionsEnabled = (db: DatabaseSync, enabled: boolean): void => {
-  writeSetting(db, ENABLED_KEY, enabled ? "1" : "0");
 };
 
 // The pinned model for suggestion asks, in the combined picker spelling
@@ -152,6 +141,4 @@ export {
   readRow,
   resolveSuggestionsDbPath,
   setSuggestionModel,
-  setSuggestionsEnabled,
-  suggestionsEnabled,
 };

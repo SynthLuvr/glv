@@ -35,41 +35,6 @@ const BulkActionBar = () => (
   </div>
 );
 
-// The suggested-next-prompts switch: one tap flips the feature (a
-// server-side setting, default off). Swaps itself so the pressed state
-// travels with the button; rendered only where the suggestions store is
-// wired.
-const SuggestionsToggle = ({ enabled }: { enabled: boolean }) => (
-  <button
-    type="button"
-    class="suggestions-toggle"
-    hx-post="/suggestions/toggle"
-    hx-target="this"
-    hx-swap="outerHTML"
-    aria-pressed={enabled ? "true" : "false"}
-    title={
-      enabled
-        ? "Suggested next prompts: on — tap to turn off"
-        : "Suggested next prompts: off — tap to turn on"
-    }
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M9 18h6" />
-      <path d="M10 22h4" />
-      <path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z" />
-    </svg>
-  </button>
-);
-
 const ThemeToggle = () => (
   <button
     type="button"
@@ -221,6 +186,5 @@ export {
   BulkActionBar,
   LogoutButton,
   NewSessionButton,
-  SuggestionsToggle,
   ThemeToggle,
 };

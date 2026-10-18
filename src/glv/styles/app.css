@@ -1621,43 +1621,6 @@ pre::-webkit-scrollbar-thumb {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
-/* The sidebar switch mirrors the theme toggle's shape. */
-.suggestions-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.45rem;
-  background: var(--color-surface-2);
-  color: var(--color-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    color 0.12s ease,
-    border-color 0.12s ease,
-    background 0.12s ease;
-}
-.suggestions-toggle:hover {
-  color: var(--color-text);
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
-}
-.suggestions-toggle:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-.suggestions-toggle[aria-pressed="true"] {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-.suggestions-toggle svg {
-  width: 1rem;
-  height: 1rem;
-}
-
 /* ---------- prompt bar ---------- */
 /* In normal flow at the end of the page: scrolls with the transcript,
    never pinned over it. */
