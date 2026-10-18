@@ -116,8 +116,13 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await input.fill("Alpha renamed");
         await input.press("Enter");
 
+        // Same window as the oob-swap rename proof: under CI load the
+        // POST's response (title fragment + out-of-band sidebar) can take
+        // several seconds to land, and the weekly Windows run failed with
+        // the default 5s while the swap was still in flight.
         await expect(page.locator("#session-list")).toContainText(
           "Alpha renamed",
+          { timeout: 10000 },
         );
         await expect(
           page.locator(
