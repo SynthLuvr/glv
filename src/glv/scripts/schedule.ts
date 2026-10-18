@@ -142,8 +142,8 @@ const MAX_FOLLOW_UPS = MAX_CRON_STEPS - 1;
 
 // Structurally identical to what the server renders
 // (views/schedule.tsx FollowOnStep) so server-rendered and
-// client-added blocks submit the same fields — including the
-// data-autogrow marker ui.js sizes the textarea by.
+// client-added blocks submit the same fields — data-autogrow marker
+// included, since ui.js sizes the box by it.
 const STEP_BLOCK_HTML = `
 <div class="cron-step" data-cron-step="">
   <label class="form-field">

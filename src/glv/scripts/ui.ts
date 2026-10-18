@@ -5,16 +5,13 @@ const UI_TITLE_SUFFIX = " \u2014 GLV";
 const UI_HOME_TITLE = "GLV";
 const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
-// The scheduled-run edit form's prompt and follow-on boxes grow to their
-// content up to most of the viewport — seeing the whole prompt is the
-// point of the edit form — and scroll inside the box past that. A ratio,
-// not a fixed px cap: the same prompt wraps much taller on a phone than
-// on a desktop and should stay readable on both.
-const UI_MAX_CRON_TEXTAREA_VIEWPORT = 0.7;
-// Textareas that size themselves to their content: the New Session
-// composer and the scheduled-run edit form's multi-line fields (the
-// data-autogrow marker is what the server renders and the client-cloned
-// follow-on block carries).
+// Cron edit-form boxes grow to most of the viewport — seeing the whole
+// prompt is the point of the form, and the same text wraps far taller
+// on a phone than on a desktop, so the cap is a ratio, not fixed px.
+const UI_CRON_MAX_VIEWPORT_RATIO = 0.7;
+// Textareas that size to their content: the New Session composer and
+// the cron edit form's boxes (the data-autogrow marker both the server
+// render and the client-cloned follow-on block carry).
 const UI_AUTOGROW_SELECTOR = "textarea.prompt-input, textarea[data-autogrow]";
 const UI_COPIED_MS = 1500;
 const UI_THEME_KEY = "glv-theme";
@@ -100,11 +97,11 @@ const uiSyncTitle = (): void => {
 
 const uiGrow = (el: HTMLTextAreaElement): void => {
   // A hidden box (the detail pane while the sidebar pane is up) measures
-  // zero; growing it would collapse it. Leave the height alone — it was
-  // sized when last visible, or the rows attribute holds the default.
+  // zero; growing it would collapse it, so keep its last visible height
+  // (or the rows-attribute default).
   if (el.clientHeight === 0) return;
-  const max = el.matches("textarea[data-autogrow]")
-    ? Math.round(window.innerHeight * UI_MAX_CRON_TEXTAREA_VIEWPORT)
+  const max = el.hasAttribute("data-autogrow")
+    ? Math.round(window.innerHeight * UI_CRON_MAX_VIEWPORT_RATIO)
     : UI_MAX_TEXTAREA_HEIGHT;
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, max)}px`;
@@ -380,8 +377,8 @@ document.addEventListener("DOMContentLoaded", uiInit);
 // mobile pane switch is deliberately NOT done here: a swap that lands after
 // the user clicked "Sessions" would bounce them back to the detail pane.
 // Autogrow runs for every swap target first: an edit card swaps into its
-// own .cron-job-card (not #detail-pane), and its pre-filled prompt and
-// follow-on boxes must size themselves as they land.
+// own .cron-job-card (not #detail-pane), and its pre-filled boxes must
+// size themselves as they land.
 document.body.addEventListener("htmx:afterSwap", (e) => {
   uiAutogrowAll();
   if (htmxSwapTarget(e)?.id !== "detail-pane") return;

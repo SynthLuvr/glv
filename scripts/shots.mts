@@ -27,6 +27,10 @@ import {
 } from "../src/glv/tests/combined-harness.js";
 import type { IntegrationEnv } from "../src/glv/tests/harness.js";
 import { seedCronJobRow } from "../src/glv/tests/harness.js";
+import {
+  LONG_FOLLOW_UP,
+  LONG_PROMPT,
+} from "../src/glv/tests/suites/cron-ui.suite.js";
 import { serveNginx413 } from "../src/glv/tests/suites/upload-413.suite.js";
 import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 
@@ -403,38 +407,19 @@ const captureForks = async (browser: Browser, env: IntegrationEnv) => {
   await context.close();
 };
 
-// The scheduled-run edit form holding a long prompt: the edit form's
-// prompt and follow-on boxes grow to the stored content (data-autogrow)
-// instead of clipping it behind the rows-attribute scroll box, so the
-// shot pairs with the bug report "edit shows only a few lines".
+// The edit form holding a long stored prompt: its prompt and follow-on
+// boxes grow to the content (data-autogrow) instead of clipping it
+// behind the rows-attribute scroll box.
 const captureCronEdit = async (browser: Browser, env: IntegrationEnv) => {
-  const prompt = [
-    "Refresh the data/universe and SPY per §1 (xstocks history --force).",
-    "Recompute the indicator basket per §2 and write data/indicators.json.",
-    "Score every watchlist name per §3; flag moves beyond 0.2.",
-    "Draft the morning note per §4 into notes/ as YYYY-MM-DD.md.",
-    "Then walk the watchlist in price order and note every name whose",
-    "score crossed its band, with the closing price and the band edge.",
-    "Close with the three names closest to a signal and what would",
-    "trigger each, so the morning read starts from the deltas.",
-    "If a step fails, stop there and record which one, with stderr.",
-  ].join("\n");
-  const followUp = [
-    "Summarize the morning note in three bullets.",
-    "Then compare against yesterday's note if one exists in notes/,",
-    "name what changed, and keep the summary under 120 words",
-    "so it fits in the stand-up message.",
-    "End with the single riskiest open item.",
-  ].join("\n");
   const workingDir = join(env.scratchDir, "cron-edit");
   mkdirSync(workingDir, { recursive: true });
   seedCronJobRow(env.dbs.cronDb, {
     name: "morning-refresh",
     schedule: "0 6 * * 1-5",
-    prompt,
+    prompt: LONG_PROMPT,
     workingDir,
     enabled: true,
-    followUps: [followUp],
+    followUps: [LONG_FOLLOW_UP],
   });
 
   const context = await browser.newContext({ viewport: DESKTOP });
@@ -446,7 +431,7 @@ const captureCronEdit = async (browser: Browser, env: IntegrationEnv) => {
   await card.getByRole("button", { name: "Edit" }).click();
   const promptBox = card.locator('textarea[name="prompt"]');
   await expect(promptBox).toBeVisible({ timeout: 15_000 });
-  await expect(promptBox).toHaveValue(prompt);
+  await expect(promptBox).toHaveValue(LONG_PROMPT);
   await capture(page, "cron-edit-desktop.png", ".cron-job-card.editing");
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);
