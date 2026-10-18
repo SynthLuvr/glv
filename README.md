@@ -674,3 +674,13 @@ glv sessions      # list recent sessions (ids namespaced per agent)
 glv view <id>     # show prompts + outputs for a session
 glv logs          # list goose --no-session runs
 ```
+
+## Contributing
+
+Bug reports, feature ideas, and pull requests are welcome —
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup and what a good PR looks
+like, and the enforced coding conventions live in
+[AGENTS.md](AGENTS.md). Security issues follow
+[SECURITY.md](SECURITY.md): report them privately, not as a public
+issue. Participation is governed by the [Code of
+Conduct](CODE_OF_CONDUCT.md).
