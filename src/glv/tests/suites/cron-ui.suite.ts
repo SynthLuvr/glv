@@ -914,6 +914,99 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(jobByName("friday-eu")?.schedule).toBe("0 18 * * 0");
     });
 
+    it("shows a long prompt whole when its edit form opens", async () => {
+      // The edit form's multi-line boxes start at their rows attribute;
+      // ui.js grows them to the stored content as the form swaps in.
+      // Without that growth, editing a long prompt shows only the first
+      // few lines in a tiny scroll box.
+      const prompt = [
+        "Refresh the data/universe and SPY per §1 (xstocks history --force).",
+        "Recompute the indicator basket per §2 and write data/indicators.json.",
+        "Score every watchlist name per §3; flag moves beyond 0.2.",
+        "Draft the morning note per §4 into notes/ as YYYY-MM-DD.md.",
+        "Then walk the watchlist in price order and note every name whose",
+        "score crossed its band, with the closing price and the band edge.",
+        "Close with the three names closest to a signal and what would",
+        "trigger each, so the morning read starts from the deltas.",
+        "If a step fails, stop there and record which one, with stderr.",
+      ].join("\n");
+      const followUp = [
+        "Summarize the morning note in three bullets.",
+        "Then compare against yesterday's note if one exists in notes/,",
+        "name what changed, and keep the summary under 120 words",
+        "so it fits in the stand-up message.",
+        "End with the single riskiest open item.",
+      ].join("\n");
+      const dir = mkdtempSync(join(tmpdir(), "glv-cronui-long-"));
+      seedCronJobRow(env.dbs.cronDb, {
+        name: "long-form",
+        schedule: "15 4 * * *",
+        prompt,
+        workingDir: dir,
+        enabled: true,
+        followUps: [followUp],
+      });
+
+      try {
+        await withPage(env.context, async (page) => {
+          await page.goto(`${env.baseUrl}/sessions/new`);
+          await expect(page.locator("form.new-session-form")).toBeVisible();
+
+          const card = page.locator(
+            '.cron-job-card[data-cron-job="long-form"]',
+          );
+          await card.getByRole("button", { name: "Edit" }).click();
+          const promptBox = card.locator('textarea[name="prompt"]');
+          await expect(promptBox).toBeVisible({ timeout: 15_000 });
+
+          // The stored prompt lands in the box whole…
+          await expect(promptBox).toHaveValue(prompt);
+          // …and the box grew to show it: the rendered (border-box)
+          // height covers the content (at the four-row default
+          // everything below the first lines was clipped into the
+          // box's own scrollbar). The 1px borders sit outside
+          // scrollHeight's accounting, hence the 2px tolerance.
+          const showsAll = await promptBox.evaluate(
+            (el) => el.getBoundingClientRect().height >= el.scrollHeight - 2,
+          );
+          expect(showsAll).toBe(true);
+
+          // The follow-on step's box shows its whole step the same way.
+          const stepBox = card.locator('textarea[name="follow_up"]');
+          await expect(stepBox).toHaveValue(followUp);
+          const stepShowsAll = await stepBox.evaluate(
+            (el) => el.getBoundingClientRect().height >= el.scrollHeight - 2,
+          );
+          expect(stepShowsAll).toBe(true);
+
+          // Typing grows a box too: a longer prompt follows the content
+          // instead of scrolling it out of sight.
+          await promptBox.fill(`${prompt}\nAppended after the first edit.`);
+          const grewOnInput = await promptBox.evaluate(
+            (el) => el.getBoundingClientRect().height >= el.scrollHeight - 2,
+          );
+          expect(grewOnInput).toBe(true);
+
+          // A client-added follow-on block carries the same marker, so
+          // it grows as its text lands, like the server-rendered one.
+          await card.locator("[data-action=add-cron-step]").click();
+          const addedBox = card.locator('textarea[name="follow_up"]').nth(1);
+          await addedBox.fill(followUp);
+          const addedShowsAll = await addedBox.evaluate(
+            (el) => el.getBoundingClientRect().height >= el.scrollHeight - 2,
+          );
+          expect(addedShowsAll).toBe(true);
+        });
+      } finally {
+        // Leave the block's closing delete test an empty database.
+        await authedFetch(env, "/cron/long-form", {
+          method: "DELETE",
+          headers: { "HX-Request": "true" },
+        });
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it("deletes jobs and hides the section when the last one goes", async () => {
       const first = await authedFetch(env, "/cron/nightly", {
         method: "DELETE",
