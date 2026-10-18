@@ -61,7 +61,7 @@
     "arktype": "^2.2.8",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "croner": "github:SynthLuvr/croner#e6ebadbf63113f055445b23f4cd51b2e7821ad83",
+    "croner": "^11.0.0-dev.6",
     "cronstrue": "^3.31.0",
     "dompurify": "^3.4.16",
     "execa": "^10.1.0",
