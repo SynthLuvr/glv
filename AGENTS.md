@@ -115,15 +115,20 @@ hosts too.
 - **Upload to GitHub and embed the user-attachment URL** —
   `https://github.com/user-attachments/assets/<uuid>`, exactly what
   drag-and-drop into the description produces. Do **not** link release
-  assets or external hosts: this repo is private, and release-asset URLs
-  return 404 to anonymous fetchers (GitHub’s image proxy included), so
-  they render as broken images in the description.
+  assets or external hosts. Release-asset URLs die with the release they
+  were uploaded to — delete or re-cut a release and every screenshot
+  embedded from it breaks — and external image hosts rot, rate-limit
+  hotlinking, or shut down. A user-attachment URL is served by GitHub
+  itself and lives with the PR. Anyone who can comment on the PR can
+  make one by dragging the image into the description field; the curl
+  recipe below is just the no-browser shortcut for the same upload.
 
 Uploading needs no browser — the single-request endpoint works with any
 token that can push to the repo (`gh auth token` supplies one):
 
 ``` bash
-REPO_ID=$(gh api repos/SynthLuvr/glv --jq .id)
+SLUG=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+REPO_ID=$(gh api "repos/$SLUG" --jq .id)
 URL="https://uploads.github.com/user-attachments/assets"
 URL="$URL?name=shot.png&content_type=image%2Fpng&repository_id=$REPO_ID"
 curl -sS -X POST "$URL" \
