@@ -40,13 +40,6 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         name: "Mobile Composer",
         workingDir: join(env.scratchDir, "composer"),
       },
-    ]);
-    fx.seedMessages(env, "mobile-tall", TALL_MESSAGES);
-    fx.seedMessages(env, "mobile-tall-2", TALL_MESSAGES);
-    // The busy-composer test submits a run, and the agent spawns with this
-    // workingDir as its cwd.
-    mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
-    fx.seedSessions(env, [
       {
         id: "mobile-header",
         name: "Mobile Header Session With A Deliberately Long Wrapping Title",
@@ -54,6 +47,11 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
         model: "header-model",
       },
     ]);
+    fx.seedMessages(env, "mobile-tall", TALL_MESSAGES);
+    fx.seedMessages(env, "mobile-tall-2", TALL_MESSAGES);
+    // The busy-composer test submits a run, and the agent spawns with this
+    // workingDir as its cwd.
+    mkdirSync(join(env.scratchDir, "composer"), { recursive: true });
     mkdirSync(join(env.scratchDir, "mobile-header-project"), {
       recursive: true,
     });
@@ -79,9 +77,8 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     await page.locator(`.mobile-pane-btn[data-pane="${pane}"]`).click();
   };
 
-  // The B1/B2 header proof: at the phone viewport the title truncates to
-  // one line and the quiet metadata row collapses to a single scrollable
-  // line instead of stacking ~200px of chips above the transcript.
+  // At the phone viewport the title must truncate to one line and the
+  // quiet meta row collapse to a single scrollable line.
   describe("session header collapses on mobile", () => {
     it("keeps the title and meta row to one line each with no overflow", async () => {
       await withPage(env.context, async (page) => {

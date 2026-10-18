@@ -159,12 +159,7 @@ const ApiTokensLink = () => (
 // 19rem sidebar — the glyph clipped at the right edge.
 const LogoutButton = () => (
   <form action="/auth/logout" method="post" class="logout-form">
-    <button
-      type="submit"
-      class="logout-btn"
-      aria-label="Log out"
-      title="Log out"
-    >
+    <button type="submit" class="logout-btn">
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"

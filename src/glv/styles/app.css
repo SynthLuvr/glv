@@ -890,11 +890,8 @@ body {
   gap: 0.35rem 1rem;
   margin: 0;
 }
-/* Quiet metadata pairs — inline "LABEL value", no boxes. The session
-   title should be the loudest thing in the header; boxed treatment is
-   reserved for the interactive chips (git / PR / cron) below. Hover-copy
-   is retained: the working-dir pair keeps its copy button, now an inline
-   flex child instead of an absolutely positioned overlay. */
+/* Quiet inline "LABEL value" pairs — the title stays the loudest thing
+   in the header; boxes are reserved for the interactive chips below. */
 .meta-chip {
   position: relative;
   display: inline-flex;
@@ -2199,10 +2196,9 @@ select.form-input {
     padding: 1.5rem 1.25rem 3rem;
   }
 
-  /* Session header collapses to two single-line rows: a truncated title
-     (pencil rides inline at its end) and a horizontally scrollable meta
-     line. The old two-line wrapped title plus stacked chips burned
-     ~200px before any content. */
+  /* Collapse the header to a truncated one-line title (pencil inline at
+     its end) and one scrollable meta line — the old wrapped title plus
+     stacked chips burned ~200px before any content. */
   .session-header {
     margin-bottom: 1.25rem;
     padding-bottom: 0.9rem;
@@ -2230,7 +2226,6 @@ select.form-input {
     flex-wrap: nowrap;
     overflow-x: auto;
     gap: 0.35rem 0.9rem;
-    /* The scrollbar-less scroll keeps the row one line tall. */
     scrollbar-width: none;
   }
   .session-meta::-webkit-scrollbar {
