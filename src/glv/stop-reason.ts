@@ -58,11 +58,26 @@ const isNetworkFailure = (detail: string): boolean =>
 // along so a reset time survives verbatim.
 type StopKind = "usage-limit" | "network" | "provider";
 
-const LEADS: Record<StopKind, string> = {
-  "usage-limit": "Session stopped early: provider usage limit reached.",
-  network: "Session stopped early: provider network error.",
-  provider: "Session stopped early: the run ended with an error.",
+const STOP_KINDS: readonly StopKind[] = ["usage-limit", "network", "provider"];
+
+// Each kind carries both sentence forms: the lead that opens the flat
+// notice, and the title-case summary the structured prompt-bar card shows.
+const STOP_TEXT: Record<StopKind, { lead: string; summary: string }> = {
+  "usage-limit": {
+    lead: "Session stopped early: provider usage limit reached.",
+    summary: "Provider usage limit reached",
+  },
+  network: {
+    lead: "Session stopped early: provider network error.",
+    summary: "Provider network error",
+  },
+  provider: {
+    lead: "Session stopped early: the run ended with an error.",
+    summary: "The run ended with an error",
+  },
 };
+
+const ACTION_SENTENCE = "Send a message to continue.";
 
 // Classifies by the provider's own words; anything unrecognized stays an
 // honest plain provider error.
@@ -73,7 +88,30 @@ const classify = (detail: string): StopKind => {
 };
 
 const noticeFor = (detail: string): string =>
-  `${LEADS[classify(detail)]} ${truncate(detail, DETAIL_MAX)} Send a message to continue.`;
+  `${STOP_TEXT[classify(detail)].lead} ${truncate(detail, DETAIL_MAX)} ${ACTION_SENTENCE}`;
+
+// Reverses noticeFor for the structured card: the lead and the trailing
+// action sentence peel off, leaving the provider's own words (reset time
+// included) as the reason line. A live-run error that never went through
+// noticeFor (an exit-code crash) passes through with no classification.
+const splitStopNotice = (
+  notice: string,
+): { classification: string | undefined; detail: string } => {
+  let classification: string | undefined;
+  let rest = notice;
+  for (const kind of STOP_KINDS) {
+    const { lead, summary } = STOP_TEXT[kind];
+    if (rest.startsWith(lead)) {
+      classification = summary;
+      rest = rest.slice(lead.length);
+      break;
+    }
+  }
+  rest = rest.trim();
+  if (rest.endsWith(ACTION_SENTENCE))
+    rest = rest.slice(0, -ACTION_SENTENCE.length).trim();
+  return { classification, detail: rest };
+};
 
 // Inspects a run's buffered stream lines (oldest first) for a provider
 // refusal the agent announced, newest match first: both agents treat the
@@ -89,4 +127,4 @@ const detectStopNotice = (lines: readonly string[]): string | undefined => {
   return undefined;
 };
 
-export { detectStopNotice };
+export { ACTION_SENTENCE, detectStopNotice, splitStopNotice };

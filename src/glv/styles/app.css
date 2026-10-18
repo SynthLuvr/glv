@@ -1100,6 +1100,31 @@ a.git-chip:hover {
 }
 
 /* ---------- messages ---------- */
+/* Turn rhythm: a hairline marks where each new turn begins, carrying the
+   turn's absolute start time — without it a 40-turn transcript reads as
+   one undifferentiated stream of identical heads. */
+.turn-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.9rem 0 1.1rem;
+  font-size: 0.7rem;
+  color: var(--color-faint);
+}
+.turn-divider:first-child {
+  margin-top: 0.4rem;
+}
+.turn-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+.turn-divider time {
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
 .message {
   margin-bottom: 1.4rem;
 }
@@ -1132,8 +1157,9 @@ a.git-chip:hover {
 }
 .message-head time {
   margin-left: auto;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--color-faint);
+  opacity: 0.85;
 }
 .message-body {
   display: flex;
@@ -1150,8 +1176,8 @@ a.git-chip:hover {
 .message.prompt .message-text {
   background: var(--color-prompt);
   border: 1px solid var(--color-prompt-border);
-  border-radius: 0.75rem;
-  padding: 0.8rem 1.05rem;
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.9rem;
 }
 
 /* ---------- markdown ---------- */
@@ -1549,8 +1575,8 @@ body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
 .sidebar::-webkit-scrollbar,
 .detail::-webkit-scrollbar,
 pre::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
 }
 .sidebar::-webkit-scrollbar-thumb,
 .detail::-webkit-scrollbar-thumb,
@@ -1630,6 +1656,47 @@ pre::-webkit-scrollbar-thumb {
 .status-hint.error {
   color: var(--color-err);
   background: var(--color-err-soft);
+}
+/* The structured stop-early card keeps the shared hint tokens (color,
+   background, radius) so the selector contract holds, and adds the
+   err-border rail, breathing room, and the title / classification /
+   reason / action rows the bare paragraph never had. */
+.stop-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--color-err);
+}
+.stop-notice-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-weight: 650;
+}
+.stop-notice-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.stop-notice-classification {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.stop-notice-reason {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.stop-notice-action {
+  margin: 0.1rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-faint);
+  font-style: italic;
 }
 .prompt-input-row {
   display: flex;

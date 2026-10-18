@@ -156,28 +156,37 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     });
 
     it("shows the notice in the session view", async () => {
-      const html = await waitForPageText(
-        env,
-        "limit-1",
-        "Session stopped early",
-      );
+      const html = await waitForPageText(env, "limit-1", "Run stopped early");
       expect(html).toContain("usage limit reached");
       expect(html).toContain("resets at 17:01");
     });
 
-    it("renders the notice in the browser", async () => {
+    it("renders the structured notice card in the browser", async () => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("limit-1")}`);
         const hint = page.locator("form.prompt-bar .status-hint.error");
-        await expect(hint).toContainText("Session stopped early");
+        await expect(hint).toContainText("Run stopped early");
         await expect(hint).toContainText("usage limit reached");
+        await expect(hint.locator(".stop-notice-icon")).toBeVisible();
+        await expect(hint.locator(".stop-notice-title")).toContainText(
+          "Run stopped early",
+        );
+        await expect(hint.locator(".stop-notice-classification")).toContainText(
+          "Provider usage limit reached",
+        );
+        await expect(hint.locator(".stop-notice-reason")).toContainText(
+          "resets at 17:01",
+        );
+        await expect(hint.locator(".stop-notice-action")).toContainText(
+          "Send a message to continue",
+        );
       });
     });
 
     it("keeps the notice across a server restart", async () => {
       await env.restart();
       const html = await pageHtml(env, "limit-1");
-      expect(html).toContain("Session stopped early");
+      expect(html).toContain("Run stopped early");
       expect(html).toContain("resets at 17:01");
     });
 
@@ -185,7 +194,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       writeLines("main.txt", [fx.streamLine(fx.mockReply)]);
       await startRun(env, "limit-1", "continue please");
       const html = await waitForIdleBar(env, "limit-1");
-      expect(html).not.toContain("Session stopped early");
+      expect(html).not.toContain("Run stopped early");
     });
   });
 
@@ -197,8 +206,8 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
         ),
       ]);
       await startRun(env, "net-1", "lose the network please");
-      const html = await waitForPageText(env, "net-1", "Session stopped early");
-      expect(html).toContain("provider network error");
+      const html = await waitForPageText(env, "net-1", "Run stopped early");
+      expect(html).toContain("Provider network error");
       expect(html).toContain("could not connect");
       expect(html).not.toContain("usage limit");
     });
@@ -210,7 +219,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       const html = await waitForPageText(
         envRefuseExit,
         "net-1",
-        "Session stopped early",
+        "Run stopped early",
       );
       expect(html).toContain("usage limit");
       expect(html).toContain("resets at 09:00");

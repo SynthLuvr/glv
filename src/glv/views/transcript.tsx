@@ -2,9 +2,12 @@ import { renderToString } from "hono/jsx/dom/server";
 import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
 import {
   fmtRelative,
+  fmtStamp,
+  messageKind,
   pendingTool,
   queuedSuffix,
   shortenHome,
+  toIso,
   toolRunText,
   truncateMiddle,
   unsafeForkCutoffs,
@@ -12,6 +15,7 @@ import {
 import { detectPrUrl } from "../../glv/pr.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
+import { ACTION_SENTENCE, splitStopNotice } from "../../glv/stop-reason.js";
 import { CronChip, PrChip } from "../../glv/views/chips.js";
 import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { SessionTitleWrap } from "../../glv/views/Rename.js";
@@ -222,6 +226,42 @@ const TranscriptHeader = ({
   </header>
 );
 
+// The stop-early status as a structured card — icon, title,
+// classification, the provider's own words, and a distinct action line —
+// instead of one bare red paragraph. Keeps the shared `.status-hint.error`
+// classes so existing selectors (and the live error path's styling) still
+// match.
+const StopNotice = ({ notice }: { notice: string }) => {
+  const { classification, detail } = splitStopNotice(notice);
+  return (
+    <div class="status-hint error stop-notice" aria-live="polite">
+      <p class="stop-notice-title">
+        <svg
+          class="stop-notice-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        Run stopped early
+      </p>
+      {classification !== undefined && (
+        <p class="stop-notice-classification">{classification}</p>
+      )}
+      <p class="stop-notice-reason">{detail}</p>
+      <p class="stop-notice-action">{ACTION_SENTENCE}</p>
+    </div>
+  );
+};
+
 // Tags the server-rendered prompt card so the live stream can remove it once
 // it replays started prompts, preventing a duplicate.
 const SubmittedPrompt = ({
@@ -246,6 +286,22 @@ const SubmittedPrompt = ({
 
 const renderPromptCard = (prompt: string): string =>
   renderToString(<SubmittedPrompt prompt={prompt} />);
+
+// A hairline marking where each new turn begins, anchored by the turn's
+// absolute start time: message heads carry relative ages, which read
+// identically across a long transcript ("▶ PROMPT … just now").
+const TurnDivider = ({ timestamp }: { timestamp: string }) => (
+  <div class="turn-divider">
+    <time datetime={toIso(timestamp)} title={timestamp}>
+      {fmtStamp(timestamp)}
+    </time>
+  </div>
+);
+
+// Every visible prompt except the first opens a new turn; the divider
+// renders just before it.
+const opensTurn = (message: ParsedMessage, position: number): boolean =>
+  position > 0 && messageKind(message.role, message.items) === "prompt";
 
 const QueuedPrompt = ({ prompt }: { prompt: string }) => (
   <article class="message prompt queued-prompt">
@@ -348,11 +404,7 @@ const PromptBar = ({
           {queuedSuffix(pendingCount)}
         </p>
       )}
-      {stopEarly !== undefined && (
-        <p class="status-hint error" aria-live="polite">
-          {stopEarly}
-        </p>
-      )}
+      {stopEarly !== undefined && <StopNotice notice={stopEarly} />}
       {uploadError !== undefined && (
         <p class="status-hint error" aria-live="polite">
           {uploadError}
@@ -448,13 +500,18 @@ const Transcript = ({
       {/* Always present so the tail stream can append; the empty placeholder
         is a sibling the client clears once content arrives. */}
       <div id="messages">
-        {visible.map((entry) => (
-          <MessageView
-            message={entry.message}
-            index={entry.index}
-            sessionId={session.id}
-            forkUnsafe={unsafeCutoffs.has(entry.index)}
-          />
+        {visible.map((entry, position) => (
+          <>
+            {opensTurn(entry.message, position) && (
+              <TurnDivider timestamp={entry.message.timestamp} />
+            )}
+            <MessageView
+              message={entry.message}
+              index={entry.index}
+              sessionId={session.id}
+              forkUnsafe={unsafeCutoffs.has(entry.index)}
+            />
+          </>
         ))}
       </div>
       {isEmpty && (

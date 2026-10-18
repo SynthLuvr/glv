@@ -27,6 +27,7 @@ export {
 } from "./message.js";
 export {
   fmtRelative,
+  fmtStamp,
   fmtTokens,
   parseTimestamp,
   shortenHome,

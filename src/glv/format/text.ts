@@ -88,9 +88,23 @@ const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   if (elapsedMs < FIVE_WEEKS_MS) return `${relativeAge(elapsedMs)} ago`;
   return formatDate(then, now);
 };
+// Short absolute stamp ("Oct 18, 14:02") for turn dividers, whose
+// message heads already carry relative ages.
+const stampFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const fmtStamp = (timestamp: string): string => {
+  const then = parseTimestamp(timestamp);
+  return Number.isNaN(then) ? timestamp : stampFormatter.format(then);
+};
 
 export {
   fmtRelative,
+  fmtStamp,
   fmtTokens,
   parseTimestamp,
   shortenHome,

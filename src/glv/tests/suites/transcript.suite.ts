@@ -18,6 +18,23 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
         name: "Rich Transcript",
         workingDir: join(env.scratchDir, "rich"),
       },
+      {
+        id: "t-turns",
+        name: "Turned Transcript",
+        workingDir: join(env.scratchDir, "turns"),
+      },
+    ]);
+    fx.seedMessages(env, "t-turns", [
+      { role: "user", content: [{ type: "text", text: "First turn" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "First reply." }],
+      },
+      { role: "user", content: [{ type: "text", text: "Second turn" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Second reply." }],
+      },
     ]);
     fx.seedMessages(env, "t-rich", [
       { role: "user", content: [{ type: "text", text: "Build the project" }] },
@@ -112,6 +129,49 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
         await expect(page.locator(".message.prompt")).toHaveCount(1);
         const outputs = await page.locator(".message.output").count();
         expect(outputs).toBeGreaterThanOrEqual(2);
+      });
+    });
+  });
+
+  // A divider marks where each new turn begins — never before the
+  // transcript's first message — and carries a machine-readable time.
+  describe("turn dividers", () => {
+    const openTurns = (run: (page: Page) => Promise<void>): Promise<void> =>
+      withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl + `/sessions/${fx.viewId("t-turns")}`);
+        await run(page);
+      });
+
+    it("divides the second turn only, ahead of its prompt", async () => {
+      await openTurns(async (page) => {
+        const dividers = page.locator(".turn-divider");
+        await expect(dividers).toHaveCount(1);
+        const order = await page.evaluate(() =>
+          Array.from(document.querySelectorAll("#messages > *")).map((el) =>
+            el.classList.contains("turn-divider")
+              ? "divider"
+              : el.classList.contains("message")
+                ? el.className
+                : "other",
+          ),
+        );
+        expect(order).toEqual([
+          "message prompt",
+          "message output",
+          "divider",
+          "message prompt",
+          "message output",
+        ]);
+      });
+    });
+
+    it("stamps each divider with a machine-readable time", async () => {
+      await openTurns(async (page) => {
+        const time = page.locator(".turn-divider time");
+        const datetime = await time.getAttribute("datetime");
+        expect(datetime).not.toBeNull();
+        expect(datetime).toContain("T");
+        await expect(time).not.toBeEmpty();
       });
     });
   });

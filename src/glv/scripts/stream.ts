@@ -334,10 +334,14 @@ const updateStatusHint = (data: SessionStatusPayload): void => {
       startToolTicker();
     } else hint.textContent = `Running…${queuedSuffix(count)}`;
   } else if (data.error != null) {
-    // A stop-early explanation rides any non-busy status: a live run's
-    // error, or the persisted notice that an idle status re-delivers.
-    hint.className = "status-hint error";
-    hint.textContent = data.error;
+    // Plain-text feedback for a live error — but never overwrite the
+    // server-rendered structured card: the SSE connect replay of an idle
+    // session's persisted notice would otherwise flatten it back to one
+    // bare paragraph.
+    if (!hint.classList.contains("stop-notice")) {
+      hint.className = "status-hint error";
+      hint.textContent = data.error;
+    }
   } else if (
     data.status === "completed" ||
     data.status === "stopped" ||
