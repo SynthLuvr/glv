@@ -3,9 +3,9 @@ import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "../db-path.js";
 
 // Viewer-owned storage for suggested next prompts: one setting row
-// (pinned model) and one suggestion row per session —
-// the latest finished turn's prompts, keyed by a fingerprint of that
-// turn so a row can never be mistaken for a later turn's suggestions.
+// (the pinned ask model) and one suggestion row per session — the
+// latest finished turn's prompts, keyed by a fingerprint of that turn
+// so a row can never be mistaken for a later turn's suggestions.
 // An empty prompts array means "asked, nothing usable came back" — the
 // turn is still marked served, so it is never asked twice, even across
 // page refreshes or server restarts.

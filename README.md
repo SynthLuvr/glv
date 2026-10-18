@@ -70,12 +70,12 @@ the browser.
   Each job can pin the model its runs use (goose or a claude alias).
 - **Suggested next prompts.** When a session finishes a turn, GLV
   quietly asks the same assistant for a few good follow-up prompts and
-  offer them as one-tap suggestions above the input box. The ask is tiny
-  and grounded — the session’s goal, what the agent just did (commands,
-  files), the last failure, and the conversation tail — happens at most
-  once per finished turn, never occupies the queue real prompts use, and
-  leaves no session behind — no sidebar entry, no transcript, no
-  activity.
+  offers them as one-tap suggestions above the input box. The ask is
+  tiny and grounded — the session’s goal, what the agent just did
+  (commands, files), the last failure, and the conversation tail —
+  happens at most once per finished turn, never occupies the queue real
+  prompts use, and leaves no session behind — no sidebar entry, no
+  transcript, no activity.
 - **Session management.** Rename sessions, fork a session — the whole
   transcript or from any message boundary — to explore a branch without
   touching the original (forks are ordinary sessions: rename, archive,
