@@ -13,7 +13,7 @@ import {
   runEphemeralAsk,
   turnKeyOf,
 } from "./ask.js";
-import { putSuggestions, readRow, suggestionsEnabled } from "./db.js";
+import { putSuggestions, readRow } from "./db.js";
 
 // The background watcher: notices sessions whose run just completed and,
 // for each, quietly asks the same assistant for a few next-prompt
@@ -135,7 +135,6 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
   };
 
   const poll = (): void => {
-    if (!suggestionsEnabled(deps.db)) return;
     if (inFlight.size >= maxInFlight()) return;
     for (const handle of deps.runner.registry.values()) {
       // Only a clean finish asks — a stopped or errored run suppressed

@@ -142,14 +142,15 @@ const MAX_FOLLOW_UPS = MAX_CRON_STEPS - 1;
 
 // Structurally identical to what the server renders
 // (views/schedule.tsx FollowOnStep) so server-rendered and
-// client-added blocks submit the same fields.
+// client-added blocks submit the same fields — data-autogrow marker
+// included, since ui.js sizes the box by it.
 const STEP_BLOCK_HTML = `
 <div class="cron-step" data-cron-step="">
   <label class="form-field">
     <span class="form-label">
       Then run — starts a new session after the one above finishes
     </span>
-    <textarea name="follow_up" class="form-input" rows="3"></textarea>
+    <textarea name="follow_up" class="form-input" rows="3" data-autogrow=""></textarea>
   </label>
   <button
     type="button"
