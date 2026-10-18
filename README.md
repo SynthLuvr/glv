@@ -2,7 +2,7 @@
 
 A self-hosted web app that **increases your development speed with
 agentic coding**. Guided Live Velocity drives the
-[goose](https://github.com/block/goose) agentic engine from a fast
+[goose](https://github.com/aaif-goose/goose) agentic engine from a fast
 browser UI: launch guided coding sessions, watch them stream live, and
 turn raw transcripts into navigable, searchable velocity.
 
