@@ -116,6 +116,16 @@ body {
   border: 0;
 }
 
+/* One shared keyboard-focus ring: every focusable control gets the
+   same accent outline on :focus-visible. Component rules used to repeat
+   these two declarations; they were folded into this rule, leaving only
+   the genuine variants (the menu items' inset ring, the scroll
+   button's wider offset) as per-element overrides. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 /* ---------- layout ---------- */
 .app {
   @apply flex overflow-hidden;
@@ -183,10 +193,6 @@ body {
   color: var(--color-text);
   border-color: var(--color-border-strong);
   background: var(--color-surface);
-}
-.theme-toggle:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .theme-toggle svg {
   width: 1rem;
@@ -275,10 +281,6 @@ body {
   border: solid var(--color-on-accent);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
-}
-.session-check:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .session-link {
   display: flex;
@@ -467,7 +469,8 @@ body {
   width: 0.9rem;
   height: 0.9rem;
 }
-.group-header:hover .group-archive-btn {
+.group-header:hover .group-archive-btn,
+.group-archive-btn:focus-visible {
   opacity: 0.85;
 }
 .group-archive-btn:hover {
@@ -843,6 +846,7 @@ body {
     background 0.12s ease;
 }
 .message:hover .fork-here-btn,
+.message:focus-within .fork-here-btn,
 .fork-here-btn:focus-visible {
   opacity: 1;
 }
@@ -948,10 +952,6 @@ body {
   border-color: var(--color-border-strong);
   background: var(--color-surface);
 }
-.copy-value-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
 .copy-value-btn.copied {
   color: var(--color-ok);
   border-color: var(--color-ok);
@@ -993,10 +993,6 @@ body {
 .pr-chip:hover {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
-}
-.pr-chip:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .pr-icon {
   width: 0.85rem;
@@ -1105,10 +1101,6 @@ a.git-chip:hover {
   background: var(--color-surface);
   color: var(--color-text);
 }
-a.git-chip:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
 
 /* ---------- messages ---------- */
 .message {
@@ -1196,6 +1188,7 @@ a.git-chip:focus-visible {
     background 0.12s ease;
 }
 .markdown-wrap:hover .copy-md-btn,
+.markdown-wrap:focus-within .copy-md-btn,
 .copy-md-btn:focus-visible,
 .copy-md-btn.copied {
   opacity: 1;
@@ -1204,10 +1197,6 @@ a.git-chip:focus-visible {
   color: var(--color-text);
   border-color: var(--color-border-strong);
   background: var(--color-surface);
-}
-.copy-md-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .copy-md-btn.copied {
   color: var(--color-ok);
@@ -1391,10 +1380,6 @@ textarea.prompt-input,
 .copy-code-btn:hover {
   color: var(--color-text);
   border-color: var(--color-border-strong);
-}
-.copy-code-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .copy-code-btn.copied {
   opacity: 1;
@@ -1617,10 +1602,6 @@ pre::-webkit-scrollbar-thumb {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
-.suggestion-chip:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
 /* The sidebar switch mirrors the theme toggle's shape. */
 .suggestions-toggle {
   display: inline-flex;
@@ -1643,10 +1624,6 @@ pre::-webkit-scrollbar-thumb {
   color: var(--color-text);
   border-color: var(--color-border-strong);
   background: var(--color-surface);
-}
-.suggestions-toggle:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .suggestions-toggle[aria-pressed="true"] {
   color: var(--color-accent);
@@ -1967,12 +1944,30 @@ select.form-input {
   font-size: 0.78rem;
   color: var(--color-faint);
 }
-/* Loading stand-in, swapped out by the /sessions/model-picker fragment. */
+/* Loading stand-in, swapped out by the /sessions/model-picker fragment.
+   The form never waits on the catalogue (Start session stays enabled);
+   the spinner makes the pending state explicit while it loads. */
 .model-slot-loading {
   display: flex;
   align-items: center;
+  gap: 0.45rem;
   color: var(--color-faint);
   cursor: progress;
+}
+.model-slot-loading::before {
+  content: "";
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: model-spin 0.8s linear infinite;
+}
+@keyframes model-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .upload-chips,
 .location-chips {
@@ -2073,10 +2068,6 @@ select.form-input {
 .new-session-btn:hover {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
-}
-.new-session-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .empty a {
   color: var(--color-accent);
@@ -2378,6 +2369,7 @@ select.form-input {
 }
 .session-item:hover .rename-pencil,
 .session-item.selected .rename-pencil,
+.rename-pencil:focus-visible,
 .group-header:hover .rename-pencil {
   opacity: 0.85;
 }
@@ -2506,10 +2498,6 @@ select.form-input {
   font: inherit;
   font-size: 0.92rem;
 }
-.token-name-input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
 .token-reveal {
   margin: 0 0 1.25rem;
   padding: 0.9rem 0.9rem 1rem;
@@ -2575,11 +2563,13 @@ select.form-input {
   background: var(--color-err-soft);
 }
 
-/* ---------- API tokens link ---------- */
+/* ---------- sidebar footer (API tokens + logout) ---------- */
 .sidebar-foot {
   margin-top: auto;
   padding: 0.75rem 1.1rem;
   border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
 }
 .api-tokens-link {
   display: inline-flex;
@@ -2594,48 +2584,39 @@ select.form-input {
 .api-tokens-link:hover {
   color: var(--color-text);
 }
-.api-tokens-link:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
 .api-tokens-link svg {
   width: 0.95rem;
   height: 0.95rem;
 }
 
 /* ---------- logout ---------- */
+/* A footer link beside "API tokens": the header row (title + count chip
+   + icon buttons) overflowed the 19rem sidebar and clipped this
+   control's glyph at the right edge, and logging out is low-frequency
+   enough to not need prime header real estate. */
 .logout-form {
-  display: inline-flex;
+  margin-left: auto;
 }
 .logout-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.45rem;
-  background: var(--color-surface-2);
+  gap: 0.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 550;
   color: var(--color-muted);
   cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    color 0.12s ease,
-    border-color 0.12s ease,
-    background 0.12s ease;
+  transition: color 0.12s ease;
 }
 .logout-btn:hover {
   color: var(--color-err);
-  border-color: var(--color-err);
-  background: var(--color-err-soft);
-}
-.logout-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .logout-btn svg {
-  width: 1rem;
-  height: 1rem;
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 /* ---------- saved prompts library ---------- */
@@ -3002,10 +2983,6 @@ select.form-input {
   color: var(--color-text);
   border-color: var(--color-border-strong);
   background: var(--color-surface);
-}
-.browse-files-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 .browse-files-btn svg {
   width: 1.05rem;
@@ -3551,4 +3528,22 @@ select.form-input {
 .cron-chip-sm {
   padding: 0.18rem 0.4rem;
   font-size: 0.74rem;
+}
+
+/* ---------- reduced motion ---------- */
+/* Honor the OS-level ask for less motion: the ambient pulse loops (run
+   dots, PR loading, the location pin), the stream fade-in and the
+   micro color/opacity transitions all stop. The `!important`s are
+   deliberate — the animations are set by many scattered class rules
+   with higher specificity than `*`, and this one block must win over
+   every one of them when the user has asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

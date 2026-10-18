@@ -189,6 +189,10 @@ const ApiTokensLink = () => (
   </a>
 );
 
+// Lives in the sidebar footer beside "API tokens" — a low-frequency
+// control that must not compete for header space (five icon buttons +
+// title + count chip overflowed the 19rem sidebar and clipped this
+// glyph at the right edge).
 const LogoutButton = () => (
   <form action="/auth/logout" method="post" class="logout-form">
     <button
@@ -211,6 +215,7 @@ const LogoutButton = () => (
         <polyline points="16 17 21 12 16 7" />
         <line x1="21" y1="12" x2="9" y2="12" />
       </svg>
+      <span>Log out</span>
     </button>
   </form>
 );

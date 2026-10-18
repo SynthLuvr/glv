@@ -231,6 +231,41 @@ const captureSuggestions = async (
   await context.close();
 };
 
+// Dark-theme pass: the same key surfaces as the light captures, through
+// a `colorScheme: "dark"` context. The theme bootstrap in Layout.tsx
+// honors the OS preference when nothing is stored, so a fresh context
+// lands on the dark palette with no clicks. UI PRs must prove both
+// themes; this pass is what makes that possible.
+const captureDarkViews = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const context = await browser.newContext({
+    viewport: DESKTOP,
+    colorScheme: "dark",
+  });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+
+  await page.goto(env.baseUrl);
+  await page.locator("form.new-session-form").waitFor();
+  await capture(page, "sidebar-dark.png", ".sidebar");
+  await capture(page, "new-session-dark.png", "form.new-session-form");
+
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await page.locator("form.prompt-bar").waitFor();
+  await capture(page, "session-dark.png");
+  await capture(page, "prompt-bar-dark.png", "form.prompt-bar");
+
+  await page.goto(
+    `${env.baseUrl}/sessions/${gooseFixture.viewId("shots-limit")}`,
+  );
+  await page.locator("form.prompt-bar .status-hint.error").waitFor();
+  await capture(page, "stop-notice-dark.png");
+
+  await context.close();
+};
+
 // Composer placement on a long transcript: one viewport shot mid-scroll
 // and one at the end, so pinning-over-content or open-page layout
 // regressions show up directly in the PR shots.
@@ -429,6 +464,7 @@ const { browser, teardown } = await launchBrowser();
 try {
   await captureSuggestions(browser, env);
   await captureViews(browser, env);
+  await captureDarkViews(browser, env);
   await capturePromptBarPlacement(browser, env);
   await captureTokens(browser, env);
   await captureForks(browser, env);

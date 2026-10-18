@@ -104,7 +104,6 @@ const Sidebar = ({
         <SuggestionsToggle enabled={suggestionsOn} />
       )}
       <ThemeToggle />
-      {authed && <LogoutButton />}
     </div>
     {sessions.length === 0 ? (
       <p class="empty">
@@ -130,6 +129,7 @@ const Sidebar = ({
     {authed && (
       <div class="sidebar-foot">
         <ApiTokensLink />
+        <LogoutButton />
       </div>
     )}
     <script src="/assets/sidebar.js" defer></script>
