@@ -336,8 +336,14 @@ const updateStatusHint = (data: SessionStatusPayload): void => {
   } else if (data.error != null) {
     // A stop-early explanation rides any non-busy status: a live run's
     // error, or the persisted notice that an idle status re-delivers.
-    hint.className = "status-hint error";
-    hint.textContent = data.error;
+    // Instant plain-text feedback for a live error — but never flatten
+    // the server-rendered structured card (the SSE connect replay of an
+    // idle session's notice would otherwise reduce it to one bare
+    // paragraph).
+    if (!hint.classList.contains("stop-notice")) {
+      hint.className = "status-hint error";
+      hint.textContent = data.error;
+    }
   } else if (
     data.status === "completed" ||
     data.status === "stopped" ||
