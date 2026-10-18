@@ -15,7 +15,7 @@ import {
 import { detectPrUrl } from "../../glv/pr.js";
 import type { RunHandle } from "../../glv/runner/index.js";
 import type { SessionRow } from "../../glv/sessions.js";
-import { splitStopNotice } from "../../glv/stop-reason.js";
+import { ACTION_SENTENCE, splitStopNotice } from "../../glv/stop-reason.js";
 import { CronChip, PrChip } from "../../glv/views/chips.js";
 import { LocationButton, LocationFields } from "../../glv/views/location.js";
 import { SessionTitleWrap } from "../../glv/views/Rename.js";
@@ -226,11 +226,11 @@ const TranscriptHeader = ({
   </header>
 );
 
-// B4: the app's most important status gets structure — icon, title,
+// The stop-early status as a structured card — icon, title,
 // classification, the provider's own words, and a distinct action line —
-// instead of one bare red paragraph glued to the composer. Keeps the
-// shared `.status-hint.error` classes so existing selectors (and the
-// live error path's styling) still match.
+// instead of one bare red paragraph. Keeps the shared `.status-hint.error`
+// classes so existing selectors (and the live error path's styling) still
+// match.
 const StopNotice = ({ notice }: { notice: string }) => {
   const { classification, detail } = splitStopNotice(notice);
   return (
@@ -257,7 +257,7 @@ const StopNotice = ({ notice }: { notice: string }) => {
         <p class="stop-notice-classification">{classification}</p>
       )}
       <p class="stop-notice-reason">{detail}</p>
-      <p class="stop-notice-action">Send a message to continue.</p>
+      <p class="stop-notice-action">{ACTION_SENTENCE}</p>
     </div>
   );
 };
@@ -287,11 +287,9 @@ const SubmittedPrompt = ({
 const renderPromptCard = (prompt: string): string =>
   renderToString(<SubmittedPrompt prompt={prompt} />);
 
-// B3: a subtle hairline marking where each new turn begins — at 40 turns
-// every head reads identically ("▶ PROMPT … just now"); a divider with
-// the turn's absolute start time restores rhythm without touching the
-// chat-bubble concept. Rendered before each prompt message except the
-// transcript's first visible one.
+// A hairline marking where each new turn begins, anchored by the turn's
+// absolute start time: message heads carry relative ages, which read
+// identically across a long transcript ("▶ PROMPT … just now").
 const TurnDivider = ({ timestamp }: { timestamp: string }) => (
   <div class="turn-divider">
     <time datetime={toIso(timestamp)} title={timestamp}>
@@ -299,6 +297,12 @@ const TurnDivider = ({ timestamp }: { timestamp: string }) => (
     </time>
   </div>
 );
+
+// Every visible prompt except the first opens a new turn; the divider
+// renders just before it.
+const opensTurn = (message: ParsedMessage, position: number): boolean =>
+  position > 0 && messageKind(message.role, message.items) === "prompt";
+
 const QueuedPrompt = ({ prompt }: { prompt: string }) => (
   <article class="message prompt queued-prompt">
     <div class="message-head">
@@ -400,7 +404,7 @@ const PromptBar = ({
           {queuedSuffix(pendingCount)}
         </p>
       )}
-      {stopEarly !== undefined && <StopNotice notice={stopEarly} />}{" "}
+      {stopEarly !== undefined && <StopNotice notice={stopEarly} />}
       {uploadError !== undefined && (
         <p class="status-hint error" aria-live="polite">
           {uploadError}
@@ -498,9 +502,9 @@ const Transcript = ({
       <div id="messages">
         {visible.map((entry, position) => (
           <>
-            {position > 0 &&
-              messageKind(entry.message.role, entry.message.items) ===
-                "prompt" && <TurnDivider timestamp={entry.message.timestamp} />}
+            {opensTurn(entry.message, position) && (
+              <TurnDivider timestamp={entry.message.timestamp} />
+            )}
             <MessageView
               message={entry.message}
               index={entry.index}
@@ -509,7 +513,7 @@ const Transcript = ({
             />
           </>
         ))}
-      </div>{" "}
+      </div>
       {isEmpty && (
         <p id="no-messages" class="empty">
           This session has no messages.

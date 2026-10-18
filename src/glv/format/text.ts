@@ -88,9 +88,8 @@ const fmtRelative = (timestamp: string, now: number = Date.now()): string => {
   if (elapsedMs < FIVE_WEEKS_MS) return `${relativeAge(elapsedMs)} ago`;
   return formatDate(then, now);
 };
-// Turn-divider stamps: the message heads already carry relative ages, so
-// a divider anchors *when* the turn happened with a short absolute time
-// ("Oct 18, 14:02").
+// Short absolute stamp ("Oct 18, 14:02") for turn dividers, whose
+// message heads already carry relative ages.
 const stampFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",

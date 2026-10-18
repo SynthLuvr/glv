@@ -167,7 +167,6 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
         const hint = page.locator("form.prompt-bar .status-hint.error");
         await expect(hint).toContainText("Run stopped early");
         await expect(hint).toContainText("usage limit reached");
-        // B4 structure: icon + title, classification, reason, action line.
         await expect(hint.locator(".stop-notice-icon")).toBeVisible();
         await expect(hint.locator(".stop-notice-title")).toContainText(
           "Run stopped early",
@@ -208,7 +207,6 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       ]);
       await startRun(env, "net-1", "lose the network please");
       const html = await waitForPageText(env, "net-1", "Run stopped early");
-      // The classification row carries the sentence-case summary.
       expect(html).toContain("Provider network error");
       expect(html).toContain("could not connect");
       expect(html).not.toContain("usage limit");

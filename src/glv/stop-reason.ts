@@ -58,23 +58,23 @@ const isNetworkFailure = (detail: string): boolean =>
 // along so a reset time survives verbatim.
 type StopKind = "usage-limit" | "network" | "provider";
 
-// Sentence-case summaries used by the structured prompt-bar card.
-const STOP_CLASSIFICATIONS: Record<StopKind, string> = {
-  "usage-limit": "Provider usage limit reached",
-  network: "Provider network error",
-  provider: "The run ended with an error",
-};
+const STOP_KINDS: readonly StopKind[] = ["usage-limit", "network", "provider"];
 
-const leadFor = (kind: StopKind): string => {
-  const text = STOP_CLASSIFICATIONS[kind];
-  const lowered = `${text.charAt(0).toLowerCase()}${text.slice(1)}`;
-  return `Session stopped early: ${lowered}.`;
-};
-
-const LEADS: Record<StopKind, string> = {
-  "usage-limit": leadFor("usage-limit"),
-  network: leadFor("network"),
-  provider: leadFor("provider"),
+// Each kind carries both sentence forms: the lead that opens the flat
+// notice, and the title-case summary the structured prompt-bar card shows.
+const STOP_TEXT: Record<StopKind, { lead: string; summary: string }> = {
+  "usage-limit": {
+    lead: "Session stopped early: provider usage limit reached.",
+    summary: "Provider usage limit reached",
+  },
+  network: {
+    lead: "Session stopped early: provider network error.",
+    summary: "Provider network error",
+  },
+  provider: {
+    lead: "Session stopped early: the run ended with an error.",
+    summary: "The run ended with an error",
+  },
 };
 
 const ACTION_SENTENCE = "Send a message to continue.";
@@ -88,22 +88,21 @@ const classify = (detail: string): StopKind => {
 };
 
 const noticeFor = (detail: string): string =>
-  `${LEADS[classify(detail)]} ${truncate(detail, DETAIL_MAX)} ${ACTION_SENTENCE}`;
+  `${STOP_TEXT[classify(detail)].lead} ${truncate(detail, DETAIL_MAX)} ${ACTION_SENTENCE}`;
 
-// Reverses noticeFor for the structured prompt-bar card: the lead and the
-// trailing action sentence peel off into their own rows, leaving the
-// provider's own words (reset time included) as the reason line. A
-// live-run error that never went through noticeFor (an exit-code crash)
-// passes through with no classification.
+// Reverses noticeFor for the structured card: the lead and the trailing
+// action sentence peel off, leaving the provider's own words (reset time
+// included) as the reason line. A live-run error that never went through
+// noticeFor (an exit-code crash) passes through with no classification.
 const splitStopNotice = (
   notice: string,
 ): { classification: string | undefined; detail: string } => {
   let classification: string | undefined;
   let rest = notice;
-  for (const kind of ["usage-limit", "network", "provider"] as const) {
-    const lead = LEADS[kind];
+  for (const kind of STOP_KINDS) {
+    const { lead, summary } = STOP_TEXT[kind];
     if (rest.startsWith(lead)) {
-      classification = STOP_CLASSIFICATIONS[kind];
+      classification = summary;
       rest = rest.slice(lead.length);
       break;
     }
@@ -128,4 +127,4 @@ const detectStopNotice = (lines: readonly string[]): string | undefined => {
   return undefined;
 };
 
-export { detectStopNotice, splitStopNotice };
+export { ACTION_SENTENCE, detectStopNotice, splitStopNotice };

@@ -24,7 +24,6 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
         workingDir: join(env.scratchDir, "turns"),
       },
     ]);
-    // Two clean turns: prompt, reply, prompt, reply.
     fx.seedMessages(env, "t-turns", [
       { role: "user", content: [{ type: "text", text: "First turn" }] },
       {
@@ -134,8 +133,8 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  // B3: turn rhythm — a divider marks where each new turn begins, not the
-  // transcript's first message, and carries a machine-readable timestamp.
+  // A divider marks where each new turn begins — never before the
+  // transcript's first message — and carries a machine-readable time.
   describe("turn dividers", () => {
     const openTurns = (run: (page: Page) => Promise<void>): Promise<void> =>
       withPage(env.context, async (page) => {
@@ -147,8 +146,6 @@ const runTranscriptSuite = (fx: FlavorFixture): void => {
       await openTurns(async (page) => {
         const dividers = page.locator(".turn-divider");
         await expect(dividers).toHaveCount(1);
-        // The divider sits immediately before the second prompt message,
-        // not after it and not before the first.
         const order = await page.evaluate(() =>
           Array.from(document.querySelectorAll("#messages > *")).map((el) =>
             el.classList.contains("turn-divider")
