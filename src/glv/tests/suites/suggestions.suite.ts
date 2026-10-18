@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import type { SseEvent } from "../harness.js";
+import type { MockConfig, SseEvent } from "../harness.js";
 import {
   authedFetch,
   collectSse,
@@ -73,6 +73,27 @@ const waitForInvocations = async (
   throw new Error(
     `expected ${n} ephemeral invocations, saw ${ephemeralInvocations(log).length}`,
   );
+};
+
+// The capture file is overwritten atomically per mock invocation, so
+// when the poll starts it can still hold the session run's prompt — a
+// marker-poll waits until the ask's own prompt has landed.
+const waitForCapture = async (
+  path: string,
+  marker: string,
+): Promise<string> => {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    try {
+      const content = readFileSync(path, "utf-8");
+      if (content.includes(marker)) return content;
+    } catch {
+      // the mock has not written the capture yet — keep polling
+    }
+    if (Date.now() > deadline)
+      throw new Error(`captured ask never contained "${marker}"`);
+    await sleep(100);
+  }
 };
 
 // The prompts a suggestions event carried, when it carried any.
@@ -153,12 +174,13 @@ const runTurn = async (
 
 // Boots an environment with the ephemeral ask scripted, the feature's
 // test poll interval, and a fresh invocation log. `homeDir` optionally
-// fakes the home the server (and its model source) reads.
+// fakes the home the server (and its model source) reads. `extra`
+// carries any further mock scripting (session-run lines, captures).
 const startSuggestionEnv = async (
   fx: FlavorFixture,
   prefix: string,
   ephemeralLines: string[],
-  extra: Record<string, string | number> = {},
+  extra: MockConfig = {},
   homeDir?: string,
 ): Promise<{ env: IntegrationEnv; log: string; logDir: string }> => {
   const logDir = mkdtempSync(join(tmpdir(), `${prefix}log-`));
@@ -344,23 +366,6 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
       let captureDir: string;
       let capturePath: string;
 
-      // waitForFile returns stable content, so a marker-poll is used
-      // when the capture file may still hold the session run's prompt.
-      const waitForCaptureMarker = async (marker: string): Promise<string> => {
-        const deadline = Date.now() + 30000;
-        for (;;) {
-          try {
-            const content = readFileSync(capturePath, "utf-8");
-            if (content.includes(marker)) return content;
-          } catch {
-            // the mock has not written the capture yet — keep polling
-          }
-          if (Date.now() > deadline)
-            throw new Error(`captured ask never contained "${marker}"`);
-          await sleep(100);
-        }
-      };
-
       beforeAll(async () => {
         captureDir = mkdtempSync(join(tmpdir(), "glv-sugg-ground-cap-"));
         capturePath = join(captureDir, "ask-stdin.txt");
@@ -428,7 +433,8 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         await waitForBar(env, fx.viewId("grounded"));
 
         await waitForInvocations(log, 1);
-        const ask = await waitForCaptureMarker(
+        const ask = await waitForCapture(
+          capturePath,
           "You are the prompt-suggestion helper",
         );
         expect(ask).toContain("[Session goal]");
@@ -464,6 +470,142 @@ const runSuggestionsSuite = (fx: FlavorFixture): void => {
         expect(bar).toContain(DEDUPED[0]);
         expect(bar).toContain(DEDUPED[2]);
         expect(bar).not.toContain("Fix the failing login test now");
+      });
+    });
+
+    // The failure that motivated the anchoring: a session whose closing
+    // reply offered two concrete options ("say the word and I'll flip
+    // the extension off, or swap it to the local Docker server") got
+    // chips about whatever the earlier turns had discussed. The old
+    // context carried the last reply only as a tail line clipped to its
+    // first 480 characters — and a closing reply puts its actionable
+    // part (offers, questions, asks for a decision) at the end — so the
+    // ask saw the recap but never the options, and the suggestions
+    // drifted to older topics. Here the turn's own committed reply
+    // carries the offer, the surrounding rows are deliberately verbose,
+    // and the ask must see the reply's ending — where the offer lives —
+    // as its anchor, with the grounding sections still intact around it.
+    describe("anchored on the last reply", () => {
+      // Long enough that a tail line keeps only its opening — under the
+      // old head-clip the ending (and its offer) never reached the ask.
+      const GOAL =
+        "Sort out the mcp-remote GitHub extension: every tool call " +
+        "drops the Mcp-Session-Id header and reopens the session, so " +
+        "the tool list comes back empty and gh calls fall back to " +
+        "unauthenticated callers. Start from the extension config and " +
+        "decide whether the remote server or the client is at fault " +
+        "before touching anything else in the setup.";
+      // Verbose surrounding turns: the tail budget carries thousands of
+      // chars around the anchor, and the ask must keep its grounding
+      // while the last reply takes its own, larger slice.
+      const filler = (n: number): string =>
+        `Filler message ${n}: earlier turns of this session run long, ` +
+        "and this is the bulk the tail budget has to carry. " +
+        "context padding for the conversation tail budget. ".repeat(18);
+      // The turn's committed reply: well past the last-reply budget, so
+      // only its ending survives the ending-biased clip — and the
+      // ending is exactly where the offered options live.
+      const LAST_REPLY =
+        "AUDIT-COMPLETE: audited the mcp-remote wiring end to end. The " +
+        "remote server drops the Mcp-Session-Id header on the first " +
+        "handshake, so every tool call re-opens a session and the " +
+        "extension's tool list comes back empty; the GitHub extension " +
+        "is in the same boat, headers never reaching the server. " +
+        "diagnostic padding so the opening marker falls off the clip. ".repeat(
+          30,
+        ) +
+        "Nothing is committed — say the word and I'll flip the " +
+        "extension off, or swap it to the local Docker server.";
+      const OFFER_CHIPS = [
+        "Flip the mcp-remote extension off",
+        "Swap it to the local Docker server",
+        "Watch the upstream header fix",
+      ];
+
+      let env: IntegrationEnv;
+      let log: string;
+      let logDir: string;
+      let captureDir: string;
+      let capturePath: string;
+
+      beforeAll(async () => {
+        captureDir = mkdtempSync(join(tmpdir(), "glv-sugg-anchor-cap-"));
+        capturePath = join(captureDir, "ask-stdin.txt");
+        const started = await startSuggestionEnv(
+          fx,
+          "glv-suggestions-anchor-",
+          [ephemeralReplyLine(OFFER_CHIPS)],
+          { captureStdin: capturePath, lines: [fx.streamLine(LAST_REPLY)] },
+        );
+        env = started.env;
+        log = started.log;
+        logDir = started.logDir;
+      }, 180000);
+
+      afterAll(async () => {
+        await env?.cleanup();
+        rmScratch(logDir);
+        rmScratch(captureDir);
+      });
+
+      it("grounds the ask in the last reply's offered options", async () => {
+        // Eleven seeded rows + the turn's committed reply = exactly the
+        // 12-row window the ask reads. Timestamps sit strictly in the
+        // past so both stores order them before the committed reply.
+        fx.seedSessions(env, [
+          { id: "anchored", name: "Anchored", workingDir: env.scratchDir },
+        ]);
+        const base = Date.now();
+        const seeded = [
+          {
+            role: "user",
+            content: [{ type: "text", text: GOAL }],
+            createdTimestamp: base - 12000,
+          },
+          ...Array.from({ length: 10 }, (_, i) => ({
+            role: "assistant",
+            content: [{ type: "text", text: filler(i + 1) }],
+            createdTimestamp: base - (11000 - i * 1000),
+          })),
+        ];
+        fx.seedMessages(env, "anchored", seeded);
+
+        const res = await postFollowUp(
+          env,
+          fx.viewId("anchored"),
+          "so what are our options here?",
+        );
+        expect(res.status).toBe(200);
+        await waitForBar(env, fx.viewId("anchored"));
+
+        await waitForInvocations(log, 1);
+        const ask = await waitForCapture(
+          capturePath,
+          "[Assistant's last reply]",
+        );
+
+        // The anchor: the ask sees the last reply's ending, where the
+        // options live — and not its recap head, which the ending-biased
+        // clip traded away.
+        expect(ask).toContain("flip the extension off");
+        expect(ask).toContain("swap it to the local Docker server");
+        expect(ask).not.toContain("AUDIT-COMPLETE");
+
+        // The surrounding grounding survives: goal, older tail, and the
+        // sharpened instruction that ranks the offered options first.
+        expect(ask).toContain("[Session goal]");
+        expect(ask).toContain("decide whether the remote server");
+        expect(ask).toContain("[Conversation tail]");
+        expect(ask).toContain("Filler message 10");
+        expect(ask).toContain("offered options");
+
+        // Delivered end to end: the chips above the input box are the
+        // offered options, not leftovers from the earlier turns.
+        expect(await waitForSuggestions(env, fx.viewId("anchored"))).toEqual(
+          OFFER_CHIPS,
+        );
+        const bar = await waitForBar(env, fx.viewId("anchored"));
+        expect(bar).toContain(OFFER_CHIPS[0]);
       });
     });
 

@@ -202,7 +202,9 @@ const parseSuggestionReply = (text: string): string[] | undefined => {
 
 // How much conversation feeds the ask — deliberately tiny, so the ask's
 // cost stays small by design. The grounding sections around the tail
-// (goal, actions, failure) are cheap relative to what they buy.
+// (last reply, goal, actions, failure) are cheap relative to what they
+// buy; the last reply gets the largest slice of the budget because the
+// suggestions anchor on it.
 const TAIL_MESSAGES = 12;
 const TAIL_MESSAGE_CHARS = 480;
 const TAIL_TOTAL_CHARS = 6000;
@@ -229,6 +231,30 @@ const clip = (text: string, max: number): string => {
   const boundary = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("\n"));
   const at = boundary > max * 0.6 ? boundary : max;
   return `${cut.slice(0, at).trimEnd()}…`;
+};
+
+// The generous budget for the assistant's last reply — the section the
+// suggestions anchor on. Deliberately larger than a tail message: this
+// is the one text worth spending the ask's tokens on.
+const LAST_REPLY_CHARS = 1200;
+
+// Ending-biased clip for the last reply. A closing assistant message
+// front-loads the recap and ends with the actionable part — offers,
+// questions, "say the word and I'll X or Y" — so a long reply is cut
+// from its beginning, never its end.
+const clipEnd = (text: string, max: number): string => {
+  if (text.length <= max) return text;
+  const cut = text.slice(-max);
+  // Prefer starting just after a word break; a run with no break at all
+  // (an unbroken 1200 chars) starts at the raw edge.
+  const space = cut.indexOf(" ");
+  const newline = cut.indexOf("\n");
+  const boundary = Math.min(
+    space === -1 ? max : space,
+    newline === -1 ? max : newline,
+  );
+  const at = boundary < max ? boundary + 1 : 0;
+  return `…${cut.slice(at).trimStart()}`;
 };
 
 const oneLine = (text: string): string => text.replaceAll(/\s+/g, " ").trim();
@@ -297,33 +323,64 @@ const toolSections = (parsed: readonly ParsedMessage[]): string[] => {
   return sections;
 };
 
+// The window's last assistant output is "what the agent just told the
+// user" — where its concrete offers, open questions, and asks for a
+// decision live. This section anchors the ask: the suggestions exist to
+// let the user act on this message with one tap. Returns the rendered
+// section plus the message's index so the tail can leave it out.
+const lastReplySection = (
+  parsed: readonly ParsedMessage[],
+): { readonly section: string; readonly index: number } | undefined => {
+  for (let index = parsed.length - 1; index >= 0; index--) {
+    const message = parsed[index];
+    if (messageKind(message.role, message.items) !== "output") continue;
+    const text = clipEnd(textOf(message), LAST_REPLY_CHARS);
+    if (text === "") continue;
+    return { section: `[Assistant's last reply]\n${text}`, index };
+  }
+  return undefined;
+};
+
 // "user: …" / "assistant: …" lines for the tail of the conversation,
-// oldest first, budgeted per message and in total.
-const tailSection = (parsed: readonly ParsedMessage[]): string | undefined => {
+// budgeted per message and in total. Selection walks newest-first so
+// the section keeps what it is named for — the rows nearest the finished
+// turn — no matter how the budgets are tuned; the previous oldest-first
+// walk kept the window's head and dropped its tail when the budget ran
+// short, the exact opposite of a conversation tail. Selected
+// newest-first, emitted oldest-first for reading order.
+const tailSection = (
+  parsed: readonly ParsedMessage[],
+  skipIndex: number | undefined,
+): string | undefined => {
   const lines: string[] = [];
   let total = 0;
-  for (const message of parsed) {
+  for (let index = parsed.length - 1; index >= 0; index--) {
+    if (index === skipIndex) continue;
+    const message = parsed[index];
     const text = clip(textOf(message), TAIL_MESSAGE_CHARS);
     if (text === "") continue;
     const line = clip(`${message.role}: ${text}`, TAIL_MESSAGE_CHARS + 32);
     if (total + line.length > TAIL_TOTAL_CHARS) break;
     total += line.length;
-    lines.push(line);
+    lines.unshift(line);
   }
   return lines.length === 0
     ? undefined
     : `[Conversation tail]\n${lines.join("\n")}`;
 };
 
-// "[Session goal] / [Recent actions] / [Last failure] / [Conversation
-// tail]" — the grounded context the ask reasons over. Sections that
-// would be empty are omitted.
+// "[Assistant's last reply] / [Session goal] / [Recent actions] / [Last
+// failure] / [Conversation tail]" — the grounded context the ask
+// reasons over, anchored on what the agent just told the user. Sections
+// that would be empty are omitted.
 const conversationContext = (rows: readonly MessageRow[]): string => {
   const parsed = rows.slice(-TAIL_MESSAGES).map(parseMessage);
+  const lastReply = lastReplySection(parsed);
   const sections = [
+    lastReply?.section,
     goalSection(parsed),
     ...toolSections(parsed),
-    tailSection(parsed),
+    tailSection(parsed, lastReply?.index),
   ].flatMap((section) => (section === undefined ? [] : [section]));
   return sections.join("\n\n");
 };
@@ -331,17 +388,26 @@ const conversationContext = (rows: readonly MessageRow[]): string => {
 // The ask's instruction: propose a few short follow-ups grounded in the
 // sections above, reply with a JSON array and nothing else. Framed as a
 // private helper question about an excerpt, never as a turn of the
-// user's session.
+// user's session. The first rule ranks the sections: the last reply is
+// the anchor; when it offers options, the chips must be those options.
 const buildAskPrompt = (agentName: string, context: string): string =>
   [
     "You are the prompt-suggestion helper for a coding-agent viewer. " +
       "Below is grounded context about a session between a user and " +
-      `their coding agent (${agentName}): what the user set out to do, ` +
-      "what the agent just did, and the tail of the conversation. " +
+      `their coding agent (${agentName}): what the agent just told the ` +
+      "user, what the user set out to do, what the agent just did, and " +
+      "the tail of the conversation. " +
       "Propose what the user should ask next.",
     "",
     "Rules:",
     "- Propose 3 short follow-up prompts, at most 12 words each.",
+    "- [Assistant's last reply] is what the user just read and the " +
+      "surest signal of what they want next — anchor on it before the " +
+      "older sections.",
+    "- When the last reply offers the user options or asks which way " +
+      'to go ("I can do X or Y — say the word"), the first suggestions ' +
+      "must be prompts that take those offered options, in the order " +
+      "offered. Only a slot left over may point somewhere else.",
     "- Every suggestion must name the concrete thing it is about — a " +
       "file, command, error, or entity that appears in the context. A " +
       "suggestion that would fit any coding session is useless.",
@@ -349,8 +415,8 @@ const buildAskPrompt = (agentName: string, context: string): string =>
       '"commit the changes") unless the conversation directly implies ' +
       "that exact next step.",
     "- The 3 suggestions must pull toward different next moves (for " +
-      "example: continue the task, verify the result, address an open " +
-      "risk) — never paraphrases of one another.",
+      "example: take an offered option, continue the task, verify the " +
+      "result, address an open risk) — never paraphrases of one another.",
     "- If the context shows a failure, one suggestion must deal with it.",
     "- Do not repeat a prompt the user already sent.",
     "- Reply with ONLY a JSON array of 3 strings. No markdown, no " +
