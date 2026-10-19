@@ -142,7 +142,8 @@ glv is a single Node.js process built on the
 
 ## Setup
 
-Clone the repository, then run the setup script:
+Clone the repository, then run the setup script — glv is distributed as
+source only, with no published npm package, so cloning is the install:
 
 ``` bash
 git clone https://github.com/SynthLuvr/glv.git
@@ -319,7 +320,9 @@ and a stray `cronJobs` key is inert.
 
   - a [croner](https://github.com/hexagon/croner) pattern — the usual
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
-    part, or a nickname like `"@daily"`.
+    part, or a nickname like `"@daily"`. croner’s stable line is 10.x;
+    glv pins an 11.0.0 dev build for the timer fix it carries, and the
+    pin moves to the stable 11 release once that ships.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the database.
     Seconds are optional (`"2026-09-03T09:00:30"` fires at that second);
@@ -706,3 +709,7 @@ like, and the enforced coding conventions live in
 [SECURITY.md](SECURITY.md): report them privately, not as a public
 issue. Participation is governed by the [Code of
 Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[Apache-2.0](LICENSE).
