@@ -1,5 +1,7 @@
 # Guided Live Velocity
 
+[![CI](https://github.com/SynthLuvr/glv/actions/workflows/ci.yml/badge.svg)](https://github.com/SynthLuvr/glv/actions/workflows/ci.yml)
+
 A self-hosted web app that **increases your development speed with
 agentic coding**. Guided Live Velocity drives the
 [goose](https://github.com/aaif-goose/goose) agentic engine from a fast
@@ -12,6 +14,22 @@ reasoning — in an on-disk SQLite database. **Guided Live Velocity** (or
 past sessions, watch live runs stream in real time, kick off fresh runs,
 and even launch goose against a GitHub repository — all without leaving
 the browser.
+
+## Screenshots
+
+A session transcript — prompt, streamed output, and one-tap suggested
+follow-ups — in the light theme:
+
+<img src="https://github.com/user-attachments/assets/6c4da68c-5067-4591-aad6-3d9209537f74" alt="A goose session transcript in the glv web UI, light theme" />
+
+The same session in the dark theme, mid-run with a queued follow-up:
+
+<img src="https://github.com/user-attachments/assets/3cbe55e2-91f3-4297-95aa-724253af8725" alt="A goose session in the dark theme, mid-run with a queued follow-up" />
+
+The scheduled-runs form: plain-English or cron schedules, validated
+live, with the upcoming runs previewed:
+
+<img src="https://github.com/user-attachments/assets/8750df4b-c958-41af-b05b-34f36b5f5aa3" alt="The glv scheduled-runs form with timezone, model, and next-runs preview" />
 
 ## Why
 
@@ -124,7 +142,11 @@ glv is a single Node.js process built on the
 
 ## Setup
 
+Clone the repository, then run the setup script:
+
 ``` bash
+git clone https://github.com/SynthLuvr/glv.git
+cd glv
 node scripts/setup.mjs
 ```
 
