@@ -2265,9 +2265,8 @@ select.form-input {
 
   /* Collapse the header to a truncated one-line title (pencil inline at
      its end) — the old wrapped title burned ~200px before any content.
-     The meta row keeps wrapping onto multiple lines instead of scrolling
-     sideways: every chip (Working dir included) has to stay visible and
-     tappable without a horizontal hunt. */
+     The meta row keeps wrapping instead of scrolling sideways so every
+     chip (Working dir included) stays visible and tappable. */
   .session-header {
     margin-bottom: 1.25rem;
     padding-bottom: 0.9rem;
