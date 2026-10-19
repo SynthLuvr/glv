@@ -9,7 +9,7 @@ import { gooseFixture } from "./integration-harness.js";
 // the <turn-context>…</turn-context> block, trailing newline included.
 const TURN_CONTEXT_TEXT = `<turn-context>
 <current-time>2026-08-22 11:37:00 +02:00</current-time>
-<working-directory>/home/regan/goose-log-viewer</working-directory>
+<working-directory>/home/dev/goose-log-viewer</working-directory>
 
 ALWAYS batch multiple tool operations into ONE execute_typescript call.
 
