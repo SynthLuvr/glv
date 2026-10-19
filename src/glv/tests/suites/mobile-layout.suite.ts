@@ -78,9 +78,10 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   };
 
   // At the phone viewport the title must truncate to one line and the
-  // quiet meta row collapse to a single scrollable line.
+  // meta row must wrap — never scroll sideways: the Working dir chip has
+  // to be visible and tappable where it lands, not off-screen right.
   describe("session header collapses on mobile", () => {
-    it("keeps the title and meta row to one line each with no overflow", async () => {
+    it("keeps the title to one line and wraps the meta row with no sideways overflow", async () => {
       await withPage(env.context, async (page) => {
         await openMobileDetail(page, "mobile-header");
         const header = await page.evaluate(() => {
@@ -90,21 +91,38 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
           const meta = document.querySelector(".session-meta");
           const pane = document.querySelector("#detail-pane");
           if (title === null || meta === null || pane === null) return null;
+          const workingDir = [...meta.querySelectorAll(".meta-chip")].find(
+            (chip) =>
+              chip.querySelector(".meta-label")?.textContent === "Working dir",
+          );
+          const wd = workingDir?.getBoundingClientRect();
+          const paneRect = pane.getBoundingClientRect();
           return {
             titleHeight: title.getBoundingClientRect().height,
             titleTruncated: title.scrollWidth > title.clientWidth + 1,
-            metaHeight: meta.getBoundingClientRect().height,
             metaScrollable: meta.scrollWidth > meta.clientWidth + 1,
+            workingDirLeft: wd?.left ?? -1,
+            workingDirRight: wd?.right ?? -1,
+            paneLeft: paneRect.left,
+            paneRight: paneRect.right,
             paneOverflow: pane.scrollWidth - pane.clientWidth,
           };
         });
         expect(header).not.toBeNull();
-        // One line each: 1.05rem text on a 1.6 line-height ≈ 27px; a wrap
+        // One line: 1.05rem text on a 1.6 line-height ≈ 27px; a wrap
         // would double it.
         expect(header!.titleHeight).toBeLessThanOrEqual(32);
         expect(header!.titleTruncated).toBe(true);
-        expect(header!.metaHeight).toBeLessThanOrEqual(34);
-        expect(header!.metaScrollable).toBe(true);
+        // The meta row wraps instead of scrolling horizontally: no hidden
+        // overflow to the right, and the Working dir chip sits fully
+        // inside the pane — one tap, no sideways scroll to reach it.
+        expect(header!.metaScrollable).toBe(false);
+        expect(header!.workingDirLeft).toBeGreaterThanOrEqual(
+          header!.paneLeft - 1,
+        );
+        expect(header!.workingDirRight).toBeLessThanOrEqual(
+          header!.paneRight + 1,
+        );
         // And nothing forces the pane itself sideways.
         expect(header!.paneOverflow).toBeLessThanOrEqual(1);
       });

@@ -2264,8 +2264,10 @@ select.form-input {
   }
 
   /* Collapse the header to a truncated one-line title (pencil inline at
-     its end) and one scrollable meta line — the old wrapped title plus
-     stacked chips burned ~200px before any content. */
+     its end) — the old wrapped title burned ~200px before any content.
+     The meta row keeps wrapping onto multiple lines instead of scrolling
+     sideways: every chip (Working dir included) has to stay visible and
+     tappable without a horizontal hunt. */
   .session-header {
     margin-bottom: 1.25rem;
     padding-bottom: 0.9rem;
@@ -2288,21 +2290,6 @@ select.form-input {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .session-meta {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 0.35rem 0.9rem;
-    scrollbar-width: none;
-  }
-  .session-meta::-webkit-scrollbar {
-    display: none;
-  }
-  .session-meta .meta-chip,
-  .session-meta .git-chip,
-  .session-meta .pr-chip,
-  .session-meta .cron-chip {
-    flex-shrink: 0;
   }
 
   /* Phones cannot fit the input and its row-mates on one line: the input
