@@ -2,15 +2,38 @@
   "name": "guided-live-velocity",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
   "description": "Self-hosted web UI that increases development speed with agentic coding",
+  "keywords": [
+    "goose",
+    "claude",
+    "agentic",
+    "coding-agent",
+    "self-hosted",
+    "web-ui",
+    "sse",
+    "htmx",
+    "fastify",
+    "sqlite",
+    "passkey",
+    "webauthn"
+  ],
+  "homepage": "https://github.com/SynthLuvr/glv#readme",
+  "bugs": {
+    "url": "https://github.com/SynthLuvr/glv/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "SynthLuvr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SynthLuvr/glv.git"
+  },
   "bin": {
     "glv": "bin/glv.mjs"
   },
   "type": "module",
   "packageManager": "pnpm@12.11.2",
   "engines": {
-    "node": "26"
+    "node": ">=26"
   },
   "scripts": {
     "build": "npm-run-all build:typecheck build:assets",

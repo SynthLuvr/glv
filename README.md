@@ -178,8 +178,8 @@ Windows notes:
 
 ### Prerequisites
 
-- **Node.js 26** — what `package.json` pins in `engines`, and the
-  version CI installs.
+- **Node.js ≥ 26** — the floor `package.json`’s `engines` requires; CI
+  installs 26.
 - **pnpm ≥ 12** — the repo pins the exact version via `packageManager`
   (currently `pnpm@12.11.2`); Corepack honors the pin automatically.
 - The **`goose`** binary on your `PATH` (to start new runs from the
