@@ -3474,10 +3474,8 @@ select.form-input {
   gap: 0.4rem;
   margin-top: 0.15rem;
 }
-/* Four labels share a card a third of the pane wide: Run now is the
-   primary action and takes a full row of its own (it never squeezes
-   onto the management row or wraps mid-label); pause/edit/delete keep
-   the single shared row they always had. */
+/* Run now is the primary action and takes a full row of its own;
+   pause/edit/delete keep the single shared row they always had. */
 .cron-job-actions .prompt-card-btn {
   white-space: nowrap;
 }

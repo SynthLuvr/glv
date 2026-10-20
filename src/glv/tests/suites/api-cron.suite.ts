@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotInZone, formatOneShotLocal } from "../../schedule.js";
-import { countSessions, pollUntil, withSeconds } from "../cron-helpers.js";
+import {
+  countSessions,
+  pollUntil,
+  sleep,
+  withSeconds,
+} from "../cron-helpers.js";
 import {
   authedFetch,
   bearerFetch,
@@ -639,7 +644,7 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
         500,
       );
       expect(settled, "the chain never ran both steps").toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await sleep(1500);
       expect(await countSessions(env, "Run Now Api")).toBe(2);
     });
   });

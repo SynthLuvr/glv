@@ -359,6 +359,14 @@ const registerCronRoutes = (
     },
   );
 
+  // The refreshed section a successful mutation swaps back in, re-read
+  // from the database so the cards reflect the change.
+  const sendRunsSection = (reply: FastifyReply): FastifyReply => {
+    const { jobs, error } = cronOps.listJobs();
+    if (error !== undefined) return sendHtml(reply, writeErrorHint(error), 500);
+    return sendHtml(reply, <ScheduledRunsSection jobs={jobs} />);
+  };
+
   const toggleJob = (reply: FastifyReply, name: string, enabled: boolean) => {
     const { jobs } = cronOps.listJobs();
     if (findJob(jobs, name) === undefined) return sendNotFound(reply);
@@ -371,10 +379,7 @@ const registerCronRoutes = (
         writeErrorHint(`Could not update the cron database: ${writeError}`),
         500,
       );
-    const { jobs: fresh, error } = cronOps.listJobs();
-    if (error !== undefined)
-      return sendHtml(reply, <p class="status-hint error">{error}</p>, 500);
-    return sendHtml(reply, <ScheduledRunsSection jobs={fresh} />);
+    return sendRunsSection(reply);
   };
 
   app.post<{ Params: { name: string } }>(
@@ -401,10 +406,7 @@ const registerCronRoutes = (
         if (outcome.status === 404) return sendNotFound(reply);
         return sendHtml(reply, writeErrorHint(outcome.error), outcome.status);
       }
-      const { jobs, error } = cronOps.listJobs();
-      if (error !== undefined)
-        return sendHtml(reply, <p class="status-hint error">{error}</p>, 500);
-      return sendHtml(reply, <ScheduledRunsSection jobs={jobs} />);
+      return sendRunsSection(reply);
     },
   );
 

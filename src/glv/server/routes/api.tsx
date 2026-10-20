@@ -156,9 +156,8 @@ const registerApiRoutes = (
     },
   );
 
-  // Run now: an immediate fire through the running scheduler, the same
-  // path a scheduled tick takes. 202 because the answer says "started",
-  // not "finished" — the run proceeds like any scheduled fire.
+  // 202 because the answer says "started", not "finished" — the fire
+  // runs in the background like any scheduled fire.
   app.post<{ Params: { name: string } }>(
     "/api/cron/:name/run",
     (request, reply) => {

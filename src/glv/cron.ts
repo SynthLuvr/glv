@@ -31,9 +31,8 @@ type CronScheduler = {
    */
   readonly reload: () => void;
   /**
-   * Fires a stored job immediately — the "Run now" path. The answer is
-   * synchronous and only means "fired": the run itself proceeds in the
-   * background, like any scheduled fire.
+   * Fires a stored job immediately — the "Run now" path; see
+   * CronRunOutcome for what the answer promises.
    */
   readonly runNow: (name: string) => CronRunOutcome;
   /**
@@ -534,12 +533,11 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
 
   // An immediate fire of a stored row — the "Run now" path. The row is
   // read fresh (a job deleted or paused since the page loaded is
-  // honored) and validated on its own, then fired through the same
-  // path a scheduled tick takes, in-flight guard included, so a double
-  // click never stacks a second pipeline onto one directory. A paused
-  // job may be run now without resuming it, but its working directory
-  // must exist all the same — the schedule's validation waives that
-  // check for paused jobs, an explicit run cannot.
+  // honored), then fired through the same path a scheduled tick takes,
+  // in-flight guard included. A paused job may be run now without
+  // resuming it, but its working directory must exist all the same —
+  // so the row is validated as if enabled: validation waives that
+  // check for paused rows, an explicit run cannot.
   const runNow = (name: string): CronRunOutcome => {
     let jobs: readonly CronJobConfig[];
     try {
@@ -555,16 +553,8 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     if (row === undefined)
       return { ok: false, status: 404, error: `No scheduled run ${name}.` };
     const [job] = resolveJobs(deps.defaultAgent, [row]);
-    if (!existsSync(job.workingDir))
-      return {
-        ok: false,
-        status: 422,
-        error:
-          `cron job "${job.name}" working directory does not exist: ` +
-          job.workingDir,
-      };
     try {
-      validateJob(job, deps);
+      validateJob({ ...job, enabled: true }, deps);
     } catch (err) {
       return { ok: false, status: 422, error: errorMessage(err) };
     }

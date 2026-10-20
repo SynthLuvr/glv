@@ -1175,14 +1175,13 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         await page.goto(`${env.baseUrl}/sessions/new`);
         const card = page.locator('.cron-job-card[data-cron-job="run-me"]');
-        const [runResponse] = await Promise.all([
+        await Promise.all([
           page.waitForResponse(
             (res) =>
               res.url().endsWith("/cron/run-me/run") && res.status() === 200,
           ),
           card.getByRole("button", { name: "Run now" }).click(),
         ]);
-        expect(runResponse.url()).toContain("/cron/run-me/run");
         // The htmx swap replaced the section: the card is back, fresh.
         await expect(page.locator("#scheduled-runs")).toContainText("run-me", {
           timeout: 15_000,
