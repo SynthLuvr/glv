@@ -3471,17 +3471,14 @@ select.form-input {
 .cron-job-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
   margin-top: 0.15rem;
 }
-/* Run now is the primary action and takes a full row of its own;
-   pause/edit/delete keep the single shared row they always had. */
+/* Four equal actions share one wrapping row; labels never break
+   mid-word. Run now is the accent primary via the shared .run style. */
 .cron-job-actions .prompt-card-btn {
   white-space: nowrap;
-}
-.cron-job-actions .prompt-card-btn.run {
-  flex: 1 0 100%;
-  text-align: center;
 }
 /* Follow-on step blocks on the edit form — stacked prompts that run as
    new sessions, one after another, after the first finishes. */
