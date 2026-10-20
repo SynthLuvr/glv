@@ -573,6 +573,9 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
     let env: IntegrationEnv;
     let homeDir: string;
     let workDir: string;
+    // A separate serve process with its own auth database — its token
+    // cannot be the outer suite's.
+    let runToken = "";
 
     beforeAll(async () => {
       homeDir = mkdtempSync(join(tmpdir(), "glv-apicron-runnow-"));
@@ -594,6 +597,7 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
             enabled: true,
           }),
       );
+      runToken = seedApiToken(env.dbs.authDb, "api-cron-runnow");
     }, 120000);
 
     afterAll(async () => {
@@ -603,7 +607,7 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
     });
 
     it("refuses a second fire instead of stacking pipelines", async () => {
-      const first = await bearerFetch(env, "/api/cron/chained/run", token, {
+      const first = await bearerFetch(env, "/api/cron/chained/run", runToken, {
         method: "POST",
       });
       expect(first.status).toBe(202);
@@ -617,7 +621,7 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
       );
       expect(stepOne, "the first fire never established").toBe(true);
 
-      const second = await bearerFetch(env, "/api/cron/chained/run", token, {
+      const second = await bearerFetch(env, "/api/cron/chained/run", runToken, {
         method: "POST",
       });
       expect(second.status).toBe(409);
