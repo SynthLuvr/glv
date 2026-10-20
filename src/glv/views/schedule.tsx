@@ -400,6 +400,17 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
       <div class="cron-job-actions">
         <button
           type="button"
+          class="prompt-card-btn run"
+          hx-post={`/cron/${name}/run`}
+          hx-target="#scheduled-runs"
+          hx-swap="outerHTML"
+          hx-disabled-elt="this"
+          title="Start this job's prompt now — the schedule is unaffected"
+        >
+          Run now
+        </button>
+        <button
+          type="button"
           class="prompt-card-btn"
           hx-post={`/cron/${name}/${enabled ? "pause" : "resume"}`}
           hx-target="#scheduled-runs"

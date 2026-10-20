@@ -31,11 +31,25 @@ type CronScheduler = {
    */
   readonly reload: () => void;
   /**
+   * Fires a stored job immediately — the "Run now" path. The answer is
+   * synchronous and only means "fired": the run itself proceeds in the
+   * background, like any scheduled fire.
+   */
+  readonly runNow: (name: string) => CronRunOutcome;
+  /**
    * Stops every scheduled job and the watch poll. In-flight agent
    * runs keep running.
    */
   readonly stop: () => void;
 };
+
+// The answer to an immediate-fire request ("Run now"): ok means the
+// fire was started, not that it finished — runs proceed in the
+// background exactly like a scheduled fire. A failure carries its HTTP
+// status and user-facing copy.
+type CronRunOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number; readonly error: string };
 
 type SchedulerDeps = {
   readonly launcher: AgentDispatchLauncher;
@@ -474,14 +488,20 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   // occurrence — the scheduled instant this fire serves — is recorded
   // as the missed-run marker before anything is awaited, so a restart
   // mid-fire never re-serves it, and a failed run still counts as
-  // served (the same stance the retire-after-fire rule takes).
-  const fire = (job: ResolvedJob, occurrence: Date, missed: boolean): void => {
+  // served (the same stance the retire-after-fire rule takes). Answers
+  // "fired" or "skipped" so an explicit run-now can tell the user the
+  // difference; a scheduled tick ignores the answer.
+  const fire = (
+    job: ResolvedJob,
+    occurrence: Date,
+    missed: boolean,
+  ): "fired" | "skipped" => {
     if (establishing.has(job.name)) {
       console.log(
         `cron job "${job.name}": previous run still in flight — ` +
           "fire skipped",
       );
-      return;
+      return "skipped";
     }
     if (missed)
       console.log(
@@ -502,10 +522,61 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
         establishing.delete(job.name);
       },
     );
-    // A one-shot's moment has passed whatever the outcome; retire it so
-    // the database (and the UI reading it) tells the truth.
-    if (parseOneShotSchedule(job.schedule, job.timezone) !== undefined)
+    // A one-shot fired at (or after) its own moment has had that moment
+    // — retire it so the database (and the UI reading it) tells the
+    // truth. A manual early run ("Run now") is not the scheduled
+    // moment: the job keeps its appointment.
+    const once = parseOneShotSchedule(job.schedule, job.timezone);
+    if (once !== undefined && occurrence.getTime() >= once.getTime())
       void done.then(() => retire(job));
+    return "fired";
+  };
+
+  // An immediate fire of a stored row — the "Run now" path. The row is
+  // read fresh (a job deleted or paused since the page loaded is
+  // honored) and validated on its own, then fired through the same
+  // path a scheduled tick takes, in-flight guard included, so a double
+  // click never stacks a second pipeline onto one directory. A paused
+  // job may be run now without resuming it, but its working directory
+  // must exist all the same — the schedule's validation waives that
+  // check for paused jobs, an explicit run cannot.
+  const runNow = (name: string): CronRunOutcome => {
+    let jobs: readonly CronJobConfig[];
+    try {
+      jobs = deps.readJobs();
+    } catch (err) {
+      return {
+        ok: false,
+        status: 500,
+        error: `Could not read the cron database: ${errorMessage(err)}`,
+      };
+    }
+    const row = jobs.find((job) => job.name === name);
+    if (row === undefined)
+      return { ok: false, status: 404, error: `No scheduled run ${name}.` };
+    const [job] = resolveJobs(deps.defaultAgent, [row]);
+    if (!existsSync(job.workingDir))
+      return {
+        ok: false,
+        status: 422,
+        error:
+          `cron job "${job.name}" working directory does not exist: ` +
+          job.workingDir,
+      };
+    try {
+      validateJob(job, deps);
+    } catch (err) {
+      return { ok: false, status: 422, error: errorMessage(err) };
+    }
+    return fire(job, new Date(), false) === "fired"
+      ? { ok: true }
+      : {
+          ok: false,
+          status: 409,
+          error:
+            `cron job "${job.name}" is still running — wait for it to ` +
+            "finish, or stop its session",
+        };
   };
 
   // Swaps the running schedule for a validated job set. Everything that
@@ -617,6 +688,7 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
 
   return {
     reload,
+    runNow,
     stop: () => {
       watcher.stop();
       for (const cron of scheduled) cron.stop();
@@ -624,5 +696,5 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
   };
 };
 
-export type { CronScheduler };
+export type { CronRunOutcome, CronScheduler };
 export { startCronScheduler };

@@ -59,7 +59,8 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
   return typeof candidate === "string" ? candidate.trim() : "";
 };
 
-// The styled 500 hint a failed database write renders as.
+// The styled error hint a failed mutation renders as — a failed
+// database write, or a refused "Run now".
 const writeErrorHint = (message: string) => (
   <p class="status-hint error">{message}</p>
 );
@@ -383,6 +384,28 @@ const registerCronRoutes = (
   app.post<{ Params: { name: string } }>(
     "/cron/:name/resume",
     (request, reply) => toggleJob(reply, request.params.name, true),
+  );
+
+  // Run now: an immediate fire through the running scheduler — the
+  // same path a scheduled tick takes, so the in-flight guard applies
+  // and a chain runs its whole sequence. The section swaps back
+  // refreshed; the run itself continues in the background, its session
+  // showing in the sidebar as it starts.
+  app.post<{ Params: { name: string } }>(
+    "/cron/:name/run",
+    (request, reply) => {
+      const run = ctx.runCronJob;
+      if (run === undefined) return sendNotFound(reply);
+      const outcome = run(request.params.name);
+      if (!outcome.ok) {
+        if (outcome.status === 404) return sendNotFound(reply);
+        return sendHtml(reply, writeErrorHint(outcome.error), outcome.status);
+      }
+      const { jobs, error } = cronOps.listJobs();
+      if (error !== undefined)
+        return sendHtml(reply, <p class="status-hint error">{error}</p>, 500);
+      return sendHtml(reply, <ScheduledRunsSection jobs={jobs} />);
+    },
   );
 
   app.delete<{ Params: { name: string } }>("/cron/:name", (request, reply) => {

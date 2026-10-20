@@ -78,6 +78,7 @@ const createApp = (
     cronDb: opts.cronDb,
     stopNotices: opts.stopNotices,
     onCronJobsChange: opts.onCronJobsChange,
+    runCronJob: opts.runCronJob,
     assets: buildAssetBundle(opts.assetsFlavor),
   };
 

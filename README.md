@@ -301,14 +301,15 @@ zone the schedule’s times apply in — searched as you type by zone name,
 city (“new york”), or UTC offset (“utc+2”), with each suggestion showing
 its current offset; the field stays free-typing (any IANA name is
 accepted), and left empty it means the server’s local time; the section
-lists every job with pause, edit, and delete). Scripts and CI can
-create, list, and delete the same jobs over the JSON API
-([below](#scheduling-runs-over-the-api)). The jobs live in the **cron
-database** — a glv-owned SQLite file at `~/.local/share/glv/cron.db` on
-Linux/macOS (`%APPDATA%\glv\cron.db` on Windows), alongside the
-job-started-session tags that badge fired runs. Override with
-`--cron-db <path>` or the `GLV_CRON_DB` environment variable. The
-running server picks changes up live, no restart needed.
+lists every job with **run now** (fires the job immediately, schedule
+unaffected — a paused job can be run without resuming it), pause, edit,
+and delete). Scripts and CI can create, list, and delete the same jobs
+over the JSON API ([below](#scheduling-runs-over-the-api)). The jobs
+live in the **cron database** — a glv-owned SQLite file at
+`~/.local/share/glv/cron.db` on Linux/macOS (`%APPDATA%\glv\cron.db` on
+Windows), alongside the job-started-session tags that badge fired runs.
+Override with `--cron-db <path>` or the `GLV_CRON_DB` environment
+variable. The running server picks changes up live, no restart needed.
 
 Jobs written by hand (or by an older glv) as a `cronJobs` array in the
 retired config file were migrated into the cron database by the first
@@ -361,6 +362,15 @@ Phrasings that would fire more often than once a minute are rejected.
   clock chip naming the job, in the sidebar and the transcript header. A
   fire whose session is still being established skips the next tick
   rather than piling runs onto the same directory.
+
+- **Run now** — the section’s button, or `POST /api/cron/:name/run` —
+  fires the stored row immediately through the same path a scheduled
+  tick takes: prompt, working directory, model pin, and follow-on chain
+  all apply, and a previous fire still in flight is refused rather than
+  stacked. The schedule is unaffected — a recurring job keeps its times,
+  and a not-yet-due one-shot keeps its appointment (only a fire served
+  at or after its own moment retires a one-shot). A paused job can be
+  run without resuming it, but its working directory must exist.
 
 - `modelProvider`/`model` (both keys together) pin every fire of the job
   to that model — goose takes a provider/model pair, claude an alias;
@@ -577,12 +587,13 @@ browser form accepts (a one-shot ISO datetime, a cron pattern, or
 English text), written through the same operation layer, landing in the
 same cron database and picked up by the running scheduler immediately:
 
-| Endpoint                 | Effect                                       |
-|--------------------------|----------------------------------------------|
-| `GET /api/cron`          | list scheduled runs (creation order)         |
-| `GET /api/cron/:name`    | read one run                                 |
-| `POST /api/cron`         | schedule a run (multipart form, bearer only) |
-| `DELETE /api/cron/:name` | cancel a run                                 |
+| Endpoint                   | Effect                                       |
+|----------------------------|----------------------------------------------|
+| `GET /api/cron`            | list scheduled runs (creation order)         |
+| `GET /api/cron/:name`      | read one run                                 |
+| `POST /api/cron`           | schedule a run (multipart form, bearer only) |
+| `POST /api/cron/:name/run` | fire a run now (answers 202 once started)    |
+| `DELETE /api/cron/:name`   | cancel a run                                 |
 
 Schedule a one-off — the programmatic answer to “run this once at 09:00”
 from CI or a deploy script:
