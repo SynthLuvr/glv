@@ -649,6 +649,10 @@ body {
 .detail {
   @apply flex-1 overflow-y-auto;
   overscroll-behavior: contain;
+  /* The stream script owns bottom-following (nearBottom + scrollToBottom on
+     every append); the browser's scroll anchoring re-anchors around the
+     preview→committed handoff and walks the view off the live tail. */
+  overflow-anchor: none;
 }
 .detail-inner {
   max-width: 50rem;
