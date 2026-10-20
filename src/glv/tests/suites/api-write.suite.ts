@@ -403,6 +403,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       expect(Object.keys(doc.paths).sort()).toEqual([
         "/api/cron",
         "/api/cron/{name}",
+        "/api/cron/{name}/run",
         "/api/sessions",
         "/api/sessions/{id}",
         "/api/sessions/{id}/fork",
@@ -416,6 +417,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "CronDeleted",
         "CronJob",
         "CronJobForm",
+        "CronRunAccepted",
         "Error",
         "FollowUpForm",
         "ForkAccepted",
