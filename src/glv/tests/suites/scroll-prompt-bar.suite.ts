@@ -18,14 +18,17 @@ const runScrollPromptBarSuite = (fx: FlavorFixture): void => {
   }));
 
   // NDJSON reply lines in the flavor's dialect, committed to the store as
-  // they stream — the same preview→committed churn a real agent run puts
-  // the transcript through.
-  const REPLY_TEXTS = [
+  // they stream — the preview→committed churn a real agent run puts the
+  // transcript through.
+  const STREAM_LINES = [
     "First streamed chunk of the reply.",
     "Second streamed chunk of the reply, a bit longer so the tail grows.",
     "Third and final chunk of the reply.",
-  ];
-  const STREAM_LINES = REPLY_TEXTS.map((text) => fx.streamLine(text));
+  ].map((text) => fx.streamLine(text));
+
+  // The stream script's near-bottom threshold: within it, the reader still
+  // counts as following the live tail.
+  const NEAR_BOTTOM_PX = 160;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-scroll-", {
@@ -84,6 +87,11 @@ const runScrollPromptBarSuite = (fx: FlavorFixture): void => {
       return { top, bottom };
     });
 
+  const scrollToBottom = (pane: Locator): Promise<void> =>
+    pane.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+
   describe("in-flow prompt bar", () => {
     it("sits below the fold instead of over the contents", async () => {
       await withPage(env.context, async (page) => {
@@ -108,9 +116,7 @@ const runScrollPromptBarSuite = (fx: FlavorFixture): void => {
     it("closes the page when scrolled to the bottom", async () => {
       await withPage(env.context, async (page) => {
         const { bar, pane } = await openSession(page, "scroll-end");
-        await pane.evaluate((el) => {
-          el.scrollTop = el.scrollHeight;
-        });
+        await scrollToBottom(pane);
 
         const barEdges = await verticalEdges(bar);
         const paneEdges = await verticalEdges(pane);
@@ -128,36 +134,28 @@ const runScrollPromptBarSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         const { bar, pane } = await openSession(page, "scroll-follow");
 
-        // The user reaches the composer by scrolling to the end; submitting
-        // swaps the pane with new cards (submitted prompt, queue, live tail)
-        // below the old offset. The reader must ride to the new bottom —
-        // an absolute restore leaves them stranded with the composer below
-        // the fold while the run's output grows even further away.
-        await pane.evaluate((el) => {
-          el.scrollTop = el.scrollHeight;
-        });
+        // Submit from the bottom, where the composer lives: the pane swaps
+        // in new cards below the old offset, and the reader must ride to
+        // the new bottom rather than be restored to the stale offset.
+        await scrollToBottom(pane);
         await bar.locator(".prompt-input").fill("Follow-up prompt");
         await bar.locator(".send-btn").click();
 
-        // Wait out the run: the busy bar appears, streams its reply through
-        // the preview→committed handoff, and yields back to Send. The
-        // anchoring drift the old code stranded the reader with plays out
-        // during this churn — so judge the position only once it settled.
-        await expect(
-          page.locator("[data-prompt-bar] .status-hint.running"),
-        ).toBeVisible({ timeout: 15000 });
-        await expect(
-          page.locator("[data-prompt-bar] .status-hint.running"),
-        ).toBeHidden({ timeout: 30000 });
+        // Judge only once the run settles — the reply streams through the
+        // preview→committed handoff, and the drift being guarded against
+        // plays out during that churn.
+        const running = page.locator("[data-prompt-bar] .status-hint.running");
+        await expect(running).toBeVisible({ timeout: 15000 });
+        await expect(running).toBeHidden({ timeout: 30000 });
         await page.waitForTimeout(1000);
 
         const distance = await pane.evaluate(
           (el) => el.scrollHeight - el.scrollTop - el.clientHeight,
         );
-        expect(distance).toBeLessThan(160);
-        const edges = await verticalEdges(bar);
+        expect(distance).toBeLessThan(NEAR_BOTTOM_PX);
+        const barEdges = await verticalEdges(bar);
         const paneEdges = await verticalEdges(pane);
-        expect(edges.top).toBeLessThan(paneEdges.bottom);
+        expect(barEdges.top).toBeLessThan(paneEdges.bottom);
       });
     });
   });

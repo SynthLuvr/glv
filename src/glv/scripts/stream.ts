@@ -142,10 +142,8 @@ document.addEventListener("keydown", (e) => {
   dismissSuggestions();
 });
 
-// Only auto-scroll when the reader is near the bottom, so reading history
-// isn't interrupted by incoming messages. The same threshold decides the
-// submit-swap restore below: "near the bottom" is the state of following
-// the live tail.
+// Near-bottom gates auto-scroll (reading history stays put while messages
+// arrive) and defines "following the tail" for the swap restore below.
 const NEAR_BOTTOM_PX = 160;
 
 const scrollToBottom = (): void => {
@@ -210,23 +208,24 @@ const scheduleSave = (): void => {
   saveTimer = setTimeout(saveScroll, SAVE_DEBOUNCE_MS);
 };
 
-// Where the tail sat just before a detail-pane swap: which session the pane
-// showed and how far the viewport hung above the content end. Captured at
-// htmx:beforeSwap (the old DOM is still live there) and consumed once by
-// restoreScroll.
-let preSwapTail: { sessionId: string | null; fromBottom: number } | undefined;
+// Where the reader stood when a detail-pane swap began: which session the
+// pane showed and whether they were following the tail. Captured while the
+// old DOM is still live; consumed once by restoreScroll after the swap.
+let preSwapTail: { sessionId: string | null; followed: boolean } | undefined;
+
+const capturePreSwapTail = (): void => {
+  preSwapTail = {
+    sessionId: sessionRoot()?.getAttribute("data-session-id") ?? null,
+    followed: nearBottom(),
+  };
+};
 
 // Land on the saved offset after a swap. With nothing remembered, default to
 // the bottom for an active run (so live output is visible) and the top
-// otherwise.
-//
-// A same-session swap is different: submitting a prompt (or stopping a run,
-// cancelling a queue) re-renders the transcript with new cards below the old
-// offset — the submitted-prompt card, the queue, the live tail — so an
-// absolute restore strands the reader mid-transcript with the composer
-// scrolled out of reach. When the swap was same-session and the reader was
-// following the tail (the composer they just used sits there), re-pin to the
-// new bottom instead.
+// otherwise. Same-session swaps (submit, stop, queue cancel) add cards below
+// the old offset, so an absolute restore strands the reader mid-transcript
+// with the composer out of reach — if they were following the tail, re-pin
+// to the new bottom instead.
 const restoreScroll = (): void => {
   const root = sessionRoot();
   const pane = document.getElementById("detail-pane");
@@ -234,11 +233,7 @@ const restoreScroll = (): void => {
   preSwapTail = undefined;
   if (root === null || pane === null) return;
   const sessionId = root.getAttribute("data-session-id");
-  if (
-    preSwap !== undefined &&
-    preSwap.sessionId === sessionId &&
-    preSwap.fromBottom < NEAR_BOTTOM_PX
-  ) {
+  if (preSwap?.sessionId === sessionId && preSwap.followed) {
     pane.scrollTop = pane.scrollHeight;
     return;
   }
@@ -268,14 +263,7 @@ const wireScrollMemory = (): void => {
   if (scrollMemoryWired) return;
   document.body.addEventListener("htmx:beforeSwap", (e) => {
     if (htmxSwapTarget(e)?.id !== "detail-pane") return;
-    const pane = document.getElementById("detail-pane");
-    preSwapTail =
-      pane === null
-        ? undefined
-        : {
-            sessionId: sessionRoot()?.getAttribute("data-session-id") ?? null,
-            fromBottom: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
-          };
+    capturePreSwapTail();
     saveScroll();
   });
   scrollMemoryWired = true;
@@ -333,6 +321,19 @@ const applyReplace = (messages: Element | null, entry: MessageEntry): void => {
     insertMessageInOrder(messages, entry.index, entry.html);
     removeEmptyState();
   }
+};
+
+// DB rows supersede the transient preview, and the server-rendered active
+// prompt card drops once the committed user row arrives. Clearing collapses
+// the streamed tail, which walks a bottom-pinned reader off the end — re-pin
+// once so the committed rows landing right after keep the pin.
+const clearPreview = (): void => {
+  const liveTail = document.getElementById("live-tail");
+  if (liveTail === null) return;
+  const followed = nearBottom();
+  liveTail.innerHTML = "";
+  document.querySelector("[data-active-prompt]")?.remove();
+  if (followed) scrollToBottom();
 };
 
 const applyRename = (payload: SessionRenamePayload): void => {
@@ -476,20 +477,7 @@ const connect = (root: Element): void => {
     if (nearBottom()) scrollToBottom();
   });
 
-  // DB messages supersede the transient preview — clear it. The active prompt
-  // card (server-rendered on submit) is removed once the committed user row
-  // arrives. Clearing collapses everything the tail streamed in; a reader
-  // pinned to the bottom rides the clamp away from the end and the
-  // near-bottom follow never re-engages, so re-pin once on the way through —
-  // the committed rows land right after and keep the pin.
-  onSessionEvent(activeSource, "preview-clear", () => {
-    const liveTail = document.getElementById("live-tail");
-    if (liveTail === null) return;
-    const followTail = nearBottom();
-    liveTail.innerHTML = "";
-    document.querySelector("[data-active-prompt]")?.remove();
-    if (followTail) scrollToBottom();
-  });
+  onSessionEvent(activeSource, "preview-clear", clearPreview);
 
   onSessionEvent(activeSource, "status", (data) => {
     handleStatus(sessionId ?? "", data);
