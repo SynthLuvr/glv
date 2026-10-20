@@ -3470,8 +3470,20 @@ select.form-input {
 }
 .cron-job-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.15rem;
+}
+/* Four labels share a card a third of the pane wide: Run now is the
+   primary action and takes a full row of its own (it never squeezes
+   onto the management row or wraps mid-label); pause/edit/delete keep
+   the single shared row they always had. */
+.cron-job-actions .prompt-card-btn {
+  white-space: nowrap;
+}
+.cron-job-actions .prompt-card-btn.run {
+  flex: 1 0 100%;
+  text-align: center;
 }
 /* Follow-on step blocks on the edit form — stacked prompts that run as
    new sessions, one after another, after the first finishes. */
