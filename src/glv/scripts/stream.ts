@@ -142,17 +142,21 @@ document.addEventListener("keydown", (e) => {
   dismissSuggestions();
 });
 
+// Near-bottom gates auto-scroll (reading history stays put while messages
+// arrive) and defines "following the tail" for the swap restore below.
+const NEAR_BOTTOM_PX = 160;
+
 const scrollToBottom = (): void => {
   const pane = document.getElementById("detail-pane");
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
 };
 
-// Only auto-scroll when the reader is near the bottom, so reading history
-// isn't interrupted by incoming messages.
 const nearBottom = (): boolean => {
   const pane = document.getElementById("detail-pane");
   if (pane === null) return false;
-  return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 160;
+  return (
+    pane.scrollHeight - pane.scrollTop - pane.clientHeight < NEAR_BOTTOM_PX
+  );
 };
 
 // #detail-pane survives htmx navigations (only its innerHTML is swapped), so
@@ -204,14 +208,36 @@ const scheduleSave = (): void => {
   saveTimer = setTimeout(saveScroll, SAVE_DEBOUNCE_MS);
 };
 
+// Where the reader stood when a detail-pane swap began: which session the
+// pane showed and whether they were following the tail. Captured while the
+// old DOM is still live; consumed once by restoreScroll after the swap.
+let preSwapTail: { sessionId: string | null; followed: boolean } | undefined;
+
+const capturePreSwapTail = (): void => {
+  preSwapTail = {
+    sessionId: sessionRoot()?.getAttribute("data-session-id") ?? null,
+    followed: nearBottom(),
+  };
+};
+
 // Land on the saved offset after a swap. With nothing remembered, default to
 // the bottom for an active run (so live output is visible) and the top
-// otherwise.
+// otherwise. Same-session swaps (submit, stop, queue cancel) add cards below
+// the old offset, so an absolute restore strands the reader mid-transcript
+// with the composer out of reach — if they were following the tail, re-pin
+// to the new bottom instead.
 const restoreScroll = (): void => {
   const root = sessionRoot();
   const pane = document.getElementById("detail-pane");
+  const preSwap = preSwapTail;
+  preSwapTail = undefined;
   if (root === null || pane === null) return;
-  const saved = savedOffset(root.getAttribute("data-session-id"));
+  const sessionId = root.getAttribute("data-session-id");
+  if (preSwap?.sessionId === sessionId && preSwap.followed) {
+    pane.scrollTop = pane.scrollHeight;
+    return;
+  }
+  const saved = savedOffset(sessionId);
   if (saved > 0) {
     pane.scrollTop = saved;
     return;
@@ -236,7 +262,9 @@ const wireScrollMemory = (): void => {
   }
   if (scrollMemoryWired) return;
   document.body.addEventListener("htmx:beforeSwap", (e) => {
-    if (htmxSwapTarget(e)?.id === "detail-pane") saveScroll();
+    if (htmxSwapTarget(e)?.id !== "detail-pane") return;
+    capturePreSwapTail();
+    saveScroll();
   });
   scrollMemoryWired = true;
 };
@@ -293,6 +321,19 @@ const applyReplace = (messages: Element | null, entry: MessageEntry): void => {
     insertMessageInOrder(messages, entry.index, entry.html);
     removeEmptyState();
   }
+};
+
+// DB rows supersede the transient preview, and the server-rendered active
+// prompt card drops once the committed user row arrives. Clearing collapses
+// the streamed tail, which walks a bottom-pinned reader off the end — re-pin
+// once so the committed rows landing right after keep the pin.
+const clearPreview = (): void => {
+  const liveTail = document.getElementById("live-tail");
+  if (liveTail === null) return;
+  const followed = nearBottom();
+  liveTail.innerHTML = "";
+  document.querySelector("[data-active-prompt]")?.remove();
+  if (followed) scrollToBottom();
 };
 
 const applyRename = (payload: SessionRenamePayload): void => {
@@ -436,14 +477,7 @@ const connect = (root: Element): void => {
     if (nearBottom()) scrollToBottom();
   });
 
-  // DB messages supersede the transient preview — clear it. The active prompt
-  // card (server-rendered on submit) is removed once the committed user row
-  // arrives.
-  onSessionEvent(activeSource, "preview-clear", () => {
-    const liveTail = document.getElementById("live-tail");
-    if (liveTail !== null) liveTail.innerHTML = "";
-    document.querySelector("[data-active-prompt]")?.remove();
-  });
+  onSessionEvent(activeSource, "preview-clear", clearPreview);
 
   onSessionEvent(activeSource, "status", (data) => {
     handleStatus(sessionId ?? "", data);
