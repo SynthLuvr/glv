@@ -19,6 +19,8 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   }));
 
   const VIEWPORT = { width: 400, height: 800 };
+  // Keyboard-open height of VIEWPORT under interactive-widget=resizes-content.
+  const KEYBOARD_OPEN_VIEWPORT = { width: 400, height: 420 };
 
   beforeAll(async () => {
     // sleepMs keeps the submitted follow-up running long enough for the
@@ -134,6 +136,7 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
       return {
         top: r.top,
         bottom: r.bottom,
+        viewportHeight: window.innerHeight,
         display: getComputedStyle(el).display,
       };
     });
@@ -141,7 +144,7 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
     expect(rect!.display).toBe("flex");
     // The top bar stays flush to the top and fully inside the viewport.
     expect(rect!.top).toBeGreaterThanOrEqual(-0.5);
-    expect(rect!.bottom).toBeLessThanOrEqual(VIEWPORT.height);
+    expect(rect!.bottom).toBeLessThanOrEqual(rect!.viewportHeight);
   };
 
   describe("mobile scroll-to-latest button", () => {
@@ -312,6 +315,60 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
 
         expect(paperclipTop).toBeGreaterThanOrEqual(inputBottom - 0.5);
         expect(Math.abs(paperclipBottom - sendBottom)).toBeLessThanOrEqual(1.5);
+      });
+    }, 30000);
+  });
+
+  // Android Chrome's default keyboard behavior pans the visual viewport over
+  // the fixed-height shell rather than resizing it, and the pan sticks when
+  // the focused textarea is swapped away mid-submit — stranding the pane
+  // toggle above the visible area. resizes-content opts into reflow.
+  describe("keyboard resize behavior", () => {
+    it("serves the session page with interactive-widget=resizes-content", async () => {
+      const response = await fetch(
+        `${env.baseUrl}/sessions/${fx.viewId("mobile-tall")}`,
+      );
+      expect(response.ok).toBe(true);
+      const html = await response.text();
+      expect(html).toContain("interactive-widget=resizes-content");
+    }, 30000);
+
+    it("reflows the shell so the toggle and composer stay reachable at keyboard-open height", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page);
+        await page.setViewportSize(KEYBOARD_OPEN_VIEWPORT);
+        // The composer lives at the detail pane's scroll bottom.
+        await page.locator("#detail-pane").evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+
+        const geometry = await page.evaluate(() => {
+          const app = document.querySelector(".app");
+          const send = document.querySelector(
+            "form.prompt-bar button.send-btn",
+          );
+          return {
+            appHeight: app === null ? 0 : app.getBoundingClientRect().height,
+            innerHeight: window.innerHeight,
+            bodyScroll:
+              document.body.scrollTop + document.documentElement.scrollTop,
+            bodyOverflow:
+              document.documentElement.scrollHeight -
+              document.documentElement.clientHeight,
+            sendBottom:
+              send === null ? null : send.getBoundingClientRect().bottom,
+          };
+        });
+
+        // The shell tracks the shrunken viewport (dvh): no body scroll,
+        // no overflow, nothing stranded.
+        expect(geometry.appHeight).toBeCloseTo(geometry.innerHeight, 0);
+        expect(geometry.bodyScroll).toBe(0);
+        expect(geometry.bodyOverflow).toBeLessThanOrEqual(1);
+        await expectTopBarWithinViewport(page);
+        // No dead space below the composer for the keyboard to sit over.
+        expect(geometry.sendBottom).not.toBeNull();
+        expect(geometry.sendBottom!).toBeLessThanOrEqual(geometry.innerHeight);
       });
     }, 30000);
   });

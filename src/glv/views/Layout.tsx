@@ -15,9 +15,13 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
+      {/* interactive-widget=resizes-content: the Android keyboard resizes
+          the layout viewport (and dvh) instead of panning over this
+          fixed-height shell — the default pan sticks when the focused
+          textarea is swapped mid-submit, stranding the pane toggle. */}
       <meta
         name="viewport"
-        content="width=device-width, initial-scale=1, viewport-fit=cover"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
       />
       <HeadMeta agentName={agentName} />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />

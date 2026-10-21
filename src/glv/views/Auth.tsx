@@ -16,7 +16,12 @@ const AuthLayout = ({ title, agentName, children }: AuthLayoutProps) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      {/* resizes-content keeps the login form above the on-screen keyboard
+          (see the note in Layout.tsx). */}
+      <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+      />
       <HeadMeta agentName={agentName} />
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>

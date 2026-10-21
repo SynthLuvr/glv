@@ -51,6 +51,8 @@ import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 const OUT = "pr-shots";
 const DESKTOP = { width: 1280, height: 800 };
 const MOBILE = { width: 390, height: 844 };
+// Keyboard-open height of MOBILE under interactive-widget=resizes-content.
+const MOBILE_KEYBOARD_OPEN = { width: 390, height: 420 };
 const SESSION_ID = "shots-1";
 
 // The teardown kills the fallback Xvfb; in headless mode there is nothing
@@ -350,6 +352,10 @@ const captureViews = async (
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
   await capture(page, "prompt-bar-mobile.png", "form.prompt-bar");
+
+  // Keyboard-open geometry: the shell must reflow, not pan.
+  await page.setViewportSize(MOBILE_KEYBOARD_OPEN);
+  await capture(page, "session-mobile-keyboard-open.png");
 
   // Busy composer (Queue/Stop), captured last: the submitted follow-up
   // stays running for sleepMs and must not leak into the shots above.
