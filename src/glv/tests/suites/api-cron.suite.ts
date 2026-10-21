@@ -514,13 +514,14 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
 
       // The fire recorded its occurrence and the row stays scheduled —
       // running a job now does not consume it.
-      await pollUntil(
+      const marked = await pollUntil(
         () =>
           cronJobRow(env.dbs.cronDb, "Seeded weekly")?.lastFiredAt !==
           undefined,
         10_000,
         250,
       );
+      expect(marked, "the fire never recorded its occurrence").toBe(true);
       expect(cronJobRow(env.dbs.cronDb, "Seeded weekly")?.enabled).toBe(true);
     });
 

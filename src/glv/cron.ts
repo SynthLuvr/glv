@@ -50,6 +50,12 @@ type CronRunOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number; readonly error: string };
 
+const runFailure = (status: number, error: string): CronRunOutcome => ({
+  ok: false,
+  status,
+  error,
+});
+
 type SchedulerDeps = {
   readonly launcher: AgentDispatchLauncher;
   readonly runner: Runner;
@@ -531,42 +537,37 @@ const startCronScheduler = (deps: SchedulerDeps): CronScheduler => {
     return "fired";
   };
 
-  // An immediate fire of a stored row — the "Run now" path. The row is
-  // read fresh (a job deleted or paused since the page loaded is
-  // honored), then fired through the same path a scheduled tick takes,
-  // in-flight guard included. A paused job may be run now without
-  // resuming it, but its working directory must exist all the same —
-  // so the row is validated as if enabled: validation waives that
-  // check for paused rows, an explicit run cannot.
+  // The "Run now" path: the row is read fresh (a job deleted since the
+  // page loaded is honored), then fired through the same path a
+  // scheduled tick takes, in-flight guard included. A paused job runs
+  // without resuming, but its working directory must exist all the
+  // same — so the row is validated as if enabled: validation waives
+  // that check for disabled rows, an explicit run cannot.
   const runNow = (name: string): CronRunOutcome => {
     let jobs: readonly CronJobConfig[];
     try {
       jobs = deps.readJobs();
     } catch (err) {
-      return {
-        ok: false,
-        status: 500,
-        error: `Could not read the cron database: ${errorMessage(err)}`,
-      };
+      return runFailure(
+        500,
+        `Could not read the cron database: ${errorMessage(err)}`,
+      );
     }
     const row = jobs.find((job) => job.name === name);
-    if (row === undefined)
-      return { ok: false, status: 404, error: `No scheduled run ${name}.` };
+    if (row === undefined) return runFailure(404, `No scheduled run ${name}.`);
     const [job] = resolveJobs(deps.defaultAgent, [row]);
     try {
       validateJob({ ...job, enabled: true }, deps);
     } catch (err) {
-      return { ok: false, status: 422, error: errorMessage(err) };
+      return runFailure(422, errorMessage(err));
     }
     return fire(job, new Date(), false) === "fired"
       ? { ok: true }
-      : {
-          ok: false,
-          status: 409,
-          error:
-            `cron job "${job.name}" is still running — wait for it to ` +
+      : runFailure(
+          409,
+          `cron job "${job.name}" is still running — wait for it to ` +
             "finish, or stop its session",
-        };
+        );
   };
 
   // Swaps the running schedule for a validated job set. Everything that

@@ -394,8 +394,7 @@ const registerCronRoutes = (
   // Run now: an immediate fire through the running scheduler — the
   // same path a scheduled tick takes, so the in-flight guard applies
   // and a chain runs its whole sequence. The section swaps back
-  // refreshed; the run itself continues in the background, its session
-  // showing in the sidebar as it starts.
+  // refreshed; the run itself continues in the background.
   app.post<{ Params: { name: string } }>(
     "/cron/:name/run",
     (request, reply) => {

@@ -474,7 +474,7 @@ const captureCronEdit = async (browser: Browser, env: IntegrationEnv) => {
 
 // The Scheduled runs management section with seeded job cards: the
 // per-job action row (Run now / Pause / Edit / Delete) is the surface
-// cron PRs touch, so it carries its own before/after pair.
+// cron PRs touch, so it gets its own desktop and mobile pair.
 const captureScheduledRuns = async (browser: Browser, env: IntegrationEnv) => {
   const workingDir = join(env.scratchDir, "cron-runs");
   mkdirSync(workingDir, { recursive: true });

@@ -1118,10 +1118,11 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       await pollUntil(() => promptsSeen().includes("Immediate sweep"), 10_000);
       // The fire recorded its occurrence (the missed-run marker) and
       // the row stays — a scheduled job is not consumed by running it.
-      await pollUntil(
+      const marked = await pollUntil(
         () => cronJobRow(env.dbs.cronDb, "run-me")?.lastFiredAt !== undefined,
         10_000,
       );
+      expect(marked, "the fire never recorded its occurrence").toBe(true);
       expect(cronJobRow(env.dbs.cronDb, "run-me")?.enabled).toBe(true);
     });
 
