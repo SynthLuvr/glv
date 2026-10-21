@@ -49,6 +49,15 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
       headers: { "HX-Request": "true" },
     });
 
+  const seedSession = (e: IntegrationEnv, id: string, name: string): void => {
+    const workingDir = join(e.scratchDir, "w");
+    mkdirSync(workingDir, { recursive: true });
+    fx.seedSessions(e, [{ id, name, workingDir }]);
+    fx.seedMessages(e, id, [
+      { role: "user", content: [{ type: "text", text: "seed" }] },
+    ]);
+  };
+
   const statusEvents = (events: { event: string; data: string }[]) =>
     events.filter((e) => e.event === "status").map((e) => parseSseData(e.data));
 
@@ -115,20 +124,8 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
       undefined,
       { GLV_STARTUP_TIMEOUT_MS: "2500" },
     );
-    for (const e of [envCrash, envStall]) {
-      const workingDir = join(e.scratchDir, "w");
-      mkdirSync(workingDir, { recursive: true });
-      fx.seedSessions(e, [
-        { id: "crash-1", name: "Crash", workingDir },
-        { id: "stall-1", name: "Stall", workingDir },
-      ]);
-      fx.seedMessages(e, "crash-1", [
-        { role: "user", content: [{ type: "text", text: "seed" }] },
-      ]);
-      fx.seedMessages(e, "stall-1", [
-        { role: "user", content: [{ type: "text", text: "seed" }] },
-      ]);
-    }
+    seedSession(envCrash, "crash-1", "Crash");
+    seedSession(envStall, "stall-1", "Stall");
   }, 120000);
 
   afterAll(async () => {
@@ -188,17 +185,17 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
         (evs) => firstError(evs) !== undefined,
         20000,
       );
-      const posted = startRun(envStall, "stall-1", "hang silently please");
-      expect((await posted).status).toBe(200);
+      const res = await startRun(envStall, "stall-1", "hang silently please");
+      expect(res.status).toBe(200);
       const call = await waitForAgentRun(envStall, fx.resumeFlag, 15000);
-      expect(call?.pid ?? 0).toBeGreaterThan(0);
+      const pid = call?.pid ?? 0;
+      expect(pid).toBeGreaterThan(0);
       const error = firstError(await stream);
       expect(error?.error).toContain(`${fx.name} run on session`);
       expect(error?.error).toContain("produced no output within 2.5s");
       expect(error?.error).toContain("was killed");
 
       // SIGTERM (SIGKILL after the grace window) reaps the stalled agent.
-      const pid = call?.pid ?? 0;
       const killDeadline = Date.now() + 10000;
       while (Date.now() < killDeadline && isAlive(pid)) await delay(200);
       expect(isAlive(pid)).toBe(false);

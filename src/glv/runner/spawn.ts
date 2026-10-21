@@ -11,18 +11,22 @@ import type {
   SpawnFn,
 } from "./types.js";
 
+// A failure verdict suffixed with the captured stderr tail, if any.
+const withStderrTail = (message: string, tail: string): string =>
+  tail === "" ? message : `${message} — last stderr:\n${tail}`;
+
 const describeFailure = (
   result: ProcessResult,
   name: string,
   stderrTail: string,
 ): string => {
-  const base =
+  const verdict =
     result.signal !== undefined
       ? `${name} killed by signal ${result.signal}`
       : result.exitCode === null
         ? `${name} process exited unexpectedly`
         : `${name} exited with code ${result.exitCode}`;
-  return stderrTail === "" ? base : `${base} — last stderr:\n${stderrTail}`;
+  return withStderrTail(verdict, stderrTail);
 };
 
 const ExecaError = type({
@@ -112,23 +116,20 @@ const startStopEscalation = (
 
 // A bounded tail of the agent's stderr. The agents pipe diagnostics to
 // stderr (a Rust abort message, a node OOM, MCP negotiation errors) that
-// otherwise evaporates — execa captures it, but nothing read it. Startup
-// failures are short, so a few trailing lines each capped in length is
-// enough to explain a crash without unbounded memory.
+// execa captures but nothing read; a few trailing lines each capped in
+// length explain a crash without unbounded memory.
 const STDERR_TAIL_LINES = 10;
 const STDERR_LINE_MAX = 400;
 
-const createStderrTail = (): {
-  push: (line: string) => void;
-  text: () => string;
-} => {
+const createStderrTail = () => {
   const lines: string[] = [];
-  const push = (line: string): void => {
-    lines.push(truncate(line, STDERR_LINE_MAX));
-    if (lines.length > STDERR_TAIL_LINES) lines.shift();
+  return {
+    push: (line: string): void => {
+      lines.push(truncate(line, STDERR_LINE_MAX));
+      if (lines.length > STDERR_TAIL_LINES) lines.shift();
+    },
+    text: (): string => lines.join("\n"),
   };
-  const text = (): string => lines.join("\n");
-  return { push, text };
 };
 
 // Drains stderr into the tail for as long as the process lives. Stream
@@ -145,8 +146,9 @@ const drainStderr = async (
   }
 };
 
-// Run lifecycle lines — the only place a spawn or exit is visible today
-// is the registry; journald deserves the pid and verdict too.
+// Run lifecycle lines — the only place a spawn or exit is otherwise
+// visible is the in-memory registry; the log deserves the pid and
+// verdict too.
 const runLabel = (handle: InternalHandle): string =>
   `${handle.agent.name} session ${handle.sessionId}`;
 
@@ -157,18 +159,27 @@ const describeExit = (result: ProcessResult): string =>
       ? "no exit status"
       : `exit code ${result.exitCode}`;
 
-const logRunStart = (handle: InternalHandle, pid: number): void => {
-  console.log(`run: ${runLabel(handle)} started (pid ${pid})`);
+const logRunEvent = (handle: InternalHandle, event: string): void => {
+  console.log(`run: ${runLabel(handle)} ${event}`);
 };
 
-const logRunEnd = (
+// Records the diagnostic and starts the kill ladder for a run whose
+// agent stayed silent past the startup deadline.
+const failStalledStartup = (
+  runner: Runner,
   handle: InternalHandle,
   proc: SpawnedProcess,
-  result: ProcessResult,
+  stderrTail: string,
 ): void => {
-  console.log(
-    `run: ${runLabel(handle)} ended (pid ${proc.pid}, ${describeExit(result)})`,
-  );
+  const secs = runner.config.startupTimeoutMs / 1000;
+  const message =
+    `${handle.agent.name} run on session ${handle.sessionId} ` +
+    `produced no output within ${secs}s of starting and was killed — ` +
+    "the agent likely stalled during startup";
+  handle.status = "error";
+  handle.error = withStderrTail(message, stderrTail);
+  console.error(`run: ${runLabel(handle)} killed by the startup watchdog`);
+  proc.kill("SIGTERM");
 };
 
 // The startup watchdog: a run whose agent emits not one stdout line
@@ -188,25 +199,10 @@ const armStartupWatchdog = (
 ): { cancel: () => void; fired: () => boolean } => {
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   let didFire = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const disarm = (): void => {
-    if (timer === undefined) return;
-    clearTimeout(timer);
-    timer = undefined;
-  };
-  timer = setTimeout(() => {
+  const timer = setTimeout(() => {
     if (handle.status !== "running") return;
     didFire = true;
-    const tail = stderrTail();
-    const secs = runner.config.startupTimeoutMs / 1000;
-    const base =
-      `${handle.agent.name} run on session ${handle.sessionId} ` +
-      `produced no output within ${secs}s of starting and was killed — ` +
-      "the agent likely stalled during startup";
-    handle.status = "error";
-    handle.error = tail === "" ? base : `${base} — last stderr:\n${tail}`;
-    console.error(`run: ${runLabel(handle)} killed by the startup watchdog`);
-    proc.kill("SIGTERM");
+    failStalledStartup(runner, handle, proc, stderrTail());
     killTimer = setTimeout(
       () => proc.kill("SIGKILL"),
       runner.config.stopGraceMs,
@@ -214,9 +210,8 @@ const armStartupWatchdog = (
   }, runner.config.startupTimeoutMs);
   return {
     cancel: () => {
-      disarm();
-      if (killTimer !== undefined) clearTimeout(killTimer);
-      killTimer = undefined;
+      clearTimeout(timer);
+      clearTimeout(killTimer);
     },
     fired: () => didFire,
   };
@@ -227,9 +222,7 @@ const armStartupWatchdog = (
 // printing its failure record. The record is already buffered by then, so
 // the drain returns the error instead of throwing and the exit verdict
 // below still runs; runProcess rethrows it only when the exit result
-// carries no code, so a spawn failure keeps its original message. The
-// first line also disarms the startup watchdog — output is proof the
-// agent got past startup.
+// carries no code, so a spawn failure keeps its original message.
 const drainStdout = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
@@ -254,9 +247,7 @@ const drainStdout = async (
 // code: goose 1.45.0 prints its usage-limit error record and still exits
 // 0, so the code alone would read as a clean finish — the silent stop
 // this corrects. A detected refusal becomes a run error carrying the
-// notice (reset time included); exit codes keep explaining themselves
-// when the stream said nothing — now with the stderr tail riding along,
-// so an abort message survives instead of evaporating with the pipe.
+// notice (reset time included); otherwise exit codes explain themselves.
 const settleRun = (
   handle: InternalHandle,
   result: ProcessResult,
@@ -299,7 +290,7 @@ const runProcess = async (
   // colour the verdict on a later one.
   const firstSeq = handle.output.drain(0).nextSeq;
 
-  logRunStart(handle, proc.pid);
+  logRunEvent(handle, `started (pid ${proc.pid})`);
   const stderrTail = createStderrTail();
   const stderrDone = drainStderr(proc, stderrTail);
   const stopEscalation = startStopEscalation(
@@ -315,7 +306,7 @@ const runProcess = async (
     // The stderr iterable ends with the process; awaiting it after the
     // exit verdict guarantees the tail holds everything the agent said.
     await stderrDone;
-    logRunEnd(handle, proc, result);
+    logRunEvent(handle, `ended (pid ${proc.pid}, ${describeExit(result)})`);
     if (handle.status === "stopped") return;
     // The watchdog already recorded its diagnostic and owns the kill;
     // "killed by signal SIGTERM" would only obscure why it fired.

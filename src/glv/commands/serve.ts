@@ -214,14 +214,12 @@ const registerShutdown = (
 const runServe = (opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.assetsFlavor);
-  // The stop-notices sidecar: run-terminal failures outlive the run
-  // handle — which is evicted seconds after the process exits — so the
-  // session view can still explain the stop after a reload or restart.
-  // That covers both shapes: provider-refusal notices (usage limit,
-  // network outage — failures the agent announces on its own stream) and
-  // plain run errors (crash exit code, signal death, startup-watchdog
-  // kill), whose message carries the exit verdict and the stderr tail.
-  // Opened before the runner so the observer never races it.
+  // The stop-notices sidecar: run-terminal failures — provider refusals
+  // (usage limit, network outage) and plain run errors (crash exit,
+  // signal death, watchdog kill) — outlive the run handle, which is
+  // evicted seconds after the process exits, so the session view can
+  // still explain the stop after a reload or restart. Opened before the
+  // runner so the observer never races it.
   const stopNotices = openStopNoticesDb(opts.stopNoticesDbPath);
   // A refusal or error is recorded for the session; a clean settle or
   // manual stop clears the row ("continue" resolves the outage).
