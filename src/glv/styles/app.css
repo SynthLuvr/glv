@@ -1695,6 +1695,9 @@ pre::-webkit-scrollbar-thumb {
   font-size: 0.82rem;
   color: var(--color-muted);
   overflow-wrap: anywhere;
+  /* Failure messages embed a stderr tail over several lines; collapse
+     runs of whitespace but keep those line breaks visible. */
+  white-space: pre-line;
 }
 .stop-notice-action {
   margin: 0.1rem 0 0;

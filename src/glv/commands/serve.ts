@@ -214,21 +214,22 @@ const registerShutdown = (
 const runServe = (opts: ServeOpts): void => {
   setupLogging(opts.debug);
   buildAssets(opts.assetsFlavor);
-  // The stop-notices sidecar: provider-refusal notices (usage limit,
-  // network outage — failures the agent announces on its own stream)
-  // outlive the run handle so the session view can still explain the
-  // stop after a reload or restart. Opened before the runner so the
-  // observer never races it.
+  // The stop-notices sidecar: run-terminal failures — provider refusals
+  // (usage limit, network outage) and plain run errors (crash exit,
+  // signal death, watchdog kill) — outlive the run handle, which is
+  // evicted seconds after the process exits, so the session view can
+  // still explain the stop after a reload or restart. Opened before the
+  // runner so the observer never races it.
   const stopNotices = openStopNoticesDb(opts.stopNoticesDbPath);
-  // A refusal is recorded for the session; a clean settle or manual stop
-  // clears the row ("continue" resolves the outage). A plain crash —
-  // error status, no stopNotice — keeps today's transient treatment:
-  // the message exists only while the handle does.
+  // A refusal or error is recorded for the session; a clean settle or
+  // manual stop clears the row ("continue" resolves the outage).
   const syncStopNotice = (handle: RunHandle): void => {
-    if (handle.stopNotice !== undefined)
-      recordStopNotice(stopNotices, handle.sessionId, handle.stopNotice);
-    else if (handle.status !== "error")
-      clearStopNotice(stopNotices, handle.sessionId);
+    const message =
+      handle.stopNotice ??
+      (handle.status === "error" ? handle.error : undefined);
+    if (message !== undefined)
+      recordStopNotice(stopNotices, handle.sessionId, message);
+    else clearStopNotice(stopNotices, handle.sessionId);
   };
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.

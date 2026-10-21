@@ -234,6 +234,15 @@ Options:
 - `-c, --max-concurrent <number>` — maximum concurrent agent runs driven
   from the viewer, across both agents (default `6`).
 
+- A run whose agent emits **no output at all** within the startup
+  deadline (default 300000 ms, override with `GLV_STARTUP_TIMEOUT_MS`)
+  is failed with a diagnostic and its process tree killed — an agent
+  parked in startup (a hung extension) can no longer hold a concurrency
+  slot forever and leave an empty session behind. The first output line
+  disarms the deadline; long runs are never cut short by it. Every run
+  spawn and exit is logged (agent, session, pid, exit code or signal)
+  alongside the cron lifecycle lines.
+
 - `--goose-binary <path>` — path to the `goose` binary used to run
   prompts (default `goose` on `PATH`).
 
@@ -265,11 +274,13 @@ Options:
 - `--stop-notices-db <path>` — override the stop-notice database
   location (default `~/.local/share/glv/stop-notices.db` on Linux/macOS
   (`%APPDATA%\glv\stop-notices.db` on Windows), or
-  `GLV_STOP_NOTICES_DB`). When a provider refuses to serve a session — a
-  usage limit (with its reset time) or a network outage — the session
-  view explains why the run stopped early and that sending a message
-  continues it; the notice survives reloads and restarts and clears
-  itself once the session runs again.
+  `GLV_STOP_NOTICES_DB`). When a run ends early — the provider refused
+  service (a usage limit with its reset time, a network outage) or the
+  agent itself failed (a crash exit, a signal death, a stalled startup)
+  — the session view explains why and that sending a message continues
+  it; the notice (the exit verdict plus the agent’s last stderr lines,
+  where relevant) survives reloads and restarts and clears itself once
+  the session runs again.
 
 - `--prompts-db <path>`, `--groups-db <path>`, `--meta-db <path>` —
   override the remaining glv-owned databases the same way: the saved
