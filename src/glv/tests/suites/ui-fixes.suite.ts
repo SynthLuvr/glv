@@ -47,6 +47,11 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         name: "Beta",
         workingDir: join(env.scratchDir, "dir-b"),
       },
+      {
+        id: "fix-tall",
+        name: "Tall",
+        workingDir: join(env.scratchDir, "dir-tall"),
+      },
     ]);
     // A rendered markdown link inside an output message: focusing it (or
     // anything else inside a message) must reveal the hover-only controls.
@@ -62,6 +67,17 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         ],
       },
     ]);
+    // A tall transcript for the scroll-to-latest regression: tall enough
+    // that the pane's scroll distance clears the 160px near-bottom gate at
+    // the desktop viewport, so the button shows.
+    fx.seedMessages(
+      env,
+      "fix-tall",
+      Array.from({ length: 40 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: `Filler ${i}.\n`.repeat(8) }],
+      })),
+    );
   }, 180000);
 
   afterAll(async () => {
@@ -154,7 +170,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         page.on("dialog", (dialog) => void dialog.accept());
         await page.goto(env.baseUrl);
-        await expect(page.locator("#session-count")).toHaveText("2");
+        await expect(page.locator("#session-count")).toHaveText("3");
 
         await page
           .locator(`.session-link[href='/sessions/${fx.viewId("fix-beta")}']`)
@@ -172,7 +188,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
             `.session-item[data-session-id="${fx.viewId("fix-beta")}"]`,
           ),
         ).toHaveCount(0, { timeout: 20000 });
-        await expect(page.locator("#session-count")).toHaveText("1", {
+        await expect(page.locator("#session-count")).toHaveText("2", {
           timeout: 20000,
         });
       });
@@ -366,6 +382,48 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-alpha")}`);
         await tabUntil(page, "button.archive-btn");
         expect(await outlineOf(page, "button.archive-btn")).toContain("solid");
+      });
+    }, 30000);
+  });
+
+  describe("scroll-to-latest button survives history restore", () => {
+    // The button mounts once on <body> with its click listener; Back/
+    // Forward swaps body innerHTML, so the live button dies with the old
+    // nodes and the snapshot replays a listener-less clone. Show/hide
+    // keeps working (the pane scroll listener re-binds), but a dead click
+    // looks exactly like a working one until pressed.
+    it("scrolls again after Back restores the page", async () => {
+      await withPage(env.context, async (page) => {
+        // Full load wires the button; the tall transcript pushes the pane
+        // past the near-bottom gate, so it renders.
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-tall")}`);
+        const btn = page.locator("#scroll-latest");
+        await expect(btn).toBeVisible();
+
+        // Navigate away so htmx snapshots this page — button included —
+        // into its history cache, then Back to restore it.
+        await page
+          .locator(`.session-link[href='/sessions/${fx.viewId("fix-alpha")}']`)
+          .click();
+        await expect(page.locator("#detail-pane")).toContainText(
+          "Check the docs",
+        );
+        await page.goBack();
+        await expect(btn).toBeVisible();
+
+        // The restored button must still scroll: a fresh context parks the
+        // pane at the top (no saved offset, completed run), so a working
+        // click moves it hundreds of px while a dead one leaves it put.
+        const scrollTopOf = (): Promise<number> =>
+          page.evaluate(
+            () => document.getElementById("detail-pane")?.scrollTop ?? -1,
+          );
+        const before = await scrollTopOf();
+        expect(before).toBeGreaterThanOrEqual(0);
+        await btn.click();
+        await expect
+          .poll(scrollTopOf, { timeout: 5000 })
+          .toBeGreaterThan(before + 100);
       });
     }, 30000);
   });

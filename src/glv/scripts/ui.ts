@@ -259,17 +259,24 @@ const uiInitPaneToggle = (): void => {
 
 // Mounted on <body> (survives #detail-pane innerHTML swaps) since the button
 // is position:fixed and lives outside the scroll container. The scroll
-// listener re-binds when a history restore replaces the pane.
+// listener re-binds when a history restore replaces the pane; the button
+// itself is rebuilt every time: a history restore swaps body innerHTML, so
+// the live button dies with the old nodes and the snapshot replays a
+// listener-less clone — keeping the clone (id is present, skip wiring)
+// leaves a button that renders and shows/hides but never scrolls.
 let uiScrollPane: Element | undefined;
 const uiEnsureScrollButton = (): void => {
   const pane = document.getElementById("detail-pane");
-  if (pane === null) return;
+  document.getElementById("scroll-latest")?.remove();
+  if (pane === null) {
+    uiScrollPane = undefined;
+    return;
+  }
   if (uiScrollPane !== pane) {
     uiScrollPane?.removeEventListener("scroll", uiUpdateScrollButton);
     uiScrollPane = pane;
     pane.addEventListener("scroll", uiUpdateScrollButton, { passive: true });
   }
-  if (document.getElementById("scroll-latest") !== null) return;
   const btn = document.createElement("button");
   btn.id = "scroll-latest";
   btn.type = "button";
