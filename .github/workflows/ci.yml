@@ -45,6 +45,33 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+  # tsrs — the Rust port of TypeScript (Cloudflare/VoidZero, incubated
+  # in Oxc) — is being evaluated alongside the Go-based tsc that gates
+  # `pnpm build`; see docs/decisions/0010-evaluate-tsrs-rust-port.md.
+  # This job surfaces on every PR whether the experimental compiler
+  # still agrees with tsc on this tree. Deliberately non-gating
+  # (continue-on-error) until a tsrs stable release has held parity in
+  # CI for a while; flip `build:typecheck` to tsrs after that.
+  tsrs:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check with tsrs (Rust port)
+        run: pnpm check:tsrs
+
   # Test shards run in parallel with the build+lint job instead of
   # waiting on it: they install and build their own assets, and a broken
   # build still fails the PR through its own job. Ubuntu only: with
