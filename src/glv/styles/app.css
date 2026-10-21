@@ -3477,27 +3477,27 @@ select.form-input {
   margin-top: 0.15rem;
 }
 /* Four equal actions share one wrapping row; labels never break
-   mid-word, and the buttons run a touch tighter than the prompt
-   library's because the detail pane caps at 592px — desktop cards are
-   290px wide at every window size. Run now is the accent primary via
-   the shared .run style: the full label wherever it fits one line, the
-   play glyph where it does not (paused cards yield first — Resume is
-   the wider label; measured card fits: pause text 276px, resume text
-   290px, glyph row 239px). aria-label keeps the accessible name "Run
-   now" in both states. */
+   mid-word, and the buttons run a touch tighter and a touch smaller
+   than the prompt library's because the detail pane caps at 592px —
+   desktop cards are 290px wide at every window size. Run now is the
+   accent primary via the shared .run style: the full label wherever it
+   fits one line, the play glyph where it does not (paused cards yield
+   first — Resume is the wider label; measured card fits: pause text
+   269px, resume text 283px, glyph row 220px). aria-label keeps the
+   accessible name "Run now" in both states. */
 .cron-job-actions .prompt-card-btn {
   white-space: nowrap;
   padding-inline: 0.4rem;
+  font-size: 0.75rem;
 }
 .cron-job-actions .run .cron-run-glyph {
   display: none;
 }
 /* Container width is the card's content box (card minus 26px chrome):
-   measured fits in card terms — pause text 276px, resume text 290px,
-   glyph row 239px — i.e. content 250px / 264px / 213px. Paused cards
-   yield first (Resume is the wider label; its 290px fit is a 0.3px
-   coin-flip on a 290px desktop card, so the glyph takes it). */
-@container cron-card (width < 16.6rem) {
+   measured fits in card terms — pause text 269px, resume text 283px,
+   glyph row 220px. Paused cards yield first (Resume is the wider
+   label); below the pause fit the glyph is the only one-line option. */
+@container cron-card (width < 16rem) {
   .cron-job-card:has(.cron-job-status.paused) .run .cron-run-glyph {
     display: inline;
   }
@@ -3505,7 +3505,7 @@ select.form-input {
     display: none;
   }
 }
-@container cron-card (width < 15.7rem) {
+@container cron-card (width < 15.2rem) {
   .cron-job-actions .run .cron-run-glyph {
     display: inline;
   }
