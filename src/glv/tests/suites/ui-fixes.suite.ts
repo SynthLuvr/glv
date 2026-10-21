@@ -8,16 +8,18 @@ import {
   withPage,
 } from "../harness.js";
 
-// Regression proofs for four bugs where the UI silently lost state:
-// htmx 2's default responseHandling discarded 4xx/5xx responses, so the
-// server's 422 validation fragments never rendered (rejected submits looked
-// like dead buttons); server re-renders of the session list wiped the
+// Regression proofs for five bugs where the UI silently lost state: htmx
+// 2's default responseHandling discarded 4xx/5xx responses, so the server's
+// 422 validation fragments never rendered (rejected submits looked like
+// dead buttons); server re-renders of the session list wiped the
 // client-side open-session highlight; the session-count badge only rendered
-// on full page loads; and the busy/idle prompt-bar swap dropped files
-// staged for a follow-up. The later blocks pin the issue-314 UI polish
-// (sidebar fit, reduced motion, focus reveals, keyboard rings); the
-// model-picker gate proof lives in goose's model-select suite, where a
-// configured default guarantees the picker renders at all.
+// on full page loads; the busy/idle prompt-bar swap dropped files staged
+// for a follow-up; and the scroll-to-latest button lost its click listener
+// when a history restore replayed a snapshot clone. The later blocks pin
+// the issue-314 UI polish (sidebar fit, reduced motion, focus reveals,
+// keyboard rings); the model-picker gate proof lives in goose's
+// model-select suite, where a configured default guarantees the picker
+// renders at all.
 const runUiFixesSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;
@@ -67,9 +69,8 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         ],
       },
     ]);
-    // A tall transcript for the scroll-to-latest regression: tall enough
-    // that the pane's scroll distance clears the 160px near-bottom gate at
-    // the desktop viewport, so the button shows.
+    // Tall transcript for the scroll-to-latest regression: the scroll
+    // distance must clear the 160px near-bottom gate so the button shows.
     fx.seedMessages(
       env,
       "fix-tall",
@@ -387,21 +388,18 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
   });
 
   describe("scroll-to-latest button survives history restore", () => {
-    // The button mounts once on <body> with its click listener; Back/
-    // Forward swaps body innerHTML, so the live button dies with the old
-    // nodes and the snapshot replays a listener-less clone. Show/hide
-    // keeps working (the pane scroll listener re-binds), but a dead click
-    // looks exactly like a working one until pressed.
+    // Back/Forward replays htmx's body snapshot, so the live button dies
+    // with the old nodes and a listener-less clone is restored — it still
+    // shows/hides (the pane scroll listener re-binds), so only a click can
+    // tell the difference.
     it("scrolls again after Back restores the page", async () => {
       await withPage(env.context, async (page) => {
-        // Full load wires the button; the tall transcript pushes the pane
-        // past the near-bottom gate, so it renders.
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-tall")}`);
         const btn = page.locator("#scroll-latest");
         await expect(btn).toBeVisible();
 
-        // Navigate away so htmx snapshots this page — button included —
-        // into its history cache, then Back to restore it.
+        // Leave the page so htmx snapshots it into its history cache
+        // (button included), then restore it with Back.
         await page
           .locator(`.session-link[href='/sessions/${fx.viewId("fix-alpha")}']`)
           .click();
@@ -411,9 +409,8 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await page.goBack();
         await expect(btn).toBeVisible();
 
-        // The restored button must still scroll: a fresh context parks the
-        // pane at the top (no saved offset, completed run), so a working
-        // click moves it hundreds of px while a dead one leaves it put.
+        // A fresh context parks the pane at the top, so a working click
+        // moves it far while a dead clone leaves it put.
         const scrollTopOf = (): Promise<number> =>
           page.evaluate(
             () => document.getElementById("detail-pane")?.scrollTop ?? -1,
