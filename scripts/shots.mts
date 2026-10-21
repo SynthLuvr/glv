@@ -132,6 +132,7 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
   gooseFixture.seedSessions(env, [
     { id: SESSION_ID, name: "Screenshot Session", workingDir },
     { id: "shots-limit", name: "Usage Limit Session", workingDir },
+    { id: "shots-crash", name: "Crashed Startup Session", workingDir },
     { id: "shots-scroll", name: "Long Transcript Session", workingDir },
   ]);
   gooseFixture.seedMessages(env, "shots-limit", [
@@ -149,6 +150,14 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
     "Session stopped early: provider usage limit reached. " +
       "Rate limit exceeded: usage limit reached. Your quota resets at " +
       "17:01. Send a message to continue.",
+  );
+  // A persisted run-terminal error, exactly as the runner records one
+  // when the agent dies at startup: exit verdict plus the stderr tail.
+  recordStopNotice(
+    notices,
+    gooseFixture.viewId("shots-crash"),
+    "goose exited with code 134 — last stderr:\n" +
+      "fatal: memory allocation of 1342177280 bytes failed",
   );
   notices.close();
   gooseFixture.seedMessages(env, SESSION_ID, [
@@ -326,6 +335,15 @@ const captureViews = async (
   await page.locator("form.prompt-bar .status-hint.error").waitFor();
   await capture(page, "stop-notice-desktop.png");
   await capture(page, "stop-notice-prompt-bar.png", "form.prompt-bar");
+
+  // The crash notice: a session whose last run died at startup keeps the
+  // exit verdict and the agent's last stderr lines, surviving reloads.
+  await page.goto(
+    `${env.baseUrl}/sessions/${gooseFixture.viewId("shots-crash")}`,
+  );
+  await page.locator("form.prompt-bar .status-hint.error").waitFor();
+  await capture(page, "crash-notice-desktop.png");
+  await capture(page, "crash-notice-prompt-bar.png", "form.prompt-bar");
 
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);

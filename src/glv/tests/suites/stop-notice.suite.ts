@@ -228,7 +228,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
   });
 
   describe("failures the agent never announced", () => {
-    it("keeps the exit-code message and does not persist it", async () => {
+    it("persists the exit-code message beyond the handle's eviction", async () => {
       const stream = collectSse(
         envExit,
         `/sessions/${fx.viewId("net-1")}/events`,
@@ -248,8 +248,9 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       expect(error?.error).toContain("exited with code 1");
       expect(error?.error).not.toContain("Send a message to continue");
 
-      // Live handle still explains the crash; a restart (handle gone)
-      // keeps it exactly as transient as before — only refusals persist.
+      // The live handle explains the crash in the prompt bar, and — since
+      // run-terminal errors are persisted too — a restart (handle gone)
+      // keeps explaining it instead of leaving an unexplained transcript.
       const html = await waitForPageText(
         envExit,
         "net-1",
@@ -258,7 +259,8 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("exited with code 1");
       await envExit.restart();
       const after = await pageHtml(envExit, "net-1");
-      expect(after).not.toContain("exited with code 1");
+      expect(after).toContain("exited with code 1");
+      expect(after).toContain("Run stopped early");
     });
   });
 

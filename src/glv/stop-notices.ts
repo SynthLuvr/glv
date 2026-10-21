@@ -2,11 +2,15 @@ import { DatabaseSync } from "node:sqlite";
 import { openGlvDb, resolveDataPath } from "./db-path.js";
 
 // Viewer-owned sidecar recording why a session's last run stopped early,
-// keyed by the (namespaced) session id. A provider refusal — a usage
-// limit with its reset time, a network outage — is announced only on the
-// agent's stdout, never in the transcript the viewer renders, and the
-// in-memory run handle is evicted seconds after the process exits; this
-// table is what makes the notice survive a reload or a server restart.
+// keyed by the (namespaced) session id. Two shapes land here: a provider
+// refusal — a usage limit with its reset time, a network outage —
+// announced only on the agent's stdout, never in the transcript the
+// viewer renders; and a run-terminal error — crash exit code, signal
+// death, startup-watchdog kill — whose message carries the exit verdict
+// and a stderr tail. The in-memory run handle is evicted seconds after
+// the process exits; this table is what makes either explanation survive
+// a reload or a server restart. A clean settle or manual stop clears the
+// row, so the notice always describes the *last* run.
 
 const STOP_NOTICES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS stop_notices (

@@ -1,6 +1,7 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
 import type { ModelSelection } from "../models.js";
+import { positiveEnvNumber } from "../util.js";
 import type { LineBuffer } from "./ring-buffer.js";
 
 // How the shared runner talks to one flavor's agent binary. argv is built
@@ -39,17 +40,30 @@ type RunnerConfig = {
   maxLines: number;
   /** How long (ms) a terminal run lingers before eviction from the registry. */
   terminalRetentionMs: number;
+  /**
+   * Startup deadline (ms): a run that has emitted no stdout line when it
+   * passes is failed with a diagnostic and its process tree killed, so a
+   * silently stalled agent cannot park a handle in "running" forever and
+   * starve the concurrency pool.
+   */
+  startupTimeoutMs: number;
 };
 
 const DEFAULT_STOP_GRACE_MS = 5000;
 const DEFAULT_MAX_LINES = 5000;
 const DEFAULT_TERMINAL_RETENTION_MS = 30000;
+// Generous by design: a legitimate first line can be slow (cold npx
+// installs of MCP extensions, model catalogue warm-up), but no healthy
+// startup is silent for five minutes. GLV_STARTUP_TIMEOUT_MS overrides it
+// (the same test-facing pattern as GLV_CRON_SESSION_TIMEOUT_MS).
+const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   stopGraceMs: "number.integer >= 1",
   maxLines: "number.integer >= 1",
   terminalRetentionMs: "number.integer >= 1",
+  startupTimeoutMs: "number.integer >= 1",
 });
 
 const makeRunnerConfig = (
@@ -57,16 +71,27 @@ const makeRunnerConfig = (
   stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
   maxLines: number = DEFAULT_MAX_LINES,
   terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
+  startupTimeoutMs: number = positiveEnvNumber(
+    "GLV_STARTUP_TIMEOUT_MS",
+    DEFAULT_STARTUP_TIMEOUT_MS,
+  ),
 ): RunnerConfig => {
   const result = RunnerConfigSchema({
     maxConcurrent,
     stopGraceMs,
     maxLines,
     terminalRetentionMs,
+    startupTimeoutMs,
   });
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
-  return { maxConcurrent, stopGraceMs, maxLines, terminalRetentionMs };
+  return {
+    maxConcurrent,
+    stopGraceMs,
+    maxLines,
+    terminalRetentionMs,
+    startupTimeoutMs,
+  };
 };
 
 type RunStatus = "queued" | "running" | "completed" | "stopped" | "error";
@@ -101,6 +126,8 @@ type SpawnedProcess = {
   pid: number;
   kill: (signal?: NodeJS.Signals) => void;
   stdout: AsyncIterable<string>;
+  /** Newline-split stderr, drained into a bounded diagnostic tail. */
+  stderr: AsyncIterable<string>;
   exit: Promise<ProcessResult>;
 };
 

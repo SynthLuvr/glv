@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import { execa } from "execa";
+import { truncate } from "../format/text.js";
 import { detectStopNotice } from "../stop-reason.js";
 import type {
   InternalHandle,
@@ -10,11 +11,18 @@ import type {
   SpawnFn,
 } from "./types.js";
 
-const describeFailure = (result: ProcessResult, name: string): string => {
-  if (result.signal !== undefined)
-    return `${name} killed by signal ${result.signal}`;
-  if (result.exitCode === null) return `${name} process exited unexpectedly`;
-  return `${name} exited with code ${result.exitCode}`;
+const describeFailure = (
+  result: ProcessResult,
+  name: string,
+  stderrTail: string,
+): string => {
+  const base =
+    result.signal !== undefined
+      ? `${name} killed by signal ${result.signal}`
+      : result.exitCode === null
+        ? `${name} process exited unexpectedly`
+        : `${name} exited with code ${result.exitCode}`;
+  return stderrTail === "" ? base : `${base} — last stderr:\n${stderrTail}`;
 };
 
 const ExecaError = type({
@@ -60,7 +68,13 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
 
   // execa v9+ async iteration already yields one newline-stripped line
   // per iteration, so stdout needs no raw-chunk buffering/splitting here.
-  return { pid, kill, stdout: proc, exit };
+  return {
+    pid,
+    kill,
+    stdout: proc,
+    stderr: proc.iterable({ from: "stderr" }),
+    exit,
+  };
 };
 
 // A self-rearming interval polls handle.status in grace-sized windows so a
@@ -96,18 +110,138 @@ const startStopEscalation = (
   return () => clearInterval(poll);
 };
 
+// A bounded tail of the agent's stderr. The agents pipe diagnostics to
+// stderr (a Rust abort message, a node OOM, MCP negotiation errors) that
+// otherwise evaporates — execa captures it, but nothing read it. Startup
+// failures are short, so a few trailing lines each capped in length is
+// enough to explain a crash without unbounded memory.
+const STDERR_TAIL_LINES = 10;
+const STDERR_LINE_MAX = 400;
+
+const createStderrTail = (): {
+  push: (line: string) => void;
+  text: () => string;
+} => {
+  const lines: string[] = [];
+  const push = (line: string): void => {
+    lines.push(truncate(line, STDERR_LINE_MAX));
+    if (lines.length > STDERR_TAIL_LINES) lines.shift();
+  };
+  const text = (): string => lines.join("\n");
+  return { push, text };
+};
+
+// Drains stderr into the tail for as long as the process lives. Stream
+// errors (the process died) surface through the exit result instead —
+// only the captured text matters here.
+const drainStderr = async (
+  proc: SpawnedProcess,
+  tail: { push: (line: string) => void },
+): Promise<void> => {
+  try {
+    for await (const line of proc.stderr) tail.push(line);
+  } catch {
+    // exit/exit-code reporting owns failure verdicts
+  }
+};
+
+// Run lifecycle lines — the only place a spawn or exit is visible today
+// is the registry; journald deserves the pid and verdict too.
+const runLabel = (handle: InternalHandle): string =>
+  `${handle.agent.name} session ${handle.sessionId}`;
+
+const describeExit = (result: ProcessResult): string =>
+  result.signal !== undefined
+    ? `signal ${result.signal}`
+    : result.exitCode === null
+      ? "no exit status"
+      : `exit code ${result.exitCode}`;
+
+const logRunStart = (handle: InternalHandle, pid: number): void => {
+  console.log(`run: ${runLabel(handle)} started (pid ${pid})`);
+};
+
+const logRunEnd = (
+  handle: InternalHandle,
+  proc: SpawnedProcess,
+  result: ProcessResult,
+): void => {
+  console.log(
+    `run: ${runLabel(handle)} ended (pid ${proc.pid}, ${describeExit(result)})`,
+  );
+};
+
+// The startup watchdog: a run whose agent emits not one stdout line
+// within the deadline is failed and killed. Without it, an agent that
+// stalls during startup (a dead MCP extension it waits on forever) parks
+// the drain loop permanently — the handle reads "running" forever and
+// starves the concurrency pool. The first stdout line disarms it: any
+// output proves the agent got past startup, and the run may take as long
+// as it likes from there. The kill mirrors the stop ladder — SIGTERM,
+// then SIGKILL after the grace window — with killDescendants reaping the
+// whole tree.
+const armStartupWatchdog = (
+  runner: Runner,
+  handle: InternalHandle,
+  proc: SpawnedProcess,
+  stderrTail: () => string,
+): { cancel: () => void; fired: () => boolean } => {
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  let didFire = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const disarm = (): void => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  timer = setTimeout(() => {
+    if (handle.status !== "running") return;
+    didFire = true;
+    const tail = stderrTail();
+    const secs = runner.config.startupTimeoutMs / 1000;
+    const base =
+      `${handle.agent.name} run on session ${handle.sessionId} ` +
+      `produced no output within ${secs}s of starting and was killed — ` +
+      "the agent likely stalled during startup";
+    handle.status = "error";
+    handle.error = tail === "" ? base : `${base} — last stderr:\n${tail}`;
+    console.error(`run: ${runLabel(handle)} killed by the startup watchdog`);
+    proc.kill("SIGTERM");
+    killTimer = setTimeout(
+      () => proc.kill("SIGKILL"),
+      runner.config.stopGraceMs,
+    );
+  }, runner.config.startupTimeoutMs);
+  return {
+    cancel: () => {
+      disarm();
+      if (killTimer !== undefined) clearTimeout(killTimer);
+      killTimer = undefined;
+    },
+    fired: () => didFire,
+  };
+};
+
 // execa's stream iterator rejects once the final line has been yielded
 // whenever the process exits non-zero — claude does exactly that after
 // printing its failure record. The record is already buffered by then, so
 // the drain returns the error instead of throwing and the exit verdict
 // below still runs; runProcess rethrows it only when the exit result
-// carries no code, so a spawn failure keeps its original message.
+// carries no code, so a spawn failure keeps its original message. The
+// first line also disarms the startup watchdog — output is proof the
+// agent got past startup.
 const drainStdout = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
+  onFirstLine: () => void,
 ): Promise<unknown> => {
+  let spoke = false;
   try {
     for await (const line of proc.stdout) {
+      if (!spoke) {
+        spoke = true;
+        onFirstLine();
+      }
       if (handle.status === "stopped") break;
       handle.output.push(line);
     }
@@ -121,11 +255,13 @@ const drainStdout = async (
 // 0, so the code alone would read as a clean finish — the silent stop
 // this corrects. A detected refusal becomes a run error carrying the
 // notice (reset time included); exit codes keep explaining themselves
-// when the stream said nothing.
+// when the stream said nothing — now with the stderr tail riding along,
+// so an abort message survives instead of evaporating with the pipe.
 const settleRun = (
   handle: InternalHandle,
   result: ProcessResult,
   firstSeq: number,
+  stderrTail: string,
 ): void => {
   const notice = detectStopNotice(handle.output.drain(firstSeq).lines);
   if (notice !== undefined) {
@@ -135,7 +271,7 @@ const settleRun = (
   } else {
     handle.status = result.exitCode === 0 ? "completed" : "error";
     if (result.exitCode !== 0)
-      handle.error = describeFailure(result, handle.agent.name);
+      handle.error = describeFailure(result, handle.agent.name, stderrTail);
   }
 };
 
@@ -163,19 +299,32 @@ const runProcess = async (
   // colour the verdict on a later one.
   const firstSeq = handle.output.drain(0).nextSeq;
 
+  logRunStart(handle, proc.pid);
+  const stderrTail = createStderrTail();
+  const stderrDone = drainStderr(proc, stderrTail);
   const stopEscalation = startStopEscalation(
     proc,
     handle,
     runner.config.stopGraceMs,
   );
+  const watchdog = armStartupWatchdog(runner, handle, proc, stderrTail.text);
   try {
-    const drainError = await drainStdout(proc, handle);
+    const drainError = await drainStdout(proc, handle, () => watchdog.cancel());
     const result = await proc.exit;
+    watchdog.cancel();
+    // The stderr iterable ends with the process; awaiting it after the
+    // exit verdict guarantees the tail holds everything the agent said.
+    await stderrDone;
+    logRunEnd(handle, proc, result);
     if (handle.status === "stopped") return;
+    // The watchdog already recorded its diagnostic and owns the kill;
+    // "killed by signal SIGTERM" would only obscure why it fired.
+    if (watchdog.fired()) return;
     if (result.exitCode === null && drainError !== undefined) throw drainError;
-    settleRun(handle, result, firstSeq);
+    settleRun(handle, result, firstSeq, stderrTail.text());
   } finally {
     stopEscalation();
+    watchdog.cancel();
   }
 };
 
