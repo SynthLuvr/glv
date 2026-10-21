@@ -51,6 +51,9 @@ import { gooseFixture } from "../src/goose/tests/integration-harness.js";
 const OUT = "pr-shots";
 const DESKTOP = { width: 1280, height: 800 };
 const MOBILE = { width: 390, height: 844 };
+// Roughly the on-screen-keyboard-open height of MOBILE: the layout
+// viewport that interactive-widget=resizes-content gives while typing.
+const MOBILE_KEYBOARD_OPEN = { width: 390, height: 420 };
 const SESSION_ID = "shots-1";
 
 // The teardown kills the fallback Xvfb; in headless mode there is nothing
@@ -332,6 +335,13 @@ const captureViews = async (
   await page.locator("form.prompt-bar").waitFor();
   await capture(page, "session-mobile.png");
   await capture(page, "prompt-bar-mobile.png", "form.prompt-bar");
+
+  // Keyboard-open geometry: what the layout viewport shrinks to on Android
+  // under interactive-widget=resizes-content. The pane toggle and the
+  // composer must both stay on screen — the shell reflows instead of the
+  // keyboard panning the page (the fix that strands the top bar).
+  await page.setViewportSize(MOBILE_KEYBOARD_OPEN);
+  await capture(page, "session-mobile-keyboard-open.png");
 
   // Busy composer (Queue/Stop), captured last: the submitted follow-up
   // stays running for sleepMs and must not leak into the shots above.

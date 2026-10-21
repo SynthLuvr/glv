@@ -19,6 +19,9 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
   }));
 
   const VIEWPORT = { width: 400, height: 800 };
+  // Roughly the on-screen-keyboard-open geometry of VIEWPORT: what the
+  // layout viewport shrinks to under interactive-widget=resizes-content.
+  const KEYBOARD_OPEN_VIEWPORT = { width: 400, height: 420 };
 
   beforeAll(async () => {
     // sleepMs keeps the submitted follow-up running long enough for the
@@ -312,6 +315,76 @@ const runMobileLayoutSuite = (fx: FlavorFixture): void => {
 
         expect(paperclipTop).toBeGreaterThanOrEqual(inputBottom - 0.5);
         expect(Math.abs(paperclipBottom - sendBottom)).toBeLessThanOrEqual(1.5);
+      });
+    }, 30000);
+  });
+
+  // Android Chrome's default keyboard behavior (resizes-visual) pans the
+  // visual viewport over the fixed-height shell instead of resizing it.
+  // When the focused follow-up textarea is swapped away mid-submit, that
+  // pan sticks: the Sessions/Detail toggle ends up above the visible area,
+  // unreachable, with dead space below the composer. The viewport meta's
+  // interactive-widget=resizes-content opts into the resize behavior, so
+  // the shell reflows to the keyboard instead of being panned.
+  describe("keyboard resize behavior", () => {
+    // The regression lock: the server must serve the opt-in meta on the
+    // session page (shared Layout), or Android reverts to the panning
+    // behavior that strands the top bar.
+    it("serves the session page with interactive-widget=resizes-content", async () => {
+      const response = await fetch(
+        `${env.baseUrl}/sessions/${fx.viewId("mobile-tall")}`,
+      );
+      expect(response.ok).toBe(true);
+      const html = await response.text();
+      expect(html).toContain("interactive-widget=resizes-content");
+    }, 30000);
+
+    // The contract resizes-content relies on: when the on-screen keyboard
+    // shrinks the layout viewport, the shell must reflow (not overflow) so
+    // nothing is stranded outside the visible area — the pane toggle stays
+    // pinned on screen, and the composer sits at the pane's scroll bottom
+    // rather than behind where the keyboard would be. A shorter viewport
+    // reproduces the keyboard-open geometry headlessly.
+    it("reflows the shell so the toggle and composer stay reachable at keyboard-open height", async () => {
+      await withPage(env.context, async (page) => {
+        await openMobileDetail(page);
+        await page.setViewportSize(KEYBOARD_OPEN_VIEWPORT);
+        // The composer lives at the detail pane's scroll bottom; bring it
+        // into view the way a reader reaching for it would.
+        await page.locator("#detail-pane").evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+
+        const geometry = await page.evaluate(() => {
+          const rect = (selector: string): DOMRect | null =>
+            document.querySelector(selector)?.getBoundingClientRect() ?? null;
+          const app = document.querySelector(".app");
+          return {
+            appHeight: app === null ? 0 : app.getBoundingClientRect().height,
+            innerHeight: window.innerHeight,
+            bodyScroll:
+              document.body.scrollTop + document.documentElement.scrollTop,
+            bodyOverflow:
+              document.documentElement.scrollHeight -
+              document.documentElement.clientHeight,
+            toggle: rect(".mobile-pane-toggle"),
+            send: rect("form.prompt-bar button.send-btn"),
+          };
+        });
+
+        // The shell tracks the shrunken viewport exactly — dvh, no pan.
+        expect(geometry.appHeight).toBeCloseTo(geometry.innerHeight, 0);
+        expect(geometry.bodyScroll).toBe(0);
+        expect(geometry.bodyOverflow).toBeLessThanOrEqual(1);
+        expect(geometry.toggle).not.toBeNull();
+        expect(geometry.toggle!.top).toBeGreaterThanOrEqual(-0.5);
+        expect(geometry.toggle!.bottom).toBeLessThanOrEqual(
+          geometry.innerHeight,
+        );
+        // Scrolled to the pane's bottom, the composer is fully on screen:
+        // no dead space below it for the keyboard to sit over.
+        expect(geometry.send).not.toBeNull();
+        expect(geometry.send!.bottom).toBeLessThanOrEqual(geometry.innerHeight);
       });
     }, 30000);
   });
