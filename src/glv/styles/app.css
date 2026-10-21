@@ -3473,27 +3473,39 @@ select.form-input {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
   margin-top: 0.15rem;
 }
 /* Four equal actions share one wrapping row; labels never break
-   mid-word. Run now is the accent primary via the shared .run style:
-   the full label on roomy cards, the play glyph alone on narrow cards
-   and on mobile, so the four actions always stay on one line;
-   aria-label keeps the accessible name "Run now" in both states. */
+   mid-word, and the buttons run a touch tighter than the prompt
+   library's because the detail pane caps at 592px — desktop cards are
+   290px wide at every window size. Run now is the accent primary via
+   the shared .run style: the full label wherever it fits one line, the
+   play glyph where it does not (paused cards yield first — Resume is
+   the wider label; measured card fits: pause text 276px, resume text
+   290px, glyph row 239px). aria-label keeps the accessible name "Run
+   now" in both states. */
 .cron-job-actions .prompt-card-btn {
   white-space: nowrap;
+  padding-inline: 0.4rem;
 }
 .cron-job-actions .run .cron-run-glyph {
   display: none;
 }
-/* Full text fits from 21rem up (worst set, Resume/Edit/Delete, needs
-   ~20.6rem with padding); below that the glyph swaps in and ▶ plus
-   three labels still fits at the 15rem grid minimum. */
-@container cron-card (width < 21rem) {
-  .cron-job-actions .prompt-card-btn.run {
-    padding-inline: 0.45rem;
+/* Container width is the card's content box (card minus 26px chrome):
+   measured fits in card terms — pause text 276px, resume text 290px,
+   glyph row 239px — i.e. content 250px / 264px / 213px. Paused cards
+   yield first (Resume is the wider label; its 290px fit is a 0.3px
+   coin-flip on a 290px desktop card, so the glyph takes it). */
+@container cron-card (width < 16.6rem) {
+  .cron-job-card:has(.cron-job-status.paused) .run .cron-run-glyph {
+    display: inline;
   }
+  .cron-job-card:has(.cron-job-status.paused) .run .cron-run-label {
+    display: none;
+  }
+}
+@container cron-card (width < 15.7rem) {
   .cron-job-actions .run .cron-run-glyph {
     display: inline;
   }
@@ -3501,12 +3513,9 @@ select.form-input {
     display: none;
   }
 }
-/* The mobile pane is full-width: whatever the card measures, phones get
-   the glyph too (720px is the app's mobile breakpoint). */
+/* The mobile pane is full-width: phones get the glyph whatever the card
+   measures (720px is the app's mobile breakpoint). */
 @media (max-width: 720px) {
-  .cron-job-actions .prompt-card-btn.run {
-    padding-inline: 0.45rem;
-  }
   .cron-job-actions .run .cron-run-glyph {
     display: inline;
   }
