@@ -406,8 +406,12 @@ const ScheduleJobCard = ({ job }: { job: CronJobConfig }) => {
           hx-swap="outerHTML"
           hx-disabled-elt="this"
           title="Start this job's prompt now — the schedule is unaffected"
+          aria-label="Run now"
         >
-          Run now
+          <span class="cron-run-glyph" aria-hidden="true">
+            ▶
+          </span>
+          <span class="cron-run-label">Run now</span>
         </button>
         <button
           type="button"

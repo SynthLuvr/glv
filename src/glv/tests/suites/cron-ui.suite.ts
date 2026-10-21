@@ -1085,7 +1085,12 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
     it("carries a Run now button on every job card", async () => {
       const res = await authedFetch(env, "/");
       const html = await res.text();
-      expect(html).toContain(">Run now</button>");
+      // Glyph + label spans: CSS collapses the button to the glyph alone
+      // on narrow cards, and aria-label keeps the accessible name stable
+      // in both states (this suite's Playwright click relies on it).
+      expect(html).toContain('aria-label="Run now"');
+      expect(html).toContain(">Run now</span>");
+      expect(html).toContain(">▶</span>");
       expect(html).toContain('hx-post="/cron/run-me/run"');
       expect(html).toContain('hx-post="/cron/hold-me/run"');
       // A paused job is still runnable — the button is not gated on
