@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator } from "@playwright/test";
@@ -8,7 +8,12 @@ import {
   formatOneShotLocal,
   parseSchedule,
 } from "../../schedule.js";
-import { sleep, withSeconds } from "../cron-helpers.js";
+import {
+  countSessions,
+  pollUntil,
+  sleep,
+  withSeconds,
+} from "../cron-helpers.js";
 import {
   authedFetch,
   type CronJobRow,
@@ -1017,6 +1022,184 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(html).toContain("No scheduled runs yet");
       expect(html).not.toContain("cron-job-card");
       expect(readCronJobRows(env.dbs.cronDb)).toEqual([]);
+    });
+  });
+
+  describe("running a job now", () => {
+    let env: IntegrationEnv;
+    let homeDir: string;
+    let workingDir: string;
+    let stdinCapture: string;
+
+    // Appends survive on the transcript sidecar even after a later
+    // invocation overwrites the main capture file.
+    const promptsSeen = (): string =>
+      existsSync(`${stdinCapture}.invocations`)
+        ? readFileSync(`${stdinCapture}.invocations`, "utf-8")
+        : "";
+
+    beforeAll(async () => {
+      homeDir = mkdtempSync(join(tmpdir(), "glv-cronui-runnow-"));
+      workingDir = mkdtempSync(join(tmpdir(), "glv-cronui-rn-"));
+      stdinCapture = join(homeDir, "stdin-capture.txt");
+      env = await fx.startEnv(
+        "glv-cronui-runnow-",
+        { sessionName: "Run Now Session", captureStdin: stdinCapture },
+        homeDir,
+        {},
+        ({ cronDb }) => {
+          seedCronJobRow(cronDb, {
+            name: "run-me",
+            schedule: "0 9 * * 1-5",
+            prompt: "Immediate sweep from Run now",
+            workingDir,
+            enabled: true,
+          });
+          seedCronJobRow(cronDb, {
+            name: "hold-me",
+            schedule: "0 9 * * 1-5",
+            prompt: "Paused but explicitly runnable",
+            workingDir,
+            enabled: false,
+          });
+          // A one-shot due tomorrow: "Run now" must fire it early
+          // without consuming its appointment.
+          seedCronJobRow(cronDb, {
+            name: "dated",
+            schedule: formatOneShotLocal(
+              new Date(Date.now() + 24 * 60 * 60 * 1000),
+            ),
+            prompt: "One-shot run ahead of its moment",
+            workingDir,
+            enabled: true,
+          });
+        },
+      );
+    }, 120000);
+
+    afterAll(async () => {
+      await env?.cleanup();
+      rmSync(homeDir, { recursive: true, force: true });
+    });
+
+    it("carries a Run now button on every job card", async () => {
+      const res = await authedFetch(env, "/");
+      const html = await res.text();
+      // Glyph + label spans: CSS collapses the button to the glyph alone
+      // on narrow cards, and aria-label keeps the accessible name stable
+      // in both states (this suite's Playwright click relies on it).
+      expect(html).toContain('aria-label="Run now"');
+      expect(html).toContain(">Run now</span>");
+      expect(html).toContain(">▶</span>");
+      expect(html).toContain('hx-post="/cron/run-me/run"');
+      expect(html).toContain('hx-post="/cron/hold-me/run"');
+      // A paused job is still runnable — the button is not gated on
+      // the enabled state.
+      expect(html).toContain('hx-post="/cron/dated/run"');
+    });
+
+    it("fires the job immediately, marks the row, and keeps it scheduled", async () => {
+      const res = await authedFetch(env, "/cron/run-me/run", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+      });
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      // The section swaps back refreshed, every job still listed.
+      expect(html).toContain('id="scheduled-runs"');
+      expect(html).toContain("run-me");
+      expect(html).toContain("hold-me");
+
+      // The fire started a real session with the job's prompt.
+      await pollUntil(
+        async () => (await countSessions(env, "Run Now Session")) >= 1,
+        20_000,
+      );
+      await pollUntil(() => promptsSeen().includes("Immediate sweep"), 10_000);
+      // The fire recorded its occurrence (the missed-run marker) and
+      // the row stays — a scheduled job is not consumed by running it.
+      const marked = await pollUntil(
+        () => cronJobRow(env.dbs.cronDb, "run-me")?.lastFiredAt !== undefined,
+        10_000,
+      );
+      expect(marked, "the fire never recorded its occurrence").toBe(true);
+      expect(cronJobRow(env.dbs.cronDb, "run-me")?.enabled).toBe(true);
+    });
+
+    it("answers 404 for an unknown job", async () => {
+      const res = await authedFetch(env, "/cron/nope/run", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("runs a paused job without resuming it", async () => {
+      const before = await countSessions(env, "Run Now Session");
+      const res = await authedFetch(env, "/cron/hold-me/run", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("hold-me");
+
+      await pollUntil(
+        async () => (await countSessions(env, "Run Now Session")) > before,
+        20_000,
+      );
+      await pollUntil(
+        () => promptsSeen().includes("Paused but explicitly runnable"),
+        10_000,
+      );
+      // Still paused afterwards — Run now is not a resume.
+      expect(cronJobRow(env.dbs.cronDb, "hold-me")?.enabled).toBe(false);
+    });
+
+    it("runs a one-shot early and keeps its appointment", async () => {
+      const res = await authedFetch(env, "/cron/dated/run", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("dated");
+
+      await pollUntil(
+        () => promptsSeen().includes("One-shot run ahead of its moment"),
+        20_000,
+      );
+      // A one-shot fired at or after its moment retires itself; an
+      // early run must leave the row in place, appointment intact.
+      await sleep(3000);
+      const row = cronJobRow(env.dbs.cronDb, "dated");
+      expect(row).toBeDefined();
+      expect(row?.enabled).toBe(true);
+      expect(row?.lastFiredAt).toBeDefined();
+    });
+
+    it("runs from a real click and swaps the section in place", async () => {
+      const before = await countSessions(env, "Run Now Session");
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/sessions/new`);
+        const card = page.locator('.cron-job-card[data-cron-job="run-me"]');
+        await Promise.all([
+          page.waitForResponse(
+            (res) =>
+              res.url().endsWith("/cron/run-me/run") && res.status() === 200,
+          ),
+          card.getByRole("button", { name: "Run now" }).click(),
+        ]);
+        // The htmx swap replaced the section: the card is back, fresh.
+        await expect(page.locator("#scheduled-runs")).toContainText("run-me", {
+          timeout: 15_000,
+        });
+        await expect(
+          page.locator('.cron-job-card[data-cron-job="run-me"]'),
+        ).toBeVisible();
+      });
+      await pollUntil(
+        async () => (await countSessions(env, "Run Now Session")) > before,
+        20_000,
+      );
     });
   });
 

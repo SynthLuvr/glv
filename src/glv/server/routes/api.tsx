@@ -156,6 +156,25 @@ const registerApiRoutes = (
     },
   );
 
+  // 202 because the answer says "started", not "finished" — the fire
+  // runs in the background like any scheduled fire.
+  app.post<{ Params: { name: string } }>(
+    "/api/cron/:name/run",
+    (request, reply) => {
+      const run = ctx.runCronJob;
+      if (run === undefined)
+        return reply
+          .status(501)
+          .send({ error: "This server runs no cron scheduler." });
+      const outcome = run(request.params.name);
+      if (!outcome.ok)
+        return reply.status(outcome.status).send({ error: outcome.error });
+      return reply
+        .status(202)
+        .send({ name: request.params.name, status: "started" });
+    },
+  );
+
   // Behind auth like every other /api path — the document names no
   // secrets, but this is a single-owner app and the gate is uniform.
   app.get("/api/openapi.json", (_request, reply) =>

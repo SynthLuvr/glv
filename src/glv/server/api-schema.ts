@@ -125,6 +125,10 @@ const ApiCronJobForm = type({
 // The body DELETE /api/cron/:name returns.
 const ApiCronDeleted = type({ name: "string", status: "'deleted'" });
 
+// The body POST /api/cron/:name/run returns — "started" means the fire
+// was accepted, not that it finished (runs proceed in the background).
+const ApiCronRunAccepted = type({ name: "string", status: "'started'" });
+
 // A stored row as the API spells it. defaultAgent is what a row
 // without its own agent would read as (records from the store always
 // carry one; the fallback keeps the projection total).
@@ -299,7 +303,8 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         "/events/status with the same bearer header. Destructive " +
         "operations (archive, delete) and every management surface " +
         "(tokens, prompts, groups) stay in the browser; scheduled runs " +
-        "are created, listed, and deleted over JSON at /api/cron.",
+        "are created, listed, run on demand, and deleted over JSON at " +
+        "/api/cron.",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -330,6 +335,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         CronJob: component(ApiCronJob),
         CronJobForm: component(ApiCronJobForm),
         CronDeleted: component(ApiCronDeleted),
+        CronRunAccepted: component(ApiCronRunAccepted),
       },
     },
     paths: {
@@ -398,6 +404,39 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
           responses: {
             "200": jsonResponse("The run was deleted.", ref("CronDeleted")),
             "404": jsonResponse("Unknown scheduled-run name.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/cron/{name}/run": {
+        post: {
+          summary: "Run a scheduled run now",
+          description:
+            "Fires the stored run immediately through the running " +
+            "scheduler — the same path a scheduled tick takes, so the " +
+            "prompt, working directory, model pin, and follow-on chain " +
+            "all apply, and a still-running previous fire is refused " +
+            "with 409 rather than stacked. The job's schedule is " +
+            "unaffected: a recurring job keeps its times, and a " +
+            "not-yet-due one-shot keeps its appointment (only a fire " +
+            "served at or after its own moment retires it).",
+          parameters: [cronNameParam()],
+          responses: {
+            "202": jsonResponse(
+              "The fire was started; the session appears in the viewer " +
+                "as the agent creates it.",
+              ref("CronRunAccepted"),
+            ),
+            "404": jsonResponse("Unknown scheduled-run name.", ref("Error")),
+            "409": jsonResponse(
+              "The job's previous fire is still in flight.",
+              ref("Error"),
+            ),
+            "422": jsonResponse(
+              "The stored row would not fire — a missing working " +
+                "directory, a disabled agent, or an unparsable schedule.",
+              ref("Error"),
+            ),
             ...bearerResponses(),
           },
         },

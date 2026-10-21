@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { AuthService } from "../auth/service.js";
 import type { AgentDispatchLauncher } from "../composite-launcher.js";
+import type { CronRunOutcome } from "../cron.js";
 import type { GitRunner } from "../git.js";
 import type { SessionLauncher } from "../launch.js";
 import type { ModelSource } from "../models.js";
@@ -79,6 +80,11 @@ type ServerOptions = {
    * call it after every mutation so edits apply instantly.
    */
   onCronJobsChange?: () => void;
+  /**
+   * Fires a stored cron job immediately ("Run now"). Optional so
+   * app-less tests work; serve wires the running scheduler's method.
+   */
+  runCronJob?: (name: string) => CronRunOutcome;
 };
 
 // Everything a route handler needs, threaded in explicitly so route modules
@@ -123,6 +129,7 @@ type ServerContext = {
   readonly cronDb: DatabaseSync | undefined;
   readonly stopNotices: DatabaseSync | undefined;
   readonly onCronJobsChange: (() => void) | undefined;
+  readonly runCronJob: ((name: string) => CronRunOutcome) | undefined;
   readonly assets: AssetBundle;
 };
 

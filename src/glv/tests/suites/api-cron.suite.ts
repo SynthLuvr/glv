@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { formatOneShotInZone, formatOneShotLocal } from "../../schedule.js";
-import { pollUntil, withSeconds } from "../cron-helpers.js";
+import {
+  countSessions,
+  pollUntil,
+  sleep,
+  withSeconds,
+} from "../cron-helpers.js";
 import {
   authedFetch,
   bearerFetch,
@@ -18,7 +23,8 @@ import {
 } from "../harness.js";
 
 // End-to-end over real HTTP: the JSON cron surface — GET /api/cron, GET
-// /api/cron/:name, POST /api/cron, DELETE /api/cron/:name — which rides
+// /api/cron/:name, POST /api/cron, POST /api/cron/:name/run,
+// DELETE /api/cron/:name — which rides
 // the same shared operation layer the browser's Scheduled runs section
 // uses. Writes carry the API-token bearer exactly as a script would send
 // them; the final describe schedules a real one-shot through the API and
@@ -474,6 +480,60 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("POST /api/cron/:name/run", () => {
+    it("fires a stored run now and answers 202 once accepted", async () => {
+      const res = await bearerFetch(
+        env,
+        `/api/cron/${encodeURIComponent("Seeded weekly")}/run`,
+        token,
+        { method: "POST" },
+      );
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({
+        name: "Seeded weekly",
+        status: "started",
+      });
+
+      // The answer says "started": the session lands in the sidebar as
+      // the agent creates it, carrying the job's prompt.
+      const started = await pollUntil(
+        async () => (await countSessions(env, "Api Cron Session")) >= 1,
+        20_000,
+        250,
+      );
+      expect(started, "the run-now fire never reached the agent").toBe(true);
+      const transcript = `${captureStdin}.invocations`;
+      const prompted = await pollUntil(
+        () =>
+          existsSync(transcript) &&
+          readFileSync(transcript, "utf-8").includes("Seeded sweep"),
+        10_000,
+        250,
+      );
+      expect(prompted, "the run-now prompt never reached the agent").toBe(true);
+
+      // The fire recorded its occurrence and the row stays scheduled —
+      // running a job now does not consume it.
+      const marked = await pollUntil(
+        () =>
+          cronJobRow(env.dbs.cronDb, "Seeded weekly")?.lastFiredAt !==
+          undefined,
+        10_000,
+        250,
+      );
+      expect(marked, "the fire never recorded its occurrence").toBe(true);
+      expect(cronJobRow(env.dbs.cronDb, "Seeded weekly")?.enabled).toBe(true);
+    });
+
+    it("answers 404 JSON for an unknown name", async () => {
+      const res = await bearerFetch(env, "/api/cron/nope/run", token, {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "No scheduled run nope." });
+    });
+  });
+
   describe("an API-scheduled one-shot fires once and retires", () => {
     it("fires at its moment and leaves the store", async () => {
       // Second precision, a few seconds out — the same spelling the
@@ -515,6 +575,81 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("run now while a fire is in flight", () => {
+    let env: IntegrationEnv;
+    let homeDir: string;
+    let workDir: string;
+    // A separate serve process with its own auth database — its token
+    // cannot be the outer suite's.
+    let runToken = "";
+
+    beforeAll(async () => {
+      homeDir = mkdtempSync(join(tmpdir(), "glv-apicron-runnow-"));
+      workDir = mkdtempSync(join(tmpdir(), "glv-apicron-rnwork-"));
+      // A two-step chain on a slow agent: the in-flight window spans
+      // both steps, wide enough for the second POST to land inside it.
+      env = await fx.startEnv(
+        "glv-apicron-runnow-",
+        { sessionName: "Run Now Api", sleepMs: 4000 },
+        homeDir,
+        {},
+        ({ cronDb }) =>
+          seedCronJobRow(cronDb, {
+            name: "chained",
+            schedule: "0 9 * * 1-5",
+            prompt: "run-now chain step one",
+            workingDir: workDir,
+            followUps: ["run-now chain step two"],
+            enabled: true,
+          }),
+      );
+      runToken = seedApiToken(env.dbs.authDb, "api-cron-runnow");
+    }, 120000);
+
+    afterAll(async () => {
+      await env?.cleanup();
+      rmSync(homeDir, { recursive: true, force: true });
+      rmSync(workDir, { recursive: true, force: true });
+    });
+
+    it("refuses a second fire instead of stacking pipelines", async () => {
+      const first = await bearerFetch(env, "/api/cron/chained/run", runToken, {
+        method: "POST",
+      });
+      expect(first.status).toBe(202);
+
+      // Step one is established (and the chain still walking) — a run
+      // now now must answer 409, not start a parallel chain.
+      const stepOne = await pollUntil(
+        async () => (await countSessions(env, "Run Now Api")) >= 1,
+        20_000,
+        250,
+      );
+      expect(stepOne, "the first fire never established").toBe(true);
+
+      const second = await bearerFetch(env, "/api/cron/chained/run", runToken, {
+        method: "POST",
+      });
+      expect(second.status).toBe(409);
+      expect(await second.json()).toEqual({
+        error:
+          'cron job "chained" is still running — wait for it to finish, ' +
+          "or stop its session",
+      });
+
+      // The refused fire started nothing extra: the chain settles at
+      // exactly two sessions.
+      const settled = await pollUntil(
+        async () => (await countSessions(env, "Run Now Api")) === 2,
+        45_000,
+        500,
+      );
+      expect(settled, "the chain never ran both steps").toBe(true);
+      await sleep(1500);
+      expect(await countSessions(env, "Run Now Api")).toBe(2);
+    });
+  });
+
   describe("the generated contract", () => {
     it("documents the cron surface", async () => {
       const res = await bearerFetch(env, "/api/openapi.json", token);
@@ -528,10 +663,17 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
       };
       expect(Object.keys(doc.paths)).toContain("/api/cron");
       expect(Object.keys(doc.paths)).toContain("/api/cron/{name}");
+      expect(Object.keys(doc.paths)).toContain("/api/cron/{name}/run");
       expect(doc.paths["/api/cron"]?.post).toBeDefined();
       expect(doc.paths["/api/cron/{name}"]?.get).toBeDefined();
       expect(doc.paths["/api/cron/{name}"]?.delete).toBeDefined();
-      for (const schema of ["CronJob", "CronJobForm", "CronDeleted"])
+      expect(doc.paths["/api/cron/{name}/run"]?.post).toBeDefined();
+      for (const schema of [
+        "CronJob",
+        "CronJobForm",
+        "CronDeleted",
+        "CronRunAccepted",
+      ])
         expect(Object.keys(doc.components.schemas)).toContain(schema);
     });
   });

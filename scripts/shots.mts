@@ -496,6 +496,45 @@ const captureCronEdit = async (browser: Browser, env: IntegrationEnv) => {
   await context.close();
 };
 
+// The Scheduled runs management section with seeded job cards: the
+// per-job action row (Run now / Pause / Edit / Delete) is the surface
+// cron PRs touch, so it gets its own desktop and mobile pair.
+const captureScheduledRuns = async (browser: Browser, env: IntegrationEnv) => {
+  const workingDir = join(env.scratchDir, "cron-runs");
+  mkdirSync(workingDir, { recursive: true });
+  seedCronJobRow(env.dbs.cronDb, {
+    name: "nightly-sweep",
+    schedule: "0 23 * * 1-5",
+    prompt:
+      "Research and tell me what was the most profitable trade today. " +
+      "Analyze the market moves, then summarize them in the morning note.",
+    workingDir,
+    enabled: true,
+  });
+  seedCronJobRow(env.dbs.cronDb, {
+    name: "friday-report",
+    schedule: "30 8 * * 5",
+    prompt:
+      "Compile the weekly report from notes/ and post it to the stand-up channel.",
+    workingDir,
+    timezone: "Europe/Berlin",
+    enabled: false,
+  });
+
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(env.baseUrl);
+  const section = page.locator("#scheduled-runs");
+  await section.waitFor();
+  await expect(section).toContainText("nightly-sweep");
+  await capture(page, "cron-runs-desktop.png", "#scheduled-runs");
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await capture(page, "cron-runs-mobile.png", "#scheduled-runs");
+  await context.close();
+};
+
 // The seeded session row's updated_at, as the goose store reads it —
 // the suggestion row's turn fingerprint must match it exactly or the
 // strip stays hidden.
@@ -526,6 +565,7 @@ try {
   await captureTokens(browser, env);
   await captureForks(browser, env);
   await captureCronEdit(browser, env);
+  await captureScheduledRuns(browser, env);
   await captureCombined(browser, env);
 } finally {
   await browser.close();

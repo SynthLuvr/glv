@@ -59,7 +59,8 @@ const trimmedField = (body: Record<string, unknown>, key: string): string => {
   return typeof candidate === "string" ? candidate.trim() : "";
 };
 
-// The styled 500 hint a failed database write renders as.
+// The styled error hint a failed mutation renders as — a failed
+// database write, or a refused "Run now".
 const writeErrorHint = (message: string) => (
   <p class="status-hint error">{message}</p>
 );
@@ -358,6 +359,14 @@ const registerCronRoutes = (
     },
   );
 
+  // The refreshed section a successful mutation swaps back in, re-read
+  // from the database so the cards reflect the change.
+  const sendRunsSection = (reply: FastifyReply): FastifyReply => {
+    const { jobs, error } = cronOps.listJobs();
+    if (error !== undefined) return sendHtml(reply, writeErrorHint(error), 500);
+    return sendHtml(reply, <ScheduledRunsSection jobs={jobs} />);
+  };
+
   const toggleJob = (reply: FastifyReply, name: string, enabled: boolean) => {
     const { jobs } = cronOps.listJobs();
     if (findJob(jobs, name) === undefined) return sendNotFound(reply);
@@ -370,10 +379,7 @@ const registerCronRoutes = (
         writeErrorHint(`Could not update the cron database: ${writeError}`),
         500,
       );
-    const { jobs: fresh, error } = cronOps.listJobs();
-    if (error !== undefined)
-      return sendHtml(reply, <p class="status-hint error">{error}</p>, 500);
-    return sendHtml(reply, <ScheduledRunsSection jobs={fresh} />);
+    return sendRunsSection(reply);
   };
 
   app.post<{ Params: { name: string } }>(
@@ -383,6 +389,24 @@ const registerCronRoutes = (
   app.post<{ Params: { name: string } }>(
     "/cron/:name/resume",
     (request, reply) => toggleJob(reply, request.params.name, true),
+  );
+
+  // Run now: an immediate fire through the running scheduler — the
+  // same path a scheduled tick takes, so the in-flight guard applies
+  // and a chain runs its whole sequence. The section swaps back
+  // refreshed; the run itself continues in the background.
+  app.post<{ Params: { name: string } }>(
+    "/cron/:name/run",
+    (request, reply) => {
+      const run = ctx.runCronJob;
+      if (run === undefined) return sendNotFound(reply);
+      const outcome = run(request.params.name);
+      if (!outcome.ok) {
+        if (outcome.status === 404) return sendNotFound(reply);
+        return sendHtml(reply, writeErrorHint(outcome.error), outcome.status);
+      }
+      return sendRunsSection(reply);
+    },
   );
 
   app.delete<{ Params: { name: string } }>("/cron/:name", (request, reply) => {

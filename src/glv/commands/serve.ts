@@ -320,6 +320,7 @@ const runServe = (opts: ServeOpts): void => {
     suggestions: suggestionsDb,
     stopNotices,
     onCronJobsChange: cron.reload,
+    runCronJob: cron.runNow,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
   });
