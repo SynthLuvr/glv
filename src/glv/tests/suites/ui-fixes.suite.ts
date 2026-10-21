@@ -8,16 +8,18 @@ import {
   withPage,
 } from "../harness.js";
 
-// Regression proofs for four bugs where the UI silently lost state:
-// htmx 2's default responseHandling discarded 4xx/5xx responses, so the
-// server's 422 validation fragments never rendered (rejected submits looked
-// like dead buttons); server re-renders of the session list wiped the
+// Regression proofs for five bugs where the UI silently lost state: htmx
+// 2's default responseHandling discarded 4xx/5xx responses, so the server's
+// 422 validation fragments never rendered (rejected submits looked like
+// dead buttons); server re-renders of the session list wiped the
 // client-side open-session highlight; the session-count badge only rendered
-// on full page loads; and the busy/idle prompt-bar swap dropped files
-// staged for a follow-up. The later blocks pin the issue-314 UI polish
-// (sidebar fit, reduced motion, focus reveals, keyboard rings); the
-// model-picker gate proof lives in goose's model-select suite, where a
-// configured default guarantees the picker renders at all.
+// on full page loads; the busy/idle prompt-bar swap dropped files staged
+// for a follow-up; and the scroll-to-latest button lost its click listener
+// when a history restore replayed a snapshot clone. The later blocks pin
+// the issue-314 UI polish (sidebar fit, reduced motion, focus reveals,
+// keyboard rings); the model-picker gate proof lives in goose's
+// model-select suite, where a configured default guarantees the picker
+// renders at all.
 const runUiFixesSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let workDir: string;
@@ -47,6 +49,11 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         name: "Beta",
         workingDir: join(env.scratchDir, "dir-b"),
       },
+      {
+        id: "fix-tall",
+        name: "Tall",
+        workingDir: join(env.scratchDir, "dir-tall"),
+      },
     ]);
     // A rendered markdown link inside an output message: focusing it (or
     // anything else inside a message) must reveal the hover-only controls.
@@ -62,6 +69,16 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         ],
       },
     ]);
+    // Tall transcript for the scroll-to-latest regression: the scroll
+    // distance must clear the 160px near-bottom gate so the button shows.
+    fx.seedMessages(
+      env,
+      "fix-tall",
+      Array.from({ length: 40 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: `Filler ${i}.\n`.repeat(8) }],
+      })),
+    );
   }, 180000);
 
   afterAll(async () => {
@@ -154,7 +171,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
       await withPage(env.context, async (page) => {
         page.on("dialog", (dialog) => void dialog.accept());
         await page.goto(env.baseUrl);
-        await expect(page.locator("#session-count")).toHaveText("2");
+        await expect(page.locator("#session-count")).toHaveText("3");
 
         await page
           .locator(`.session-link[href='/sessions/${fx.viewId("fix-beta")}']`)
@@ -172,7 +189,7 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
             `.session-item[data-session-id="${fx.viewId("fix-beta")}"]`,
           ),
         ).toHaveCount(0, { timeout: 20000 });
-        await expect(page.locator("#session-count")).toHaveText("1", {
+        await expect(page.locator("#session-count")).toHaveText("2", {
           timeout: 20000,
         });
       });
@@ -366,6 +383,44 @@ const runUiFixesSuite = (fx: FlavorFixture): void => {
         await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-alpha")}`);
         await tabUntil(page, "button.archive-btn");
         expect(await outlineOf(page, "button.archive-btn")).toContain("solid");
+      });
+    }, 30000);
+  });
+
+  describe("scroll-to-latest button survives history restore", () => {
+    // Back/Forward replays htmx's body snapshot, so the live button dies
+    // with the old nodes and a listener-less clone is restored — it still
+    // shows/hides (the pane scroll listener re-binds), so only a click can
+    // tell the difference.
+    it("scrolls again after Back restores the page", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("fix-tall")}`);
+        const btn = page.locator("#scroll-latest");
+        await expect(btn).toBeVisible();
+
+        // Leave the page so htmx snapshots it into its history cache
+        // (button included), then restore it with Back.
+        await page
+          .locator(`.session-link[href='/sessions/${fx.viewId("fix-alpha")}']`)
+          .click();
+        await expect(page.locator("#detail-pane")).toContainText(
+          "Check the docs",
+        );
+        await page.goBack();
+        await expect(btn).toBeVisible();
+
+        // A fresh context parks the pane at the top, so a working click
+        // moves it far while a dead clone leaves it put.
+        const scrollTopOf = (): Promise<number> =>
+          page.evaluate(
+            () => document.getElementById("detail-pane")?.scrollTop ?? -1,
+          );
+        const before = await scrollTopOf();
+        expect(before).toBeGreaterThanOrEqual(0);
+        await btn.click();
+        await expect
+          .poll(scrollTopOf, { timeout: 5000 })
+          .toBeGreaterThan(before + 100);
       });
     }, 30000);
   });
