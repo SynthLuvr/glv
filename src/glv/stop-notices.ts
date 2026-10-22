@@ -92,13 +92,16 @@ const clearStopNotice = (db: DatabaseSync, sessionId: string): void => {
   db.prepare("DELETE FROM stop_notices WHERE session_id = ?").run(sessionId);
 };
 
-// --- The last-run verdict ---------------------------------------------
+// ---- the last-run verdict ----
 
 // How a settled run ended. "stopped_early" is the provider's doing (a
 // usage limit, a network outage) — the run stopped but nothing crashed;
 // "failed" is a crash verdict (non-zero exit, signal death, startup
 // watchdog kill); "stopped" is the user's; "finished" settled cleanly.
-type LastRunState = "finished" | "stopped" | "stopped_early" | "failed";
+// A schema, not a bare union, so the row reader below and the API's
+// wire shape validate against the one definition.
+const LastRunState = type("'finished'|'stopped'|'stopped_early'|'failed'");
+type LastRunState = typeof LastRunState.infer;
 
 // What the observer hands the recorder: the state plus the reason line
 // (undefined for the two states that need none).
@@ -107,6 +110,23 @@ type LastRunOutcome = { state: LastRunState; reason: string | undefined };
 // What a read returns: the outcome plus the settle instant (ISO UTC,
 // taken when the run settled).
 type LastRunRecord = LastRunOutcome & { endedAt: string };
+
+// A stored last_run row, validated by ArkType at this boundary so the
+// state union narrows without a cast. The readers treat a malformed row
+// the way readStopNotice treats one — a hand-edited database degrades
+// to no verdict.
+const lastRunShape = {
+  session_id: "string",
+  state: LastRunState,
+  reason: "string | null",
+  ended_at: "string",
+} as const;
+
+const LastRunRow = type(lastRunShape);
+
+// The column list every last_run statement names, derived from the
+// shape so the two cannot drift apart.
+const LAST_RUN_COLS = Object.keys(lastRunShape).join(", ");
 
 // Maps a settled handle to its verdict. A provider refusal outranks
 // every other signal — goose prints its usage-limit record and still
@@ -133,8 +153,8 @@ const recordLastRun = (
   outcome: LastRunOutcome,
 ): void => {
   db.prepare(
-    "INSERT INTO last_run (session_id, state, reason, ended_at) " +
-      "VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET " +
+    `INSERT INTO last_run (${LAST_RUN_COLS}) VALUES (?, ?, ?, ?) ` +
+      "ON CONFLICT(session_id) DO UPDATE SET " +
       "state = excluded.state, reason = excluded.reason, " +
       "ended_at = excluded.ended_at",
   ).run(
@@ -145,28 +165,18 @@ const recordLastRun = (
   );
 };
 
-// A stored row, or undefined when the row is missing or malformed —
-// like readStopNotice, a hand-edited database degrades to no verdict.
-// ArkType validates the SQLite row at this boundary, narrowing the
-// state union without a cast.
-const LastRunRow = type({
-  session_id: "string",
-  state: "'finished'|'stopped'|'stopped_early'|'failed'",
-  reason: "string | null",
-  ended_at: "string",
-});
-
 const lastRunRowToRecord = (
   row: unknown,
 ): { sessionId: string; record: LastRunRecord } | undefined => {
   const parsed = LastRunRow(row);
   if (parsed instanceof type.errors) return undefined;
+  const { session_id, state, reason, ended_at } = parsed;
   return {
-    sessionId: parsed.session_id,
+    sessionId: session_id,
     record: {
-      state: parsed.state,
-      reason: parsed.reason ?? undefined,
-      endedAt: parsed.ended_at,
+      state,
+      reason: reason ?? undefined,
+      endedAt: ended_at,
     },
   };
 };
@@ -177,10 +187,7 @@ const readLastRun = (
 ): LastRunRecord | undefined => {
   try {
     const row = db
-      .prepare(
-        "SELECT session_id, state, reason, ended_at FROM last_run " +
-          "WHERE session_id = ?",
-      )
+      .prepare(`SELECT ${LAST_RUN_COLS} FROM last_run WHERE session_id = ?`)
       .get(sessionId);
     return lastRunRowToRecord(row)?.record;
   } catch {
@@ -193,9 +200,7 @@ const readLastRun = (
 const readLastRuns = (db: DatabaseSync): Map<string, LastRunRecord> => {
   const out = new Map<string, LastRunRecord>();
   try {
-    const rows = db
-      .prepare("SELECT session_id, state, reason, ended_at FROM last_run")
-      .all();
+    const rows = db.prepare(`SELECT ${LAST_RUN_COLS} FROM last_run`).all();
     for (const row of rows) {
       const entry = lastRunRowToRecord(row);
       if (entry !== undefined) out.set(entry.sessionId, entry.record);
@@ -207,9 +212,10 @@ const readLastRuns = (db: DatabaseSync): Map<string, LastRunRecord> => {
   return out;
 };
 
-export type { LastRunOutcome, LastRunRecord, LastRunState };
+export type { LastRunOutcome, LastRunRecord };
 export {
   clearStopNotice,
+  LastRunState,
   lastRunOutcomeFor,
   openStopNoticesDb,
   readLastRun,

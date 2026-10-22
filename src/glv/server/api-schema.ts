@@ -6,7 +6,7 @@ import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
-import type { LastRunRecord } from "../stop-notices.js";
+import { type LastRunRecord, LastRunState } from "../stop-notices.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -49,9 +49,11 @@ const ApiListQuery = type({
 // the notice wording — and "failed" crashed (non-zero exit, signal
 // death, startup-watchdog kill), reason carrying the verdict with its
 // stderr tail. reason appears only where there is something to explain;
-// ended_at is the settle instant (ISO UTC).
+// ended_at is the settle instant (ISO UTC). The state union is the
+// sidecar's own LastRunState schema, so the wire contract cannot drift
+// from what the recorder writes.
 const ApiLastRun = type({
-  state: "'finished'|'stopped'|'stopped_early'|'failed'",
+  state: LastRunState,
   "reason?": "string",
   ended_at: "string",
 });
