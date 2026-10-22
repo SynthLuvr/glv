@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
+import { readLastRun, readLastRuns } from "../../stop-notices.js";
 import {
   openApiDocument,
   parseListQuery,
@@ -30,6 +31,10 @@ const registerApiRoutes = (
   app.get("/api/sessions", (request, reply) => {
     const query = parseListQuery(request, VIEWER_FILTER.limit);
     if (!query.ok) return reply.status(422).send({ error: query.error });
+    // One query for every row's last-run verdict — the listing can flag
+    // badly-ended runs without a read per session.
+    const lastRuns =
+      ctx.stopNotices === undefined ? undefined : readLastRuns(ctx.stopNotices);
     return reply.send(
       ctx.sessions
         .listSessions({
@@ -37,7 +42,7 @@ const registerApiRoutes = (
           limit: query.limit,
           offset: query.offset,
         })
-        .map((row) => toApiSession(row, ctx.runner)),
+        .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
     );
   });
 
@@ -47,7 +52,13 @@ const registerApiRoutes = (
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
     return reply.send({
-      session: toApiSession(session, ctx.runner),
+      session: toApiSession(
+        session,
+        ctx.runner,
+        ctx.stopNotices === undefined
+          ? undefined
+          : readLastRun(ctx.stopNotices, id),
+      ),
       messages: ctx.sessions.listMessages(id).map(parseMessage),
     });
   });

@@ -42,7 +42,9 @@ import { createApp } from "../server/index.js";
 import type { SessionStore } from "../sessions.js";
 import {
   clearStopNotice,
+  lastRunOutcomeFor,
   openStopNoticesDb,
+  recordLastRun,
   recordStopNotice,
 } from "../stop-notices.js";
 import type { EphemeralAsk } from "../suggestions/ask.js";
@@ -222,7 +224,10 @@ const runServe = (opts: ServeOpts): void => {
   // runner so the observer never races it.
   const stopNotices = openStopNoticesDb(opts.stopNoticesDbPath);
   // A refusal or error is recorded for the session; a clean settle or
-  // manual stop clears the row ("continue" resolves the outage).
+  // manual stop clears the row ("continue" resolves the outage). Beside
+  // it, every settle — finished and user-stopped included — writes the
+  // last-run verdict, so the API can answer "how did the last run
+  // end?" beyond the run handle's registry window and across restarts.
   const syncStopNotice = (handle: RunHandle): void => {
     const message =
       handle.stopNotice ??
@@ -230,6 +235,7 @@ const runServe = (opts: ServeOpts): void => {
     if (message !== undefined)
       recordStopNotice(stopNotices, handle.sessionId, message);
     else clearStopNotice(stopNotices, handle.sessionId);
+    recordLastRun(stopNotices, handle.sessionId, lastRunOutcomeFor(handle));
   };
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.

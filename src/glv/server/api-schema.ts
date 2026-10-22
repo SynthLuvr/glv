@@ -6,6 +6,7 @@ import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
+import type { LastRunRecord } from "../stop-notices.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -41,10 +42,33 @@ const ApiListQuery = type({
   "offset?": ListOffset,
 });
 
+// How the last run ended, persisted in the stop-notices sidecar beyond
+// the registry window: "finished" settled cleanly, "stopped" was stopped
+// by the user, "stopped_early" was refused service by the provider (a
+// usage limit with its reset time, a network outage) — reason carries
+// the notice wording — and "failed" crashed (non-zero exit, signal
+// death, startup-watchdog kill), reason carrying the verdict with its
+// stderr tail. reason appears only where there is something to explain;
+// ended_at is the settle instant (ISO UTC).
+const ApiLastRun = type({
+  state: "'finished'|'stopped'|'stopped_early'|'failed'",
+  "reason?": "string",
+  ended_at: "string",
+});
+
+type ApiLastRunData = typeof ApiLastRun.infer;
+
+const toApiLastRun = (record: LastRunRecord): ApiLastRunData => ({
+  state: record.state,
+  ...(record.reason === undefined ? {} : { reason: record.reason }),
+  ended_at: record.endedAt,
+});
+
 // One session row as the listing and detail endpoints return it: the
 // store's SessionRow plus `status`, the run state toApiSession projects
 // from the runner's registry — the same vocabulary the session's SSE
-// stream emits.
+// stream emits — and `last_run`, the persisted verdict of the most
+// recent settled run (omitted until one has settled).
 const ApiSession = type({
   id: "string",
   "agent?": "string",
@@ -60,6 +84,7 @@ const ApiSession = type({
   model: "string | null",
   archived_at: "string | null",
   status: "'queued'|'running'|'completed'|'stopped'|'error'|'idle'",
+  "last_run?": ApiLastRun,
 });
 
 type ApiSessionData = typeof ApiSession.infer;
@@ -68,11 +93,19 @@ type ApiSessionData = typeof ApiSession.infer;
 // return: the runner's own status while a handle exists — "queued" or
 // "running", or the terminal "completed"/"stopped"/"error" for the short
 // window a settled run lingers in the registry so a polling client sees
-// how it ended — and "idle" once no handle remains. Beside the schema,
-// like toApiCronJob/toApiPrompt, so the wire shape cannot drift from it.
-const toApiSession = (row: SessionRow, runner: Runner): ApiSessionData => ({
+// how it ended — and "idle" once no handle remains. The last-run
+// verdict, when one is recorded, rides along so "how did the last run
+// end?" stays answerable past that window and across a restart. Beside
+// the schema, like toApiCronJob/toApiPrompt, so the wire shape cannot
+// drift from it.
+const toApiSession = (
+  row: SessionRow,
+  runner: Runner,
+  lastRun?: LastRunRecord,
+): ApiSessionData => ({
   ...row,
   status: getHandle(runner, row.id)?.status ?? "idle",
+  ...(lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) }),
 });
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
@@ -377,6 +410,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         StopAccepted: component(ApiStopAccepted),
         ForkAccepted: component(ApiForkAccepted),
         Session: component(ApiSession),
+        LastRun: component(ApiLastRun),
         StartSessionForm: {
           ...component(ApiStartSessionForm),
           properties: {
@@ -536,7 +570,11 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
           description:
             "Each row carries status — the same run-state projection the " +
             "detail endpoint returns — so a script can scan for live runs " +
-            "without opening the SSE feed.",
+            "without opening the SSE feed. Rows also carry last_run, the " +
+            "persisted verdict of each session's most recent settled run " +
+            "(finished/stopped/stopped_early/failed with a reason), so a " +
+            "scan can flag runs that ended badly without opening each " +
+            "session.",
           parameters: [
             {
               name: "limit",
@@ -596,7 +634,15 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             '(queued/running) or how it last settled ("completed", ' +
             '"stopped", "error" — visible for the short window a settled ' +
             'run lingers — then "idle"), so a polling client can tell a ' +
-            "live run from a finished one without opening the SSE feed.",
+            "live run from a finished one without opening the SSE feed. " +
+            "last_run names how the most recent settled run ended — " +
+            "finished, stopped (by request), stopped_early (the provider " +
+            "refused service: a usage limit with its reset time, a " +
+            "network outage), or failed (a crash exit, signal death, or " +
+            "the startup watchdog) with the reason wording and the settle " +
+            "instant — persisted beyond the registry window and across a " +
+            "server restart, so a session that merely left the active " +
+            "list can never be mistaken for a successful finish.",
           parameters: [sessionParam()],
           responses: {
             "200": jsonResponse("The session row and its parsed messages.", {
