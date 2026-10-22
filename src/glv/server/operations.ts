@@ -6,6 +6,7 @@ import { type EstablishOutcome, withCreateLock } from "../launch.js";
 import {
   type AgentModelPick,
   decodeAgentModelValue,
+  type ModelSelection,
   modelUnavailableError,
 } from "../models.js";
 import { bumpUsage } from "../prompts/db.js";
@@ -122,6 +123,22 @@ const resolveAgentPick = (
   };
 };
 
+// Resolves the model half of a submitted pick the way a path that must
+// answer definitively does (POST /api/sessions, scheduled-run saves):
+// the agent's catalogue is warmed first, so a cold cache — a scripts/CI
+// submit, or the TTL simply lapsed — cannot wave an unknown model id
+// into a run that would die at agent startup. Submits are rare, so the
+// one-off fetch is worth the wait; a browser submit finds the cache
+// already warm from the picker. An empty value (the agent's default)
+// skips the fetch and resolves as-is.
+const resolveWarmedModel = async (
+  runtime: AgentRuntime,
+  modelValue: string,
+): Promise<ModelSelection | undefined> => {
+  if (modelValue !== "") await runtime.models?.warm?.();
+  return runtime.models?.resolve(modelValue);
+};
+
 // A created run reports "queued" while it waits in the concurrency pool
 // and "started" once execution has begun (a run that already finished
 // also "started"). Establishment guarantees the pool's decision has
@@ -176,13 +193,8 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
-    // served. Warm the catalogue first: on a cold cache (a scripts/CI
-    // submit, or the TTL simply lapsed) any model id would validate and
-    // the run would die at agent startup instead of answering 422 here.
-    // Submits are rare, so the one-off fetch is worth the wait; a
-    // browser submit finds the cache already warm from the picker.
-    if (modelValue !== "") await runtime.models?.warm?.();
-    const model = runtime.models?.resolve(modelValue);
+    // served — warmed, so the verdict holds even on a cold cache.
+    const model = await resolveWarmedModel(runtime, modelValue);
     if (modelValue !== "" && model === undefined)
       return fail(422, modelUnavailableError(runtime.profile.agentName));
 
@@ -422,4 +434,9 @@ const createSessionOperations = (ctx: ServerContext) => {
 type SessionOperations = ReturnType<typeof createSessionOperations>;
 
 export type { SessionOperations };
-export { canonicalWorkingDir, createSessionOperations, resolveAgentPick };
+export {
+  canonicalWorkingDir,
+  createSessionOperations,
+  resolveAgentPick,
+  resolveWarmedModel,
+};

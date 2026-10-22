@@ -16,7 +16,7 @@ import {
 import { MAX_CRON_STEPS, parseSchedule } from "../schedule.js";
 import { errorMessage } from "../util.js";
 import type { ServerContext } from "./context.js";
-import { resolveAgentPick } from "./operations.js";
+import { resolveAgentPick, resolveWarmedModel } from "./operations.js";
 import { expandHome } from "./paths.js";
 
 // The cron operation layer: the validate-and-execute core shared by the
@@ -158,10 +158,9 @@ const createCronOperations = (ctx: ServerContext) => {
       return fail(`Agent "${agentId}" is not enabled.`);
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
-    // served — with the catalogue warmed first so a cold cache can't
-    // wave an unknown model into a job whose every fire would be doomed.
-    if (modelValue !== "") await runtime.models?.warm?.();
-    const picked = runtime.models?.resolve(modelValue);
+    // served — warmed, so a cold cache cannot wave an unknown model into
+    // a job whose every fire would be doomed.
+    const picked = await resolveWarmedModel(runtime, modelValue);
     if (pickUnresolved(pick, picked))
       return fail(modelUnavailableError(runtime.profile.agentName));
     if (!NAME_RE.test(name)) return fail(NAME_ERROR);
