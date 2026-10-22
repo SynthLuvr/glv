@@ -1915,6 +1915,19 @@ select.form-input {
   opacity: 0;
   overflow: hidden;
 }
+
+/* The absolute input above only hides inside a positioned ancestor. With a
+   static form its containing block is the initial containing block, so no
+   ancestor's overflow clipping applies to it — and in the in-session prompt
+   bar, at the bottom of a long transcript, its static position pins the
+   document's own scrollable overflow to the transcript tail. The desktop
+   page then grows a second, document-level scrollbar beside .detail's (the
+   shell is a fixed-height .app; the document must never scroll). Making the
+   embedding form the containing block keeps the input inside every clip
+   chain. */
+form[data-upload-form] {
+  position: relative;
+}
 .upload-actions {
   justify-content: space-between;
   align-items: center;
