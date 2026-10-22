@@ -9,13 +9,10 @@ import {
   seedApiToken,
 } from "../harness.js";
 
-// End-to-end over real HTTP: the JSON surface for the saved-prompt
-// library — GET /api/prompts and GET /api/prompts/:id, the reads the
-// generated OpenAPI document publishes. Rows are seeded straight into
-// the prompts database the way an external writer would, so the tests
-// read content the API itself did not create; the auth boundary (401
-// JSON without a credential, the session cookie admitted for reads)
-// rides the same gate every /api path sits behind.
+// End-to-end over real HTTP: the JSON reads for the saved-prompt
+// library. Rows are seeded straight into the prompts database the way
+// an external writer would, so the tests read content the API itself
+// did not create; auth rides the same gate every /api path sits behind.
 
 type PromptJson = {
   id: string;
@@ -33,8 +30,8 @@ const runApiPromptsSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let token = "";
 
-  // Seeds a row the way the store would — explicit id and sort_order,
-  // so the list order and detail URLs are known before any request.
+  // Explicit ids and sort_order, so list order and detail URLs are
+  // known before any request.
   const seedPrompt = (row: {
     id: string;
     title: string;
@@ -102,8 +99,6 @@ const runApiPromptsSuite = (fx: FlavorFixture): void => {
       expect(release).toMatchObject({
         id: "ap-1",
         title: "Release notes",
-        // The body rides along verbatim — placeholders included,
-        // unsubstituted.
         body: "Draft the release notes for {{repo}} on branch {{branch}}.",
         category: "Docs",
       });
@@ -115,7 +110,6 @@ const runApiPromptsSuite = (fx: FlavorFixture): void => {
       const sweep = prompts.find((prompt) => prompt.id === "ap-2");
       expect(sweep?.category).toBeNull();
 
-      // Manual order (sort_order asc) the library renders by default.
       expect(prompts.findIndex((prompt) => prompt.id === "ap-1")).toBeLessThan(
         prompts.findIndex((prompt) => prompt.id === "ap-2"),
       );

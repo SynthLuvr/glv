@@ -99,25 +99,20 @@ const registerApiRoutes = (
     },
   );
 
-  // Saved-prompt reads: the same store queries the library view
-  // renders, so a script reads exactly the rows the browser shows —
-  // body included, so a client can fill an editor with the content or
-  // submit it as a session prompt. The store is optional (app-less
-  // tests); when absent the paths stay unregistered and 404 like the
-  // HTML prompt routes.
-  if (ctx.prompts !== undefined) {
-    const prompts = ctx.prompts;
+  // The prompts store is optional (app-less tests); when absent these
+  // paths stay unregistered and 404 like the HTML prompt routes.
+  const prompts = ctx.prompts;
+  if (prompts !== undefined) {
     app.get("/api/prompts", (_request, reply) =>
       reply.send(listPrompts(prompts).map(toApiPrompt)),
     );
     app.get<{ Params: { id: string } }>(
       "/api/prompts/:id",
       (request, reply) => {
-        const prompt = getPrompt(prompts, request.params.id);
+        const id = request.params.id;
+        const prompt = getPrompt(prompts, id);
         if (prompt === undefined)
-          return reply
-            .status(404)
-            .send({ error: `No saved prompt ${request.params.id}.` });
+          return reply.status(404).send({ error: `No saved prompt ${id}.` });
         return reply.send(toApiPrompt(prompt));
       },
     );

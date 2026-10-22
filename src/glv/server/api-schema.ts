@@ -169,10 +169,10 @@ const toApiCronJob = (
 };
 
 // One saved prompt exactly as the prompt endpoints return it (the
-// store's SavedPrompt, snake_cased like ApiSession). `body` is the
-// prompt content verbatim — placeholders included, unsubstituted — so
-// a client can fill an editor with it or submit it as a session
-// prompt. `last_used_at` stays null until the prompt has been run.
+// store's SavedPrompt, snake_cased like ApiSession). `body` rides
+// along verbatim — placeholders like {{repo}} included, unsubstituted —
+// exactly as submitted; `last_used_at` stays null until the prompt has
+// been run.
 const ApiPrompt = type({
   id: "string",
   title: "string",
@@ -187,7 +187,6 @@ const ApiPrompt = type({
 
 type ApiPromptData = typeof ApiPrompt.infer;
 
-// The store's SavedPrompt spelled the way every API row is.
 const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   id: prompt.id,
   title: prompt.title,
