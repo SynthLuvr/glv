@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
+import { getPrompt, listPrompts } from "../../prompts/db.js";
 import {
   openApiDocument,
   parseListQuery,
   toApiCronJob,
+  toApiPrompt,
 } from "../api-schema.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
@@ -96,6 +98,25 @@ const registerApiRoutes = (
         .send({ id: result.sessionId, status: result.runStatus });
     },
   );
+
+  // The prompts store is optional (app-less tests); when absent these
+  // paths stay unregistered and 404 like the HTML prompt routes.
+  const prompts = ctx.prompts;
+  if (prompts !== undefined) {
+    app.get("/api/prompts", (_request, reply) =>
+      reply.send(listPrompts(prompts).map(toApiPrompt)),
+    );
+    app.get<{ Params: { id: string } }>(
+      "/api/prompts/:id",
+      (request, reply) => {
+        const id = request.params.id;
+        const prompt = getPrompt(prompts, id);
+        if (prompt === undefined)
+          return reply.status(404).send({ error: `No saved prompt ${id}.` });
+        return reply.send(toApiPrompt(prompt));
+      },
+    );
+  }
 
   // Scheduled runs: the same operation layer the browser's Scheduled
   // runs section delegates to, so a script schedules exactly what the

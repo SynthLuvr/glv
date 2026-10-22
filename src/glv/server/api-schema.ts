@@ -1,6 +1,7 @@
 import { type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
+import type { SavedPrompt } from "../prompts/db.js";
 import { parseSchedule } from "../schedule.js";
 import { isRecord, queryValue } from "./http.js";
 
@@ -167,6 +168,37 @@ const toApiCronJob = (
   };
 };
 
+// One saved prompt exactly as the prompt endpoints return it (the
+// store's SavedPrompt, snake_cased like ApiSession). `body` rides
+// along verbatim — placeholders like {{repo}} included, unsubstituted —
+// exactly as submitted; `last_used_at` stays null until the prompt has
+// been run.
+const ApiPrompt = type({
+  id: "string",
+  title: "string",
+  body: "string",
+  category: "string | null",
+  sort_order: "number",
+  usage_count: "number",
+  last_used_at: "string | null",
+  created_at: "string",
+  updated_at: "string",
+});
+
+type ApiPromptData = typeof ApiPrompt.infer;
+
+const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
+  id: prompt.id,
+  title: prompt.title,
+  body: prompt.body,
+  category: prompt.category,
+  sort_order: prompt.sortOrder,
+  usage_count: prompt.usageCount,
+  last_used_at: prompt.lastUsedAt,
+  created_at: prompt.createdAt,
+  updated_at: prompt.updatedAt,
+});
+
 type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }
   | { readonly ok: false; readonly error: string };
@@ -287,6 +319,14 @@ const cronNameParam = (): Record<string, unknown> => ({
     "underscores, max 64 characters (URL-encode spaces).",
 });
 
+const promptIdParam = (): Record<string, unknown> => ({
+  name: "id",
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+  description: "Saved-prompt id, as the list endpoint spells it.",
+});
+
 const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   const queryProps = properties(ApiListQuery);
   return {
@@ -296,15 +336,16 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
       version: "1.0.0",
       summary: "Drive and monitor glv sessions from scripts and CI.",
       description:
-        "Authentication is an API-token bearer on every path " +
+        "Auth is an API-token bearer on every path " +
         "(Authorization: Bearer glv_at_…); GET also accepts the browser " +
         "session cookie, POST accepts the bearer only. Live monitoring " +
         "rides the Server-Sent Events routes /sessions/{id}/events and " +
         "/events/status with the same bearer header. Destructive " +
         "operations (archive, delete) and every management surface " +
-        "(tokens, prompts, groups) stay in the browser; scheduled runs " +
-        "are created, listed, run on demand, and deleted over JSON at " +
-        "/api/cron.",
+        "(tokens, groups) stay in the browser; the saved-prompt library " +
+        "is readable over JSON at /api/prompts (creating and editing " +
+        "prompts stays in the browser), and scheduled runs are created, " +
+        "listed, run on demand, and deleted over JSON at /api/cron.",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -336,6 +377,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         CronJobForm: component(ApiCronJobForm),
         CronDeleted: component(ApiCronDeleted),
         CronRunAccepted: component(ApiCronRunAccepted),
+        Prompt: component(ApiPrompt),
       },
     },
     paths: {
@@ -437,6 +479,34 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
                 "directory, a disabled agent, or an unparsable schedule.",
               ref("Error"),
             ),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/prompts": {
+        get: {
+          summary: "List saved prompts (manual order)",
+          description:
+            "Every stored prompt with its body — the content to fill an " +
+            "editor with or submit as a session prompt. Ordered the way " +
+            "the library renders by default: manual order, last-used " +
+            "recency breaking ties.",
+          responses: {
+            "200": jsonResponse("The saved prompts.", {
+              type: "array",
+              items: ref("Prompt"),
+            }),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/prompts/{id}": {
+        get: {
+          summary: "Read one saved prompt",
+          parameters: [promptIdParam()],
+          responses: {
+            "200": jsonResponse("The saved prompt.", ref("Prompt")),
+            "404": jsonResponse("Unknown prompt id.", ref("Error")),
             ...bearerResponses(),
           },
         },
@@ -581,4 +651,4 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   };
 };
 
-export { openApiDocument, parseListQuery, toApiCronJob };
+export { openApiDocument, parseListQuery, toApiCronJob, toApiPrompt };

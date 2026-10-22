@@ -588,8 +588,31 @@ the prompt as readable paths). Validation failures answer
 `GET /api/openapi.json` serves the machine-readable contract — generated
 from the same schemas the routes validate with, so it cannot drift —
 behind the same auth as every other `/api` path. Destructive operations
-(archive, delete) and every management surface (tokens, prompts, groups)
-stay in the browser.
+(archive, delete) and every management surface (tokens, groups) stay in
+the browser; the saved-prompt library is readable over JSON (below).
+
+### Reading saved prompts over the API
+
+The prompt library is readable over JSON — the same rows the browser
+library renders, bodies included, so a script can pull a prompt’s
+content to fill an editor with or submit it as a session prompt:
+
+| Endpoint               | Effect                            |
+|------------------------|-----------------------------------|
+| `GET /api/prompts`     | list saved prompts (manual order) |
+| `GET /api/prompts/:id` | read one prompt, body included    |
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/prompts
+```
+
+Each row carries the prompt `body` verbatim — placeholders like
+`{{working_dir}}` included, unsubstituted (the browser fills those at
+run time) — plus `category`, `usage_count`, and the timestamps. Rows
+with no category spell it `null`, and a prompt that has never been run
+carries `last_used_at: null`. Unknown ids answer `404 {"error":"…"}`.
+Creating and editing prompts stays in the browser.
 
 ### Scheduling runs over the API
 
