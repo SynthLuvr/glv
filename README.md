@@ -549,6 +549,35 @@ curl -N -H "Authorization: Bearer glv_at_…" \
   http://localhost:3457/sessions/goose:abc123/events
 ```
 
+Every session row the API returns — the detail endpoint’s `session`
+object and each listing row — carries a `status` field naming the run’s
+state, so a polling script never has to infer it:
+
+| `status`    | Meaning                              |
+|-------------|--------------------------------------|
+| `queued`    | the run waits for a concurrency slot |
+| `running`   | the run is executing                 |
+| `completed` | the run finished normally            |
+| `stopped`   | the run was stopped                  |
+| `error`     | the run failed                       |
+| `idle`      | no run is registered                 |
+
+A terminal status (`completed`, `stopped`, `error`) is visible for the
+short window a settled run lingers in the runner’s registry (about 30
+s), then reads `idle` — poll at a steady cadence to catch how a run
+ended. `idle` means no run is registered at all; a hung run stays
+`running`, exactly like a healthy one — only the SSE feed shows live
+progress. To wait for a run from a script:
+
+``` bash
+while :; do
+  s=$(curl -sS -H "Authorization: Bearer glv_at_…" \
+    http://localhost:3457/api/sessions/goose:abc123 \
+    | jq -r .session.status)
+  case "$s" in running | queued) sleep 2 ;; *) break ;; esac
+done
+```
+
 Queue a follow-up while it runs, and stop a runaway:
 
 ``` bash

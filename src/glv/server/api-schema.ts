@@ -2,7 +2,10 @@ import { type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
 import type { SavedPrompt } from "../prompts/db.js";
+import type { Runner } from "../runner/index.js";
+import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
+import type { SessionRow } from "../sessions.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -38,8 +41,10 @@ const ApiListQuery = type({
   "offset?": ListOffset,
 });
 
-// One session row exactly as the listing and detail endpoints return it
-// (the store's SessionRow verbatim).
+// One session row as the listing and detail endpoints return it: the
+// store's SessionRow plus `status`, the run state toApiSession projects
+// from the runner's registry — the same vocabulary the session's SSE
+// stream emits.
 const ApiSession = type({
   id: "string",
   "agent?": "string",
@@ -54,6 +59,20 @@ const ApiSession = type({
   provider_name: "string | null",
   model: "string | null",
   archived_at: "string | null",
+  status: "'queued'|'running'|'completed'|'stopped'|'error'|'idle'",
+});
+
+type ApiSessionData = typeof ApiSession.infer;
+
+// Decorates a store row with the run status both session read endpoints
+// return: the runner's own status while a handle exists — "queued" or
+// "running", or the terminal "completed"/"stopped"/"error" for the short
+// window a settled run lingers in the registry so a polling client sees
+// how it ended — and "idle" once no handle remains. Beside the schema,
+// like toApiCronJob/toApiPrompt, so the wire shape cannot drift from it.
+const toApiSession = (row: SessionRow, runner: Runner): ApiSessionData => ({
+  ...row,
+  status: getHandle(runner, row.id)?.status ?? "idle",
 });
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
@@ -514,6 +533,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
       "/api/sessions": {
         get: {
           summary: "List sessions (newest first)",
+          description:
+            "Each row carries status — the same run-state projection the " +
+            "detail endpoint returns — so a script can scan for live runs " +
+            "without opening the SSE feed.",
           parameters: [
             {
               name: "limit",
@@ -543,8 +566,9 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "Multipart form. Either working_dir (an existing directory " +
             "on the server) or session_mode=temp (glv creates and owns a " +
             "scratch directory). Returns once the session exists — not " +
-            "when the run completes; poll GET /api/sessions/{id} or " +
-            "subscribe to the session's SSE feed for progress.",
+            "when the run completes; poll GET /api/sessions/{id} (its " +
+            "session.status names the run's state) or subscribe to the " +
+            "session's SSE feed for progress.",
           requestBody: multipartRequest("StartSessionForm"),
           responses: {
             "201": {
@@ -567,6 +591,12 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
       "/api/sessions/{id}": {
         get: {
           summary: "Read a session with its parsed transcript",
+          description:
+            "The session row carries status — the run's live state " +
+            '(queued/running) or how it last settled ("completed", ' +
+            '"stopped", "error" — visible for the short window a settled ' +
+            'run lingers — then "idle"), so a polling client can tell a ' +
+            "live run from a finished one without opening the SSE feed.",
           parameters: [sessionParam()],
           responses: {
             "200": jsonResponse("The session row and its parsed messages.", {
@@ -651,4 +681,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   };
 };
 
-export { openApiDocument, parseListQuery, toApiCronJob, toApiPrompt };
+export {
+  openApiDocument,
+  parseListQuery,
+  toApiCronJob,
+  toApiPrompt,
+  toApiSession,
+};

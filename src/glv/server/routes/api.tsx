@@ -6,6 +6,7 @@ import {
   parseListQuery,
   toApiCronJob,
   toApiPrompt,
+  toApiSession,
 } from "../api-schema.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
@@ -30,11 +31,13 @@ const registerApiRoutes = (
     const query = parseListQuery(request, VIEWER_FILTER.limit);
     if (!query.ok) return reply.status(422).send({ error: query.error });
     return reply.send(
-      ctx.sessions.listSessions({
-        ...VIEWER_FILTER,
-        limit: query.limit,
-        offset: query.offset,
-      }),
+      ctx.sessions
+        .listSessions({
+          ...VIEWER_FILTER,
+          limit: query.limit,
+          offset: query.offset,
+        })
+        .map((row) => toApiSession(row, ctx.runner)),
     );
   });
 
@@ -44,7 +47,7 @@ const registerApiRoutes = (
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
     return reply.send({
-      session,
+      session: toApiSession(session, ctx.runner),
       messages: ctx.sessions.listMessages(id).map(parseMessage),
     });
   });
