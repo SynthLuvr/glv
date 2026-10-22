@@ -506,7 +506,11 @@ indistinguishable from you) — mint a token instead.
 ### Driving runs over the API
 
 The listing paginates: `?limit=` (1–500, default 100) and `?offset=`
-window the newest-first order.
+window the newest-first order. The detail read has its own windows:
+`?fields=meta` answers with the session row and no transcript, and
+`?after=<message-index>` answers with only the messages from that
+transcript index on — see [Polling without re-downloading the
+transcript](#polling-without-re-downloading-the-transcript) below.
 
 The non-destructive mutations the browser can perform are JSON endpoints
 too, with identical semantics (both surfaces delegate to one shared
@@ -572,11 +576,45 @@ progress. To wait for a run from a script:
 ``` bash
 while :; do
   s=$(curl -sS -H "Authorization: Bearer glv_at_…" \
-    http://localhost:3457/api/sessions/goose:abc123 \
+    "http://localhost:3457/api/sessions/goose:abc123?fields=meta" \
     | jq -r .session.status)
   case "$s" in running | queued) sleep 2 ;; *) break ;; esac
 done
 ```
+
+#### Polling without re-downloading the transcript
+
+The detail endpoint returns the whole transcript by default, so a poll
+loop pays full-transcript cost on every tick — and the runs that most
+need polling are the long ones. Two query windows keep the cost flat:
+
+- `?fields=meta` answers with the `session` object and **no `messages`
+  key** — the cheap poll above, which wants only the status.
+- `?after=<message-index>` answers with the `session` object and only
+  the messages **from** that transcript index on (0-based, oldest first
+  — the index is the count of messages you already hold). Empty once
+  caught up.
+
+An incremental poll keeps a cursor — the count of messages it holds —
+and advances it by the length of each answer:
+
+``` bash
+cursor=0
+while :; do
+  body=$(curl -sS -H "Authorization: Bearer glv_at_…" \
+    "http://localhost:3457/api/sessions/goose:abc123?after=$cursor")
+  cursor=$((cursor + $(printf %s "$body" | jq '.messages | length')))
+  case $(printf %s "$body" | jq -r .session.status) in
+    running | queued) sleep 2 ;;
+    *) break ;;
+  esac
+done
+```
+
+An `after` at or past the transcript’s end answers `messages: []` — the
+cursor never goes stale. Invalid values (`?after=-1`, `?after=abc`,
+`?fields=anything-else`, or both parameters at once) are rejected with
+`422`.
 
 `status` alone cannot say *how* the last run ended once the registry
 window closes — and while it is open, a provider’s usage-limit refusal
