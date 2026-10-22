@@ -424,6 +424,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "FollowUpForm",
         "ForkAccepted",
         "ForkForm",
+        "LastRun",
         "Prompt",
         "RunAccepted",
         "Session",
