@@ -1,0 +1,5 @@
+import { describe } from "vitest";
+import { runSingleScrollbarSuite } from "../../glv/tests/suites/single-scrollbar.suite.js";
+import { gooseFixture } from "./integration-harness.js";
+
+describe("single-scrollbar", () => runSingleScrollbarSuite(gooseFixture));
