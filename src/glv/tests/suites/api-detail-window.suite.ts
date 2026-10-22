@@ -78,6 +78,12 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
       SEED_TEXTS.map((text, i) => ({
         role: i % 2 === 0 ? "user" : "assistant",
         content: [{ type: "text", text }],
+        // Backdated and stepped so the window between seeds cannot
+        // swallow a live row: the follow-up's reply carries the real
+        // clock and must sort after every seed, keeping the seeded
+        // transcript's indices stable across the run (goose orders by
+        // created_timestamp, id).
+        createdTimestamp: Date.now() - 100_000 + i * 1000,
       })),
     );
   }, 180000);
@@ -129,14 +135,17 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
 
       // The mock persists its reply as it streams, so poll the window —
       // exactly the incremental fetch the issue asks for — until the
-      // answer carries messages the poller has not seen.
+      // answer carries the reply the poller has not seen.
       const deadline = Date.now() + 30000;
-      let fresh: ParsedMessage[] | undefined;
+      let fresh: ParsedMessage[] = [];
       for (;;) {
-        fresh = (await readBody(`?after=${SEED_TEXTS.length}`)).messages;
-        if (fresh !== undefined && fresh.length > 0) break;
+        fresh = (await readBody(`?after=${SEED_TEXTS.length}`)).messages ?? [];
+        if (fresh.map(textOf).join(" ").includes(fx.mockReply)) break;
         if (Date.now() > deadline)
-          throw new Error("no message landed past the cursor");
+          throw new Error(
+            `the run's reply never landed past the cursor; last window: ` +
+              JSON.stringify(fresh.map(textOf)),
+          );
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
 
