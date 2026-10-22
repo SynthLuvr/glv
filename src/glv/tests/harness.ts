@@ -863,7 +863,7 @@ const startServer = (
   adapter: FlavorAdapter,
   dbs: Databases,
   port: number,
-  extraEnv: Record<string, string> = {},
+  env: Record<string, string>,
   sinks: { stdout: { text: string }; stderr: { text: string } },
 ): ChildProcess => {
   const proc = spawnLauncher(
@@ -872,7 +872,7 @@ const startServer = (
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...extraEnv },
+      env,
     },
   );
   // Both pipes must drain: stderr carries the diagnostic trail the
@@ -941,6 +941,14 @@ const startEnv = async (
     ),
     ...extraEnv,
   };
+  // The environment every boot of this environment spawns serve with —
+  // process.env captured once, here: mockBin has just prepended this
+  // environment's mock dir and no later sibling's exists yet, so every
+  // boot (a restart included) resolves the same agent mock the first
+  // boot did. Reading process.env again at spawn time would hand a
+  // restarted server whichever sibling mock was created last, and its
+  // agent runs would silently run the sibling's scripted behaviour.
+  const spawnEnv: Record<string, string> = { ...process.env, ...bootEnv };
   const abortBoot = (err: unknown, stderr: string): never => {
     restoreAgentPath();
     for (const restore of restoreExtraMocks) restore();
@@ -961,7 +969,7 @@ const startEnv = async (
     for (let attempt = 1; ; attempt++) {
       const port = await findFreePort();
       const candidate = `http://localhost:${port}`;
-      const started = startServer(adapter, dbs, port, bootEnv, sinks);
+      const started = startServer(adapter, dbs, port, spawnEnv, sinks);
       proc = started;
       // `close`, not `exit`: it fires once stderr has flushed too, so the
       // EADDRINUSE check below is guaranteed to see why a dying serve

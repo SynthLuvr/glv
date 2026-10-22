@@ -272,7 +272,8 @@ const runApiLastRunSuite = (fx: FlavorFixture): void => {
     it("re-records the verdict when a stopped-early session continues and finishes", async () => {
       writeLines("main.txt", [fx.streamLine(fx.mockReply)]);
       const id = fx.viewId("lr-1");
-      await postPrompt(main, id, "continue please");
+      const res = await postPrompt(main, id, "continue please");
+      expect(res.status).toBe(200);
       expectSettled(
         await waitForLastRun(main, id, ["finished"]),
         "finished",
