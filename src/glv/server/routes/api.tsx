@@ -2,6 +2,11 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
 import {
+  type LastRunRecord,
+  readLastRun,
+  readLastRuns,
+} from "../../stop-notices.js";
+import {
   openApiDocument,
   parseListQuery,
   toApiCronJob,
@@ -13,6 +18,25 @@ import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+
+// The last-run reads behind both session read endpoints. The sidecar is
+// optional (app-less tests), and its absence reads as "no verdict
+// recorded" — the same guard session.ts applies to notice reads. The
+// listing takes every verdict in one query so it can flag badly-ended
+// runs without a read per session; the detail read takes the one row it
+// answers with.
+const lastRunFor = (
+  ctx: ServerContext,
+  sessionId: string,
+): LastRunRecord | undefined =>
+  ctx.stopNotices === undefined
+    ? undefined
+    : readLastRun(ctx.stopNotices, sessionId);
+
+const lastRunsFor = (
+  ctx: ServerContext,
+): Map<string, LastRunRecord> | undefined =>
+  ctx.stopNotices === undefined ? undefined : readLastRuns(ctx.stopNotices);
 
 // The JSON surface for non-browser clients (curl, CI), reached with an
 // API-token bearer header — the only credential the write endpoints
@@ -30,6 +54,7 @@ const registerApiRoutes = (
   app.get("/api/sessions", (request, reply) => {
     const query = parseListQuery(request, VIEWER_FILTER.limit);
     if (!query.ok) return reply.status(422).send({ error: query.error });
+    const lastRuns = lastRunsFor(ctx);
     return reply.send(
       ctx.sessions
         .listSessions({
@@ -37,7 +62,7 @@ const registerApiRoutes = (
           limit: query.limit,
           offset: query.offset,
         })
-        .map((row) => toApiSession(row, ctx.runner)),
+        .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
     );
   });
 
@@ -47,7 +72,7 @@ const registerApiRoutes = (
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
     return reply.send({
-      session: toApiSession(session, ctx.runner),
+      session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
       messages: ctx.sessions.listMessages(id).map(parseMessage),
     });
   });

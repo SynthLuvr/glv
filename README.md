@@ -578,6 +578,37 @@ while :; do
 done
 ```
 
+`status` alone cannot say *how* the last run ended once the registry
+window closes — and while it is open, a provider’s usage-limit refusal
+and a clean finish can both leave the session inactive with exit code 0
+on the agent’s side. So the same rows also carry `last_run`, the
+persisted verdict of the most recent settled run, recorded in the
+stop-notices sidecar the moment the run settles and surviving a server
+restart:
+
+| `last_run.state` | Meaning |
+|----|----|
+| `finished` | the run settled normally |
+| `stopped` | the run was stopped by request |
+| `stopped_early` | the provider refused service (a usage limit with its reset time, a network outage) |
+| `failed` | the run crashed (non-zero exit, signal death, startup-watchdog kill) |
+
+`last_run` is omitted until the session has settled a run;
+`last_run.reason` appears only for `stopped_early` and `failed` and
+carries the same wording the viewer shows (the provider’s own words —
+reset time included — or the crash verdict with its stderr tail);
+`last_run.ended_at` is the settle instant (ISO UTC). Checking it after
+the wait loop above is how an orchestration loop tells a merged-PR
+success from a silently stopped run:
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/sessions/goose:abc123 \
+  | jq -c .session.last_run
+# {"state":"stopped_early","reason":"Session stopped early: provider
+#  usage limit reached. … resets at 17:01. …","ended_at":"2026-10-22T21:04:11.512Z"}
+```
+
 Queue a follow-up while it runs, and stop a runaway:
 
 ``` bash
