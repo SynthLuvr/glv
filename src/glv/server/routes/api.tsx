@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
+import { getPrompt, listPrompts } from "../../prompts/db.js";
 import {
   openApiDocument,
   parseListQuery,
   toApiCronJob,
+  toApiPrompt,
 } from "../api-schema.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
@@ -96,6 +98,30 @@ const registerApiRoutes = (
         .send({ id: result.sessionId, status: result.runStatus });
     },
   );
+
+  // Saved-prompt reads: the same store queries the library view
+  // renders, so a script reads exactly the rows the browser shows —
+  // body included, so a client can fill an editor with the content or
+  // submit it as a session prompt. The store is optional (app-less
+  // tests); when absent the paths stay unregistered and 404 like the
+  // HTML prompt routes.
+  if (ctx.prompts !== undefined) {
+    const prompts = ctx.prompts;
+    app.get("/api/prompts", (_request, reply) =>
+      reply.send(listPrompts(prompts).map(toApiPrompt)),
+    );
+    app.get<{ Params: { id: string } }>(
+      "/api/prompts/:id",
+      (request, reply) => {
+        const prompt = getPrompt(prompts, request.params.id);
+        if (prompt === undefined)
+          return reply
+            .status(404)
+            .send({ error: `No saved prompt ${request.params.id}.` });
+        return reply.send(toApiPrompt(prompt));
+      },
+    );
+  }
 
   // Scheduled runs: the same operation layer the browser's Scheduled
   // runs section delegates to, so a script schedules exactly what the
