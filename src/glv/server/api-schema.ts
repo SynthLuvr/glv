@@ -2,7 +2,10 @@ import { type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
 import type { SavedPrompt } from "../prompts/db.js";
+import type { Runner } from "../runner/index.js";
+import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
+import type { SessionRow } from "../sessions.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -39,11 +42,9 @@ const ApiListQuery = type({
 });
 
 // One session row as the listing and detail endpoints return it: the
-// store's SessionRow plus `status` — the run status projected from the
-// runner's registry ("queued" or "running" while a run is live, the
-// terminal "completed"/"stopped"/"error" for the short window a settled
-// run lingers, "idle" when no handle remains). The same vocabulary the
-// session's SSE stream emits.
+// store's SessionRow plus `status`, the run state toApiSession projects
+// from the runner's registry — the same vocabulary the session's SSE
+// stream emits.
 const ApiSession = type({
   id: "string",
   "agent?": "string",
@@ -59,6 +60,19 @@ const ApiSession = type({
   model: "string | null",
   archived_at: "string | null",
   status: "'queued'|'running'|'completed'|'stopped'|'error'|'idle'",
+});
+
+type ApiSessionData = typeof ApiSession.infer;
+
+// Decorates a store row with the run status both session read endpoints
+// return: the runner's own status while a handle exists — "queued" or
+// "running", or the terminal "completed"/"stopped"/"error" for the short
+// window a settled run lingers in the registry so a polling client sees
+// how it ended — and "idle" once no handle remains. Beside the schema,
+// like toApiCronJob/toApiPrompt, so the wire shape cannot drift from it.
+const toApiSession = (row: SessionRow, runner: Runner): ApiSessionData => ({
+  ...row,
+  status: getHandle(runner, row.id)?.status ?? "idle",
 });
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
@@ -667,4 +681,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   };
 };
 
-export { openApiDocument, parseListQuery, toApiCronJob, toApiPrompt };
+export {
+  openApiDocument,
+  parseListQuery,
+  toApiCronJob,
+  toApiPrompt,
+  toApiSession,
+};
