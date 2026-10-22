@@ -228,7 +228,7 @@ const runServe = (opts: ServeOpts): void => {
   // it, every settle — finished and user-stopped included — writes the
   // last-run verdict, so the API can answer "how did the last run
   // end?" beyond the run handle's registry window and across restarts.
-  const syncStopNotice = (handle: RunHandle): void => {
+  const recordRunEnd = (handle: RunHandle): void => {
     const message =
       handle.stopNotice ??
       (handle.status === "error" ? handle.error : undefined);
@@ -239,7 +239,7 @@ const runServe = (opts: ServeOpts): void => {
   };
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.
-  const runner = createRunner(opts.runner, undefined, syncStopNotice);
+  const runner = createRunner(opts.runner, undefined, recordRunEnd);
   const runtimes: AgentRuntime[] = opts.agents.map((spec) => ({
     id: spec.profile.id,
     profile: spec.profile,
