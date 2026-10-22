@@ -129,7 +129,9 @@ const createCronOperations = (ctx: ServerContext) => {
   // answers with the same error whichever surface received it; the two
   // copy variants that point back at the New Session form stay in the
   // HTML route.
-  const createJob = (submission: CronJobSubmission): CronCreateOutcome => {
+  const createJob = async (
+    submission: CronJobSubmission,
+  ): Promise<CronCreateOutcome> => {
     const fail = (error: string): CronOperationFailure => ({
       ok: false,
       status: 422,
@@ -156,7 +158,9 @@ const createCronOperations = (ctx: ServerContext) => {
       return fail(`Agent "${agentId}" is not enabled.`);
     // The picker listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
-    // served.
+    // served — with the catalogue warmed first so a cold cache can't
+    // wave an unknown model into a job whose every fire would be doomed.
+    if (modelValue !== "") await runtime.models?.warm?.();
     const picked = runtime.models?.resolve(modelValue);
     if (pickUnresolved(pick, picked))
       return fail(modelUnavailableError(runtime.profile.agentName));

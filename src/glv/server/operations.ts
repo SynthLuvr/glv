@@ -176,7 +176,12 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
-    // served.
+    // served. Warm the catalogue first: on a cold cache (a scripts/CI
+    // submit, or the TTL simply lapsed) any model id would validate and
+    // the run would die at agent startup instead of answering 422 here.
+    // Submits are rare, so the one-off fetch is worth the wait; a
+    // browser submit finds the cache already warm from the picker.
+    if (modelValue !== "") await runtime.models?.warm?.();
     const model = runtime.models?.resolve(modelValue);
     if (modelValue !== "" && model === undefined)
       return fail(422, modelUnavailableError(runtime.profile.agentName));

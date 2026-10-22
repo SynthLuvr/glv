@@ -161,15 +161,26 @@ const makeGooseModelSource = (binary: string): ModelSource => {
     return out;
   };
 
+  // Submits call this before resolve() so the validation verdict is the
+  // picker's verdict: with the catalogue fetched on demand, a cold cache
+  // can no longer wave an unknown model id through. The one-off cost is
+  // bounded by the ACP conversation timeouts and shared with any
+  // concurrent picker render or submit.
+  const warm = async (): Promise<void> => {
+    await currentCatalog();
+  };
+
   const resolve = (value: string): ModelSelection | undefined => {
     const selection = decodeModelValue(value);
     if (selection === undefined) return undefined;
     const configured = readModelConfig().providers.get(selection.provider);
     if (configured === undefined) return undefined;
     if (selection.model === configured) return selection;
-    // Validate against whatever catalogue state is already cached — never
-    // spawn for a submit. With nothing cached any model id is accepted;
-    // goose itself rejects unknown models at run time.
+    // Validation consults the cached catalogue: submit paths warm()
+    // first, the sync-only suggestion pin reads it cold and degrades. A
+    // provider the catalogue has no entry for (a custom one), or an
+    // empty catalogue (the fetch failed), still passes — goose itself
+    // is the final authority at run time.
     const known = cache?.catalog.get(selection.provider);
     if (known !== undefined && !known.some((m) => m.id === selection.model))
       return undefined;
@@ -180,6 +191,7 @@ const makeGooseModelSource = (binary: string): ModelSource => {
     choices,
     defaultSelection: () => readModelConfig().active,
     resolve,
+    warm,
   };
 };
 

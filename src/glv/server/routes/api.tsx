@@ -150,7 +150,7 @@ const registerApiRoutes = (
 
   app.post("/api/cron", async (request, reply) => {
     const body = await parseForm(request);
-    const result = cronOps.createJob({
+    const result = await cronOps.createJob({
       name: firstString(body.name),
       schedule: firstString(body.schedule),
       prompt: firstString(body.prompt),
