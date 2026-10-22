@@ -12,6 +12,7 @@ import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+import { sessionRunStatus, sessionRunStatuses } from "../status.js";
 
 // The JSON surface for non-browser clients (curl, CI), reached with an
 // API-token bearer header — the only credential the write endpoints
@@ -29,12 +30,17 @@ const registerApiRoutes = (
   app.get("/api/sessions", (request, reply) => {
     const query = parseListQuery(request, VIEWER_FILTER.limit);
     if (!query.ok) return reply.status(422).send({ error: query.error });
+    // One registry snapshot decorates every row: a script can scan the
+    // list for live runs without opening the SSE feed.
+    const statuses = sessionRunStatuses(ctx.runner);
     return reply.send(
-      ctx.sessions.listSessions({
-        ...VIEWER_FILTER,
-        limit: query.limit,
-        offset: query.offset,
-      }),
+      ctx.sessions
+        .listSessions({
+          ...VIEWER_FILTER,
+          limit: query.limit,
+          offset: query.offset,
+        })
+        .map((row) => ({ ...row, status: statuses.get(row.id) ?? "idle" })),
     );
   });
 
@@ -44,7 +50,7 @@ const registerApiRoutes = (
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
     return reply.send({
-      session,
+      session: { ...session, status: sessionRunStatus(ctx.runner, id) },
       messages: ctx.sessions.listMessages(id).map(parseMessage),
     });
   });
