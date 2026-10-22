@@ -36,10 +36,21 @@ type ModelSource = {
    */
   readonly defaultSelection: () => ModelSelection | undefined;
   /**
+   * Ensures the state `resolve` validates against is present, paying the
+   * catalogue cost when it is cold or stale. Submit paths that must
+   * answer definitively (POST /api/sessions, scheduled-run saves) await
+   * this before `resolve`, so a typo'd pin answers 422 instead of
+   * starting a doomed run no matter how cold the cache is. Callers that
+   * only degrade on a stale verdict (the suggestion pin) skip it.
+   * Omitted when `resolve` needs no catalogue.
+   */
+  readonly warm?: () => Promise<void>;
+  /**
    * Validates a submitted form value against current config; undefined
-   * when the model is not one the agent offers. Sync on purpose: it
-   * consults only what is already cached so submitting never pays the
-   * catalogue cost.
+   * when the model is not one the agent offers. Sync on purpose: the
+   * suggestion pin resolves from sync code and degrades on a stale
+   * verdict — callers that must answer definitively `await warm()`
+   * first so the verdict does not depend on cache warmth.
    */
   readonly resolve: (value: string) => ModelSelection | undefined;
 };

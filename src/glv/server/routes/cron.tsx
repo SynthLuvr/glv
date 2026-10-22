@@ -164,7 +164,7 @@ const registerCronRoutes = (
         "A working directory is required — set one in the form above.",
       );
 
-    const result = cronOps.createJob({
+    const result = await cronOps.createJob({
       name: jobName,
       schedule,
       prompt,

@@ -612,7 +612,12 @@ Optional `POST /api/sessions` fields: `model` (`agent:provider:model`,
 omitted or empty for the agent’s default), `location` (the JSON
 coordinate share the browser sends), and `uploads` (files, appended to
 the prompt as readable paths). Validation failures answer
-`422 {"error":"…"}`; unknown ids `404`.
+`422 {"error":"…"}`; unknown ids `404`. A pinned `model` is checked
+against the agent’s live model catalogue — the same list the picker
+shows — so a typo answers `422` instead of starting a run that dies at
+agent startup. The check reads a short-lived cache the picker keeps
+warm; a pinned submit with the cache cold (typical for scripts and CI)
+pays a one-off catalogue fetch first, usually a second or two.
 
 `GET /api/openapi.json` serves the machine-readable contract — generated
 from the same schemas the routes validate with, so it cannot drift —
@@ -677,10 +682,10 @@ itself from the listing afterwards. Recurring spellings —
 the same way (English is stored as its cron translation with the typed
 text kept in `schedule_input`). Optional fields: `timezone` (IANA name
 the schedule’s times apply in), `model` (`agent:provider:model`, same
-spelling as the session API), and repeated `follow_ups` parts chaining
-further prompts after the first (10 steps in total, at most). Every row
-carries `next_runs` — the next fire times — while it is enabled. Cancel
-anything that has not fired yet:
+spelling — and same live-catalogue validation — as the session API), and
+repeated `follow_ups` parts chaining further prompts after the first (10
+steps in total, at most). Every row carries `next_runs` — the next fire
+times — while it is enabled. Cancel anything that has not fired yet:
 
 ``` bash
 curl -sS -X DELETE http://localhost:3457/api/cron/release-notes \
