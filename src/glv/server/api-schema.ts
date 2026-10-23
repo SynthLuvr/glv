@@ -1,4 +1,4 @@
-import { type Type, type } from "arktype";
+import { ArkErrors, type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
 import type { SavedPrompt } from "../prompts/db.js";
@@ -40,6 +40,19 @@ const ListOffset = type("number.integer >= 0");
 const ApiListQuery = type({
   "limit?": ListLimit,
   "offset?": ListOffset,
+});
+
+// The detail read's windows (#339): fields=meta answers a poll with the
+// session row alone — no transcript — and after=<message-index> starts
+// the transcript at that index (the count of messages the caller
+// already holds, so 0 reads everything). Either way a poll on a
+// 300-message run costs what it costs on a fresh one, instead of
+// re-downloading the whole history every time.
+const ApiDetailFields = type("'meta'");
+const ApiDetailAfter = type("number.integer >= 0");
+const ApiDetailQuery = type({
+  "fields?": ApiDetailFields,
+  "after?": ApiDetailAfter,
 });
 
 // How the last run ended, persisted in the stop-notices sidecar beyond
@@ -257,39 +270,91 @@ type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }
   | { readonly ok: false; readonly error: string };
 
+// The wording every rejected query parameter answers with: the name it
+// arrived under and ArkType's own summary of what failed.
+const invalidQueryParameter = (key: string, errors: ArkErrors): string =>
+  `Invalid "${key}" query parameter: ${errors.summary}.`;
+
 // Query strings arrive as strings; parse each to a number and let the
-// ArkType bounds decide. Absent (or empty) parameters keep the defaults
-// the sidebar's VIEWER_FILTER window has always used.
+// ArkType bounds decide. Absent (or empty) parameters read as absent.
+const parseNumberQuery = (
+  request: FastifyRequest,
+  key: string,
+  bounds: Type<number>,
+):
+  | { readonly ok: true; readonly value: number | undefined }
+  | { readonly ok: false; readonly error: string } => {
+  const raw = queryValue(request, key);
+  if (raw === undefined || raw === "") return { ok: true, value: undefined };
+  const checked = bounds(Number(raw));
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter(key, checked) };
+  return { ok: true, value: checked };
+};
+
+// The listing window: the defaults keep the sidebar's VIEWER_FILTER
+// window when no parameter arrives.
 const parseListQuery = (
   request: FastifyRequest,
   defaultLimit: number,
 ): ListQuery => {
-  const parse = (
-    key: string,
-    bounds: Type<number>,
-  ):
-    | { readonly ok: true; readonly value: number | undefined }
-    | { readonly ok: false; readonly error: string } => {
-    const raw = queryValue(request, key);
-    if (raw === undefined || raw === "") return { ok: true, value: undefined };
-    const checked = bounds(Number(raw));
-    if (checked instanceof type.errors)
-      return {
-        ok: false,
-        error: `Invalid "${key}" query parameter: ${checked.summary}.`,
-      };
-    return { ok: true, value: checked };
-  };
-
-  const limit = parse("limit", ListLimit);
+  const limit = parseNumberQuery(request, "limit", ListLimit);
   if (!limit.ok) return limit;
-  const offset = parse("offset", ListOffset);
+  const offset = parseNumberQuery(request, "offset", ListOffset);
   if (!offset.ok) return offset;
   return {
     ok: true,
     limit: limit.value ?? defaultLimit,
     offset: offset.value ?? 0,
   };
+};
+
+// The detail read's windows. `after` is the transcript index to start
+// from — the count of messages the caller already holds, so the answer
+// carries everything from that index on (empty once caught up) and the
+// cursor advances by the length of each answer; 0 reads the whole
+// transcript. This is the cursor the SSE feed's append ids and the
+// store tail already speak (a message count), never a -1 sentinel for
+// "nothing held yet". fields=meta and after are mutually exclusive:
+// one omits the transcript, the other windows it, and passing both
+// would silently answer a smaller question than the caller asked, so
+// it is refused.
+type DetailQuery =
+  | {
+      readonly ok: true;
+      readonly metaOnly: boolean;
+      readonly after: number | undefined;
+    }
+  | { readonly ok: false; readonly error: string };
+
+// fields=meta: present reads as meta-only, absent (or empty) as the
+// default transcript read — anything but "meta" is a client error.
+const parseFieldsQuery = (
+  request: FastifyRequest,
+):
+  | { readonly ok: true; readonly value: boolean }
+  | { readonly ok: false; readonly error: string } => {
+  const raw = queryValue(request, "fields");
+  if (raw === undefined || raw === "") return { ok: true, value: false };
+  const checked = ApiDetailFields(raw);
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter("fields", checked) };
+  return { ok: true, value: true };
+};
+
+const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
+  const fields = parseFieldsQuery(request);
+  if (!fields.ok) return fields;
+  const after = parseNumberQuery(request, "after", ApiDetailAfter);
+  if (!after.ok) return after;
+  if (fields.value && after.value !== undefined)
+    return {
+      ok: false,
+      error:
+        '"fields=meta" omits messages while "after" windows them — ' +
+        "pass one, not both.",
+    };
+  return { ok: true, metaOnly: fields.value, after: after.value };
 };
 
 // --- The OpenAPI document, generated from the schemas above -----------
@@ -355,6 +420,19 @@ const bearerResponses = (): Record<string, unknown> => ({
   ),
 });
 
+// A query parameter entry, documented by the schema property it
+// mirrors (see properties()).
+const queryParam = (
+  name: string,
+  schema: unknown,
+  description: string,
+): Record<string, unknown> => ({
+  name,
+  in: "query",
+  schema,
+  description,
+});
+
 const sessionParam = (): Record<string, unknown> => ({
   name: "id",
   in: "path",
@@ -383,6 +461,7 @@ const promptIdParam = (): Record<string, unknown> => ({
 
 const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
   const queryProps = properties(ApiListQuery);
+  const detailQueryProps = properties(ApiDetailQuery);
   return {
     openapi: "3.1.0",
     info: {
@@ -578,18 +657,16 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "scan can flag runs that ended badly without opening each " +
             "session.",
           parameters: [
-            {
-              name: "limit",
-              in: "query",
-              schema: queryProps.limit,
-              description: `Rows to return (1–${MAX_LIST_LIMIT}; default ${defaultListLimit}).`,
-            },
-            {
-              name: "offset",
-              in: "query",
-              schema: queryProps.offset,
-              description: "Rows to skip, for pagination (default 0).",
-            },
+            queryParam(
+              "limit",
+              queryProps.limit,
+              `Rows to return (1–${MAX_LIST_LIMIT}; default ${defaultListLimit}).`,
+            ),
+            queryParam(
+              "offset",
+              queryProps.offset,
+              "Rows to skip, for pagination (default 0).",
+            ),
           ],
           responses: {
             "200": jsonResponse("The session list.", {
@@ -644,8 +721,30 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "the startup watchdog) with the reason wording and the settle " +
             "instant — persisted beyond the registry window and across a " +
             "server restart, so a session that merely left the active " +
-            "list can never be mistaken for a successful finish.",
-          parameters: [sessionParam()],
+            "list can never be mistaken for a successful finish. " +
+            "Long transcripts need not ride every poll: fields=meta " +
+            "answers with the session row and no messages, and " +
+            "after=<message-index> answers with only the messages from " +
+            "that transcript index on — advance the cursor (the count " +
+            "of messages held) by the length of each answer. The two " +
+            "cannot be combined (422).",
+          parameters: [
+            sessionParam(),
+            queryParam(
+              "fields",
+              detailQueryProps.fields,
+              'Pass "meta" to read the session row without the ' +
+                "transcript — the cheap poll for done-yet checks.",
+            ),
+            queryParam(
+              "after",
+              detailQueryProps.after,
+              "Transcript index to start from — the count of messages " +
+                "already held; the answer carries everything from there " +
+                "on (empty once caught up), so a poll downloads just " +
+                "what landed since. 0 reads the whole transcript.",
+            ),
+          ],
           responses: {
             "200": jsonResponse("The session row and its parsed messages.", {
               type: "object",
@@ -653,12 +752,19 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
                 session: ref("Session"),
                 messages: {
                   type: "array",
-                  description: "Parsed transcript messages, oldest first.",
+                  description:
+                    "Parsed transcript messages, oldest first. Omitted " +
+                    "under fields=meta; starting at the after index when " +
+                    "given.",
                 },
               },
-              required: ["session", "messages"],
+              required: ["session"],
             }),
             "404": jsonResponse("Unknown session id.", ref("Error")),
+            "422": jsonResponse(
+              "Invalid fields/after combination.",
+              ref("Error"),
+            ),
             ...bearerResponses(),
           },
         },
@@ -731,6 +837,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
 
 export {
   openApiDocument,
+  parseDetailQuery,
   parseListQuery,
   toApiCronJob,
   toApiPrompt,

@@ -8,6 +8,7 @@ import {
 } from "../../stop-notices.js";
 import {
   openApiDocument,
+  parseDetailQuery,
   parseListQuery,
   toApiCronJob,
   toApiPrompt,
@@ -67,13 +68,26 @@ const registerApiRoutes = (
   });
 
   app.get<{ Params: { id: string } }>("/api/sessions/:id", (request, reply) => {
+    // The query is validated before the session is looked up so a
+    // malformed window reads as a client error either way.
+    const query = parseDetailQuery(request);
+    if (!query.ok) return reply.status(422).send({ error: query.error });
     const id = request.params.id;
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
+    // fields=meta omits the transcript entirely; after=<index> slices
+    // the store read itself, so a poll parses and serializes only the
+    // messages it has not seen (#339).
+    const messages = query.metaOnly
+      ? undefined
+      : ctx.sessions
+          .listMessages(id)
+          .slice(query.after ?? 0)
+          .map(parseMessage);
     return reply.send({
       session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
-      messages: ctx.sessions.listMessages(id).map(parseMessage),
+      ...(messages === undefined ? {} : { messages }),
     });
   });
 
