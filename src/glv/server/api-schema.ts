@@ -420,6 +420,19 @@ const bearerResponses = (): Record<string, unknown> => ({
   ),
 });
 
+// A query parameter entry, documented by the schema property it
+// mirrors (see properties()).
+const queryParam = (
+  name: string,
+  schema: unknown,
+  description: string,
+): Record<string, unknown> => ({
+  name,
+  in: "query",
+  schema,
+  description,
+});
+
 const sessionParam = (): Record<string, unknown> => ({
   name: "id",
   in: "path",
@@ -644,18 +657,16 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "scan can flag runs that ended badly without opening each " +
             "session.",
           parameters: [
-            {
-              name: "limit",
-              in: "query",
-              schema: queryProps.limit,
-              description: `Rows to return (1–${MAX_LIST_LIMIT}; default ${defaultListLimit}).`,
-            },
-            {
-              name: "offset",
-              in: "query",
-              schema: queryProps.offset,
-              description: "Rows to skip, for pagination (default 0).",
-            },
+            queryParam(
+              "limit",
+              queryProps.limit,
+              `Rows to return (1–${MAX_LIST_LIMIT}; default ${defaultListLimit}).`,
+            ),
+            queryParam(
+              "offset",
+              queryProps.offset,
+              "Rows to skip, for pagination (default 0).",
+            ),
           ],
           responses: {
             "200": jsonResponse("The session list.", {
@@ -719,24 +730,20 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "cannot be combined (422).",
           parameters: [
             sessionParam(),
-            {
-              name: "fields",
-              in: "query",
-              schema: detailQueryProps.fields,
-              description:
-                'Pass "meta" to read the session row without the ' +
+            queryParam(
+              "fields",
+              detailQueryProps.fields,
+              'Pass "meta" to read the session row without the ' +
                 "transcript — the cheap poll for done-yet checks.",
-            },
-            {
-              name: "after",
-              in: "query",
-              schema: detailQueryProps.after,
-              description:
-                "Transcript index to start from — the count of messages " +
+            ),
+            queryParam(
+              "after",
+              detailQueryProps.after,
+              "Transcript index to start from — the count of messages " +
                 "already held; the answer carries everything from there " +
                 "on (empty once caught up), so a poll downloads just " +
                 "what landed since. 0 reads the whole transcript.",
-            },
+            ),
           ],
           responses: {
             "200": jsonResponse("The session row and its parsed messages.", {
