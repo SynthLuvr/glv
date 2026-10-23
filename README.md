@@ -580,6 +580,13 @@ curl -N -H "Authorization: Bearer glv_at_…" \
   http://localhost:3457/sessions/goose:abc123/events
 ```
 
+Every timestamp the API returns — a session row’s `created_at`,
+`updated_at`, and `archived_at`, each message’s `timestamp`,
+`last_run.ended_at`, `last_fired_at` — is ISO 8601 UTC with an explicit
+`Z` designator: `2026-10-21T18:22:36Z`. Storage is UTC and the wire says
+so, because most parsers read a bare `2026-10-21 18:22:36` as *local*
+time.
+
 Every session row the API returns — the detail endpoint’s `session`
 object and each listing row — carries a `status` field naming the run’s
 state, so a polling script never has to infer it:
@@ -831,10 +838,11 @@ curl -sS -H "Authorization: Bearer glv_at_…" \
 
 Each row carries the prompt `body` verbatim — placeholders like
 `{{working_dir}}` included, unsubstituted (the browser fills those at
-run time) — plus `category`, `usage_count`, and the timestamps. Rows
-with no category spell it `null`, and a prompt that has never been run
-carries `last_used_at: null`. Unknown ids answer `404 {"error":"…"}`.
-Creating and editing prompts stays in the browser.
+run time) — plus `category`, `usage_count`, and the timestamps (ISO 8601
+UTC with an explicit `Z`, like every other timestamp the API returns).
+Rows with no category spell it `null`, and a prompt that has never been
+run carries `last_used_at: null`. Unknown ids answer
+`404 {"error":"…"}`. Creating and editing prompts stays in the browser.
 
 ### Scheduling runs over the API
 

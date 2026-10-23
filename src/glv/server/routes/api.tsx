@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { parseMessage } from "../../format/index.js";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
 import type { SessionFilter } from "../../sessions.js";
 import {
@@ -15,6 +14,7 @@ import {
   parseWaitQuery,
   toApiAgentModels,
   toApiCronJob,
+  toApiMessage,
   toApiPrompt,
   toApiSession,
   toApiWaitResult,
@@ -112,7 +112,7 @@ const registerApiRoutes = (
       : ctx.sessions
           .listMessages(id)
           .slice(query.after ?? 0)
-          .map(parseMessage);
+          .map(toApiMessage);
     return reply.send({
       session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
       ...(messages === undefined ? {} : { messages }),
