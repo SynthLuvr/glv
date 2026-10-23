@@ -76,19 +76,18 @@ const registerApiRoutes = (
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
+    // fields=meta omits the transcript entirely; after=<index> slices
+    // the store read itself, so a poll parses and serializes only the
+    // messages it has not seen (#339).
+    const messages = query.metaOnly
+      ? undefined
+      : ctx.sessions
+          .listMessages(id)
+          .slice(query.after ?? 0)
+          .map(parseMessage);
     return reply.send({
       session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
-      // fields=meta omits the transcript entirely; after=<index> slices
-      // the store read itself, so a poll parses and serializes only the
-      // messages it has not seen (#339).
-      ...(query.metaOnly
-        ? {}
-        : {
-            messages: ctx.sessions
-              .listMessages(id)
-              .slice(query.after ?? 0)
-              .map(parseMessage),
-          }),
+      ...(messages === undefined ? {} : { messages }),
     });
   });
 
