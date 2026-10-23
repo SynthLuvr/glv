@@ -293,7 +293,8 @@ const uiUpdateScrollButton = (): void => {
   const pane = document.getElementById("detail-pane");
   const btn = document.getElementById("scroll-latest");
   if (pane === null || btn === null) return;
-  btn.hidden = !nearBottom();
+  // Shown while reading history; hidden again at the tail.
+  btn.hidden = nearBottom();
 };
 
 // One rAF-coalesced pass reacts to every DOM change in the detail pane — htmx
