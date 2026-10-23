@@ -678,12 +678,11 @@ const spawnLauncher = (
     [binPath, ...args],
     withSubprocessCoverageEnv({ ...options, detached: !IS_WIN }),
   );
-  // Every serve boot joins the run-wide registry (issue #360): a worker
-  // that dies without running cleanup — OOM, shard cancellation, Ctrl-C
-  // — leaves its detached process group owned by nobody, and the global
-  // teardown sweep is what kills it. Only `serve`: CLI one-shots exit
-  // on their own. Unregistered on exit however the exit happens, so a
-  // healthy run's registry stays empty.
+  // Serve boots join the run-wide registry (issue #360): a worker dying
+  // without cleanup leaves its detached process group owned by nobody,
+  // and the global teardown sweep is what kills it. CLI one-shots exit
+  // on their own. Unregistered on exit, so a healthy run's registry
+  // stays empty.
   if (args[0] === "serve") {
     const pid = proc.pid;
     if (pid !== undefined) {
@@ -992,10 +991,13 @@ const startEnv = async (
   // restarted server whichever sibling mock was created last, and its
   // agent runs would silently run the sibling's scripted behaviour.
   const spawnEnv: Record<string, string> = { ...process.env, ...bootEnv };
-  const abortBoot = (err: unknown, stderr: string): never => {
+  const restoreMocks = (): void => {
     restoreAgentPath();
     for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
+  };
+  const abortBoot = (err: unknown, stderr: string): never => {
+    restoreMocks();
     rmScratch(scratchDir);
     throw new Error(
       `server never started: ${String(err)}; server stderr:\n${stderr}`,
@@ -1035,12 +1037,6 @@ const startEnv = async (
   };
   await bootServer();
 
-  const restoreMocks = (): void => {
-    restoreAgentPath();
-    for (const restore of restoreExtraMocks) restore();
-    restoreGhPath();
-  };
-
   const cookieName = sessionCookieName(dbs.authDb);
   let browser: Browser;
   let context: BrowserContext;
@@ -1060,8 +1056,8 @@ const startEnv = async (
     ]);
   } catch (err) {
     // Serve booted but the browser stack did not: nothing else owns the
-    // detached process group anymore, so tear the whole environment down
-    // instead of leaking it (issue #360).
+    // detached process group anymore, so tear the whole environment
+    // down instead of leaking it (issue #360).
     if (proc !== undefined) await stopProcess(proc);
     restoreMocks();
     rmScratch(scratchDir);
@@ -1069,12 +1065,10 @@ const startEnv = async (
   }
 
   const cleanup = async (): Promise<void> => {
-    // Kill serve before anything that can fail (issue #360): the
-    // detached process group is the one resource here that outlives the
-    // whole run when abandoned, so a hung or throwing Playwright
-    // teardown must never preempt the kill. The steps after are
-    // fail-soft in the other direction — each runs even when an earlier
-    // one threw.
+    // Kill serve before anything that can fail (issue #360): a hung or
+    // throwing Playwright teardown must never preempt the kill of the
+    // one resource that outlives the run when abandoned; every step
+    // after is fail-soft so each runs even when an earlier one threw.
     if (proc !== undefined) await stopProcess(proc);
     await closeQuietly("browser context", () => context.close());
     await closeQuietly("browser", () => browser.close());

@@ -81,8 +81,8 @@ describe("serve registry sweeps (issue #360)", () => {
       const oldDir = join(oldRoot, "run-previous");
       mkdirSync(oldDir, { recursive: true });
       writeFileSync(join(oldDir, "123456.jsonl"), `${JSON.stringify(entry)}\n`);
-      // minAgeMs 0 forces the entry to count as stale, exactly like a
-      // day-old leftover would under the production threshold.
+      // minAgeMs 0 forces the entry to count as stale, as a day-old
+      // leftover would under the production threshold.
       await sweepStaleServes({ root: oldRoot, minAgeMs: 0 });
       await waitForServerDown(env.baseUrl);
       // an emptied registry directory is reaped along with its serves

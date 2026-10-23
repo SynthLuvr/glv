@@ -12,44 +12,39 @@ import {
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { threadId } from "node:worker_threads";
+import { type } from "arktype";
+import { parseJson } from "../parse.js";
 
 // The run-wide registry of live `glv ... serve` processes the test
-// harness boots (issue #360): every detached serve spawn appends its
-// pid and exact argv to a per-worker file under a per-run directory
-// that lives OUTSIDE the per-test scratch dirs — those demonstrably do
-// not survive, while the servers do. Two sweeps consume the registry:
-//
-//   - vitest's global teardown kills everything this run left alive
-//     (worker OOM, shard cancel, Ctrl-C — any death that skipped the
-//     per-test cleanup), and
-//
-//   - global setup sweeps leftovers of PREVIOUS runs, so a SIGKILLed
-//     run self-heals on the next `pnpm test` instead of leaving a
-//     zombie fleet pinning ports and RAM for days.
-//
-// Killing is strictly identity-checked: a recorded pid is only signalled
-// when the live process's command line still matches the recorded argv,
-// so a recycled pid never gets an innocent process killed. Unverifiable
-// pids are left alone — a leak surviving one more sweep beats killing
-// something we cannot identify.
+// harness boots (issue #360): every detached serve spawn appends its pid
+// and exact argv to a per-worker file under a per-run directory that
+// lives OUTSIDE the per-test scratch dirs — those are removed by
+// cleanup while a leaked server outlives them. Vitest's global teardown
+// kills what this run left alive (any worker death that skipped
+// per-test cleanup — OOM, shard cancel, Ctrl-C), and global setup reaps
+// previous runs' leftovers so a SIGKILLed run self-heals on the next
+// test run. Killing is strictly identity-checked — a recorded pid is
+// only signalled while its command line still matches the recorded
+// argv — so a recycled pid never gets an innocent process killed;
+// unverifiable pids are left alone.
 
 const IS_WIN = platform() === "win32";
 
-// Shared root for every run's registry directory. Lives under the OS
-// temp dir next to the scratch dirs, but outside them: it must outlive
-// the per-test cleanup that removes those.
+// Shared root for every run's registry directory: under the OS temp dir
+// like the scratch dirs, but outside them — it must outlive the
+// per-test cleanup that removes those.
 const REGISTRY_ROOT = join(tmpdir(), "glv-serve-registry");
 
-// Set by vitest global setup (serve-registry-global.ts) and inherited
-// by the forked workers, which is how every worker's appends land in
-// the same run directory. Unset (pnpm shots, ad-hoc tsx drives of the
-// harness) falls back to a private ad-hoc directory.
+// Set by vitest global setup and inherited by the forked workers, which
+// is how every worker's appends land in the same run directory. Unset
+// (pnpm shots, ad-hoc harness drives) falls back to a private ad-hoc
+// directory.
 const RUN_DIR_ENV = "GLV_SERVE_REGISTRY_RUN_DIR";
 
 // A recorded serve younger than this is presumed to belong to a run
-// still in flight (a second checkout's suite, a concurrent `pnpm
-// shots`) and is spared by the boot sweep. One hour comfortably covers
-// the longest honest local run while still reaping the day-old zombie
+// still in flight (a second checkout's suite, a concurrent `pnpm shots`)
+// and is spared by the boot sweeps. One hour comfortably covers the
+// longest honest local run while still reaping the day-old zombie
 // fleets the issue describes.
 const STALE_SERVE_AGE_MS = 60 * 60 * 1000;
 
@@ -61,68 +56,23 @@ type ServeEntry = {
   readonly startedAt: number;
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Worker threads share one pid; a distinct file per (pid, thread) keeps
-// every writer sole owner of its file, which is what makes the
-// rewrite-on-unregister below race-free.
-const workerToken =
-  threadId === 0 ? `${process.pid}` : `${process.pid}-${threadId}`;
-
-let adhocDir: string | undefined;
-
-const runDir = (): string => {
-  const fromEnv = process.env[RUN_DIR_ENV];
-  if (fromEnv !== undefined && fromEnv !== "") {
-    mkdirSync(fromEnv, { recursive: true });
-    return fromEnv;
-  }
-  if (adhocDir === undefined) {
-    mkdirSync(REGISTRY_ROOT, { recursive: true });
-    adhocDir = mkdtempSync(join(REGISTRY_ROOT, "adhoc-"));
-  }
-  return adhocDir;
-};
-
-const registryFileFor = (dir: string): string =>
-  join(dir, `${workerToken}.jsonl`);
-
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === "string");
+const ServeEntryLine = type({
+  pid: "number",
+  argv: "string[]",
+  startedAt: "number",
+});
 
 // A torn or foreign line is skipped, never fatal — the registry guards
 // tests, it must not break them.
 const parseEntry = (line: string): ServeEntry | undefined => {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(line);
-  } catch {
-    return undefined;
-  }
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const candidate: object = raw;
-  if (
-    !("pid" in candidate) ||
-    typeof candidate.pid !== "number" ||
-    !("argv" in candidate) ||
-    !isStringArray(candidate.argv) ||
-    !("startedAt" in candidate) ||
-    typeof candidate.startedAt !== "number"
-  )
-    return undefined;
-  return {
-    pid: candidate.pid,
-    argv: candidate.argv,
-    startedAt: candidate.startedAt,
-  };
+  const parsed = parseJson(line, ServeEntryLine);
+  return parsed.ok ? parsed.data : undefined;
 };
 
 const readServeEntries = (file: string): ServeEntry[] => {
   try {
     return readFileSync(file, "utf8")
       .split("\n")
-      .filter((line) => line !== "")
       .flatMap((line) => {
         const entry = parseEntry(line);
         return entry === undefined ? [] : [entry];
@@ -141,6 +91,9 @@ const registryFilesIn = (dir: string): string[] => {
     return [];
   }
 };
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 // Signal 0 probes liveness: success (or EPERM — exists but not ours)
 // means alive; ESRCH means gone.
@@ -224,8 +177,17 @@ type ServeProcess = {
 // "glv"-prefixed name, and every flag pointing a database or store at
 // one therefore starts with this prefix. Production serve resolves its
 // databases under the platform data dir instead, which is what makes
-// the marker below unambiguous (issue #360's suggested orphan match).
+// the signature below unambiguous (issue #360's suggested orphan match).
 const SCRATCH_ARG_PREFIX = `${tmpdir()}${IS_WIN ? "\\" : "/"}glv`;
+
+// The unambiguous signature of a harness-booted serve: the merged
+// launcher, a `serve` verb, and at least one argument pointing under
+// the scratch area — production serve never does that.
+const isHarnessServeCommand = (command: string): boolean => {
+  if (!command.includes("glv.mjs")) return false;
+  if (!/(^|\s)serve(\s|$)/.test(command)) return false;
+  return command.split(/\s+/).some((arg) => arg.startsWith(SCRATCH_ARG_PREFIX));
+};
 
 // Parses "Thu Oct 23 09:30:12 2026" (ps lstart) or a CIM
 // "20261023093012.000000+120" timestamp into epoch ms.
@@ -244,11 +206,51 @@ const parseStartTime = (raw: string): number | undefined => {
   return Number.isNaN(psParsed) ? undefined : psParsed;
 };
 
-// Enumerates node processes whose command line looks like a harness
-// serve: `glv.mjs serve` with a database flag pointing under a
-// /tmp/glv-* scratch dir. POSIX: ps; Windows: PowerShell's CIM query.
-const listHarnessServeProcesses = (): ServeProcess[] => {
+const PS_LINE =
+  /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/;
+
+const collectServeProcesses = (
+  output: string | null,
+  parseLine: (line: string) => ServeProcess | undefined,
+): ServeProcess[] => {
   const found: ServeProcess[] = [];
+  if (output === null) return found;
+  for (const line of output.split("\n")) {
+    const proc = parseLine(line);
+    if (proc !== undefined) found.push(proc);
+  }
+  return found;
+};
+
+const parseCimLine = (line: string): ServeProcess | undefined => {
+  const parts = line.split("|");
+  if (parts.length < 3) return undefined;
+  const pid = Number(parts[0]);
+  const startedAtMs = parseStartTime(parts[1] ?? "");
+  if (!Number.isInteger(pid) || pid <= 0 || startedAtMs === undefined)
+    return undefined;
+  const command = parts.slice(2).join("|").replaceAll('"', "");
+  return isHarnessServeCommand(command)
+    ? { pid, command, startedAtMs }
+    : undefined;
+};
+
+const parsePsLine = (line: string): ServeProcess | undefined => {
+  const parsed = line.match(PS_LINE);
+  if (parsed === null) return undefined;
+  const pid = Number(parsed[1]);
+  const startedAtMs = parseStartTime((parsed[2] ?? "").trim());
+  if (!Number.isInteger(pid) || pid <= 0 || startedAtMs === undefined)
+    return undefined;
+  const command = parsed[3] ?? "";
+  return isHarnessServeCommand(command)
+    ? { pid, command, startedAtMs }
+    : undefined;
+};
+
+// Enumerates node processes whose command line looks like a harness
+// serve. POSIX: ps; Windows: PowerShell's CIM query.
+const listHarnessServeProcesses = (): ServeProcess[] => {
   if (IS_WIN) {
     const probed = spawnSync(
       "powershell.exe",
@@ -260,50 +262,48 @@ const listHarnessServeProcesses = (): ServeProcess[] => {
       ],
       { encoding: "utf8", timeout: 15_000 },
     );
-    if (probed.status !== 0 || probed.stdout === null) return found;
-    for (const line of probed.stdout.split("\n")) {
-      const parts = line.split("|");
-      if (parts.length < 3) continue;
-      const pid = Number(parts[0]);
-      const startedAtMs = parseStartTime(parts[1] ?? "");
-      if (!Number.isInteger(pid) || pid <= 0 || startedAtMs === undefined)
-        continue;
-      const command = parts.slice(2).join("|").replaceAll('"', "");
-      if (isHarnessServeCommand(command))
-        found.push({ pid, command, startedAtMs });
-    }
-    return found;
+    if (probed.status !== 0) return [];
+    return collectServeProcesses(probed.stdout, parseCimLine);
   }
   const listed = spawnSync(
     "ps",
     ["-ax", "-ww", "-o", "pid=", "-o", "lstart=", "-o", "command="],
     { encoding: "utf8", timeout: 15_000 },
   );
-  if (listed.status !== 0 || listed.stdout === null) return found;
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = line.match(
-      /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/,
-    );
-    if (parsed === null) continue;
-    const pid = Number(parsed[1]);
-    const startedAtMs = parseStartTime((parsed[2] ?? "").trim());
-    if (!Number.isInteger(pid) || pid <= 0 || startedAtMs === undefined)
-      continue;
-    const command = parsed[3] ?? "";
-    if (isHarnessServeCommand(command))
-      found.push({ pid, command, startedAtMs });
-  }
-  return found;
+  if (listed.status !== 0) return [];
+  return collectServeProcesses(listed.stdout, parsePsLine);
 };
 
-// The unambiguous signature of a harness-booted serve: the merged
-// launcher, a `serve` verb, and at least one argument pointing under
-// the scratch area — production serve never does that.
-const isHarnessServeCommand = (command: string): boolean => {
-  if (!command.includes("glv.mjs")) return false;
-  if (!/(^|\s)serve(\s|$)/.test(command)) return false;
-  return command.split(/\s+/).some((arg) => arg.startsWith(SCRATCH_ARG_PREFIX));
+// Worker threads share one pid; a distinct file per (pid, thread) keeps
+// every writer sole owner of its file, which is what makes the
+// rewrite-on-unregister below race-free.
+const workerToken =
+  threadId === 0 ? `${process.pid}` : `${process.pid}-${threadId}`;
+
+let adhocDir: string | undefined;
+
+const runDir = (): string => {
+  const fromEnv = process.env[RUN_DIR_ENV];
+  if (fromEnv !== undefined && fromEnv !== "") {
+    mkdirSync(fromEnv, { recursive: true });
+    return fromEnv;
+  }
+  if (adhocDir === undefined) {
+    mkdirSync(REGISTRY_ROOT, { recursive: true });
+    adhocDir = mkdtempSync(join(REGISTRY_ROOT, "adhoc-"));
+  }
+  return adhocDir;
 };
+
+const registryFileFor = (dir: string): string =>
+  join(dir, `${workerToken}.jsonl`);
+
+// This worker's recorded serves, live or not — what a mid-run teardown
+// sweep would act on.
+const currentServeEntries = (): ServeEntry[] =>
+  readServeEntries(registryFileFor(runDir()));
+
+const workerServeRegistryFile = (): string => registryFileFor(runDir());
 
 // Pids recorded as alive-and-recent somewhere in the registry — an
 // in-flight run's servers, which the orphan sweep must not touch even
@@ -385,14 +385,29 @@ const unregisterServeExit = (pid: number): void => {
   }
 };
 
-const serveRegistryRoot = (): string => REGISTRY_ROOT;
-
-// This worker's recorded serves, live or not — what a mid-run teardown
-// sweep would act on.
-const currentServeEntries = (): ServeEntry[] =>
-  readServeEntries(registryFileFor(runDir()));
-
-const workerServeRegistryFile = (): string => registryFileFor(runDir());
+// Kills a recorded serve when its pid is still alive and still the
+// recorded process; returns whether an identifiable process was left
+// alive (untouched, or surviving the kill), so the caller knows to keep
+// the registry directory.
+const reapServe = async (
+  entry: ServeEntry,
+  action: string,
+): Promise<boolean> => {
+  if (!isAlive(entry.pid)) return false;
+  if (!matchesRecordedArgv(entry.pid, entry.argv)) {
+    console.warn(
+      `serve-registry ${action}: pid ${entry.pid} is alive but no ` +
+        "longer the recorded serve — leaving it alone",
+    );
+    return true;
+  }
+  console.warn(
+    `serve-registry ${action}: killing serve pid ${entry.pid} ` +
+      `(registered ${Math.round((Date.now() - entry.startedAt) / 60000)} min ago)`,
+  );
+  await killServeGroup(entry.pid);
+  return isAlive(entry.pid);
+};
 
 type SweepOptions = {
   /** Recorded serves younger than this are spared (live runs). */
@@ -403,11 +418,28 @@ type SweepOptions = {
   readonly keepDir?: string;
 };
 
-// The boot-time sweep: reap what PREVIOUS runs left. For every other
-// run directory under the root, kill each recorded serve that is still
-// alive, identity-checked, and older than the threshold; drop the
-// directory when nothing alive remains in it. Young live entries (a
-// concurrently running second checkout) spare their directory.
+// One run directory of the boot sweep: kill each recorded serve still
+// alive, identity-checked, and older than the threshold. Young live
+// entries (a concurrently running second checkout) spare the directory.
+const reapStaleDir = async (
+  dir: string,
+  minAgeMs: number,
+): Promise<boolean> => {
+  let aliveLeft = false;
+  for (const file of registryFilesIn(dir))
+    for (const entry of readServeEntries(file)) {
+      if (isAlive(entry.pid) && Date.now() - entry.startedAt < minAgeMs) {
+        aliveLeft = true;
+        continue;
+      }
+      if (await reapServe(entry, "sweep")) aliveLeft = true;
+    }
+  return aliveLeft;
+};
+
+// The boot-time sweep: reap what PREVIOUS runs left — for every other
+// run directory under the root, kill its stale recorded serves and drop
+// the directory when nothing alive remains in it.
 const sweepStaleServes = async (options: SweepOptions = {}): Promise<void> => {
   const minAgeMs = options.minAgeMs ?? STALE_SERVE_AGE_MS;
   const root = options.root ?? REGISTRY_ROOT;
@@ -422,40 +454,16 @@ const sweepStaleServes = async (options: SweepOptions = {}): Promise<void> => {
   }
   for (const dir of dirs) {
     if (dir === keep) continue;
-    let aliveLeft = false;
-    for (const file of registryFilesIn(dir))
-      for (const entry of readServeEntries(file)) {
-        if (!isAlive(entry.pid)) continue;
-        if (Date.now() - entry.startedAt < minAgeMs) {
-          aliveLeft = true;
-          continue;
-        }
-        if (!matchesRecordedArgv(entry.pid, entry.argv)) {
-          console.warn(
-            `serve-registry sweep: pid ${entry.pid} is alive but no ` +
-              `longer the recorded serve — leaving it alone`,
-          );
-          continue;
-        }
-        console.warn(
-          `serve-registry sweep: killing leaked serve pid ${entry.pid} ` +
-            `(registered ${Math.round((Date.now() - entry.startedAt) / 60000)} min ago)`,
-        );
-        await killServeGroup(entry.pid);
-        if (isAlive(entry.pid)) aliveLeft = true;
-      }
-
+    const aliveLeft = await reapStaleDir(dir, minAgeMs);
     if (!aliveLeft) rmSync(dir, { recursive: true, force: true });
   }
 };
 
 // The boot-time orphan sweep: serve processes nobody registered — the
 // fleets leaked before the registry existed, exactly like the one the
-// issue found. Scans the process table for the unambiguous harness
-// signature (`glv.mjs serve` with a database flag under the scratch
-// area), skips anything a live run has registered, and group-kills the
-// rest once they are older than the threshold. Fail-open throughout:
-// a pid that cannot be identified or dated is never signalled.
+// issue found. Skips anything a live run has registered and group-kills
+// the rest once older than the threshold. Fail-open: a pid that cannot
+// be identified or dated is never signalled.
 const sweepOrphanedServes = async (
   options: SweepOptions = {},
 ): Promise<void> => {
@@ -471,6 +479,7 @@ const sweepOrphanedServes = async (
     await killServeGroup(candidate.pid);
   }
 };
+
 // The teardown sweep: everything recorded under the target (a single
 // worker file, or the whole run directory) is this run's, so age plays
 // no part — kill what is alive and identity-checked, then drop the
@@ -485,21 +494,8 @@ const killRegisteredServes = async (target: string): Promise<void> => {
   }
   const files = isDir ? registryFilesIn(target) : [target];
   for (const file of files)
-    for (const entry of readServeEntries(file)) {
-      if (!isAlive(entry.pid)) continue;
-      if (!matchesRecordedArgv(entry.pid, entry.argv)) {
-        console.warn(
-          `serve-registry teardown: pid ${entry.pid} is alive but no ` +
-            `longer the recorded serve — leaving it alone`,
-        );
-        continue;
-      }
-      console.warn(
-        `serve-registry teardown: killing leftover serve pid ${entry.pid}`,
-      );
-      await killServeGroup(entry.pid);
-    }
-
+    for (const entry of readServeEntries(file))
+      await reapServe(entry, "teardown");
   if (isDir) rmSync(target, { recursive: true, force: true });
 };
 
@@ -510,7 +506,6 @@ const createServeRunDir = (): string => {
   return mkdtempSync(join(REGISTRY_ROOT, "run-"));
 };
 
-export type { ServeEntry, ServeProcess, SweepOptions };
 export {
   createServeRunDir,
   currentServeEntries,
@@ -518,8 +513,6 @@ export {
   listHarnessServeProcesses,
   RUN_DIR_ENV,
   registerServeSpawn,
-  STALE_SERVE_AGE_MS,
-  serveRegistryRoot,
   sweepOrphanedServes,
   sweepStaleServes,
   unregisterServeExit,
