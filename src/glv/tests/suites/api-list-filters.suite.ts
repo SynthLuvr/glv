@@ -59,17 +59,27 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
     init: RequestInit = {},
   ): Promise<Response> => bearerFetch(client.env, path, client.token, init);
 
+  // The listing's query, spelled as parameters and encoded once by
+  // URLSearchParams — no call site hand-rolls an encodeURIComponent.
+  const listQuery = (params: Record<string, string>): string => {
+    const search = new URLSearchParams(params).toString();
+    return search === "" ? "" : `?${search}`;
+  };
+
   const listRows = async (
     client: ListClient,
-    query = "",
+    params: Record<string, string> = {},
   ): Promise<ListRow[]> => {
+    const query = listQuery(params);
     const res = await fetchApi(client, `/api/sessions${query}`);
     expect(res.status, query).toBe(200);
     return (await res.json()) as ListRow[];
   };
 
-  const listIds = async (client: ListClient, query = ""): Promise<string[]> =>
-    (await listRows(client, query)).map((row) => row.id);
+  const listIds = async (
+    client: ListClient,
+    params: Record<string, string> = {},
+  ): Promise<string[]> => (await listRows(client, params)).map((row) => row.id);
 
   const statusOf = async (client: ListClient, id: string): Promise<string> => {
     const res = await fetchApi(client, `/api/sessions/${id}?fields=meta`);
@@ -162,10 +172,7 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
     const dirA = (): string => join(main.env.scratchDir, "proj-a");
 
     it("keeps only sessions under the directory, boundary-aware", async () => {
-      const ids = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(dirA())}`,
-      );
+      const ids = await listIds(main, { working_dir: dirA() });
       expect(ids.sort()).toEqual(
         [fx.viewId("lf-a1"), fx.viewId("lf-a2"), fx.viewId("lf-a3")].sort(),
       );
@@ -176,20 +183,14 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
     });
 
     it("matches the directory itself but not the sibling sharing its stem", async () => {
-      const ids = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(
-          join(main.env.scratchDir, "proj-ab"),
-        )}`,
-      );
+      const ids = await listIds(main, {
+        working_dir: join(main.env.scratchDir, "proj-ab"),
+      });
       expect(ids).toEqual([fx.viewId("lf-ab1")]);
     });
 
     it("tolerates a trailing separator on the prefix", async () => {
-      const ids = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(`${dirA()}/`)}`,
-      );
+      const ids = await listIds(main, { working_dir: `${dirA()}/` });
       expect(ids.sort()).toEqual(
         [fx.viewId("lf-a1"), fx.viewId("lf-a2"), fx.viewId("lf-a3")].sort(),
       );
@@ -197,30 +198,25 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
 
     it("answers an empty list for a directory with no sessions", async () => {
       expect(
-        await listIds(
-          main,
-          `?working_dir=${encodeURIComponent(
-            join(main.env.scratchDir, "nowhere"),
-          )}`,
-        ),
+        await listIds(main, {
+          working_dir: join(main.env.scratchDir, "nowhere"),
+        }),
       ).toEqual([]);
     });
 
     it("windows the filtered order — pagination composes", async () => {
-      const all = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(dirA())}`,
-      );
+      const all = await listIds(main, { working_dir: dirA() });
       expect(all.length).toBe(3);
-      const firstPage = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(dirA())}&limit=2`,
-      );
+      const firstPage = await listIds(main, {
+        working_dir: dirA(),
+        limit: "2",
+      });
       expect(firstPage.length).toBe(2);
-      const secondPage = await listIds(
-        main,
-        `?working_dir=${encodeURIComponent(dirA())}&limit=2&offset=2`,
-      );
+      const secondPage = await listIds(main, {
+        working_dir: dirA(),
+        limit: "2",
+        offset: "2",
+      });
       expect(secondPage.length).toBe(1);
       // The two windows are disjoint and cover the filtered set — the
       // offset skipped filtered rows, not unfiltered ones.
@@ -231,7 +227,7 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
 
   describe("GET /api/sessions agent filter", () => {
     it("keeps the served agent's sessions and stamps the agent", async () => {
-      const rows = await listRows(main, `?agent=${fx.name}`);
+      const rows = await listRows(main, { agent: fx.name });
       expect(rows.length).toBe(5);
       for (const row of rows) expect(row.agent, row.id).toBe(fx.name);
       expect(rows.map((row) => row.id)).toContain(fx.viewId("lf-a1"));
@@ -246,18 +242,17 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
     });
 
     it("reads an empty agent as absent", async () => {
-      const rows = await listRows(main, "?agent=");
+      const rows = await listRows(main, { agent: "" });
       expect(rows.length).toBe(5);
     });
   });
 
   describe("GET /api/sessions active filter", () => {
     const runId = (): string => fx.viewId("lf-run");
-    const runDir = (): string =>
-      encodeURIComponent(join(slow.env.scratchDir, "run-here"));
+    const runDir = (): string => join(slow.env.scratchDir, "run-here");
 
     it("answers an empty list while nothing runs", async () => {
-      expect(await listIds(slow, "?active=true")).toEqual([]);
+      expect(await listIds(slow, { active: "true" })).toEqual([]);
     });
 
     it("lists the running session — and only it", async () => {
@@ -265,7 +260,7 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
       expect(accepted.status).toBe(200);
       expect(await waitForStatus(slow, runId(), ["running"])).toBe("running");
 
-      const rows = await listRows(slow, "?active=true");
+      const rows = await listRows(slow, { active: "true" });
       expect(rows.map((row) => row.id)).toEqual([runId()]);
       // The idle sibling exists but never ran, so it stays out.
       expect(rows.map((row) => row.id)).not.toContain(fx.viewId("lf-idle"));
@@ -274,20 +269,18 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
 
     it("composes with working_dir", async () => {
       expect(
-        await listIds(slow, `?active=true&working_dir=${runDir()}`),
+        await listIds(slow, { active: "true", working_dir: runDir() }),
       ).toEqual([runId()]);
       expect(
-        await listIds(
-          slow,
-          `?active=true&working_dir=${encodeURIComponent(
-            join(slow.env.scratchDir, "elsewhere"),
-          )}`,
-        ),
+        await listIds(slow, {
+          active: "true",
+          working_dir: join(slow.env.scratchDir, "elsewhere"),
+        }),
       ).toEqual([]);
     });
 
     it("composes with the agent filter", async () => {
-      expect(await listIds(slow, `?active=true&agent=${fx.name}`)).toEqual([
+      expect(await listIds(slow, { active: "true", agent: fx.name })).toEqual([
         runId(),
       ]);
     });
@@ -300,7 +293,7 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
       expect(await waitForStatus(slow, runId(), ["stopped"])).toBe("stopped");
       // A settled run is not active, even while its terminal handle
       // lingers in the registry.
-      expect(await listIds(slow, "?active=true")).toEqual([]);
+      expect(await listIds(slow, { active: "true" })).toEqual([]);
     });
   });
 
@@ -313,7 +306,7 @@ const runApiListFiltersSuite = (fx: FlavorFixture): void => {
     });
 
     it("reads active=false as absent", async () => {
-      const rows = await listRows(main, "?active=false");
+      const rows = await listRows(main, { active: "false" });
       expect(rows.length).toBe(5);
     });
 
