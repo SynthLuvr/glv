@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command } from "commander";
 import which from "which";
@@ -20,9 +21,15 @@ import { makeGooseLauncher } from "../goose/launch.js";
 import { makeGooseModelSource } from "../goose/models.js";
 import { gooseProfile } from "../goose/profile.js";
 import { makeGooseEphemeralAsk } from "../goose/suggest.js";
+import { openAuthDb } from "./auth/db.js";
 import * as cli from "./cli-shared.js";
 import { runList } from "./commands/list.js";
 import { type AgentServeSpec, runServe } from "./commands/serve.js";
+import {
+  runTokenCreate,
+  runTokenList,
+  runTokenRevoke,
+} from "./commands/token.js";
 import { runView } from "./commands/view.js";
 import { prefixedInvocation } from "./composite-launcher.js";
 import { createCompositeSessionStore } from "./composite-store.js";
@@ -361,5 +368,39 @@ program
       db.close();
     }
   });
+
+// The shell surface for the JSON API's bearer credential (issue #361):
+// the same auth database and create/revoke operations the browser's
+// /auth/tokens page uses — --auth-db and GLV_AUTH_DB keep working.
+const withTokenDb = (run: (db: DatabaseSync) => void): void => {
+  const db = openAuthDb(glvDbPaths(globalOpts()).authDbPath);
+  try {
+    run(db);
+  } finally {
+    db.close();
+  }
+};
+
+const tokenCmd = program
+  .command("token")
+  .description("Manage API tokens for the JSON API");
+
+tokenCmd
+  .command("create")
+  .description("Mint an API token (printed once; only its hash is stored)")
+  .requiredOption("--name <name>", "token label, 1–64 characters")
+  .action((opts: { name: string }) =>
+    withTokenDb((db) => runTokenCreate(db, opts.name)),
+  );
+
+tokenCmd
+  .command("list")
+  .description("List API tokens: id, name, created, last used, expires")
+  .action(() => withTokenDb(runTokenList));
+
+tokenCmd
+  .command("revoke <id>")
+  .description("Revoke an API token by its id (from `glv token list`)")
+  .action((id: string) => withTokenDb((db) => runTokenRevoke(db, id)));
 
 cli.runMain(program);
