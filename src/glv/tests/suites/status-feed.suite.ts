@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { FEED_JSON_EVENTS, parsePayload } from "../../sse-events.js";
 import {
   authedFetch,
   collectSse,
@@ -36,23 +37,53 @@ const runStatusFeedSuite = (fx: FlavorFixture): void => {
   });
 
   describe("global status feed", () => {
-    it("emits an empty sync and per-session names on connect", async () => {
+    it("emits a names snapshot, not rename events, on connect", async () => {
       const events = await collectSse(
         env,
         "/events/status",
-        (evs) =>
-          evs.some((e) => e.event === "sync") &&
-          evs.filter((e) => e.event === "rename").length >= 2,
+        (evs) => evs.some((e) => e.event === "names"),
         8000,
       );
       const sync = events.find((e) => e.event === "sync");
       expect(sync).toBeDefined();
       expect(JSON.parse(sync?.data ?? "[]")).toEqual([]);
-      const names = events
-        .filter((e) => e.event === "rename")
-        .map((e) => parseSseData(e.data).name);
+      // Every sidebar session's current name arrives on one `names`
+      // snapshot frame — "these are the names", not "each was renamed".
+      const snapshots = events.filter((e) => e.event === "names");
+      expect(snapshots.length).toBe(1);
+      const names = parsePayload(
+        FEED_JSON_EVENTS.names,
+        snapshots[0]?.data ?? "",
+      )?.map((entry) => entry.name);
       expect(names).toContain("Status One");
       expect(names).toContain("Status Two");
+      // `rename` is reserved for actual deltas, and nothing has changed.
+      expect(events.filter((e) => e.event === "rename")).toEqual([]);
+    });
+
+    it("reserves rename for an actual name change", async () => {
+      let renamed = false;
+      const events = await collectSse(
+        env,
+        "/events/status",
+        (evs) => evs.some((e) => e.event === "rename"),
+        15000,
+        (e) => {
+          // The rename must land after the stream has snapshotted the
+          // baseline names, or the new name is the baseline and no delta
+          // is ever emitted.
+          if (e.event === "names" && !renamed) {
+            renamed = true;
+            fx.renameSession(env, "sf-1", "Renamed One");
+          }
+        },
+      );
+      const renames = events.filter((e) => e.event === "rename");
+      expect(renames.length).toBe(1);
+      expect(parseSseData(renames[0]?.data ?? "{}")).toEqual({
+        sessionId: fx.viewId("sf-1"),
+        name: "Renamed One",
+      });
     });
 
     it("emits running then done deltas as a run starts and ends", async () => {
