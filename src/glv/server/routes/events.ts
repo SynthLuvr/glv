@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { feedEventData } from "../../sse-events.js";
+import { type FeedNamesPayload, feedEventData } from "../../sse-events.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import { emit, streamSse } from "../sse.js";
@@ -10,6 +10,11 @@ import { activeStatuses, nameDeltas, statusDeltas } from "../status.js";
 // it once it derives a title.
 const sidebarNames = (ctx: ServerContext): Map<string, string> =>
   new Map(ctx.sessions.listSessions(VIEWER_FILTER).map((s) => [s.id, s.name]));
+
+// The `names` snapshot's wire shape: the sidebar name map as one
+// {sessionId, name} entry per session.
+const namesSnapshot = (names: Map<string, string>): FeedNamesPayload =>
+  [...names].map(([sessionId, name]) => ({ sessionId, name }));
 
 // Streams status deltas for all active runs — not just the one the detail
 // pane watches — to drive the sidebar's running indicators and live session
@@ -39,16 +44,13 @@ const registerEventsRoutes = (
       // The connect handshake answers "what is", not "what changed": the
       // active set travels on `sync` and every sidebar name on one `names`
       // snapshot, so a third-party listener can render the baseline without
-      // pretending each entry was renamed. `rename` below stays reserved
-      // for real deltas.
+      // pretending each entry was renamed. `rename` stays reserved for the
+      // real deltas the poll loop emits.
       await emit(stream, "sync", feedEventData("sync", [...last.keys()]));
       await emit(
         stream,
         "names",
-        feedEventData(
-          "names",
-          [...lastNames].map(([sessionId, name]) => ({ sessionId, name })),
-        ),
+        feedEventData("names", namesSnapshot(lastNames)),
       );
 
       while (!stream.aborted && polls < ctx.maxStatusPolls) {
