@@ -1,12 +1,13 @@
 import { ArkErrors, type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
+import { type ParsedMessage, parseMessage, toIso } from "../format/index.js";
 import { decodeModelValue, encodeAgentModelValue } from "../models.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
-import type { SessionRow } from "../sessions.js";
+import type { MessageRow, SessionRow } from "../sessions.js";
 import { type LastRunRecord, LastRunState } from "../stop-notices.js";
 import type { AgentRuntime } from "./context.js";
 import { isRecord, queryValue } from "./http.js";
@@ -85,7 +86,8 @@ const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
 // the notice wording — and "failed" crashed (non-zero exit, signal
 // death, startup-watchdog kill), reason carrying the verdict with its
 // stderr tail. reason appears only where there is something to explain;
-// ended_at is the settle instant (ISO UTC). The state union is the
+// ended_at is the settle instant (ISO 8601 UTC with an explicit
+// designator — toApiTimestamp). The state union is the
 // sidecar's own LastRunState schema, so the wire contract cannot drift
 // from what the recorder writes.
 const ApiLastRun = type({
@@ -96,10 +98,21 @@ const ApiLastRun = type({
 
 type ApiLastRunData = typeof ApiLastRun.infer;
 
+// The wire's one timestamp spelling (#346): storage is consistently UTC
+// but not consistently marked — goose's agent-owned SQLite rows and the
+// viewer-owned sidecars spell SQLite's datetime('now')/CURRENT_TIMESTAMP
+// ("2026-10-21 18:22:36", no zone), while claude transcripts and the
+// glv-owned recorders spell full ISO instants. Every timestamp the API
+// serializes passes through here, so the wire never asks a reader to
+// guess: each value is ISO 8601 with an explicit zone designator (Z).
+// Idempotent — a value that already names its zone is honoured as
+// written.
+const toApiTimestamp = (timestamp: string): string => toIso(timestamp);
+
 const toApiLastRun = (record: LastRunRecord): ApiLastRunData => ({
   state: record.state,
   ...(record.reason === undefined ? {} : { reason: record.reason }),
-  ended_at: record.endedAt,
+  ended_at: toApiTimestamp(record.endedAt),
 });
 
 // The optional last_run field, spelled once for every shape that
@@ -125,7 +138,9 @@ type ApiRunStatusData = typeof ApiRunStatus.infer;
 // store's SessionRow plus `status`, the run state toApiSession projects
 // from the runner's registry — the same vocabulary the session's SSE
 // stream emits — and `last_run`, the persisted verdict of the most
-// recent settled run (omitted until one has settled).
+// recent settled run (omitted until one has settled). The timestamp
+// fields re-spell to the wire's zoned form (toApiTimestamp); everything
+// else passes through as the store spelled it.
 const ApiSession = type({
   id: "string",
   "agent?": "string",
@@ -161,8 +176,20 @@ const toApiSession = (
   lastRun?: LastRunRecord,
 ): ApiSessionData => ({
   ...row,
+  created_at: toApiTimestamp(row.created_at),
+  updated_at: toApiTimestamp(row.updated_at),
+  archived_at:
+    row.archived_at === null ? null : toApiTimestamp(row.archived_at),
   status: getHandle(runner, row.id)?.status ?? "idle",
   ...lastRunField(lastRun),
+});
+
+// One transcript message as the detail endpoint spells it: parseMessage's
+// parse with the row's timestamp re-spelled to the wire's zoned form —
+// the only field where the store's spelling and the wire's differ.
+const toApiMessage = (row: MessageRow): ParsedMessage => ({
+  ...parseMessage(row),
+  timestamp: toApiTimestamp(row.timestamp),
 });
 
 // The body GET /api/sessions/:id/wait answers with (#341): the run's
@@ -243,7 +270,7 @@ const ApiCronJob = type({
   "model?": "string",
   /** Follow-on prompts, in run order. */
   "follow_ups?": "string[]",
-  /** The most recent occurrence served, ISO UTC. */
+  /** The most recent occurrence served (ISO 8601 UTC, zoned). */
   "last_fired_at?": "string",
   "next_runs?": "string[]",
 });
@@ -296,7 +323,7 @@ const toApiCronJob = (
       : {}),
     ...(job.lastFiredAt === undefined
       ? {}
-      : { last_fired_at: job.lastFiredAt }),
+      : { last_fired_at: toApiTimestamp(job.lastFiredAt) }),
     ...(job.enabled && parsed.ok
       ? {
           next_runs: parsed.info.next
@@ -308,7 +335,8 @@ const toApiCronJob = (
 };
 
 // One saved prompt exactly as the prompt endpoints return it (the
-// store's SavedPrompt, snake_cased like ApiSession). `body` rides
+// store's SavedPrompt, snake_cased like ApiSession; the timestamp
+// fields re-spell to the wire's zoned form, toApiTimestamp). `body` rides
 // along verbatim — placeholders like {{repo}} included, unsubstituted —
 // exactly as submitted; `last_used_at` stays null until the prompt has
 // been run.
@@ -333,9 +361,10 @@ const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   category: prompt.category,
   sort_order: prompt.sortOrder,
   usage_count: prompt.usageCount,
-  last_used_at: prompt.lastUsedAt,
-  created_at: prompt.createdAt,
-  updated_at: prompt.updatedAt,
+  last_used_at:
+    prompt.lastUsedAt === null ? null : toApiTimestamp(prompt.lastUsedAt),
+  created_at: toApiTimestamp(prompt.createdAt),
+  updated_at: toApiTimestamp(prompt.updatedAt),
 });
 
 // --- The model catalogue (#342) ---------------------------------------
@@ -698,7 +727,11 @@ const openApiDocument = (
         "listed, run on demand, and deleted over JSON at /api/cron. The " +
         "combined model catalogue behind the New Session picker is " +
         "readable at /api/models — each model's pin is the exact " +
-        "spelling the model fields accept.",
+        "spelling the model fields accept. Every timestamp on the wire " +
+        "— created_at, updated_at, archived_at, message timestamps, " +
+        "last_run.ended_at, last_fired_at — is ISO 8601 UTC with an " +
+        "explicit zone designator (2026-10-21T18:22:36Z): storage is " +
+        "UTC, and the wire says so.",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -1033,7 +1066,8 @@ const openApiDocument = (
                 messages: {
                   type: "array",
                   description:
-                    "Parsed transcript messages, oldest first. Omitted " +
+                    "Parsed transcript messages, oldest first (each " +
+                    "timestamp ISO 8601 UTC, zoned). Omitted " +
                     "under fields=meta; starting at the after index when " +
                     "given.",
                 },
@@ -1167,6 +1201,7 @@ export {
   parseWaitQuery,
   toApiAgentModels,
   toApiCronJob,
+  toApiMessage,
   toApiPrompt,
   toApiSession,
   toApiWaitResult,
