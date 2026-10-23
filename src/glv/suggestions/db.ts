@@ -58,14 +58,6 @@ const readSetting = (db: DatabaseSync, key: string): string | undefined => {
   }
 };
 
-const writeSetting = (db: DatabaseSync, key: string, value: string): void => {
-  db.prepare(
-    "INSERT INTO settings (key, value) VALUES (?, ?) " +
-      "ON CONFLICT(key) DO UPDATE SET value = excluded.value, " +
-      "updated_at = datetime('now')",
-  ).run(key, value);
-};
-
 // The pinned model for suggestion asks, in the combined picker spelling
 // ("<agent>:<model value>", e.g. "claude:claude:haiku"); undefined when
 // unset or blank, so every agent answers on its own default. Read fresh
@@ -73,10 +65,6 @@ const writeSetting = (db: DatabaseSync, key: string, value: string): void => {
 const getSuggestionModel = (db: DatabaseSync): string | undefined => {
   const value = readSetting(db, MODEL_KEY)?.trim();
   return value === undefined || value === "" ? undefined : value;
-};
-
-const setSuggestionModel = (db: DatabaseSync, value: string): void => {
-  writeSetting(db, MODEL_KEY, value.trim());
 };
 
 // One stored suggestion set: the turn it answers (fingerprint) and the
@@ -140,5 +128,4 @@ export {
   putSuggestions,
   readRow,
   resolveSuggestionsDbPath,
-  setSuggestionModel,
 };

@@ -1,5 +1,5 @@
 import { renderToString } from "hono/jsx/dom/server";
-import type { ParsedMessage, ToolRun } from "../../glv/format/index.js";
+import type { ParsedMessage, ToolRun } from "../format/index.js";
 import {
   fmtRelative,
   fmtStamp,
@@ -11,19 +11,22 @@ import {
   toolRunText,
   truncateMiddle,
   unsafeForkCutoffs,
-} from "../../glv/format/index.js";
-import { detectPrUrl } from "../../glv/pr.js";
-import type { RunHandle } from "../../glv/runner/index.js";
-import type { SessionRow } from "../../glv/sessions.js";
-import { ACTION_SENTENCE, splitStopNotice } from "../../glv/stop-reason.js";
-import { CronChip, PrChip } from "../../glv/views/chips.js";
-import { LocationButton, LocationFields } from "../../glv/views/location.js";
-import { SessionTitleWrap } from "../../glv/views/Rename.js";
-import { PaperclipButton, UploadFields } from "../../glv/views/uploads.js";
-import { CopyableText, hasContent, MessageView } from "./message-blocks.js";
+} from "../format/index.js";
+import { detectPrUrl } from "../pr.js";
+import type { RunHandle } from "../runner/index.js";
+import type { SessionRow } from "../sessions.js";
+import { ACTION_SENTENCE, splitStopNotice } from "../stop-reason.js";
+import { CronChip, PrChip } from "./chips.js";
+import { LocationButton, LocationFields } from "./location.js";
+import {
+  CopyableText,
+  CopyCheckIcons,
+  hasContent,
+  MessageView,
+} from "./message-blocks.js";
+import { SessionTitleWrap } from "./Rename.js";
+import { PaperclipButton, UploadFields } from "./uploads.js";
 
-// Icons are toggled via the `.copied` class that ui.ts's delegated handler
-// adds after a clipboard write — no per-button wiring needed.
 const MetaCopyButton = ({ value, label }: { value: string; label: string }) => {
   const action = `Copy ${label.toLowerCase()}`;
   return (
@@ -34,33 +37,7 @@ const MetaCopyButton = ({ value, label }: { value: string; label: string }) => {
       title={action}
       aria-label={action}
     >
-      <svg
-        class="icon-copy"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-      </svg>
-      <svg
-        class="icon-check"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M20 6 9 17l-5-5" />
-      </svg>
+      <CopyCheckIcons />
     </button>
   );
 };

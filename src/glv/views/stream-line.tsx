@@ -1,11 +1,7 @@
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
-import {
-  MESSAGE_TAGS,
-  messageKind,
-  parseContent,
-} from "../../glv/format/index.js";
-import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
+import { MESSAGE_TAGS, messageKind, parseContent } from "../format/index.js";
+import { isRecord, JsonObject, parseJson } from "../parse.js";
 import type { StreamEnvelope } from "../profile.js";
 import { itemBlock } from "./message-blocks.js";
 

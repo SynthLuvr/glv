@@ -131,15 +131,13 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
   ): void => {
     inFlight.add(sessionId);
     void (async () => {
-      let prompts: string[] | undefined;
-      try {
-        prompts = await requestSuggestions(askSpec, agentId, turn.context);
-      } catch {
-        prompts = undefined;
-      } finally {
-        inFlight.delete(sessionId);
-        storeOutcome(sessionId, turn.turnKey, prompts ?? []);
-      }
+      const prompts = await requestSuggestions(
+        askSpec,
+        agentId,
+        turn.context,
+      ).catch(() => undefined);
+      inFlight.delete(sessionId);
+      storeOutcome(sessionId, turn.turnKey, prompts ?? []);
     })();
   };
 

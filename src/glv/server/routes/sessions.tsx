@@ -8,7 +8,7 @@ import type { SessionRow } from "../../sessions.js";
 import { clearStopNotice } from "../../stop-notices.js";
 import { forgetSession } from "../../suggestions/db.js";
 import { currentSuggestions } from "../../suggestions/view.js";
-import { ModelSelect } from "../../views/new-session.js";
+import { ModelSelect } from "../../views/model-picker.js";
 import { SessionTitleWrap } from "../../views/Rename.js";
 import { SessionList } from "../../views/Sidebar.js";
 import { PromptBar, Transcript } from "../../views/transcript.js";
