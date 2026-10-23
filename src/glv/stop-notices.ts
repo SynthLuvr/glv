@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "./db-path.js";
+import { isRecord } from "./parse.js";
 import type { RunHandle } from "./runner/index.js";
 
 // Viewer-owned sidecar recording why a session's last run stopped early,
@@ -80,12 +81,16 @@ const readStopNotice = (
     const row = db
       .prepare("SELECT message FROM stop_notices WHERE session_id = ?")
       .get(sessionId);
-    if (typeof row !== "object" || row === null) return undefined;
-    const { message } = row;
-    return typeof message === "string" ? message : undefined;
+    return noticeMessage(row);
   } catch {
     return undefined;
   }
+};
+
+const noticeMessage = (row: unknown): string | undefined => {
+  if (!isRecord(row)) return undefined;
+  const { message } = row;
+  return typeof message === "string" ? message : undefined;
 };
 
 const clearStopNotice = (db: DatabaseSync, sessionId: string): void => {
@@ -200,16 +205,23 @@ const readLastRun = (
 const readLastRuns = (db: DatabaseSync): Map<string, LastRunRecord> => {
   const out = new Map<string, LastRunRecord>();
   try {
-    const rows = db.prepare(`SELECT ${LAST_RUN_COLS} FROM last_run`).all();
-    for (const row of rows) {
-      const entry = lastRunRowToRecord(row);
-      if (entry !== undefined) out.set(entry.sessionId, entry.record);
-    }
+    addVerdictRows(db, out);
   } catch {
     // A missing table (a pre-verdict database opened read-only) reads
     // as no verdicts at all.
   }
   return out;
+};
+
+const addVerdictRows = (
+  db: DatabaseSync,
+  out: Map<string, LastRunRecord>,
+): void => {
+  const rows = db.prepare(`SELECT ${LAST_RUN_COLS} FROM last_run`).all();
+  for (const row of rows) {
+    const entry = lastRunRowToRecord(row);
+    if (entry !== undefined) out.set(entry.sessionId, entry.record);
+  }
 };
 
 export type { LastRunOutcome, LastRunRecord };

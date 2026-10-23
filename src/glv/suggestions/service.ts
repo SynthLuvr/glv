@@ -103,6 +103,23 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
     }
   };
 
+  // The ask and its reply parse in one step; any failure reads as no
+  // suggestions.
+  const requestSuggestions = async (
+    askSpec: EphemeralAsk,
+    agentId: string,
+    context: string,
+  ): Promise<string[] | undefined> => {
+    const result = await runEphemeralAsk(
+      askSpec,
+      buildAskPrompt(askSpec.name, context),
+      deps.scratchDir,
+      askTimeoutMs(),
+      deps.modelFor(agentId),
+    );
+    return result === undefined ? undefined : parseSuggestionReply(result.text);
+  };
+
   // One ask, end to end. Fire-and-forget by design: no caller ever waits
   // on it, and every failure path ends in a stored empty marker under
   // the answered turn's key.
@@ -116,15 +133,7 @@ const createSuggestionService = (deps: ServiceDeps): SuggestionService => {
     void (async () => {
       let prompts: string[] | undefined;
       try {
-        const result = await runEphemeralAsk(
-          askSpec,
-          buildAskPrompt(askSpec.name, turn.context),
-          deps.scratchDir,
-          askTimeoutMs(),
-          deps.modelFor(agentId),
-        );
-        prompts =
-          result === undefined ? undefined : parseSuggestionReply(result.text);
+        prompts = await requestSuggestions(askSpec, agentId, turn.context);
       } catch {
         prompts = undefined;
       } finally {

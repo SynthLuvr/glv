@@ -67,18 +67,27 @@ const runCeremony = async (
   showError(result.error ?? "Authentication failed. Please try again.");
 };
 
+// The button's data-action, defaulting to "login"; an unknown value is
+// reported and reads as no action.
+const resolveAction = (
+  button: HTMLElement,
+): typeof Action.infer | undefined => {
+  const action = Action(button.dataset.action ?? "login");
+  if (action instanceof type.errors) {
+    showError("Unknown authentication action.");
+    return undefined;
+  }
+  return action;
+};
+
 const init = (): void => {
   const button = document.getElementById("passkey-button");
   if (button === null) return;
   button.addEventListener("click", async () => {
     setBusy(true);
     try {
-      const action = Action(button.dataset.action ?? "login");
-      if (action instanceof type.errors) {
-        showError("Unknown authentication action.");
-        return;
-      }
-      await runCeremony(action);
+      const action = resolveAction(button);
+      if (action !== undefined) await runCeremony(action);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       showError(detail);

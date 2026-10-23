@@ -165,19 +165,23 @@ const ClientDataView = type({ clientDataJSON: "string" });
 
 const ChallengeView = type({ challenge: "string" });
 
-const challengeFromResponse = (response: unknown): string | undefined => {
-  const view = ClientDataView(response);
-  if (view instanceof type.errors) return undefined;
+// Malformed client data JSON is debug-logged and reads as no challenge.
+const decodeClientData = (clientDataJSON: string): unknown => {
   try {
-    const decoded = Buffer.from(view.clientDataJSON, "base64url").toString(
-      "utf8",
+    return JSON.parse(
+      Buffer.from(clientDataJSON, "base64url").toString("utf8"),
     );
-    const data = ChallengeView(JSON.parse(decoded));
-    return data instanceof type.errors ? undefined : data.challenge;
   } catch (err) {
     console.debug("[glv:auth]", err);
     return undefined;
   }
+};
+
+const challengeFromResponse = (response: unknown): string | undefined => {
+  const view = ClientDataView(response);
+  if (view instanceof type.errors) return undefined;
+  const data = ChallengeView(decodeClientData(view.clientDataJSON));
+  return data instanceof type.errors ? undefined : data.challenge;
 };
 
 type VerifiedCredential = {
@@ -229,15 +233,16 @@ const makeAuthService = (
         verified: false,
         error: "No registration in progress. Please reload and try again.",
       };
+    const args = {
+      response: body,
+      expectedChallenge,
+      expectedOrigin: rp.expectedOrigin,
+      expectedRPID: rp.rpID,
+      requireUserVerification: false,
+    };
     let verification;
     try {
-      verification = await verifyRegistrationResponse({
-        response: body,
-        expectedChallenge,
-        expectedOrigin: rp.expectedOrigin,
-        expectedRPID: rp.rpID,
-        requireUserVerification: false,
-      });
+      verification = await verifyRegistrationResponse(args);
     } catch (err) {
       return { verified: false, error: errorMessage(err) };
     }
@@ -328,21 +333,22 @@ const makeAuthService = (
     const cred = getCredential(authDb, body.id);
     if (cred === undefined)
       return { verified: false, error: "Unknown credential." };
+    const args = {
+      response: body,
+      expectedChallenge,
+      expectedOrigin: rp.expectedOrigin,
+      expectedRPID: rp.rpID,
+      credential: {
+        id: cred.id,
+        publicKey: cred.publicKey,
+        counter: cred.counter,
+        transports: toTransports(cred.transports),
+      },
+      requireUserVerification: false,
+    };
     let verification;
     try {
-      verification = await verifyAuthenticationResponse({
-        response: body,
-        expectedChallenge,
-        expectedOrigin: rp.expectedOrigin,
-        expectedRPID: rp.rpID,
-        credential: {
-          id: cred.id,
-          publicKey: cred.publicKey,
-          counter: cred.counter,
-          transports: toTransports(cred.transports),
-        },
-        requireUserVerification: false,
-      });
+      verification = await verifyAuthenticationResponse(args);
     } catch (err) {
       return { verified: false, error: errorMessage(err) };
     }
