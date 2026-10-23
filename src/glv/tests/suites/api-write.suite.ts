@@ -23,6 +23,9 @@ type IdRow = { id: string };
 
 type RunAccepted = { id: string; status: string };
 
+// The naming fields of a session row read back from the detail endpoint.
+type NamedRow = { name: string; user_set_name: number | null };
+
 const runApiWriteSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let token = "";
@@ -187,6 +190,43 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       expect(res.status).toBe(201);
       const body = (await res.json()) as RunAccepted;
       expect(body.status).toBe("started");
+    });
+
+    it("names the session at creation when name is submitted (#343)", async () => {
+      const res = await postCreate({
+        prompt: "api write: named run",
+        working_dir: env.scratchDir,
+        // Surrounding whitespace must not survive into the stored name.
+        name: "  issue #57 fix  ",
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as RunAccepted;
+      const detail = await bearerFetch(env, `/api/sessions/${body.id}`, token);
+      expect(detail.status).toBe(200);
+      const row = ((await detail.json()) as { session: NamedRow }).session;
+      // The viewer-managed rename metadata the browser's rename writes:
+      // the name itself plus the user-set flag that outranks the
+      // agent's own mid-run retitling.
+      expect(row.name).toBe("issue #57 fix");
+      expect(row.user_set_name).toBe(1);
+      await waitForStdin("api write: named run");
+    });
+
+    it("leaves naming to the agent when name is blank (#343)", async () => {
+      const res = await postCreate({
+        prompt: "api write: unnamed run",
+        working_dir: env.scratchDir,
+        name: "   ",
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as RunAccepted;
+      const detail = await bearerFetch(env, `/api/sessions/${body.id}`, token);
+      expect(detail.status).toBe(200);
+      const row = ((await detail.json()) as { session: NamedRow }).session;
+      // Blank writes nothing: no user-set flag, so derived naming (the
+      // agent's own title or the first prompt) stays in charge.
+      expect(row.user_set_name).not.toBe(1);
+      await waitForStdin("api write: unnamed run");
     });
 
     it("rejects an empty prompt with 422", async () => {

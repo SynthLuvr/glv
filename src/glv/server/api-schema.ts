@@ -181,9 +181,13 @@ const toApiWaitResult = (
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
 // file parts are documented beside these — toJsonSchema cannot express
-// OpenAPI's binary format.
+// OpenAPI's binary format. `name`, when submitted non-blank, names the
+// session at creation through the same viewer-managed rename the
+// browser's rename action performs; absent or blank leaves naming to
+// the agent's own mid-run retitling.
 const ApiStartSessionForm = type({
   prompt: "string",
+  "name?": "string",
   "working_dir?": "string",
   "session_mode?": "'temp'",
   "model?": "string",
@@ -854,11 +858,16 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
           description:
             "Multipart form. Either working_dir (an existing directory " +
             "on the server) or session_mode=temp (glv creates and owns a " +
-            "scratch directory). Returns once the session exists — not " +
-            "when the run completes; park on GET /api/sessions/{id}/wait " +
-            "(it resolves with the run's verdict), poll GET /api/" +
-            "sessions/{id} (its session.status names the run's state), " +
-            "or subscribe to the session's SSE feed for progress.",
+            "scratch directory). An optional non-blank name field labels " +
+            "the session at creation — the same viewer-managed rename the " +
+            "browser's rename action performs — so a driven loop can tell " +
+            "its runs apart before any agent-derived title arrives; " +
+            "absent or blank keeps auto-derived naming. Returns once the " +
+            "session exists — not when the run completes; park on GET " +
+            "/api/sessions/{id}/wait (it resolves with the run's " +
+            "verdict), poll GET /api/sessions/{id} (its session.status " +
+            "names the run's state), or subscribe to the session's SSE " +
+            "feed for progress.",
           requestBody: multipartRequest("StartSessionForm"),
           responses: {
             "201": {

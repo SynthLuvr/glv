@@ -162,6 +162,9 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     const prompt = bodyField("prompt");
     const promptId = bodyField("prompt_id");
+    // #343: a non-blank name labels the run at creation instead of
+    // waiting for the agent's own mid-run retitling.
+    const name = bodyField("name").trim();
     const sessionMode = bodyField("session_mode");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
@@ -280,7 +283,17 @@ const createSessionOperations = (ctx: ServerContext) => {
       removeAttemptDirs();
       return fail(result.status, result.error);
     }
-    const { sessionId, session } = result;
+    const { sessionId, session: established } = result;
+
+    // A submitted name rides the same viewer-managed rename the
+    // browser's rename action performs, so a driven loop can tell its
+    // runs apart at creation. Blank or absent names write nothing —
+    // derived naming stays in charge exactly as before.
+    if (name !== "") ctx.sessions.renameSession(sessionId, name);
+    const session =
+      name === ""
+        ? established
+        : (ctx.sessions.getSession(sessionId) ?? established);
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.
