@@ -404,6 +404,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "/api/cron",
         "/api/cron/{name}",
         "/api/cron/{name}/run",
+        "/api/models",
         "/api/prompts",
         "/api/prompts/{id}",
         "/api/sessions",
@@ -417,6 +418,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "bearerAuth",
       );
       expect(Object.keys(doc.components.schemas).sort()).toEqual([
+        "AgentModels",
         "CronDeleted",
         "CronJob",
         "CronJobForm",
@@ -426,6 +428,9 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "ForkAccepted",
         "ForkForm",
         "LastRun",
+        "ModelEntry",
+        "ModelSelection",
+        "Models",
         "Prompt",
         "RunAccepted",
         "Session",
