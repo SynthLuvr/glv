@@ -137,22 +137,23 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
       // exactly the incremental fetch the issue asks for — until the
       // answer carries the reply the poller has not seen.
       const deadline = Date.now() + 30000;
-      let fresh: ParsedMessage[] = [];
       for (;;) {
-        fresh = (await readBody(`?after=${SEED_TEXTS.length}`)).messages ?? [];
-        if (fresh.map(textOf).join(" ").includes(fx.mockReply)) break;
+        const fresh =
+          (await readBody(`?after=${SEED_TEXTS.length}`)).messages ?? [];
+        const joined = fresh.map(textOf).join(" ");
+        if (joined.includes(fx.mockReply)) {
+          // The seed stays behind the window; only the run's answer rides.
+          expect(joined).toContain(fx.mockReply);
+          for (const seed of SEED_TEXTS) expect(joined).not.toContain(seed);
+          return;
+        }
         if (Date.now() > deadline)
           throw new Error(
-            `the run's reply never landed past the cursor; last window: ` +
+            "the run's reply never landed past the cursor; last window: " +
               JSON.stringify(fresh.map(textOf)),
           );
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
-
-      // The seed stays behind the window; only the run's answer rides.
-      expect(fresh.map(textOf).join(" ")).toContain(fx.mockReply);
-      for (const text of SEED_TEXTS)
-        expect(fresh.map(textOf).join(" ")).not.toContain(text);
     });
   });
 
