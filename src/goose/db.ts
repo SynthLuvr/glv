@@ -126,6 +126,9 @@ const listSessions = (
   db: DatabaseSync,
   filter: SessionFilter,
 ): SessionRow[] => {
+  // An empty id restriction can match nothing, and SQLite spells no
+  // empty IN list — answer before the query is even built.
+  if (filter.ids !== undefined && filter.ids.size === 0) return [];
   const clauses: string[] = [];
   const params: (string | number)[] = [];
   if (filter.type !== "all") {
@@ -133,6 +136,24 @@ const listSessions = (
     params.push(filter.type);
   }
   if (!filter.includeArchived) clauses.push("archived_at IS NULL");
+  // The working_dir restriction (#344), mirroring isUnderWorkingDirPrefix
+  // in the shared model: the row equals the prefix, or its first
+  // prefix-length-plus-one characters are the prefix plus a separator.
+  // substr, not LIKE, so no wildcard in a directory name can widen the
+  // match; length(?) counts the prefix in SQLite's own characters, and
+  // both separator spellings count, like the JS rule.
+  if (filter.workingDirPrefix !== undefined) {
+    const prefix = filter.workingDirPrefix;
+    clauses.push(
+      "(working_dir = ? OR substr(working_dir, 1, length(?) + 1) IN (?, ?))",
+    );
+    params.push(prefix, prefix, `${prefix}/`, `${prefix}\\`);
+  }
+  if (filter.ids !== undefined) {
+    const ids = [...filter.ids];
+    clauses.push(`id IN (${placeholders(ids.length)})`);
+    params.push(...ids);
+  }
   const parts = [`SELECT ${SESSION_COLS} FROM sessions`];
   if (clauses.length > 0) parts.push(`WHERE ${clauses.join(" AND ")}`);
   parts.push("ORDER BY updated_at DESC", "LIMIT ? OFFSET ?");

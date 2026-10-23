@@ -505,11 +505,31 @@ indistinguishable from you) — mint a token instead.
 
 ### Driving runs over the API
 
-The listing paginates: `?limit=` (1–500, default 100) and `?offset=`
-window the newest-first order. The detail read has its own windows:
-`?fields=meta` answers with the session row and no transcript, and
-`?after=<message-index>` answers with only the messages from that
-transcript index on — see [Polling without re-downloading the
+The listing paginates and filters server-side: `?limit=` (1–500, default
+100) and `?offset=` window the newest-first order, and three filters
+narrow it — every one applies *before* the window, so pagination pages
+the filtered order exactly as it pages the unfiltered one:
+
+- `?working_dir=<dir>` — only sessions in that directory: a row’s
+  `working_dir` equals it or lies underneath it. A trailing slash is
+  tolerated; a sibling directory that merely shares a stem does not
+  match.
+- `?agent=goose|claude` — only one served agent’s sessions (anything
+  else answers `422` naming the agents this server serves).
+- `?active=true` — only sessions with a live run (`queued` or
+  `running`), the same set the `/events/status` sync snapshot carries.
+  `false` reads as absent.
+
+``` bash
+# what is running in this repo right now
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  "http://localhost:3457/api/sessions?working_dir=$PWD&active=true"
+```
+
+The detail read has its own windows: `?fields=meta` answers with the
+session row and no transcript, and `?after=<message-index>` answers with
+only the messages from that transcript index on — see [Polling without
+re-downloading the
 transcript](#polling-without-re-downloading-the-transcript) below.
 
 The non-destructive mutations the browser can perform are JSON endpoints

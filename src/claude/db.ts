@@ -17,7 +17,7 @@ import type {
   SessionRow,
   SessionStore,
 } from "../glv/sessions.js";
-import { forkSessionName } from "../glv/sessions.js";
+import { forkSessionName, isUnderWorkingDirPrefix } from "../glv/sessions.js";
 import {
   deleteTranscript,
   findTranscript,
@@ -95,13 +95,25 @@ const listSessions = (
     const metaRow = meta.get(file.id);
     const archived = metaRow !== undefined && metaRow.archived_at !== null;
     if (archived && !filter.includeArchived) continue;
+    // The id restriction (#344) skips before the transcript parse —
+    // walking the file list is cheap, parsing every transcript is not.
+    if (filter.ids !== undefined && !filter.ids.has(file.id)) continue;
+    const row = sessionRow(file, metaRow, parseTranscriptFile(file.path));
+    // working_dir lives on the transcript, so the prefix check needs the
+    // parsed row — but still lands before the window bookkeeping below.
+    if (
+      filter.workingDirPrefix !== undefined &&
+      !isUnderWorkingDirPrefix(row.working_dir, filter.workingDirPrefix)
+    )
+      continue;
     // Offset applies to the filtered order, mirroring SQL semantics:
-    // archived rows are excluded first, then the window skips forward.
+    // archived and filtered-out rows are excluded first, then the
+    // window skips forward.
     if (skipped < offset) {
       skipped++;
       continue;
     }
-    out.push(sessionRow(file, metaRow, parseTranscriptFile(file.path)));
+    out.push(row);
   }
   return out;
 };

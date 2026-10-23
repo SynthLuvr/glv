@@ -22,6 +22,7 @@ import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+import { activeSessionIds } from "../status.js";
 import { waitForRunSettle } from "../wait.js";
 
 // The last-run reads behind both session read endpoints. The sidecar is
@@ -56,8 +57,12 @@ const registerApiRoutes = (
   ops: SessionOperations,
   cronOps: CronOperations,
 ): void => {
+  // The agent ids the listing's agent filter accepts — every agent this
+  // server serves, the same set the model catalogue slices.
+  const servedAgents = ctx.agents.map((runtime) => runtime.id);
+
   app.get("/api/sessions", (request, reply) => {
-    const query = parseListQuery(request, VIEWER_FILTER.limit);
+    const query = parseListQuery(request, VIEWER_FILTER.limit, servedAgents);
     if (!query.ok) return reply.status(422).send({ error: query.error });
     const lastRuns = lastRunsFor(ctx);
     return reply.send(
@@ -66,6 +71,17 @@ const registerApiRoutes = (
           ...VIEWER_FILTER,
           limit: query.limit,
           offset: query.offset,
+          // The listing filters (#344): each narrows the store's
+          // newest-first order before the limit/offset window, so
+          // pagination pages the filtered result. active=true passes the
+          // runner's live session set as the id restriction — the same
+          // source the /events/status sync snapshot reads, so "what is
+          // running" is one cheap filtered listing.
+          ...(query.agent === undefined ? {} : { agent: query.agent }),
+          ...(query.workingDirPrefix === undefined
+            ? {}
+            : { workingDirPrefix: query.workingDirPrefix }),
+          ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
         })
         .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
     );
@@ -299,7 +315,7 @@ const registerApiRoutes = (
   // Behind auth like every other /api path — the document names no
   // secrets, but this is a single-owner app and the gate is uniform.
   app.get("/api/openapi.json", (_request, reply) =>
-    reply.send(openApiDocument(VIEWER_FILTER.limit)),
+    reply.send(openApiDocument(VIEWER_FILTER.limit, servedAgents)),
   );
 };
 

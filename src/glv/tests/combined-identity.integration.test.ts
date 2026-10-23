@@ -249,6 +249,52 @@ describe("combined viewer — model catalogue API", () => {
   });
 });
 
+describe("combined viewer — listing filters", () => {
+  it("filters the merged listing to one agent (#344)", async () => {
+    seedGooseSessions(env, [
+      { id: "filtered-g", name: "Filtered Goose", workingDir: workDir("fg") },
+    ]);
+    seedClaudeSessions(env, [
+      { id: "filtered-c", name: "Filtered Claude", workingDir: workDir("fc") },
+    ]);
+
+    const goose = await authedFetch(env, "/api/sessions?agent=goose");
+    expect(goose.status).toBe(200);
+    const gooseRows = (await goose.json()) as { id: string; agent: string }[];
+    expect(gooseRows.length).toBeGreaterThan(0);
+    for (const row of gooseRows) expect(row.agent, row.id).toBe("goose");
+    expect(gooseRows.map((row) => row.id)).toContain("goose:filtered-g");
+    expect(gooseRows.map((row) => row.id)).not.toContain("claude:filtered-c");
+
+    const claude = await authedFetch(env, "/api/sessions?agent=claude");
+    expect(claude.status).toBe(200);
+    const claudeRows = (await claude.json()) as { id: string; agent: string }[];
+    for (const row of claudeRows) expect(row.agent, row.id).toBe("claude");
+    expect(claudeRows.map((row) => row.id)).toContain("claude:filtered-c");
+    expect(claudeRows.map((row) => row.id)).not.toContain("goose:filtered-g");
+  });
+
+  it("windows the agent-filtered order, not the merged one", async () => {
+    // limit/offset page the agent's own newest-first order — the whole
+    // point of filtering before the window (the other agent's rows must
+    // not eat the window).
+    const all = (await (
+      await authedFetch(env, "/api/sessions?agent=claude&limit=500")
+    ).json()) as { id: string }[];
+    const claudeIds = all.map((row) => row.id);
+    expect(claudeIds.length).toBeGreaterThanOrEqual(2);
+    const first = (await (
+      await authedFetch(env, "/api/sessions?agent=claude&limit=1")
+    ).json()) as { id: string }[];
+    const rest = (await (
+      await authedFetch(env, "/api/sessions?agent=claude&limit=500&offset=1")
+    ).json()) as { id: string }[];
+    expect(first.length).toBe(1);
+    expect(first[0]?.id).toBe(claudeIds[0]);
+    expect(rest.map((row) => row.id)).toEqual(claudeIds.slice(1));
+  });
+});
+
 describe("combined viewer — mutations dispatch by prefix", () => {
   it("deletes only the named agent's session", async () => {
     const res = await authedFetch(env, "/sessions/goose:alpha/delete", {
