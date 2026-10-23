@@ -17,12 +17,20 @@ const WINDOWS_EXCLUDED_SUITES = [
 // from ts-canon's vitest preset; everything below is repo-specific and
 // replaces the preset defaults wholesale.
 const config = vitestPreset({
-  // Probes headless rasterization once per run and, on hosts where the
-  // headless compositor cannot produce a frame (WSL2 + recent Chrome),
+  // The serve registry setup runs first: it reaps any `serve` processes
+  // previous runs leaked (see serve-registry-global.ts), then mints the
+  // run-wide registry directory the harness records every spawned serve
+  // into, so the teardown can group-kill anything a dead worker left
+  // behind (issue #360). The display setup probes headless
+  // rasterization once per run and, on hosts where the headless
+  // compositor cannot produce a frame (WSL2 + recent Chrome),
   // provisions one Xvfb display that the harness's browser launches run
   // headed under — browser-facing suites otherwise hang there on
   // Playwright actionability checks. See display-global-setup.ts.
-  globalSetup: ["src/glv/tests/display-global-setup.ts"],
+  globalSetup: [
+    "src/glv/tests/serve-registry-global.ts",
+    "src/glv/tests/display-global-setup.ts",
+  ],
   include: [
     "src/glv/tests/**/*.test.ts",
     "src/goose/tests/**/*.test.ts",
