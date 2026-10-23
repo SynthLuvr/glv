@@ -10,15 +10,18 @@ import {
   openApiDocument,
   parseDetailQuery,
   parseListQuery,
+  parseWaitQuery,
   toApiCronJob,
   toApiPrompt,
   toApiSession,
+  toApiWaitResult,
 } from "../api-schema.js";
 import type { ServerContext } from "../context.js";
 import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+import { waitForRunSettle } from "../wait.js";
 
 // The last-run reads behind both session read endpoints. The sidecar is
 // optional (app-less tests), and its absence reads as "no verdict
@@ -90,6 +93,46 @@ const registerApiRoutes = (
       ...(messages === undefined ? {} : { messages }),
     });
   });
+
+  // The wait primitive (#341): one request parks while the session's run
+  // is queued or running and answers the moment it settles — or at once
+  // when none is active — so an orchestration script sequences runs
+  // without holding its own poll loop. 200 answers a resolved wait (the
+  // terminal status plus the persisted last_run verdict); 202 answers a
+  // deadline that passed with the run still live, so the caller simply
+  // calls again.
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/wait",
+    async (request, reply) => {
+      const query = parseWaitQuery(request);
+      if (!query.ok) return reply.status(422).send({ error: query.error });
+      const id = request.params.id;
+      if (ctx.sessions.getSession(id) === undefined)
+        return reply.status(404).send({ error: `No session ${id}.` });
+      // The same probe the poll loop ticks, named once so the pre-send
+      // guard asks exactly the question the loop was asking.
+      const isCancelled = (): boolean => request.raw.destroyed;
+      const outcome = await waitForRunSettle(
+        ctx.runner,
+        id,
+        query.timeout,
+        isCancelled,
+      );
+      // A caller that hung up mid-wait has nobody left to answer;
+      // Fastify skips the send for an aborted request, so a plain
+      // return is safe.
+      if (isCancelled()) return;
+      return reply
+        .status(outcome.settled ? 200 : 202)
+        .send(
+          toApiWaitResult(
+            id,
+            outcome.status,
+            outcome.settled ? lastRunFor(ctx, id) : undefined,
+          ),
+        );
+    },
+  );
 
   app.post("/api/sessions", async (request, reply) => {
     const body = await parseForm(request);

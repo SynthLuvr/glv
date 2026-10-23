@@ -172,9 +172,13 @@ type Runner = {
   readonly onRunEnd: RunEndObserver | undefined;
 };
 
-// Notified each time a run settles — every process exit, and once more
-// per chained prompt. The server uses it to persist stop notices beyond
-// the handle's short terminal retention; the runner stays storage-free.
+// Notified each time a run settles — every process exit, once more
+// per chained prompt, and at the instant a stop request flips a live
+// handle terminal (a stopped run's exit re-notifies with the same
+// verdict, so the observer is never kept waiting past the process's
+// death). The server uses it to persist stop notices and last-run
+// verdicts beyond the handle's short terminal retention; the runner
+// stays storage-free.
 type RunEndObserver = (handle: RunHandle) => void;
 
 export type {

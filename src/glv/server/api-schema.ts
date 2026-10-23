@@ -55,6 +55,15 @@ const ApiDetailQuery = type({
   "after?": ApiDetailAfter,
 });
 
+// The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
+// may park before answering 202 with the still-active status. Bounded so
+// no script pins a connection open indefinitely; 0 reads as "answer now"
+// — a single snapshot, no park.
+const MAX_WAIT_MS = 300_000;
+const DEFAULT_WAIT_MS = 30_000;
+const ApiWaitTimeout = type(`0 <= number.integer <= ${MAX_WAIT_MS}`);
+const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
+
 // How the last run ended, persisted in the stop-notices sidecar beyond
 // the registry window: "finished" settled cleanly, "stopped" was stopped
 // by the user, "stopped_early" was refused service by the provider (a
@@ -79,6 +88,25 @@ const toApiLastRun = (record: LastRunRecord): ApiLastRunData => ({
   ended_at: record.endedAt,
 });
 
+// The optional last_run field, spelled once for every shape that
+// carries the verdict (the session rows, the wait answers), so the
+// wire can never present it two ways.
+const lastRunField = (
+  lastRun: LastRunRecord | undefined,
+): { last_run?: ApiLastRunData } =>
+  lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) };
+
+// The run-state vocabulary every status field speaks: the live states
+// from the runner's registry ("queued"/"running"), its terminal states
+// ("completed"/"stopped"/"error", visible for the short window a
+// settled run lingers in the registry), and "idle" once no handle
+// remains. One definition, so the session rows and the wait endpoint's
+// answers cannot drift apart.
+const ApiRunStatus = type(
+  "'queued'|'running'|'completed'|'stopped'|'error'|'idle'",
+);
+type ApiRunStatusData = typeof ApiRunStatus.infer;
+
 // One session row as the listing and detail endpoints return it: the
 // store's SessionRow plus `status`, the run state toApiSession projects
 // from the runner's registry — the same vocabulary the session's SSE
@@ -98,7 +126,7 @@ const ApiSession = type({
   provider_name: "string | null",
   model: "string | null",
   archived_at: "string | null",
-  status: "'queued'|'running'|'completed'|'stopped'|'error'|'idle'",
+  status: ApiRunStatus,
   "last_run?": ApiLastRun,
 });
 
@@ -120,7 +148,33 @@ const toApiSession = (
 ): ApiSessionData => ({
   ...row,
   status: getHandle(runner, row.id)?.status ?? "idle",
-  ...(lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) }),
+  ...lastRunField(lastRun),
+});
+
+// The body GET /api/sessions/:id/wait answers with (#341): the run's
+// status — a terminal state or idle when the wait resolved (200), the
+// live queued/running state when the caller's deadline hit first (202) —
+// plus last_run, the same persisted verdict the session rows carry, so
+// one call says not just that the run ended but how (a clean finish vs a
+// provider refusal vs a crash). The verdict rides resolved answers only:
+// on a deadline hit the described run has not ended.
+const ApiWaitResult = type({
+  id: "string",
+  status: ApiRunStatus,
+  "last_run?": ApiLastRun,
+});
+
+type ApiWaitResultData = typeof ApiWaitResult.infer;
+
+// Beside its schema, like toApiSession, so the wire shape cannot drift.
+const toApiWaitResult = (
+  id: string,
+  status: ApiRunStatusData,
+  lastRun?: LastRunRecord,
+): ApiWaitResultData => ({
+  id,
+  status,
+  ...lastRunField(lastRun),
 });
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
@@ -357,6 +411,18 @@ const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
   return { ok: true, metaOnly: fields.value, after: after.value };
 };
 
+// The wait endpoint's deadline: absent (or empty) reads as the default,
+// the park bound scripts re-dial to cover runs longer than one deadline.
+type WaitQuery =
+  | { readonly ok: true; readonly timeout: number }
+  | { readonly ok: false; readonly error: string };
+
+const parseWaitQuery = (request: FastifyRequest): WaitQuery => {
+  const timeout = parseNumberQuery(request, "timeout", ApiWaitTimeout);
+  if (!timeout.ok) return timeout;
+  return { ok: true, timeout: timeout.value ?? DEFAULT_WAIT_MS };
+};
+
 // --- The OpenAPI document, generated from the schemas above -----------
 
 // toJsonSchema decorates its output with a $schema keyword; components
@@ -473,7 +539,9 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         "(Authorization: Bearer glv_at_…); GET also accepts the browser " +
         "session cookie, POST accepts the bearer only. Live monitoring " +
         "rides the Server-Sent Events routes /sessions/{id}/events and " +
-        "/events/status with the same bearer header. Destructive " +
+        "/events/status with the same bearer header, and sequencing — " +
+        "waiting for a run to settle — rides the long-poll GET /api/" +
+        "sessions/{id}/wait. Destructive " +
         "operations (archive, delete) and every management surface " +
         "(tokens, groups) stay in the browser; the saved-prompt library " +
         "is readable over JSON at /api/prompts (creating and editing " +
@@ -492,6 +560,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         ForkAccepted: component(ApiForkAccepted),
         Session: component(ApiSession),
         LastRun: component(ApiLastRun),
+        WaitResult: component(ApiWaitResult),
         StartSessionForm: {
           ...component(ApiStartSessionForm),
           properties: {
@@ -683,9 +752,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "Multipart form. Either working_dir (an existing directory " +
             "on the server) or session_mode=temp (glv creates and owns a " +
             "scratch directory). Returns once the session exists — not " +
-            "when the run completes; poll GET /api/sessions/{id} (its " +
-            "session.status names the run's state) or subscribe to the " +
-            "session's SSE feed for progress.",
+            "when the run completes; park on GET /api/sessions/{id}/wait " +
+            "(it resolves with the run's verdict), poll GET /api/" +
+            "sessions/{id} (its session.status names the run's state), " +
+            "or subscribe to the session's SSE feed for progress.",
           requestBody: multipartRequest("StartSessionForm"),
           responses: {
             "201": {
@@ -769,6 +839,50 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
           },
         },
       },
+      "/api/sessions/{id}/wait": {
+        get: {
+          summary: "Wait for the session's run to settle",
+          description:
+            "The long-poll that replaces a script's poll loop: the " +
+            "answer parks while the session's run is queued or running " +
+            "and resolves the moment it settles — or immediately when " +
+            "no run is active. A resolved wait (200) carries the " +
+            "terminal status — completed/stopped/error, or idle when no " +
+            "run is registered — and the same last_run verdict the " +
+            "session rows carry, so the answer says not just that the " +
+            "run ended but how: a clean finish, a stop by request, a " +
+            "provider refusal, or a crash. When the deadline passes " +
+            "with the run still active the answer is 202 with the live " +
+            "status — call again to keep waiting, which is how a script " +
+            "covers runs longer than any single deadline. timeout is " +
+            `milliseconds (0–${MAX_WAIT_MS}, default ${DEFAULT_WAIT_MS}); ` +
+            "0 answers with a single snapshot, no park.",
+          parameters: [
+            sessionParam(),
+            queryParam(
+              "timeout",
+              properties(ApiWaitQuery).timeout,
+              `Deadline in milliseconds (0–${MAX_WAIT_MS}; default ` +
+                `${DEFAULT_WAIT_MS}). On expiry the answer is 202 with ` +
+                "the live status.",
+            ),
+          ],
+          responses: {
+            "200": jsonResponse(
+              "The wait resolved: the run settled, or none was active.",
+              ref("WaitResult"),
+            ),
+            "202": jsonResponse(
+              "The deadline passed with the run still active; the body " +
+                "names the live status. Call again to keep waiting.",
+              ref("WaitResult"),
+            ),
+            "404": jsonResponse("Unknown session id.", ref("Error")),
+            "422": jsonResponse("Invalid timeout.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
       "/api/sessions/{id}/prompt": {
         post: {
           summary: "Queue a follow-up prompt",
@@ -839,7 +953,9 @@ export {
   openApiDocument,
   parseDetailQuery,
   parseListQuery,
+  parseWaitQuery,
   toApiCronJob,
   toApiPrompt,
   toApiSession,
+  toApiWaitResult,
 };

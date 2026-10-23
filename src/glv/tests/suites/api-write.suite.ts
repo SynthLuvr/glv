@@ -411,6 +411,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "/api/sessions/{id}/fork",
         "/api/sessions/{id}/prompt",
         "/api/sessions/{id}/stop",
+        "/api/sessions/{id}/wait",
       ]);
       expect(Object.keys(doc.components.securitySchemes)).toContain(
         "bearerAuth",
@@ -430,6 +431,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "Session",
         "StartSessionForm",
         "StopAccepted",
+        "WaitResult",
       ]);
     });
 
