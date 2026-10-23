@@ -108,6 +108,15 @@ const runApiModelsSuite = (
     return body.agents;
   };
 
+  // The first agent slice, guaranteed to offer at least one model —
+  // what both submit round-trips below pin from.
+  const firstOfferingAgent = async (): Promise<CatalogueAgent> => {
+    const first = (await catalogue())[0];
+    if (first === undefined || first.models.length === 0)
+      throw new Error("the catalogue offered no model to pin");
+    return first;
+  };
+
   describe("GET /api/models", () => {
     it("rejects an unauthenticated request with 401 JSON", async () => {
       const res = await fetch(`${env.baseUrl}/api/models`, {
@@ -129,9 +138,7 @@ const runApiModelsSuite = (
     });
 
     it("accepts a pin discovered from the catalogue at submit time", async () => {
-      const first = (await catalogue())[0];
-      if (first === undefined || first.models.length === 0)
-        throw new Error("the catalogue offered no model to pin");
+      const first = await firstOfferingAgent();
       const res = await bearerFetch(env, "/api/sessions", token, {
         method: "POST",
         body: new URLSearchParams({
@@ -146,9 +153,7 @@ const runApiModelsSuite = (
     });
 
     it("still rejects a pin the catalogue does not offer", async () => {
-      const first = (await catalogue())[0];
-      if (first === undefined || first.models.length === 0)
-        throw new Error("the catalogue offered no provider to spoof");
+      const first = await firstOfferingAgent();
       const res = await bearerFetch(env, "/api/sessions", token, {
         method: "POST",
         body: new URLSearchParams({
