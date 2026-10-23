@@ -728,10 +728,58 @@ coordinate share the browser sends), and `uploads` (files, appended to
 the prompt as readable paths). Validation failures answer
 `422 {"error":"…"}`; unknown ids `404`. A pinned `model` is checked
 against the agent’s live model catalogue — the same list the picker
-shows — so a typo answers `422` instead of starting a run that dies at
-agent startup. The check reads a short-lived cache the picker keeps
-warm; a pinned submit with the cache cold (typical for scripts and CI)
-pays a one-off catalogue fetch first, usually a second or two.
+shows, and the one `GET /api/models` (below) returns — so a typo answers
+`422` instead of starting a run that dies at agent startup. The check
+reads a short-lived cache the picker keeps warm; a pinned submit with
+the cache cold (typical for scripts and CI) pays a one-off catalogue
+fetch first, usually a second or two.
+
+#### Discovering and validating model pins
+
+`GET /api/models` returns the catalogue the New Session picker renders
+from — one entry per served agent, every model it offers with its
+provider, id, and label, plus the agent’s own default selection. Each
+model carries a `pin`: the exact `agent:provider:model` spelling the
+`model` field of `POST /api/sessions` (and the scheduled-run forms)
+accepts. Discover a pin here, submit it there, and it validates — no
+screen-scraping or reimplementing the agent’s catalogue protocol:
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/models
+```
+
+``` json
+{
+  "agents": [
+    {
+      "agent": "goose",
+      "label": "goose",
+      "default": { "provider": "zai", "model": "glm-5.3" },
+      "models": [
+        {
+          "provider": "zai",
+          "model": "glm-5.3",
+          "label": "GLM-5.3",
+          "pin": "goose:zai:glm-5.3"
+        },
+        {
+          "provider": "zai",
+          "model": "glm-5.1",
+          "label": "GLM-5.1",
+          "pin": "goose:zai:glm-5.1"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`default` is omitted when the agent has no readable default of its own.
+Resolving a catalogue may spawn the agent binary (goose answers over
+ACP), so the first call after boot — or after the short-lived cache
+lapses — can take a second or two; the endpoint shares the picker’s
+cache, so a call also warms it for submit-time pin validation.
 
 `GET /api/openapi.json` serves the machine-readable contract — generated
 from the same schemas the routes validate with, so it cannot drift —

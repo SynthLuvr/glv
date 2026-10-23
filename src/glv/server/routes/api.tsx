@@ -11,6 +11,7 @@ import {
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,
+  toApiAgentModels,
   toApiCronJob,
   toApiPrompt,
   toApiSession,
@@ -133,6 +134,20 @@ const registerApiRoutes = (
         );
     },
   );
+
+  // The combined model catalogue behind the New Session picker (#342):
+  // one entry per served agent — every model it offers, plus its own
+  // default — each model carrying `pin`, the exact spelling the `model`
+  // field of the submit endpoints accepts, so scripts can discover and
+  // validate pins without screen-scraping or reimplementing the agent's
+  // catalogue protocol (goose answers over ACP). Resolving a catalogue
+  // may spawn the agent binary, so a cold call can take seconds, exactly
+  // like the picker fragment; the read rides the same cache the picker
+  // and submit-time validation share, so it warms both.
+  app.get("/api/models", async (_request, reply) => {
+    const agents = await Promise.all(ctx.agents.map(toApiAgentModels));
+    return reply.send({ agents });
+  });
 
   app.post("/api/sessions", async (request, reply) => {
     const body = await parseForm(request);
