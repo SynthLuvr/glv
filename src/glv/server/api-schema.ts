@@ -1,18 +1,14 @@
 import { ArkErrors, type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
-import {
-  decodeModelValue,
-  encodeAgentModelValue,
-  type ModelChoice,
-  type ModelSelection,
-} from "../models.js";
+import { decodeModelValue, encodeAgentModelValue } from "../models.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
 import type { SessionRow } from "../sessions.js";
 import { type LastRunRecord, LastRunState } from "../stop-notices.js";
+import type { AgentRuntime } from "./context.js";
 import { isRecord, queryValue } from "./http.js";
 
 // The ArkType contracts at the JSON API's boundaries. Every shape the
@@ -363,35 +359,40 @@ type ApiAgentModelsData = typeof ApiAgentModels.infer;
 // picker order.
 const ApiModels = type({ agents: ApiAgentModels.array() });
 
-// Beside its schema, like toApiSession, so the wire shape cannot drift.
-// The pin is derived here — the combined spelling of the choice's own
-// form value — so the answer names, by construction, exactly what a
-// submit of the same value would decode. A choice whose value does not
-// decode to a provider/model pair (no flavour offers one today) has no
-// spellable pin and is skipped.
-const toApiAgentModels = (
-  agent: string,
-  label: string,
-  defaultSelection: ModelSelection | undefined,
-  choices: readonly ModelChoice[],
-): ApiAgentModelsData => ({
-  agent,
-  label,
-  ...(defaultSelection === undefined ? {} : { default: defaultSelection }),
-  models: choices.flatMap((choice) => {
-    const selection = decodeModelValue(choice.value);
-    return selection === undefined
-      ? []
-      : [
-          {
-            provider: choice.provider,
-            model: selection.model,
-            label: choice.label,
-            pin: encodeAgentModelValue(agent, choice.value),
-          },
-        ];
-  }),
-});
+// Beside its schema, like toApiSession, so the wire shape cannot drift —
+// and it takes the runtime whole, like toApiSession takes the runner, so
+// a caller cannot transpose the slice's two string fields. The pin is
+// derived here — the combined spelling of the choice's own form value —
+// so the answer names, by construction, exactly what a submit of the
+// same value would decode. A choice whose value does not decode to a
+// provider/model pair (no flavour offers one today) has no spellable
+// pin and is skipped. Resolving a catalogue may spawn the agent binary,
+// so this is async; an agent with no model source contributes no
+// default and an empty catalogue.
+const toApiAgentModels = async (
+  runtime: AgentRuntime,
+): Promise<ApiAgentModelsData> => {
+  const defaultSelection = runtime.models?.defaultSelection();
+  const choices = (await runtime.models?.choices()) ?? [];
+  return {
+    agent: runtime.id,
+    label: runtime.profile.agentName,
+    ...(defaultSelection === undefined ? {} : { default: defaultSelection }),
+    models: choices.flatMap((choice) => {
+      const selection = decodeModelValue(choice.value);
+      return selection === undefined
+        ? []
+        : [
+            {
+              provider: choice.provider,
+              model: selection.model,
+              label: choice.label,
+              pin: encodeAgentModelValue(runtime.id, choice.value),
+            },
+          ];
+    }),
+  };
+};
 
 type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }

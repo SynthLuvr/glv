@@ -145,16 +145,7 @@ const registerApiRoutes = (
   // like the picker fragment; the read rides the same cache the picker
   // and submit-time validation share, so it warms both.
   app.get("/api/models", async (_request, reply) => {
-    const agents = await Promise.all(
-      ctx.agents.map(async (runtime) =>
-        toApiAgentModels(
-          runtime.id,
-          runtime.profile.agentName,
-          runtime.models?.defaultSelection(),
-          (await runtime.models?.choices()) ?? [],
-        ),
-      ),
-    );
+    const agents = await Promise.all(ctx.agents.map(toApiAgentModels));
     return reply.send({ agents });
   });
 
