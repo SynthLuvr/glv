@@ -109,16 +109,19 @@ const registerApiRoutes = (
       const id = request.params.id;
       if (ctx.sessions.getSession(id) === undefined)
         return reply.status(404).send({ error: `No session ${id}.` });
+      // The same probe the poll loop ticks, named once so the pre-send
+      // guard asks exactly the question the loop was asking.
+      const isCancelled = (): boolean => request.raw.destroyed;
       const outcome = await waitForRunSettle(
         ctx.runner,
         id,
         query.timeout,
-        () => request.raw.destroyed,
+        isCancelled,
       );
       // A caller that hung up mid-wait has nobody left to answer;
       // Fastify skips the send for an aborted request, so a plain
       // return is safe.
-      if (request.raw.destroyed) return;
+      if (isCancelled()) return;
       return reply
         .status(outcome.settled ? 200 : 202)
         .send(
