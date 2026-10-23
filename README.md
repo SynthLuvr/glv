@@ -541,9 +541,10 @@ The answer is `201` with a `Location` header and
 `{"id":"goose:…","status":"started"}`. `"queued"` means the prompt is
 waiting — behind the concurrency pool for a new session, behind the
 session’s active run for a follow-up. Creation returns once the session
-exists, not when the run completes: poll the detail endpoint, or watch
-the run live over the session’s SSE feed (the same feed the browser
-uses, and the same bearer header):
+exists, not when the run completes: park on the wait endpoint (below —
+it resolves the moment the run settles), poll the detail endpoint, or
+watch the run live over the session’s SSE feed (the same feed the
+browser uses, and the same bearer header):
 
 ``` bash
 curl -sS -H "Authorization: Bearer glv_at_…" \
@@ -571,7 +572,9 @@ short window a settled run lingers in the runner’s registry (about 30
 s), then reads `idle` — poll at a steady cadence to catch how a run
 ended. `idle` means no run is registered at all; a hung run stays
 `running`, exactly like a healthy one — only the SSE feed shows live
-progress. To wait for a run from a script:
+progress. To wait for a run from a script, prefer the wait endpoint
+below; the poll loop is the fallback for environments that cannot hold a
+connection open:
 
 ``` bash
 while :; do
@@ -579,6 +582,48 @@ while :; do
     "http://localhost:3457/api/sessions/goose:abc123?fields=meta" \
     | jq -r .session.status)
   case "$s" in running | queued) sleep 2 ;; *) break ;; esac
+done
+```
+
+#### Waiting for a run without polling
+
+`GET /api/sessions/:id/wait?timeout=<ms>` is the wait primitive: the
+request parks while the session’s run is queued or running and answers
+the moment it settles — or immediately when no run is active. `timeout`
+bounds the park in milliseconds (0–300000, default 30000; `0` answers
+with a single snapshot, no park):
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  "http://localhost:3457/api/sessions/goose:abc123/wait?timeout=30000"
+```
+
+A resolved wait answers `200` with the terminal status and the same
+`last_run` verdict the session rows carry — so one call says both “done”
+and “how it ended” (a clean finish vs a stop by request vs a provider
+refusal vs a crash; the `last_run.state` table below spells the states):
+
+``` json
+{"id":"goose:abc123","status":"completed",
+ "last_run":{"state":"finished","ended_at":"2026-10-23T00:41:02.000Z"}}
+```
+
+`idle` answers a session with no registered run — one that never ran, or
+whose settled run already left the registry window — and still carries
+the last recorded verdict, so a wait that arrives late can never mistake
+“went idle” for “finished cleanly”.
+
+When the deadline passes with the run still active, the answer is `202`
+with the live status (`{"id":"goose:abc123","status":"running"}`) — call
+again to keep waiting, which covers runs longer than any single
+deadline. That loop replaces the status poll above entirely:
+
+``` bash
+while :; do
+  s=$(curl -sS -H "Authorization: Bearer glv_at_…" \
+    "http://localhost:3457/api/sessions/goose:abc123/wait?timeout=30000" \
+    | jq -r .status)
+  case "$s" in running | queued) ;; *) break ;; esac
 done
 ```
 
