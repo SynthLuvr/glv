@@ -36,12 +36,24 @@ const ApiForkAccepted = type({
 });
 
 // The listing window: 1–500 rows, skipping forward from the newest.
+// The optional filters (#344) all narrow the listing server-side before
+// that window, so pagination pages the filtered order exactly as it
+// pages the unfiltered one: working_dir keeps only sessions under one
+// directory (the row's working_dir equals the prefix or lies underneath
+// it), agent keeps one served agent's sessions, and active=true keeps
+// only sessions with a live run (queued or running). active also
+// accepts an explicit false — it reads as absent, the natural spelling
+// of "no restriction".
 const MAX_LIST_LIMIT = 500;
 const ListLimit = type(`1 <= number.integer <= ${MAX_LIST_LIMIT}`);
 const ListOffset = type("number.integer >= 0");
+const ApiListActive = type("'true' | 'false'");
 const ApiListQuery = type({
   "limit?": ListLimit,
   "offset?": ListOffset,
+  "working_dir?": "string",
+  "agent?": "string",
+  "active?": ApiListActive,
 });
 
 // The detail read's windows (#339): fields=meta answers a poll with the
@@ -398,8 +410,20 @@ const toApiAgentModels = async (
   };
 };
 
+// A well-formed listing query, parsed: the window plus the filters
+// that arrived — absent ones read as undefined / false. The route folds
+// this into the store's SessionFilter.
+type ParsedListQuery = {
+  readonly ok: true;
+  readonly limit: number;
+  readonly offset: number;
+  readonly agent: string | undefined;
+  readonly workingDirPrefix: string | undefined;
+  readonly active: boolean;
+};
+
 type ListQuery =
-  | { readonly ok: true; readonly limit: number; readonly offset: number }
+  | ParsedListQuery
   | { readonly ok: false; readonly error: string };
 
 // The wording every rejected query parameter answers with: the name it
@@ -424,20 +448,73 @@ const parseNumberQuery = (
   return { ok: true, value: checked };
 };
 
-// The listing window: the defaults keep the sidebar's VIEWER_FILTER
-// window when no parameter arrives.
+// A string parameter with no shape to check beyond presence; absent (or
+// empty) reads as absent. The listing's string filters share it.
+const parseStringQuery = (
+  request: FastifyRequest,
+  key: string,
+): string | undefined => {
+  const raw = queryValue(request, key);
+  return raw === "" ? undefined : raw;
+};
+
+// A string parameter validated against a literal union — the string
+// counterpart of parseNumberQuery: absent (or empty) reads as absent,
+// anything outside the union is a client error naming the parameter.
+const parseEnumQuery = (
+  request: FastifyRequest,
+  key: string,
+  shape: Type<string>,
+):
+  | { readonly ok: true; readonly value: string | undefined }
+  | { readonly ok: false; readonly error: string } => {
+  const raw = parseStringQuery(request, key);
+  if (raw === undefined) return { ok: true, value: undefined };
+  const checked = shape(raw);
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter(key, checked) };
+  return { ok: true, value: checked };
+};
+
+// The listing window and filters: the defaults keep the sidebar's
+// VIEWER_FILTER window when no parameter arrives. The agent filter is
+// validated against the agents this server serves, so a typo answers a
+// client error naming the choices rather than a silently empty list.
 const parseListQuery = (
   request: FastifyRequest,
   defaultLimit: number,
+  servedAgents: readonly string[],
 ): ListQuery => {
   const limit = parseNumberQuery(request, "limit", ListLimit);
   if (!limit.ok) return limit;
   const offset = parseNumberQuery(request, "offset", ListOffset);
   if (!offset.ok) return offset;
+  const active = parseEnumQuery(request, "active", ApiListActive);
+  if (!active.ok) return active;
+  const agent = parseStringQuery(request, "agent");
+  if (agent !== undefined && !servedAgents.includes(agent))
+    return {
+      ok: false,
+      error:
+        `Invalid "agent" query parameter: must be one of the served ` +
+        `agents (${servedAgents.join(", ")}).`,
+    };
+  // working_dir needs no validation — any non-empty string is a prefix —
+  // but trailing separators are trimmed so "/repo/" filters exactly
+  // like "/repo". A value of pure separators ("/", "\\") trims to the
+  // empty prefix, which sits under every path.
+  const rawWorkingDir = parseStringQuery(request, "working_dir");
+  const workingDirPrefix =
+    rawWorkingDir === undefined
+      ? undefined
+      : rawWorkingDir.replace(/[\\/]+$/, "");
   return {
     ok: true,
     limit: limit.value ?? defaultLimit,
     offset: offset.value ?? 0,
+    agent,
+    workingDirPrefix,
+    active: active.value === "true",
   };
 };
 
@@ -461,32 +538,23 @@ type DetailQuery =
 
 // fields=meta: present reads as meta-only, absent (or empty) as the
 // default transcript read — anything but "meta" is a client error.
-const parseFieldsQuery = (
-  request: FastifyRequest,
-):
-  | { readonly ok: true; readonly value: boolean }
-  | { readonly ok: false; readonly error: string } => {
-  const raw = queryValue(request, "fields");
-  if (raw === undefined || raw === "") return { ok: true, value: false };
-  const checked = ApiDetailFields(raw);
-  if (checked instanceof ArkErrors)
-    return { ok: false, error: invalidQueryParameter("fields", checked) };
-  return { ok: true, value: true };
-};
-
 const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
-  const fields = parseFieldsQuery(request);
+  const fields = parseEnumQuery(request, "fields", ApiDetailFields);
   if (!fields.ok) return fields;
   const after = parseNumberQuery(request, "after", ApiDetailAfter);
   if (!after.ok) return after;
-  if (fields.value && after.value !== undefined)
+  if (fields.value !== undefined && after.value !== undefined)
     return {
       ok: false,
       error:
         '"fields=meta" omits messages while "after" windows them — ' +
         "pass one, not both.",
     };
-  return { ok: true, metaOnly: fields.value, after: after.value };
+  return {
+    ok: true,
+    metaOnly: fields.value !== undefined,
+    after: after.value,
+  };
 };
 
 // The wait endpoint's deadline: absent (or empty) reads as the default,
@@ -603,7 +671,10 @@ const promptIdParam = (): Record<string, unknown> => ({
   description: "Saved-prompt id, as the list endpoint spells it.",
 });
 
-const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
+const openApiDocument = (
+  defaultListLimit: number,
+  servedAgents: readonly string[],
+): Record<string, unknown> => {
   const queryProps = properties(ApiListQuery);
   const detailQueryProps = properties(ApiDetailQuery);
   return {
@@ -831,7 +902,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
             "persisted verdict of each session's most recent settled run " +
             "(finished/stopped/stopped_early/failed with a reason), so a " +
             "scan can flag runs that ended badly without opening each " +
-            "session.",
+            "session. Three filters narrow the list server-side — " +
+            "working_dir, agent, active — and every one applies before " +
+            "the limit/offset window, so pagination pages the filtered " +
+            "order exactly as it pages the unfiltered one.",
           parameters: [
             queryParam(
               "limit",
@@ -843,13 +917,37 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
               queryProps.offset,
               "Rows to skip, for pagination (default 0).",
             ),
+            queryParam(
+              "working_dir",
+              queryProps.working_dir,
+              "Restrict the list to sessions in this directory: a row's " +
+                "working_dir equals it or lies underneath it. A trailing " +
+                "separator is tolerated; a sibling directory that merely " +
+                "shares a stem does not match.",
+            ),
+            queryParam(
+              "agent",
+              queryProps.agent,
+              `Restrict the list to one served agent (${servedAgents.join(" or ")}); ` +
+                "anything else answers 422.",
+            ),
+            queryParam(
+              "active",
+              queryProps.active,
+              "Pass true to restrict the list to sessions with a live run " +
+                "(queued or running) — the same set the /events/status " +
+                "sync snapshot carries. false reads as absent.",
+            ),
           ],
           responses: {
             "200": jsonResponse("The session list.", {
               type: "array",
               items: ref("Session"),
             }),
-            "422": jsonResponse("Invalid limit/offset.", ref("Error")),
+            "422": jsonResponse(
+              "Invalid limit/offset or filter value.",
+              ref("Error"),
+            ),
             ...bearerResponses(),
           },
         },
@@ -1063,6 +1161,7 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
 
 export {
   openApiDocument,
+  type ParsedListQuery,
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,

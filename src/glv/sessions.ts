@@ -32,12 +32,34 @@ type MessageRow = {
 // `type` narrows listing to a session kind the store understands ("user",
 // "hidden", ...); stores with a single session kind ignore it. `offset`
 // skips that many rows of the filtered, newest-first order (pagination).
+// The optional restrictions (#344) all narrow before that window, so
+// limit/offset page the filtered order: `workingDirPrefix` keeps only
+// sessions under one directory, `ids` keeps only the named sessions, and
+// `agent` narrows the composite store's merged listing to one agent's
+// child store (a single-agent store never sees it — every row it lists
+// is that one agent's).
 type SessionFilter = {
   type: string;
   limit: number;
   includeArchived: boolean;
   offset?: number;
+  workingDirPrefix?: string;
+  ids?: ReadonlySet<string>;
+  agent?: string;
 };
+
+// The working_dir restriction's match rule (#344): a session is under the
+// prefix when its working_dir equals the prefix or sits one or more
+// segments deeper — the boundary is a path separator, so "/repo" keeps
+// "/repo" and "/repo/sub" but not the sibling "/repo-2". Both separator
+// spellings count, so Windows-stored rows filter like POSIX ones. The
+// goose store mirrors this rule in SQL (its listing never runs JS per
+// row); this spelling serves the claude store and anything else that
+// needs the same answer against a row it already holds.
+const isUnderWorkingDirPrefix = (dir: string, prefix: string): boolean =>
+  dir === prefix ||
+  dir.startsWith(`${prefix}/`) ||
+  dir.startsWith(`${prefix}\\`);
 
 // The name a fork of `sourceName` carries — user-set, so it survives the
 // agent's own retitling. A nameless source forks to a plain "Fork".
@@ -79,4 +101,4 @@ type SessionStore = {
 };
 
 export type { ForkResult, MessageRow, SessionFilter, SessionRow, SessionStore };
-export { forkSessionName };
+export { forkSessionName, isUnderWorkingDirPrefix };

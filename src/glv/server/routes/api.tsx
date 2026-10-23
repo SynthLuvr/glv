@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
+import type { SessionFilter } from "../../sessions.js";
 import {
   type LastRunRecord,
   readLastRun,
@@ -8,6 +9,7 @@ import {
 } from "../../stop-notices.js";
 import {
   openApiDocument,
+  type ParsedListQuery,
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,
@@ -22,6 +24,7 @@ import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+import { activeSessionIds } from "../status.js";
 import { waitForRunSettle } from "../wait.js";
 
 // The last-run reads behind both session read endpoints. The sidecar is
@@ -43,6 +46,27 @@ const lastRunsFor = (
 ): Map<string, LastRunRecord> | undefined =>
   ctx.stopNotices === undefined ? undefined : readLastRuns(ctx.stopNotices);
 
+// The store filter the listing runs with: the sidebar's default window
+// narrowed by the parsed query — each filter the query carried narrows
+// the store's newest-first order before the limit/offset window, so
+// pagination pages the filtered result (#344). active=true passes the
+// runner's live session set as the id restriction — the same source
+// the /events/status sync snapshot reads, so "what is running" is one
+// cheap filtered listing.
+const listingFilterFor = (
+  ctx: ServerContext,
+  query: ParsedListQuery,
+): SessionFilter => ({
+  ...VIEWER_FILTER,
+  limit: query.limit,
+  offset: query.offset,
+  ...(query.agent === undefined ? {} : { agent: query.agent }),
+  ...(query.workingDirPrefix === undefined
+    ? {}
+    : { workingDirPrefix: query.workingDirPrefix }),
+  ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
+});
+
 // The JSON surface for non-browser clients (curl, CI), reached with an
 // API-token bearer header — the only credential the write endpoints
 // accept — or a session cookie for the reads. Reads delegate to the same
@@ -56,17 +80,17 @@ const registerApiRoutes = (
   ops: SessionOperations,
   cronOps: CronOperations,
 ): void => {
+  // The agent ids the listing's agent filter accepts — every agent this
+  // server serves, the same set the model catalogue slices.
+  const servedAgents = ctx.agents.map((runtime) => runtime.id);
+
   app.get("/api/sessions", (request, reply) => {
-    const query = parseListQuery(request, VIEWER_FILTER.limit);
+    const query = parseListQuery(request, VIEWER_FILTER.limit, servedAgents);
     if (!query.ok) return reply.status(422).send({ error: query.error });
     const lastRuns = lastRunsFor(ctx);
     return reply.send(
       ctx.sessions
-        .listSessions({
-          ...VIEWER_FILTER,
-          limit: query.limit,
-          offset: query.offset,
-        })
+        .listSessions(listingFilterFor(ctx, query))
         .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
     );
   });
@@ -299,7 +323,7 @@ const registerApiRoutes = (
   // Behind auth like every other /api path — the document names no
   // secrets, but this is a single-owner app and the gate is uniform.
   app.get("/api/openapi.json", (_request, reply) =>
-    reply.send(openApiDocument(VIEWER_FILTER.limit)),
+    reply.send(openApiDocument(VIEWER_FILTER.limit, servedAgents)),
   );
 };
 

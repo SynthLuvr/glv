@@ -1,5 +1,5 @@
 import { namespacedId, splitNamespacedId } from "./agents.js";
-import type { SessionRow, SessionStore } from "./sessions.js";
+import type { SessionFilter, SessionRow, SessionStore } from "./sessions.js";
 
 // One agent's store under the composite: the agent id that prefixes its
 // sessions, and the flavor store speaking its native ids.
@@ -80,6 +80,23 @@ const createCompositeSessionStore = (
     return merged;
   };
 
+  // The filter as one child sees it: the composite's id restriction
+  // carries namespaced ids, so each child receives exactly its own
+  // members with the prefix stripped.
+  const childFilterFor = (
+    entry: CompositeStoreEntry,
+    filter: SessionFilter,
+  ): SessionFilter => {
+    if (filter.ids === undefined) return filter;
+    const native = new Set<string>();
+    for (const id of filter.ids) {
+      const split = splitNamespacedId(id);
+      if (split !== undefined && split.agent === entry.agent)
+        native.add(split.id);
+    }
+    return { ...filter, ids: native };
+  };
+
   return {
     listSessions: (filter) => {
       // Offset applies to the merged (globally newest-first) order, not
@@ -93,10 +110,18 @@ const createCompositeSessionStore = (
         offset === 0
           ? filter
           : { ...filter, offset: 0, limit: filter.limit + offset };
+      // The agent restriction (#344) routes the listing to the one child
+      // it names — filtering after the merge would page wrong, the other
+      // agents' rows eating the window. An unknown agent routes nowhere
+      // and lists nothing.
+      const targets =
+        filter.agent === undefined
+          ? entries
+          : entries.filter((entry) => entry.agent === filter.agent);
       return mergeNewestFirst(
-        entries.map((entry) =>
+        targets.map((entry) =>
           entry.store
-            .listSessions(childFilter)
+            .listSessions(childFilterFor(entry, childFilter))
             .map((row) => prefixedRow(entry.agent, row)),
         ),
         childFilter.limit,
