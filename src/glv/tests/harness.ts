@@ -19,7 +19,12 @@ import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, expect, type Page } from "@playwright/test";
+import {
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+} from "@playwright/test";
 import {
   type MockBinBehaviour,
   type MockBinCall,
@@ -41,6 +46,7 @@ import {
 } from "../cron-jobs.js";
 import { AnyJson, JsonObject, parseJson } from "../parse.js";
 import { launchTestBrowser } from "./browser-display.js";
+import { registerServeSpawn, unregisterServeExit } from "./serve-registry.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -562,8 +568,16 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     const pid = proc.pid;
     if (pid === undefined) return resolve();
     const killTree = (signal: NodeJS.Signals): void => {
-      if (IS_WIN) proc.kill(signal);
-      else process.kill(-pid, signal);
+      if (IS_WIN) {
+        proc.kill(signal);
+        return;
+      }
+      try {
+        process.kill(-pid, signal);
+      } catch {
+        // group already gone (killed out from under us) — the exit
+        // listener resolves the stop
+      }
     };
     const timer = setTimeout(() => killTree("SIGKILL"), 5000);
     proc.once("exit", () => {
@@ -572,6 +586,20 @@ const stopProcess = (proc: ChildProcess): Promise<void> =>
     });
     killTree("SIGTERM");
   });
+
+// Post-kill cleanup steps run best-effort individually: a flaky
+// headless-browser close must not skip the mock restores and scratch
+// removal behind it (issue #360).
+const closeQuietly = async (
+  what: string,
+  close: () => Promise<void>,
+): Promise<void> => {
+  try {
+    await close();
+  } catch (err) {
+    console.error(`harness cleanup: closing the ${what} failed:`, err);
+  }
+};
 
 // Lets pr-state/git-info tests exercise `gh pr view` without a token or
 // network.
@@ -644,12 +672,26 @@ const spawnLauncher = (
   binPath: string,
   args: readonly string[],
   options: SpawnOptions,
-): ChildProcess =>
-  spawn(
+): ChildProcess => {
+  const proc = spawn(
     process.execPath,
     [binPath, ...args],
     withSubprocessCoverageEnv({ ...options, detached: !IS_WIN }),
   );
+  // Serve boots join the run-wide registry (issue #360): a worker dying
+  // without cleanup leaves its detached process group owned by nobody,
+  // and the global teardown sweep is what kills it. CLI one-shots exit
+  // on their own. Unregistered on exit, so a healthy run's registry
+  // stays empty.
+  if (args[0] === "serve") {
+    const pid = proc.pid;
+    if (pid !== undefined) {
+      registerServeSpawn(pid, [binPath, ...args]);
+      proc.once("exit", () => unregisterServeExit(pid));
+    }
+  }
+  return proc;
+};
 
 const spawnLauncherSync = (
   binPath: string,
@@ -949,10 +991,13 @@ const startEnv = async (
   // restarted server whichever sibling mock was created last, and its
   // agent runs would silently run the sibling's scripted behaviour.
   const spawnEnv: Record<string, string> = { ...process.env, ...bootEnv };
-  const abortBoot = (err: unknown, stderr: string): never => {
+  const restoreMocks = (): void => {
     restoreAgentPath();
     for (const restore of restoreExtraMocks) restore();
     restoreGhPath();
+  };
+  const abortBoot = (err: unknown, stderr: string): never => {
+    restoreMocks();
     rmScratch(scratchDir);
     throw new Error(
       `server never started: ${String(err)}; server stderr:\n${stderr}`,
@@ -992,28 +1037,42 @@ const startEnv = async (
   };
   await bootServer();
 
-  const browser = await launchTestBrowser();
-  const context = await browser.newContext();
   const cookieName = sessionCookieName(dbs.authDb);
-  await context.addCookies([
-    {
-      name: cookieName,
-      value: dbs.token,
-      domain: "localhost",
-      path: "/",
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
+  let browser: Browser;
+  let context: BrowserContext;
+  try {
+    browser = await launchTestBrowser();
+    context = await browser.newContext();
+    await context.addCookies([
+      {
+        name: cookieName,
+        value: dbs.token,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        secure: false,
+        sameSite: "Lax",
+      },
+    ]);
+  } catch (err) {
+    // Serve booted but the browser stack did not: nothing else owns the
+    // detached process group anymore, so tear the whole environment
+    // down instead of leaking it (issue #360).
+    if (proc !== undefined) await stopProcess(proc);
+    restoreMocks();
+    rmScratch(scratchDir);
+    throw err;
+  }
 
   const cleanup = async (): Promise<void> => {
-    await context.close();
-    await browser.close();
+    // Kill serve before anything that can fail (issue #360): a hung or
+    // throwing Playwright teardown must never preempt the kill of the
+    // one resource that outlives the run when abandoned; every step
+    // after is fail-soft so each runs even when an earlier one threw.
     if (proc !== undefined) await stopProcess(proc);
-    restoreAgentPath();
-    for (const restore of restoreExtraMocks) restore();
-    restoreGhPath();
+    await closeQuietly("browser context", () => context.close());
+    await closeQuietly("browser", () => browser.close());
+    restoreMocks();
     const stderr = sinks.stderr.text;
     if (stderr.trim() !== "") console.error("glv serve stderr:\n" + stderr);
     rmScratch(scratchDir);
