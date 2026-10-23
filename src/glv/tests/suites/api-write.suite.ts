@@ -97,6 +97,15 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       body: new URLSearchParams(fields),
     });
 
+  // Reads a session's row back through the detail endpoint, typed to
+  // the fields the test wants to inspect — the read a client makes to
+  // see what creation actually stored.
+  const readSessionRow = async <T>(id: string): Promise<T> => {
+    const detail = await bearerFetch(env, `/api/sessions/${id}`, token);
+    expect(detail.status).toBe(200);
+    return ((await detail.json()) as { session: T }).session;
+  };
+
   describe("write auth boundary", () => {
     it("rejects a cookie-authenticated POST with 401 JSON", async () => {
       const res = await authedFetch(env, "/api/sessions", {
@@ -160,10 +169,8 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       expect(res.headers.get("location")).toBe(`/api/sessions/${body.id}`);
       createdId = body.id;
 
-      const detail = await bearerFetch(env, `/api/sessions/${body.id}`, token);
-      expect(detail.status).toBe(200);
-      const detailBody = (await detail.json()) as { session: IdRow };
-      expect(detailBody.session.id).toBe(body.id);
+      const row = await readSessionRow<IdRow>(body.id);
+      expect(row.id).toBe(body.id);
 
       await waitForStdin("api write: create the widget");
     });
@@ -201,9 +208,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(201);
       const body = (await res.json()) as RunAccepted;
-      const detail = await bearerFetch(env, `/api/sessions/${body.id}`, token);
-      expect(detail.status).toBe(200);
-      const row = ((await detail.json()) as { session: NamedRow }).session;
+      const row = await readSessionRow<NamedRow>(body.id);
       // The viewer-managed rename metadata the browser's rename writes:
       // the name itself plus the user-set flag that outranks the
       // agent's own mid-run retitling.
@@ -220,9 +225,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
       });
       expect(res.status).toBe(201);
       const body = (await res.json()) as RunAccepted;
-      const detail = await bearerFetch(env, `/api/sessions/${body.id}`, token);
-      expect(detail.status).toBe(200);
-      const row = ((await detail.json()) as { session: NamedRow }).session;
+      const row = await readSessionRow<NamedRow>(body.id);
       // Blank writes nothing: no user-set flag, so derived naming (the
       // agent's own title or the first prompt) stays in charge.
       expect(row.user_set_name).not.toBe(1);
