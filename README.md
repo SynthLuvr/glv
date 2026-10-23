@@ -534,8 +534,14 @@ curl -sS -X POST http://localhost:3457/api/sessions \
   -H "Authorization: Bearer glv_at_…" \
   -F prompt="summarize the failing tests" \
   -F working_dir="$PWD" \
+  -F name="issue #57 fix" \
   -F uploads=@error.log
 ```
+
+An optional non-blank `name` labels the session at creation — the same
+viewer-managed rename the browser’s rename action performs — so a driven
+loop starting several runs can tell them apart before any agent-derived
+title arrives. Absent or blank keeps auto-derived naming.
 
 The answer is `201` with a `Location` header and
 `{"id":"goose:…","status":"started"}`. `"queued"` means the prompt is

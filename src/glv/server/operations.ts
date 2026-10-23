@@ -149,6 +149,24 @@ const createRunStatus = (
 ): RunStartStatus =>
   getHandle(ctx.runner, sessionId)?.status === "queued" ? "queued" : "started";
 
+// Applies a creation-time name to a just-established session (#343):
+// the rename rides the same viewer-managed rename the browser's rename
+// action performs, so a driven loop can tell its runs apart at
+// creation. Blank or absent names write nothing — derived naming stays
+// in charge exactly as before. Returns the row the caller should
+// answer with, re-read after the rename (the established row predates
+// the name).
+const applyCreationName = (
+  ctx: ServerContext,
+  sessionId: string,
+  established: SessionRow,
+  name: string,
+): SessionRow => {
+  if (name === "") return established;
+  ctx.sessions.renameSession(sessionId, name);
+  return ctx.sessions.getSession(sessionId) ?? established;
+};
+
 const createSessionOperations = (ctx: ServerContext) => {
   // Serializes session creation per working directory so two submits
   // can't race the repo pull or mint duplicate sessions; the lock map
@@ -162,6 +180,8 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     const prompt = bodyField("prompt");
     const promptId = bodyField("prompt_id");
+    // #343: labels the session at creation; see applyCreationName.
+    const name = bodyField("name");
     const sessionMode = bodyField("session_mode");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
@@ -280,7 +300,8 @@ const createSessionOperations = (ctx: ServerContext) => {
       removeAttemptDirs();
       return fail(result.status, result.error);
     }
-    const { sessionId, session } = result;
+    const { sessionId, session: established } = result;
+    const session = applyCreationName(ctx, sessionId, established, name);
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.
