@@ -20,9 +20,15 @@ import { makeGooseLauncher } from "../goose/launch.js";
 import { makeGooseModelSource } from "../goose/models.js";
 import { gooseProfile } from "../goose/profile.js";
 import { makeGooseEphemeralAsk } from "../goose/suggest.js";
+import { openAuthDb } from "./auth/db.js";
 import * as cli from "./cli-shared.js";
 import { runList } from "./commands/list.js";
 import { type AgentServeSpec, runServe } from "./commands/serve.js";
+import {
+  runTokenCreate,
+  runTokenList,
+  runTokenRevoke,
+} from "./commands/token.js";
 import { runView } from "./commands/view.js";
 import { prefixedInvocation } from "./composite-launcher.js";
 import { createCompositeSessionStore } from "./composite-store.js";
@@ -357,6 +363,54 @@ program
         limit: Number(opts.limit),
         includeArchived: false,
       });
+    } finally {
+      db.close();
+    }
+  });
+
+// The non-browser way to mint the bearer credential the JSON API wants
+// (issue #361): agents run shell by definition, so the CLI is their
+// surface. Same auth database serve owns — the --auth-db override and
+// GLV_AUTH_DB keep working — and the same createApiToken/revokeApiToken
+// the browser's /auth/tokens page calls.
+const openTokenDb = () => openAuthDb(glvDbPaths(globalOpts()).authDbPath);
+
+const tokenCmd = program
+  .command("token")
+  .description("Manage API tokens for the JSON API");
+
+tokenCmd
+  .command("create")
+  .description("Mint an API token (printed once; only its hash is stored)")
+  .requiredOption("--name <name>", "token label, 1–64 characters")
+  .action((opts: { name: string }) => {
+    const db = openTokenDb();
+    try {
+      runTokenCreate(db, opts.name);
+    } finally {
+      db.close();
+    }
+  });
+
+tokenCmd
+  .command("list")
+  .description("List API tokens: id, name, created, last used, expires")
+  .action(() => {
+    const db = openTokenDb();
+    try {
+      runTokenList(db);
+    } finally {
+      db.close();
+    }
+  });
+
+tokenCmd
+  .command("revoke <id>")
+  .description("Revoke an API token by its id (from `glv token list`)")
+  .action((id: string) => {
+    const db = openTokenDb();
+    try {
+      runTokenRevoke(db, id);
     } finally {
       db.close();
     }

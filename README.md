@@ -483,12 +483,31 @@ retry with the same URL until one succeeds.
 
 ### API tokens (curl, CI)
 
-A passkey ceremony needs a browser, so scripts and CI get their own
-credential minted *underneath* the passkey: log in once in the browser,
-visit `/auth/tokens`, name a token, and copy the `glv_at_…` value — it
-is displayed exactly once and only its SHA-256 hash is stored. Tokens
-live 30 days (no sliding renewal), record their `last_used_at` time, and
-can be revoked on the same page.
+A passkey ceremony needs a browser, so scripts, CI, and agents get their
+own credential minted *underneath* the passkey. Two surfaces mint the
+same credential against the same auth database:
+
+- **In the browser** — log in once, visit `/auth/tokens`, name a token,
+  and copy the `glv_at_…` value.
+- **From the shell** — `glv token create --name "orchestrator-loop"`
+  prints the raw token as its entire stdout, so a script or agent can
+  capture it directly (`TOKEN=$(glv token create --name ci)`). The same
+  data-dir resolution the other subcommands use applies (`--auth-db` or
+  `GLV_AUTH_DB`), so it works wherever `serve` reads its users.
+
+``` bash
+glv token create --name "orchestrator-loop"  # prints the token once
+glv token list                               # id, name, created, last used, expires
+glv token revoke <id>                        # id from `glv token list`
+```
+
+Either way the `glv_at_…` value is displayed exactly once and only its
+SHA-256 hash is stored — revoking by that hash from either surface kills
+the credential. Minting requires the app to have an owner (a passkey
+registered once in the browser); tokens live 30 days (no sliding
+renewal), record their `last_used_at` time, and a token still grants
+only the single owner’s identity — the CLI widens *who can mint*, from
+the machine that already owns the data directory.
 
 ``` bash
 curl -sS -H "Authorization: Bearer glv_at_…" \
@@ -504,6 +523,26 @@ couples them to your browser login (7-day ceiling, revoked on logout,
 indistinguishable from you) — mint a token instead.
 
 ### Driving runs over the API
+
+The whole loop a driving agent needs is now shell-only — the token
+bootstrap included (mint it with `glv token create`, above; the app must
+already have a passkey-registered owner):
+
+``` bash
+TOKEN=$(glv token create --name "orchestrator-loop")   # mint once, capture
+BASE=http://localhost:3457
+
+# start a run — name and model are optional; model takes the picker
+# spelling (agent:provider:model, listed by GET /api/models)
+ID=$(curl -sS -X POST "$BASE/api/sessions" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F prompt="address issue #57" -F working_dir="$PWD" \
+  -F name="issue #57 fix" | jq -r .id)
+
+# wait for it to settle, then read the verdict
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/sessions/$ID/wait" \
+  | jq '{status, last_run}'
+```
 
 The listing paginates and filters server-side: `?limit=` (1–500, default
 100) and `?offset=` window the newest-first order, and three filters
