@@ -33,6 +33,10 @@ type WaitResult = {
 
 type RunAccepted = { id: string; status: string };
 
+// The live statuses a still-active answer (202) carries, whichever side
+// of the spawn a snapshot catches.
+const LIVE_STATUSES: readonly string[] = ["running", "queued"];
+
 // One mock environment bound to the API token that speaks for it, so a
 // helper can never pair one env's server with another env's token.
 type WaitClient = { env: IntegrationEnv; token: string };
@@ -45,10 +49,9 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
 
   const linesFileFor = (name: string): string => join(linesDir, name);
 
-  const writeLines = (name: string, lines: readonly string[]): string => {
+  const writeLines = (name: string, lines: readonly string[]): void => {
     const path = linesFileFor(name);
     writeFileSync(path, `${lines.join("\n")}\n`);
-    return path;
   };
 
   const startClient = async (
@@ -65,15 +68,11 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
     init: RequestInit = {},
   ): Promise<Response> => bearerFetch(client.env, path, client.token, init);
 
-  const ensureDir = (dir: string): void => {
-    mkdirSync(dir, { recursive: true });
-  };
-
   // Follow-up runs spawn the agent in the session's working dir, so the
   // dir must exist or the spawn rejects and the run errors immediately.
   const seedSession = (client: WaitClient, id: string, name: string) => {
     const workingDir = join(client.env.scratchDir, "w");
-    ensureDir(workingDir);
+    mkdirSync(workingDir, { recursive: true });
     fx.seedSessions(client.env, [{ id, name, workingDir }]);
     fx.seedMessages(client.env, id, [
       { role: "user", content: [{ type: "text", text: "seed" }] },
@@ -184,14 +183,14 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       expect(answer.status).toBe(202);
       // The mock sleeps 30 s, so the run cannot have settled: the answer
       // is the deadline, and it honoured the asked-for window.
-      expect(["running", "queued"]).toContain(answer.body.status);
+      expect(LIVE_STATUSES).toContain(answer.body.status);
       expect(elapsed).toBeGreaterThanOrEqual(290);
       expect(elapsed).toBeLessThan(10000);
 
       // timeout=0 is the no-park snapshot of the same run.
       const snap = await waitOn(slow, id, 0);
       expect(snap.status).toBe(202);
-      expect(["running", "queued"]).toContain(snap.body.status);
+      expect(LIVE_STATUSES).toContain(snap.body.status);
     });
 
     it("resolves a requested stop with the stopped verdict", async () => {
@@ -276,7 +275,7 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       // fresh call at once.
       const answer = await waitOn(slow, id, 0);
       expect(answer.status).toBe(202);
-      expect(["running", "queued"]).toContain(answer.body.status);
+      expect(LIVE_STATUSES).toContain(answer.body.status);
     });
   });
 
