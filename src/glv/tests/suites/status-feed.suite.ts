@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { FEED_JSON_EVENTS, parsePayload } from "../../sse-events.js";
 import {
   authedFetch,
   collectSse,
@@ -50,11 +51,10 @@ const runStatusFeedSuite = (fx: FlavorFixture): void => {
       // snapshot frame — "these are the names", not "each was renamed".
       const snapshots = events.filter((e) => e.event === "names");
       expect(snapshots.length).toBe(1);
-      const names = (
-        JSON.parse(snapshots[0]?.data ?? "[]") as Array<{
-          name: unknown;
-        }>
-      ).map((entry) => entry.name);
+      const names = parsePayload(
+        FEED_JSON_EVENTS.names,
+        snapshots[0]?.data ?? "",
+      )?.map((entry) => entry.name);
       expect(names).toContain("Status One");
       expect(names).toContain("Status Two");
       // `rename` is reserved for actual deltas, and nothing has changed.
