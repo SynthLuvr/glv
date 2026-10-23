@@ -13,10 +13,10 @@ import {
 
 // End-to-end for `glv token create|list|revoke` (issue #361): the CLI
 // mints through the same createApiToken the browser page uses, the
-// printed plaintext works as the sole credential over the live JSON API
-// (a read and a run-starting write), list shows the stored row, and
-// revoke kills it — the next request answers 401. Plus the guard rails:
-// no owner yet refuses to mint, and a blank name mints nothing.
+// printed plaintext works as the sole credential over the live JSON API,
+// list shows the stored row, revoke kills it (next request answers
+// 401). Guards: no owner yet refuses to mint; a blank name mints
+// nothing.
 
 type RunResult = { status: number; stdout: string; stderr: string };
 
@@ -31,9 +31,8 @@ const runTokenCliSuite = (fx: FlavorFixture): void => {
     await env?.cleanup();
   });
 
-  // `glv --auth-db <path> …` exactly as an agent on this machine would
-  // run it: the auth database the served instance owns, so CLI writes
-  // and server reads observe the same rows.
+  // `glv --auth-db <path> …` against the served instance's own auth
+  // database, so CLI writes and server reads observe the same rows.
   const run = (args: string[], authDb = env.dbs.authDb): RunResult => {
     const result = spawnLauncherSync(
       fx.binPath,

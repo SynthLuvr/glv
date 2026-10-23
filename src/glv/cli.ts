@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { Command } from "commander";
 import which from "which";
@@ -368,12 +369,17 @@ program
     }
   });
 
-// The non-browser way to mint the bearer credential the JSON API wants
-// (issue #361): agents run shell by definition, so the CLI is their
-// surface. Same auth database serve owns — the --auth-db override and
-// GLV_AUTH_DB keep working — and the same createApiToken/revokeApiToken
-// the browser's /auth/tokens page calls.
-const openTokenDb = () => openAuthDb(glvDbPaths(globalOpts()).authDbPath);
+// The shell surface for the JSON API's bearer credential (issue #361):
+// the same auth database and create/revoke operations the browser's
+// /auth/tokens page uses — --auth-db and GLV_AUTH_DB keep working.
+const withTokenDb = (run: (db: DatabaseSync) => void): void => {
+  const db = openAuthDb(glvDbPaths(globalOpts()).authDbPath);
+  try {
+    run(db);
+  } finally {
+    db.close();
+  }
+};
 
 const tokenCmd = program
   .command("token")
@@ -383,37 +389,18 @@ tokenCmd
   .command("create")
   .description("Mint an API token (printed once; only its hash is stored)")
   .requiredOption("--name <name>", "token label, 1–64 characters")
-  .action((opts: { name: string }) => {
-    const db = openTokenDb();
-    try {
-      runTokenCreate(db, opts.name);
-    } finally {
-      db.close();
-    }
-  });
+  .action((opts: { name: string }) =>
+    withTokenDb((db) => runTokenCreate(db, opts.name)),
+  );
 
 tokenCmd
   .command("list")
   .description("List API tokens: id, name, created, last used, expires")
-  .action(() => {
-    const db = openTokenDb();
-    try {
-      runTokenList(db);
-    } finally {
-      db.close();
-    }
-  });
+  .action(() => withTokenDb(runTokenList));
 
 tokenCmd
   .command("revoke <id>")
   .description("Revoke an API token by its id (from `glv token list`)")
-  .action((id: string) => {
-    const db = openTokenDb();
-    try {
-      runTokenRevoke(db, id);
-    } finally {
-      db.close();
-    }
-  });
+  .action((id: string) => withTokenDb((db) => runTokenRevoke(db, id)));
 
 cli.runMain(program);
