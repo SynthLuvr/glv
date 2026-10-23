@@ -1,4 +1,4 @@
-import { type Type, type } from "arktype";
+import { ArkErrors, type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
 import type { SavedPrompt } from "../prompts/db.js";
@@ -270,6 +270,11 @@ type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }
   | { readonly ok: false; readonly error: string };
 
+// The wording every rejected query parameter answers with: the name it
+// arrived under and ArkType's own summary of what failed.
+const invalidQueryParameter = (key: string, errors: ArkErrors): string =>
+  `Invalid "${key}" query parameter: ${errors.summary}.`;
+
 // Query strings arrive as strings; parse each to a number and let the
 // ArkType bounds decide. Absent (or empty) parameters read as absent.
 const parseNumberQuery = (
@@ -282,11 +287,8 @@ const parseNumberQuery = (
   const raw = queryValue(request, key);
   if (raw === undefined || raw === "") return { ok: true, value: undefined };
   const checked = bounds(Number(raw));
-  if (checked instanceof type.errors)
-    return {
-      ok: false,
-      error: `Invalid "${key}" query parameter: ${checked.summary}.`,
-    };
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter(key, checked) };
   return { ok: true, value: checked };
 };
 
@@ -325,28 +327,34 @@ type DetailQuery =
     }
   | { readonly ok: false; readonly error: string };
 
+// fields=meta: present reads as meta-only, absent (or empty) as the
+// default transcript read — anything but "meta" is a client error.
+const parseFieldsQuery = (
+  request: FastifyRequest,
+):
+  | { readonly ok: true; readonly value: boolean }
+  | { readonly ok: false; readonly error: string } => {
+  const raw = queryValue(request, "fields");
+  if (raw === undefined || raw === "") return { ok: true, value: false };
+  const checked = ApiDetailFields(raw);
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter("fields", checked) };
+  return { ok: true, value: true };
+};
+
 const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
-  const fieldsRaw = queryValue(request, "fields");
-  let metaOnly = false;
-  if (fieldsRaw !== undefined && fieldsRaw !== "") {
-    const fields = ApiDetailFields(fieldsRaw);
-    if (fields instanceof type.errors)
-      return {
-        ok: false,
-        error: `Invalid "fields" query parameter: ${fields.summary}.`,
-      };
-    metaOnly = true;
-  }
+  const fields = parseFieldsQuery(request);
+  if (!fields.ok) return fields;
   const after = parseNumberQuery(request, "after", ApiDetailAfter);
   if (!after.ok) return after;
-  if (metaOnly && after.value !== undefined)
+  if (fields.value && after.value !== undefined)
     return {
       ok: false,
       error:
         '"fields=meta" omits messages while "after" windows them — ' +
         "pass one, not both.",
     };
-  return { ok: true, metaOnly, after: after.value };
+  return { ok: true, metaOnly: fields.value, after: after.value };
 };
 
 // --- The OpenAPI document, generated from the schemas above -----------
