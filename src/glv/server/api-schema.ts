@@ -88,6 +88,14 @@ const toApiLastRun = (record: LastRunRecord): ApiLastRunData => ({
   ended_at: record.endedAt,
 });
 
+// The optional last_run field, spelled once for every shape that
+// carries the verdict (the session rows, the wait answers), so the
+// wire can never present it two ways.
+const lastRunField = (
+  lastRun: LastRunRecord | undefined,
+): { last_run?: ApiLastRunData } =>
+  lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) };
+
 // The run-state vocabulary every status field speaks: the live states
 // from the runner's registry ("queued"/"running"), its terminal states
 // ("completed"/"stopped"/"error", visible for the short window a
@@ -140,7 +148,7 @@ const toApiSession = (
 ): ApiSessionData => ({
   ...row,
   status: getHandle(runner, row.id)?.status ?? "idle",
-  ...(lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) }),
+  ...lastRunField(lastRun),
 });
 
 // The body GET /api/sessions/:id/wait answers with (#341): the run's
@@ -166,7 +174,7 @@ const toApiWaitResult = (
 ): ApiWaitResultData => ({
   id,
   status,
-  ...(lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) }),
+  ...lastRunField(lastRun),
 });
 
 // The multipart form fields POST /api/sessions accepts. The `uploads`
