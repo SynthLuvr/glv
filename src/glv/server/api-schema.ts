@@ -109,6 +109,12 @@ type ApiLastRunData = typeof ApiLastRun.infer;
 // written.
 const toApiTimestamp = (timestamp: string): string => toIso(timestamp);
 
+// The nullable companion: null means the event never happened — a
+// session never archived, a prompt never run — and stays null on the
+// wire; anything else re-spells zoned through toApiTimestamp.
+const toApiTimestampOrNull = (timestamp: string | null): string | null =>
+  timestamp === null ? null : toApiTimestamp(timestamp);
+
 const toApiLastRun = (record: LastRunRecord): ApiLastRunData => ({
   state: record.state,
   ...(record.reason === undefined ? {} : { reason: record.reason }),
@@ -178,8 +184,7 @@ const toApiSession = (
   ...row,
   created_at: toApiTimestamp(row.created_at),
   updated_at: toApiTimestamp(row.updated_at),
-  archived_at:
-    row.archived_at === null ? null : toApiTimestamp(row.archived_at),
+  archived_at: toApiTimestampOrNull(row.archived_at),
   status: getHandle(runner, row.id)?.status ?? "idle",
   ...lastRunField(lastRun),
 });
@@ -335,11 +340,11 @@ const toApiCronJob = (
 };
 
 // One saved prompt exactly as the prompt endpoints return it (the
-// store's SavedPrompt, snake_cased like ApiSession; the timestamp
-// fields re-spell to the wire's zoned form, toApiTimestamp). `body` rides
+// store's SavedPrompt, snake_cased like ApiSession). `body` rides
 // along verbatim — placeholders like {{repo}} included, unsubstituted —
 // exactly as submitted; `last_used_at` stays null until the prompt has
-// been run.
+// been run. The timestamp fields re-spell to the wire's zoned form
+// (toApiTimestamp).
 const ApiPrompt = type({
   id: "string",
   title: "string",
@@ -361,8 +366,7 @@ const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   category: prompt.category,
   sort_order: prompt.sortOrder,
   usage_count: prompt.usageCount,
-  last_used_at:
-    prompt.lastUsedAt === null ? null : toApiTimestamp(prompt.lastUsedAt),
+  last_used_at: toApiTimestampOrNull(prompt.lastUsedAt),
   created_at: toApiTimestamp(prompt.createdAt),
   updated_at: toApiTimestamp(prompt.updatedAt),
 });
