@@ -75,6 +75,12 @@ type FeedStatusPayload = typeof FeedStatusPayload.infer;
 const FeedRenamePayload = type({ sessionId: "string", name: "string" });
 type FeedRenamePayload = typeof FeedRenamePayload.infer;
 
+// The connect handshake's name snapshot: every sidebar session's current
+// name in one frame, so `rename` stays reserved for the deltas the poll
+// loop emits once a name actually changes.
+const FeedNamesPayload = FeedRenamePayload.array();
+type FeedNamesPayload = typeof FeedNamesPayload.infer;
+
 // ---- event registries ----
 
 // JSON-validated events by name; the registry drives both the typed emit
@@ -94,6 +100,7 @@ const SESSION_TEXT_EVENTS = ["preview", "prompt", "preview-clear"] as const;
 
 const FEED_JSON_EVENTS = {
   sync: StringListPayload,
+  names: FeedNamesPayload,
   status: FeedStatusPayload,
   rename: FeedRenamePayload,
 } as const;
@@ -275,6 +282,7 @@ const feedEventData = <E extends keyof typeof FEED_JSON_EVENTS>(
 
 export type {
   FeedEventName,
+  FeedNamesPayload,
   FeedRenamePayload,
   FeedStatusPayload,
   MessageEntry,

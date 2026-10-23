@@ -1,4 +1,5 @@
 import {
+  type FeedNamesPayload,
   type FeedRenamePayload,
   type FeedStatusPayload,
   onFeedEvent,
@@ -235,6 +236,13 @@ const onStatusEvent = (payload: FeedStatusPayload): void => {
   findSessionItem(payload.sessionId)?.classList.add("unread");
 };
 
+// On (re)connect the server answers with one `names` snapshot carrying
+// every sidebar session's current name; `rename` fires only for the
+// deltas after that.
+const onNamesSnapshot = (payload: FeedNamesPayload): void => {
+  for (const { sessionId, name } of payload) setSessionName(sessionId, name);
+};
+
 const onRenameEvent = (payload: FeedRenamePayload): void => {
   setSessionName(payload.sessionId, payload.name);
 };
@@ -267,6 +275,7 @@ const connectStatusFeed = (): void => {
     reconnectDelay = STATUS_RECONNECT_BASE_MS;
   });
   onFeedEvent(statusSource, "sync", applySync);
+  onFeedEvent(statusSource, "names", onNamesSnapshot);
   onFeedEvent(statusSource, "status", onStatusEvent);
   onFeedEvent(statusSource, "rename", onRenameEvent);
   // The poll loop emits "done" when it exhausts; close the EventSource and

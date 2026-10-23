@@ -166,10 +166,10 @@ const runSseContractSuite = (fx: FlavorFixture): void => {
       const events = await stream;
 
       expect(contractViolations(events, FEED_JSON_EVENTS)).toEqual([]);
-      // The feed always opens with the active-set snapshot and every
-      // sidebar session's name.
+      // The feed always opens with the active-set snapshot and the
+      // sidebar name snapshot; renames only follow real deltas.
       expect(events.some((e) => e.event === "sync")).toBe(true);
-      expect(events.some((e) => e.event === "rename")).toBe(true);
+      expect(events.some((e) => e.event === "names")).toBe(true);
     });
   });
 

@@ -25,7 +25,7 @@ const registerEventsRoutes = (
       let lastNames = sidebarNames(ctx);
       let polls = 0;
 
-      const emitNames = async (
+      const emitRenameDeltas = async (
         names: Iterable<[string, string]>,
       ): Promise<void> => {
         for (const [id, name] of names)
@@ -36,8 +36,20 @@ const registerEventsRoutes = (
           );
       };
 
+      // The connect handshake answers "what is", not "what changed": the
+      // active set travels on `sync` and every sidebar name on one `names`
+      // snapshot, so a third-party listener can render the baseline without
+      // pretending each entry was renamed. `rename` below stays reserved
+      // for real deltas.
       await emit(stream, "sync", feedEventData("sync", [...last.keys()]));
-      await emitNames(lastNames);
+      await emit(
+        stream,
+        "names",
+        feedEventData(
+          "names",
+          [...lastNames].map(([sessionId, name]) => ({ sessionId, name })),
+        ),
+      );
 
       while (!stream.aborted && polls < ctx.maxStatusPolls) {
         polls++;
@@ -54,7 +66,7 @@ const registerEventsRoutes = (
         last = now;
 
         const currentNames = sidebarNames(ctx);
-        await emitNames(nameDeltas(lastNames, currentNames));
+        await emitRenameDeltas(nameDeltas(lastNames, currentNames));
         lastNames = currentNames;
       }
       // Signal completion so the client tears down instead of auto-reconnecting
