@@ -36,6 +36,9 @@ type SessionJson = {
 
 type MessageJson = { role: string; timestamp: string; items: unknown[] };
 
+// The detail endpoint's body: the row plus its parsed transcript.
+type DetailJson = { session: SessionJson; messages: MessageJson[] };
+
 type PromptJson = {
   id: string;
   last_used_at: string | null;
@@ -83,20 +86,14 @@ const runApiTimestampsSuite = (fx: FlavorFixture): void => {
     await env?.cleanup();
   });
 
-  const detail = async (): Promise<{
-    session: SessionJson;
-    messages: MessageJson[];
-  }> => {
+  const detail = async (): Promise<DetailJson> => {
     const res = await bearerFetch(
       env,
       `/api/sessions/${fx.viewId("ts-a")}`,
       token,
     );
     expect(res.status).toBe(200);
-    return (await res.json()) as {
-      session: SessionJson;
-      messages: MessageJson[];
-    };
+    return (await res.json()) as DetailJson;
   };
 
   describe("GET /api/sessions (listing)", () => {
