@@ -81,6 +81,37 @@ const runCleanup = (ask: EphemeralAsk): void => {
   }
 };
 
+// Collects one ask run's stdout lines under a kill timer. Undefined
+// when the run fails, times out, or exits non-zero.
+const collectLines = async (
+  ask: EphemeralAsk,
+  prompt: string,
+  workingDir: string,
+  timeoutMs: number,
+  model: ModelSelection | undefined,
+): Promise<string[] | undefined> => {
+  const proc = execa(ask.binary, ask.args(model), {
+    input: prompt,
+    cwd: workingDir,
+    env: ask.env(),
+    killDescendants: true,
+  });
+  const lines: string[] = [];
+  const timer = setTimeout(() => {
+    proc.kill("SIGKILL");
+  }, timeoutMs);
+  unrefTimer(timer);
+  try {
+    for await (const line of proc) lines.push(line);
+    if ((await proc).exitCode !== 0) return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+  return lines;
+};
+
 // Runs the ask: spawns the binary outside the runner pool (it must never
 // occupy a concurrency slot real prompts wait on), collects the
 // assistant text off stdout, and always runs the flavor's cleanup.
@@ -92,26 +123,8 @@ const runEphemeralAsk = async (
   model: ModelSelection | undefined,
 ): Promise<AskResult> => {
   try {
-    const proc = execa(ask.binary, ask.args(model), {
-      input: prompt,
-      cwd: workingDir,
-      env: ask.env(),
-      killDescendants: true,
-    });
-    const lines: string[] = [];
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL");
-    }, timeoutMs);
-    unrefTimer(timer);
-    try {
-      for await (const line of proc) lines.push(line);
-      const result = await proc;
-      if (result.exitCode !== 0) return undefined;
-    } catch {
-      return undefined;
-    } finally {
-      clearTimeout(timer);
-    }
+    const lines = await collectLines(ask, prompt, workingDir, timeoutMs, model);
+    if (lines === undefined) return undefined;
     const text = lines.map(lineText).join("").trim();
     return text === "" ? undefined : { text };
   } catch {

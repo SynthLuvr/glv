@@ -229,15 +229,19 @@ const drainStdout = async (
   onFirstLine: () => void,
 ): Promise<unknown> => {
   let spoke = false;
-  try {
-    for await (const line of proc.stdout) {
-      if (!spoke) {
-        spoke = true;
-        onFirstLine();
-      }
-      if (handle.status === "stopped") break;
-      handle.output.push(line);
+  // Returns false when the run was stopped mid-stream — the drain stops
+  // without buffering that line.
+  const ingest = (line: string): boolean => {
+    if (!spoke) {
+      spoke = true;
+      onFirstLine();
     }
+    if (handle.status === "stopped") return false;
+    handle.output.push(line);
+    return true;
+  };
+  try {
+    for await (const line of proc.stdout) if (!ingest(line)) break;
   } catch (err) {
     return err;
   }
