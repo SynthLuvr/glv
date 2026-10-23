@@ -2512,6 +2512,29 @@ form[data-upload-form] {
   width: 1.75rem;
   height: 1.75rem;
 }
+/* Way back into the app on the owner-only management screens (passkeys,
+   API tokens). Padded beyond the card's center-aligned content for a
+   finger-sized tap target; the negative margin keeps the visual position. */
+.auth-back {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  padding: 0.3rem 0.4rem;
+  margin: -0.3rem -0.4rem 0.95rem -0.4rem;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--color-muted);
+  text-decoration: none;
+  transition: color 0.12s ease;
+}
+.auth-back:hover {
+  color: var(--color-text);
+}
+.auth-back svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
 .auth-card h1 {
   margin: 0 0 0.5rem;
   font-size: 1.35rem;

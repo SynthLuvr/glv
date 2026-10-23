@@ -294,6 +294,14 @@ const runAuthFlowsSuite = (fx: FlavorFixture): void => {
       expect(res.status).toBe(200);
       expect(await res.text()).toContain(ownerCred.slice(0, 12));
     });
+
+    it("shows a way back to the app on the devices page", async () => {
+      const res = await get("/auth/devices", { cookie: cookie(claimToken) });
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('class="auth-back"');
+      expect(html).toContain("Back to sessions");
+    });
   });
 
   describe("device enrollment", () => {

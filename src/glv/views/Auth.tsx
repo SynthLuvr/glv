@@ -43,6 +43,28 @@ type AuthCardProps = {
   token?: string;
 };
 
+const BackLink = () => (
+  // The standalone auth screens open from inside the app (the sidebar
+  // footer), so the owner-only management pages must offer an explicit way
+  // back — they render outside the app shell and have no sidebar.
+  <a class="auth-back" href="/" title="Back to sessions">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </svg>
+    <span>Back to sessions</span>
+  </a>
+);
+
 const AuthCard = ({
   heading,
   sub,
@@ -154,6 +176,7 @@ const DevicesPage = ({
 }: DevicesPageProps) => (
   <AuthLayout title="Passkeys — GLV" agentName={agentName}>
     <div class="auth-card">
+      <BackLink />
       <h1>Passkeys</h1>
       <p class="auth-sub">
         A passkey is locked to the domain it was created on, so one made on{" "}
@@ -215,6 +238,7 @@ const TokensPage = ({
 }: TokensPageProps) => (
   <AuthLayout title="API tokens — GLV" agentName={agentName}>
     <div class="auth-card">
+      <BackLink />
       <h1>API tokens</h1>
       <p class="auth-sub">
         Long-lived credentials for scripts and CI. Send one as a header —{" "}
