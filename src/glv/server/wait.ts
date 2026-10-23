@@ -46,10 +46,12 @@ const sleep = (ms: number): Promise<void> =>
 //
 // A tick cannot race the run-settle bookkeeping: the runner flips a
 // handle terminal and persists the sidecar verdict in one synchronous
-// continuation (queue.ts fires notifyRunEnd — the observer that writes
-// last_run — immediately after the status flips, with no await between,
-// and a chained advance follows in the same turn), and microtasks drain
-// before the next timer tick. By the time a tick observes a terminal
+// continuation — the exit path settles the status and fires
+// notifyRunEnd (the observer that writes the sidecar's last_run record)
+// back to back with no await between, and a stop request fires the same
+// observer the instant it flips the handle terminal (the process exit
+// re-notifies later, with the same verdict). Microtasks drain before
+// the next timer tick, so by the time a tick observes a terminal
 // status, the verdict the route reads beside it has already landed.
 const waitForRunSettle = async (
   runner: Runner,

@@ -250,6 +250,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     handle.queuePosition = undefined;
     refreshQueuePositions(runner);
     scheduleEviction(runner, handle);
+    notifyRunEnd(runner, handle);
     return true;
   }
 
@@ -260,6 +261,12 @@ const stop = (runner: Runner, sessionId: string): boolean => {
     // hasn't run yet); in that case defer the kill via cancelled.
     if (handle.process !== undefined) handle.process.kill("SIGINT");
     else handle.cancelled = true;
+    // Notified here as well as at the exit below so a terminal status in
+    // the registry never outruns its sidecar verdict: a read that lands
+    // between the stop request and the process death (the wait
+    // endpoint's poll, a detail read) still sees the verdict. The exit
+    // re-notifies with the same verdict and the true settle instant.
+    notifyRunEnd(runner, handle);
     return true;
   }
 
