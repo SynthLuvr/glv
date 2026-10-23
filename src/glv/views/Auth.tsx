@@ -43,11 +43,11 @@ type AuthCardProps = {
   token?: string;
 };
 
+// These pages render outside the app shell, so with no sidebar there is no
+// visible way back to the app. The pre-auth screens deliberately go without
+// the link — the app root would just bounce them to login.
 const BackLink = () => (
-  // The standalone auth screens open from inside the app (the sidebar
-  // footer), so the owner-only management pages must offer an explicit way
-  // back — they render outside the app shell and have no sidebar.
-  <a class="auth-back" href="/" title="Back to sessions">
+  <a class="auth-back" href="/">
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
