@@ -218,6 +218,37 @@ describe("combined viewer — new session model picker", () => {
   }, 60000);
 });
 
+describe("combined viewer — model catalogue API", () => {
+  it("lists both agents' models with namespaced pins (#342)", async () => {
+    const res = await authedFetch(env, "/api/models");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      agents: {
+        agent: string;
+        default?: { provider: string; model: string };
+        models: { model: string; pin: string }[];
+      }[];
+    };
+    expect(body.agents.map((entry) => entry.agent)).toEqual([
+      "goose",
+      "claude",
+    ]);
+    // The mock answers no ACP catalogue here, so goose's slice is
+    // config-only: each configured provider offers exactly its
+    // configured model, and the pins carry the agent prefix the
+    // combined picker's values carry.
+    const goose = body.agents[0];
+    expect(goose.default).toEqual({ provider: "zai", model: "glm-5.3" });
+    expect(goose.models.map((model) => model.pin)).toEqual([
+      "goose:zai:glm-5.3",
+      "goose:anthropic:claude-sonnet-4-5",
+    ]);
+    expect(body.agents[1].models.map((model) => model.pin)).toContain(
+      "claude:claude:opus",
+    );
+  });
+});
+
 describe("combined viewer — mutations dispatch by prefix", () => {
   it("deletes only the named agent's session", async () => {
     const res = await authedFetch(env, "/sessions/goose:alpha/delete", {

@@ -1,6 +1,12 @@
 import { ArkErrors, type Type, type } from "arktype";
 import type { FastifyRequest } from "fastify";
 import type { CronJobRecord } from "../cron-jobs.js";
+import {
+  decodeModelValue,
+  encodeAgentModelValue,
+  type ModelChoice,
+  type ModelSelection,
+} from "../models.js";
 import type { SavedPrompt } from "../prompts/db.js";
 import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
@@ -320,6 +326,73 @@ const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   updated_at: prompt.updatedAt,
 });
 
+// --- The model catalogue (#342) ---------------------------------------
+
+// A model selection as the catalogue spells it: the provider/model pair
+// an agent resolves — the same pair a scheduled-run row stores as its
+// pin.
+const ApiModelSelection = type({
+  provider: "string",
+  model: "string",
+});
+
+// One model an agent offers, as the combined picker renders it: the
+// provider and model id a pin names, the picker label, and `pin` — the
+// exact spelling the `model` field of POST /api/sessions (and the
+// scheduled-run forms) accepts: "agent:provider:model".
+const ApiModelEntry = type({
+  provider: "string",
+  model: "string",
+  label: "string",
+  pin: "string",
+});
+
+// One served agent's slice of GET /api/models: every model it offers in
+// picker order (the agent's default provider first), plus its own
+// default selection — omitted when the agent has none readable.
+const ApiAgentModels = type({
+  agent: "string",
+  label: "string",
+  "default?": ApiModelSelection,
+  models: ApiModelEntry.array(),
+});
+
+type ApiAgentModelsData = typeof ApiAgentModels.infer;
+
+// The body GET /api/models answers with: one slice per served agent, in
+// picker order.
+const ApiModels = type({ agents: ApiAgentModels.array() });
+
+// Beside its schema, like toApiSession, so the wire shape cannot drift.
+// The pin is derived here — the combined spelling of the choice's own
+// form value — so the answer names, by construction, exactly what a
+// submit of the same value would decode. A choice whose value does not
+// decode to a provider/model pair (no flavour offers one today) has no
+// spellable pin and is skipped.
+const toApiAgentModels = (
+  agent: string,
+  label: string,
+  defaultSelection: ModelSelection | undefined,
+  choices: readonly ModelChoice[],
+): ApiAgentModelsData => ({
+  agent,
+  label,
+  ...(defaultSelection === undefined ? {} : { default: defaultSelection }),
+  models: choices.flatMap((choice) => {
+    const selection = decodeModelValue(choice.value);
+    return selection === undefined
+      ? []
+      : [
+          {
+            provider: choice.provider,
+            model: selection.model,
+            label: choice.label,
+            pin: encodeAgentModelValue(agent, choice.value),
+          },
+        ];
+  }),
+});
+
 type ListQuery =
   | { readonly ok: true; readonly limit: number; readonly offset: number }
   | { readonly ok: false; readonly error: string };
@@ -546,7 +619,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         "(tokens, groups) stay in the browser; the saved-prompt library " +
         "is readable over JSON at /api/prompts (creating and editing " +
         "prompts stays in the browser), and scheduled runs are created, " +
-        "listed, run on demand, and deleted over JSON at /api/cron.",
+        "listed, run on demand, and deleted over JSON at /api/cron. The " +
+        "combined model catalogue behind the New Session picker is " +
+        "readable at /api/models — each model's pin is the exact " +
+        "spelling the model fields accept.",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -581,6 +657,10 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
         CronDeleted: component(ApiCronDeleted),
         CronRunAccepted: component(ApiCronRunAccepted),
         Prompt: component(ApiPrompt),
+        ModelSelection: component(ApiModelSelection),
+        ModelEntry: component(ApiModelEntry),
+        AgentModels: component(ApiAgentModels),
+        Models: component(ApiModels),
       },
     },
     paths: {
@@ -682,6 +762,28 @@ const openApiDocument = (defaultListLimit: number): Record<string, unknown> => {
                 "directory, a disabled agent, or an unparsable schedule.",
               ref("Error"),
             ),
+            ...bearerResponses(),
+          },
+        },
+      },
+      "/api/models": {
+        get: {
+          summary: "List the model catalogue (the picker's choices)",
+          description:
+            "The combined catalogue the New Session picker renders " +
+            "from, exposed for scripts: one entry per served agent, in " +
+            "picker order, carrying every model it offers (provider, " +
+            "model id, label) and the agent's own default selection. " +
+            "Each model also carries pin — the exact agent:provider:" +
+            "model spelling the model field of POST /api/sessions and " +
+            "the scheduled-run forms accepts — so a script can " +
+            "discover and validate pins without reimplementing the " +
+            "agent's own catalogue protocol. Resolving a catalogue may " +
+            "spawn the agent binary, so a cold call can take seconds; " +
+            "later calls ride the same short-lived cache the picker and " +
+            "submit-time validation share.",
+          responses: {
+            "200": jsonResponse("The combined model catalogue.", ref("Models")),
             ...bearerResponses(),
           },
         },
@@ -954,6 +1056,7 @@ export {
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,
+  toApiAgentModels,
   toApiCronJob,
   toApiPrompt,
   toApiSession,
