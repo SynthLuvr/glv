@@ -200,6 +200,23 @@ const runApiTokensSuite = (fx: FlavorFixture): void => {
       });
     });
 
+    it("shows a way back to the app on the tokens page", async () => {
+      const res = await authedFetch(env, "/auth/tokens");
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('class="auth-back"');
+      expect(html).toContain("Back to sessions");
+    });
+
+    it("returns to the app through the back link", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(`${env.baseUrl}/auth/tokens`);
+        await page.locator("a.auth-back").click();
+        await page.waitForURL(`${env.baseUrl}/`);
+        await page.locator(".sidebar").waitFor();
+      });
+    });
+
     it("rejects an empty token name without minting", async () => {
       const res = await authedFetch(env, "/auth/tokens", {
         method: "POST",

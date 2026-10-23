@@ -388,6 +388,11 @@ const captureTokens = async (browser: Browser, env: IntegrationEnv) => {
   await page.locator("a.api-tokens-link").click();
   await page.locator("form.token-create-form").waitFor();
   await capture(page, "tokens-desktop.png", ".auth-card");
+  // The tokens screen is a common phone visit (fetching a token for a
+  // script elsewhere), so keep a mobile capture in the set too.
+  await page.setViewportSize(MOBILE);
+  await capture(page, "tokens-mobile.png", ".auth-card");
+  await page.setViewportSize(DESKTOP);
   await page.locator('input[name="name"]').fill("ci");
   await page.locator("form.token-create-form button").click();
   await page.locator(".token-value").waitFor();
