@@ -7,7 +7,7 @@ import {
   type SessionStatusPayload,
 } from "../sse-events.js";
 import { getHtmx, htmxSwapTarget } from "./htmx.js";
-import { fillPromptInput } from "./shared.js";
+import { fillPromptInput, nearBottom, safeStorage } from "./shared.js";
 
 let activeSource: EventSource | null = null;
 
@@ -142,21 +142,9 @@ document.addEventListener("keydown", (e) => {
   dismissSuggestions();
 });
 
-// Near-bottom gates auto-scroll (reading history stays put while messages
-// arrive) and defines "following the tail" for the swap restore below.
-const NEAR_BOTTOM_PX = 160;
-
 const scrollToBottom = (): void => {
   const pane = document.getElementById("detail-pane");
   if (pane !== null) pane.scrollTop = pane.scrollHeight;
-};
-
-const nearBottom = (): boolean => {
-  const pane = document.getElementById("detail-pane");
-  if (pane === null) return false;
-  return (
-    pane.scrollHeight - pane.scrollTop - pane.clientHeight < NEAR_BOTTOM_PX
-  );
 };
 
 // #detail-pane survives htmx navigations (only its innerHTML is swapped), so
@@ -172,15 +160,6 @@ let scrollMemoryWired = false;
 // card instead of the transcript root.
 const sessionRoot = (): Element | null =>
   document.querySelector("#detail-pane [data-session-id]");
-
-// localStorage throws in private mode or when disabled; fall back to no memory.
-const safeStorage = (): Storage | null => {
-  try {
-    return localStorage;
-  } catch {
-    return null;
-  }
-};
 
 const savedOffset = (id: string | null): number => {
   const storage = safeStorage();

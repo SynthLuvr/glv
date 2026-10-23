@@ -9,7 +9,7 @@ import {
   type TimezoneSuggestion,
 } from "../timezones.js";
 import { AgentChip, CLOCK_ICON } from "./chips.js";
-import { ModelPickerSlot } from "./new-session.js";
+import { ModelPickerSlot } from "./model-picker.js";
 
 // Views for scheduling: the inline form with its typed schedule field
 // and live preview, the confirmation banner after a job is saved, and
@@ -208,6 +208,30 @@ const RecentDirsDatalist = ({
 // are pulled the same way: the form above is the page's single set of
 // those fields, so whatever it holds when "Schedule run" is clicked is
 // exactly what the job gets.
+
+// The job-name field the save form and a job card's edit form share —
+// the save form alone carries a placeholder.
+const JobNameField = ({
+  value,
+  placeholder,
+}: {
+  value: string;
+  placeholder?: string;
+}) => (
+  <label class="form-field">
+    <span class="form-label">Job name</span>
+    <input
+      type="text"
+      name="job_name"
+      class="form-input"
+      value={value}
+      placeholder={placeholder}
+      maxlength={64}
+      autocomplete="off"
+    />
+  </label>
+);
+
 const ScheduleSaveForm = ({
   jobName = "",
   schedule = "",
@@ -239,18 +263,7 @@ const ScheduleSaveForm = ({
       form&rsquo;s working directory
       {withModels ? " and model" : ""}.
     </p>
-    <label class="form-field">
-      <span class="form-label">Job name</span>
-      <input
-        type="text"
-        name="job_name"
-        class="form-input"
-        value={jobName}
-        placeholder="e.g. Nightly test sweep"
-        maxlength={64}
-        autocomplete="off"
-      />
-    </label>
+    <JobNameField value={jobName} placeholder="e.g. Nightly test sweep" />
     <ScheduleControls
       schedule={schedule}
       timezone={timezone}
@@ -527,17 +540,7 @@ const ScheduleJobEditForm = ({
         hx-swap="outerHTML"
       >
         {error !== undefined && <p class="status-hint error">{error}</p>}
-        <label class="form-field">
-          <span class="form-label">Job name</span>
-          <input
-            type="text"
-            name="job_name"
-            class="form-input"
-            value={job.name}
-            maxlength={64}
-            autocomplete="off"
-          />
-        </label>
+        <JobNameField value={job.name} />
         <ScheduleControls
           schedule={schedule ?? job.scheduleInput ?? job.schedule}
           timezone={timezone ?? job.timezone ?? ""}

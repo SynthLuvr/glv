@@ -142,12 +142,18 @@ const mapCredentialSummary = (
   createdAt: row.created_at,
 });
 
-const userCount = (db: DatabaseSync): number => {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM users").get();
-  return typeof row?.n === "number" ? row.n : 0;
+// Existence checks are COUNT(*) queries; a positive count is a yes.
+const rowExists = (
+  db: DatabaseSync,
+  sql: string,
+  ...params: (string | number | null)[]
+): boolean => {
+  const row = db.prepare(sql).get(...params);
+  return typeof row?.n === "number" && row.n > 0;
 };
 
-const isClaimed = (db: DatabaseSync): boolean => userCount(db) > 0;
+const isClaimed = (db: DatabaseSync): boolean =>
+  rowExists(db, "SELECT COUNT(*) AS n FROM users");
 
 // Single-owner model: the first user is the permanent owner. Subsequent
 // passkeys (e.g. for a different domain) attach to this same user.
@@ -239,21 +245,21 @@ const createSession = (db: DatabaseSync, userId: string): string => {
   const token = newToken();
   db.prepare(
     `INSERT INTO sessions (id, user_id, expires_at)
-       VALUES (?, ?, datetime('now', '+1 day'))`,
-  ).run(token, userId);
+       VALUES (?, ?, datetime('now', ?))`,
+  ).run(token, userId, `+${SESSION_TTL_SECONDS} seconds`);
   return token;
 };
 
 const validSession = (db: DatabaseSync, token: string | undefined): boolean => {
   if (token === undefined || token === "") return false;
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM sessions
-         WHERE id = ? AND expires_at > datetime('now')
-           AND datetime(created_at, ?) > datetime('now')`,
-    )
-    .get(token, `+${SESSION_MAX_LIFETIME_SECONDS} seconds`);
-  return typeof row?.n === "number" && row.n > 0;
+  return rowExists(
+    db,
+    `SELECT COUNT(*) AS n FROM sessions
+       WHERE id = ? AND expires_at > datetime('now')
+         AND datetime(created_at, ?) > datetime('now')`,
+    token,
+    `+${SESSION_MAX_LIFETIME_SECONDS} seconds`,
+  );
 };
 
 const refreshSession = (db: DatabaseSync, token: string): void => {
@@ -288,15 +294,13 @@ const createEnrollmentToken = (
   return token;
 };
 
-const enrollmentTokenValid = (db: DatabaseSync, token: string): boolean => {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM enrollment_tokens
-         WHERE id = ? AND used_at IS NULL AND expires_at > datetime('now')`,
-    )
-    .get(token);
-  return typeof row?.n === "number" && row.n > 0;
-};
+const enrollmentTokenValid = (db: DatabaseSync, token: string): boolean =>
+  rowExists(
+    db,
+    `SELECT COUNT(*) AS n FROM enrollment_tokens
+       WHERE id = ? AND used_at IS NULL AND expires_at > datetime('now')`,
+    token,
+  );
 
 // Atomically claims an unused, unexpired token so a shared link can't enroll
 // twice. Returns the owning user id on success.
@@ -385,15 +389,13 @@ const createApiToken = (
   return token;
 };
 
-const apiTokenValid = (db: DatabaseSync, token: string): boolean => {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM api_tokens
-         WHERE id = ? AND expires_at > datetime('now')`,
-    )
-    .get(tokenHash(token));
-  return typeof row?.n === "number" && row.n > 0;
-};
+const apiTokenValid = (db: DatabaseSync, token: string): boolean =>
+  rowExists(
+    db,
+    `SELECT COUNT(*) AS n FROM api_tokens
+       WHERE id = ? AND expires_at > datetime('now')`,
+    tokenHash(token),
+  );
 
 // Deliberately no sliding refresh: a token that silently lives forever is
 // what the session max-lifetime ceiling exists to prevent. Fixed TTL plus

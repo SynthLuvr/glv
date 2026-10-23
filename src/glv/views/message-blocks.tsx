@@ -7,7 +7,7 @@ import type {
   ParsedMessage,
   ToolCallInfo,
   ToolResultInfo,
-} from "../../glv/format/index.js";
+} from "../format/index.js";
 import {
   fmtRelative,
   MESSAGE_TAGS,
@@ -18,7 +18,7 @@ import {
   toolCallInfo,
   toolResultInfo,
   truncate,
-} from "../../glv/format/index.js";
+} from "../format/index.js";
 
 const jsonString = (value: object, pretty: boolean): string => {
   try {
@@ -53,6 +53,18 @@ const icon = (cls: string, children: Child) => (
   </svg>
 );
 
+// The copy→check icon pair every copy affordance carries: ui.ts's
+// delegated handler toggles the `.copied` class after a clipboard write.
+const CopyCheckIcons = () => (
+  <>
+    {icon("icon-copy", [
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />,
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />,
+    ])}
+    {icon("icon-check", <path d="M20 6 9 17l-5-5" />)}
+  </>
+);
+
 const CopyButton = ({ text }: { text: string }) => (
   <button
     type="button"
@@ -61,11 +73,7 @@ const CopyButton = ({ text }: { text: string }) => (
     title="Copy as markdown"
     aria-label="Copy as markdown"
   >
-    {icon("icon-copy", [
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />,
-      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />,
-    ])}
-    {icon("icon-check", <path d="M20 6 9 17l-5-5" />)}
+    <CopyCheckIcons />
   </button>
 );
 
@@ -268,4 +276,11 @@ const hasContent = (message: ParsedMessage): boolean => {
 const renderMessage = (message: ParsedMessage, index: number): string =>
   renderToString(<MessageView message={message} index={index} />);
 
-export { CopyableText, hasContent, itemBlock, MessageView, renderMessage };
+export {
+  CopyableText,
+  CopyCheckIcons,
+  hasContent,
+  itemBlock,
+  MessageView,
+  renderMessage,
+};

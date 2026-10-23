@@ -184,6 +184,20 @@ const challengeFromResponse = (response: unknown): string | undefined => {
   return data instanceof type.errors ? undefined : data.challenge;
 };
 
+// The ceremony's challenge, consumed from the pending one — undefined (and
+// the caller answers with `error`) when the response carries none or the
+// flow has no challenge in progress.
+const takeChallenge = (
+  authority: ReturnType<typeof makeChallengeAuthority>,
+  response: unknown,
+  flow: ChallengeFlow,
+): string | undefined => {
+  const challenge = challengeFromResponse(response);
+  return challenge !== undefined && authority.verify(challenge, flow)
+    ? challenge
+    : undefined;
+};
+
 type VerifiedCredential = {
   id: string;
   publicKey: Uint8Array<ArrayBuffer>;
@@ -224,11 +238,12 @@ const makeAuthService = (
     | { verified: true; credential: VerifiedCredential; transports: string[] }
     | { verified: false; error: string }
   > => {
-    const expectedChallenge = challengeFromResponse(body.response);
-    if (
-      expectedChallenge === undefined ||
-      !authority.verify(expectedChallenge, "register")
-    )
+    const expectedChallenge = takeChallenge(
+      authority,
+      body.response,
+      "register",
+    );
+    if (expectedChallenge === undefined)
       return {
         verified: false,
         error: "No registration in progress. Please reload and try again.",
@@ -321,11 +336,8 @@ const makeAuthService = (
     rp: RpConfig,
     body: AuthenticationResponseJSON,
   ): Promise<VerifyResult> => {
-    const expectedChallenge = challengeFromResponse(body.response);
-    if (
-      expectedChallenge === undefined ||
-      !authority.verify(expectedChallenge, "login")
-    )
+    const expectedChallenge = takeChallenge(authority, body.response, "login");
+    if (expectedChallenge === undefined)
       return {
         verified: false,
         error: "No login in progress. Please reload and try again.",

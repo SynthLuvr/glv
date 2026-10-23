@@ -241,7 +241,7 @@ const toggleCollapsed = (group: Element, groupId: string): void => {
   else collapsedGroups.delete(groupId);
   group.classList.toggle("collapsed", collapse);
   group
-    .querySelector("[data-action='toggle-group']")
+    .querySelector(".group-toggle")
     ?.setAttribute("aria-expanded", collapse ? "true" : "false");
   saveCollapsed(collapsedGroups);
 };

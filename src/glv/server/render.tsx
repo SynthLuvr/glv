@@ -12,9 +12,8 @@ import { Layout } from "../views/Layout.js";
 import {
   type AgentModelGroup,
   type ModelPicker,
-  NewSessionForm,
-  NotFoundDetail,
-} from "../views/new-session.js";
+} from "../views/model-picker.js";
+import { NewSessionForm, NotFoundDetail } from "../views/new-session.js";
 import { SessionList, Sidebar } from "../views/Sidebar.js";
 import type { ServerContext } from "./context.js";
 import { VIEWER_FILTER } from "./context.js";

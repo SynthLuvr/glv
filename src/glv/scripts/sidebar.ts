@@ -7,7 +7,7 @@ import {
   StringListPayload,
 } from "../sse-events.js";
 import { getHtmx } from "./htmx.js";
-import { onSessionListSwap } from "./shared";
+import { onSessionListSwap, safeStorage } from "./shared";
 
 const getChecks = (): HTMLInputElement[] => [
   ...document.querySelectorAll<HTMLInputElement>(".session-check"),
@@ -128,8 +128,9 @@ const setStatusIndicator = (sessionId: string, running: boolean): void => {
   if (group !== null) setGroupRunning(group);
 };
 
-// The agent derives a session name mid-run; the feed pushes it here
-// updates live. Empty names render as "(unnamed)" to match displayName.
+// The agent derives a session name mid-run; the feed pushes it here and
+// the list updates live. Empty names render as "(unnamed)" to match
+// displayName.
 const setSessionName = (sessionId: string, name: string): void => {
   const item = findSessionItem(sessionId);
   if (item === null) return;
@@ -164,17 +165,8 @@ const applySync = (activeIds: string[]): void => {
 // Unread when a run finishes in a session that isn't the open one; read on click.
 const UNREAD_KEY = "glv-unread";
 
-// localStorage throws in private mode or when disabled; fall back to no-op.
-const unreadStorage = (): Storage | null => {
-  try {
-    return localStorage ?? null;
-  } catch {
-    return null;
-  }
-};
-
 const loadUnread = (): string[] => {
-  const storage = unreadStorage();
+  const storage = safeStorage();
   if (storage === null) return [];
   return (
     parsePayload(StringListPayload, storage.getItem(UNREAD_KEY) ?? "") ?? []
@@ -184,7 +176,7 @@ const loadUnread = (): string[] => {
 const unread = new Set<string>(loadUnread());
 
 const saveUnread = (): void => {
-  const storage = unreadStorage();
+  const storage = safeStorage();
   if (storage === null) return;
   storage.setItem(UNREAD_KEY, JSON.stringify([...unread]));
 };

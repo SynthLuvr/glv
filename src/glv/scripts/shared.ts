@@ -1,4 +1,4 @@
-import { htmxSwapTarget } from "./htmx.js";
+import { getHtmx, htmxSwapTarget } from "./htmx.js";
 
 // The session id a prompt bar posts to, read from its hx-post attribute;
 // undefined for the New Session form (which posts to /sessions) or a
@@ -19,6 +19,41 @@ const fillPromptInput = (
   if (el === null) return;
   el.value = value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+// Submits an action-less form through htmx directly — a plain
+// requestSubmit() would fall back to a native POST to the current URL (a
+// 404) — with requestSubmit as the fallback when htmx is unavailable.
+const submitFormViaHtmx = (form: HTMLFormElement | null): void => {
+  if (form === null) return;
+  const api = getHtmx();
+  if (api !== undefined) {
+    api.trigger(form, "submit");
+    return;
+  }
+  form.requestSubmit();
+};
+
+// Near the bottom of the detail pane — gates auto-scroll while messages
+// arrive (reading history stays put) and drives the jump-to-latest
+// button's visibility.
+const NEAR_BOTTOM_PX = 160;
+
+const nearBottom = (): boolean => {
+  const pane = document.getElementById("detail-pane");
+  if (pane === null) return false;
+  return (
+    pane.scrollHeight - pane.scrollTop - pane.clientHeight < NEAR_BOTTOM_PX
+  );
+};
+
+// localStorage throws in private mode or when disabled.
+const safeStorage = (): Storage | null => {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
 };
 
 // htmx fires `htmx:afterSwap` only for a swap's main target; out-of-band
@@ -152,8 +187,11 @@ const wireUploadForms = (
 export {
   createAttachmentChip,
   fillPromptInput,
+  nearBottom,
   onSessionListSwap,
+  safeStorage,
   sessionOfBar,
   showError,
+  submitFormViaHtmx,
   wireUploadForms,
 };

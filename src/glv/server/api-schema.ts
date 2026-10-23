@@ -658,6 +658,25 @@ const multipartRequest = (schema: string): Record<string, unknown> => ({
   },
 });
 
+// The 201 every creator answers with: the created resource plus its
+// Location header.
+const createdResponse = (
+  description: string,
+  locationDescription: string,
+  schema: string,
+): Record<string, unknown> => ({
+  description,
+  headers: {
+    Location: {
+      description: locationDescription,
+      schema: { type: "string" },
+    },
+  },
+  content: {
+    "application/json": { schema: ref(schema) },
+  },
+});
+
 const bearerResponses = (): Record<string, unknown> => ({
   "401": jsonResponse(
     "Missing, invalid, or insufficient credential.",
@@ -806,18 +825,11 @@ const openApiDocument = (
             "restart needed.",
           requestBody: multipartRequest("CronJobForm"),
           responses: {
-            "201": {
-              description: "The scheduled run was saved.",
-              headers: {
-                Location: {
-                  description: "The new run's detail URL.",
-                  schema: { type: "string" },
-                },
-              },
-              content: {
-                "application/json": { schema: ref("CronJob") },
-              },
-            },
+            "201": createdResponse(
+              "The scheduled run was saved.",
+              "The new run's detail URL.",
+              "CronJob",
+            ),
             "422": jsonResponse("Validation failure.", ref("Error")),
             ...bearerResponses(),
           },
@@ -1005,18 +1017,11 @@ const openApiDocument = (
             "feed for progress.",
           requestBody: multipartRequest("StartSessionForm"),
           responses: {
-            "201": {
-              description: "The run was accepted.",
-              headers: {
-                Location: {
-                  description: "The new session's detail URL.",
-                  schema: { type: "string" },
-                },
-              },
-              content: {
-                "application/json": { schema: ref("RunAccepted") },
-              },
-            },
+            "201": createdResponse(
+              "The run was accepted.",
+              "The new session's detail URL.",
+              "RunAccepted",
+            ),
             "422": jsonResponse("Validation failure.", ref("Error")),
             ...bearerResponses(),
           },
@@ -1175,18 +1180,11 @@ const openApiDocument = (
           parameters: [sessionParam()],
           requestBody: multipartRequest("ForkForm"),
           responses: {
-            "201": {
-              description: "The fork was created.",
-              headers: {
-                Location: {
-                  description: "The fork's detail URL.",
-                  schema: { type: "string" },
-                },
-              },
-              content: {
-                "application/json": { schema: ref("ForkAccepted") },
-              },
-            },
+            "201": createdResponse(
+              "The fork was created.",
+              "The fork's detail URL.",
+              "ForkAccepted",
+            ),
             "404": jsonResponse("Unknown session id.", ref("Error")),
             "422": jsonResponse("Invalid cutoff.", ref("Error")),
             ...bearerResponses(),

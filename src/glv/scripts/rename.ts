@@ -1,4 +1,4 @@
-import { getHtmx } from "./htmx.js";
+import { submitFormViaHtmx } from "./shared.js";
 
 const closestWrap = (el: Element | null): Element | null =>
   el?.closest(".rename-wrap") ?? null;
@@ -32,18 +32,6 @@ const editActions: Record<string, (wrap: Element) => void> = {
   "cancel-rename": exitEdit,
 };
 
-// The form has no action, so requestSubmit() can fall back to a native POST to
-// the current URL (a 404); trigger htmx directly so the rename stays in place.
-const submitRename = (form: HTMLFormElement | null): void => {
-  if (form === null) return;
-  const htmx = getHtmx();
-  if (htmx !== undefined) {
-    htmx.trigger(form, "submit");
-    return;
-  }
-  form.requestSubmit();
-};
-
 // Document-level delegation survives the out-of-band sidebar swaps that
 // renaming (and archiving) trigger, mirroring sidebar.ts.
 document.addEventListener("click", (e) => {
@@ -64,7 +52,7 @@ document.addEventListener("keydown", (e) => {
   if (wrap === null) return;
   if (e.key === "Enter") {
     e.preventDefault();
-    submitRename(input.form);
+    submitFormViaHtmx(input.form);
   } else if (e.key === "Escape") {
     e.preventDefault();
     exitEdit(wrap);
@@ -85,5 +73,5 @@ document.addEventListener("focusout", (e) => {
     exitEdit(wrap);
     return;
   }
-  submitRename(input.form);
+  submitFormViaHtmx(input.form);
 });

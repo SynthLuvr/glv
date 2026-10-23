@@ -1,9 +1,9 @@
 import { type } from "arktype";
 import { getHtmx, htmxSwapTarget } from "./htmx.js";
+import { nearBottom } from "./shared.js";
 
 const UI_TITLE_SUFFIX = " \u2014 GLV";
 const UI_HOME_TITLE = "GLV";
-const UI_NEAR_BOTTOM_PX = 160;
 const UI_MAX_TEXTAREA_HEIGHT = 240;
 // Cron edit-form boxes grow to most of the viewport — seeing the whole
 // prompt is the point of the form, and the same text wraps far taller
@@ -293,8 +293,8 @@ const uiUpdateScrollButton = (): void => {
   const pane = document.getElementById("detail-pane");
   const btn = document.getElementById("scroll-latest");
   if (pane === null || btn === null) return;
-  const distance = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
-  btn.hidden = distance < UI_NEAR_BOTTOM_PX;
+  // Shown while reading history; hidden again at the tail.
+  btn.hidden = nearBottom();
 };
 
 // One rAF-coalesced pass reacts to every DOM change in the detail pane — htmx
