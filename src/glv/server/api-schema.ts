@@ -410,15 +410,20 @@ const toApiAgentModels = async (
   };
 };
 
+// A well-formed listing query, parsed: the window plus the filters
+// that arrived — absent ones read as undefined / false. The route folds
+// this into the store's SessionFilter.
+type ParsedListQuery = {
+  readonly ok: true;
+  readonly limit: number;
+  readonly offset: number;
+  readonly agent: string | undefined;
+  readonly workingDirPrefix: string | undefined;
+  readonly active: boolean;
+};
+
 type ListQuery =
-  | {
-      readonly ok: true;
-      readonly limit: number;
-      readonly offset: number;
-      readonly agent: string | undefined;
-      readonly workingDirPrefix: string | undefined;
-      readonly active: boolean;
-    }
+  | ParsedListQuery
   | { readonly ok: false; readonly error: string };
 
 // The wording every rejected query parameter answers with: the name it
@@ -453,6 +458,24 @@ const parseStringQuery = (
   return raw === "" ? undefined : raw;
 };
 
+// A string parameter validated against a literal union — the string
+// counterpart of parseNumberQuery: absent (or empty) reads as absent,
+// anything outside the union is a client error naming the parameter.
+const parseEnumQuery = (
+  request: FastifyRequest,
+  key: string,
+  shape: Type<string>,
+):
+  | { readonly ok: true; readonly value: string | undefined }
+  | { readonly ok: false; readonly error: string } => {
+  const raw = parseStringQuery(request, key);
+  if (raw === undefined) return { ok: true, value: undefined };
+  const checked = shape(raw);
+  if (checked instanceof ArkErrors)
+    return { ok: false, error: invalidQueryParameter(key, checked) };
+  return { ok: true, value: checked };
+};
+
 // The listing window and filters: the defaults keep the sidebar's
 // VIEWER_FILTER window when no parameter arrives. The agent filter is
 // validated against the agents this server serves, so a typo answers a
@@ -466,12 +489,8 @@ const parseListQuery = (
   if (!limit.ok) return limit;
   const offset = parseNumberQuery(request, "offset", ListOffset);
   if (!offset.ok) return offset;
-  const activeRaw = parseStringQuery(request, "active");
-  if (activeRaw !== undefined) {
-    const checked = ApiListActive(activeRaw);
-    if (checked instanceof ArkErrors)
-      return { ok: false, error: invalidQueryParameter("active", checked) };
-  }
+  const active = parseEnumQuery(request, "active", ApiListActive);
+  if (!active.ok) return active;
   const agent = parseStringQuery(request, "agent");
   if (agent !== undefined && !servedAgents.includes(agent))
     return {
@@ -495,7 +514,7 @@ const parseListQuery = (
     offset: offset.value ?? 0,
     agent,
     workingDirPrefix,
-    active: activeRaw === "true",
+    active: active.value === "true",
   };
 };
 
@@ -519,32 +538,23 @@ type DetailQuery =
 
 // fields=meta: present reads as meta-only, absent (or empty) as the
 // default transcript read — anything but "meta" is a client error.
-const parseFieldsQuery = (
-  request: FastifyRequest,
-):
-  | { readonly ok: true; readonly value: boolean }
-  | { readonly ok: false; readonly error: string } => {
-  const raw = queryValue(request, "fields");
-  if (raw === undefined || raw === "") return { ok: true, value: false };
-  const checked = ApiDetailFields(raw);
-  if (checked instanceof ArkErrors)
-    return { ok: false, error: invalidQueryParameter("fields", checked) };
-  return { ok: true, value: true };
-};
-
 const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
-  const fields = parseFieldsQuery(request);
+  const fields = parseEnumQuery(request, "fields", ApiDetailFields);
   if (!fields.ok) return fields;
   const after = parseNumberQuery(request, "after", ApiDetailAfter);
   if (!after.ok) return after;
-  if (fields.value && after.value !== undefined)
+  if (fields.value !== undefined && after.value !== undefined)
     return {
       ok: false,
       error:
         '"fields=meta" omits messages while "after" windows them — ' +
         "pass one, not both.",
     };
-  return { ok: true, metaOnly: fields.value, after: after.value };
+  return {
+    ok: true,
+    metaOnly: fields.value !== undefined,
+    after: after.value,
+  };
 };
 
 // The wait endpoint's deadline: absent (or empty) reads as the default,
@@ -1151,6 +1161,7 @@ const openApiDocument = (
 
 export {
   openApiDocument,
+  type ParsedListQuery,
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,

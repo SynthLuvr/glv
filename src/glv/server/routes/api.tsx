@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseMessage } from "../../format/index.js";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
+import type { SessionFilter } from "../../sessions.js";
 import {
   type LastRunRecord,
   readLastRun,
@@ -8,6 +9,7 @@ import {
 } from "../../stop-notices.js";
 import {
   openApiDocument,
+  type ParsedListQuery,
   parseDetailQuery,
   parseListQuery,
   parseWaitQuery,
@@ -44,6 +46,27 @@ const lastRunsFor = (
 ): Map<string, LastRunRecord> | undefined =>
   ctx.stopNotices === undefined ? undefined : readLastRuns(ctx.stopNotices);
 
+// The store filter the listing runs with: the sidebar's default window
+// narrowed by the parsed query — each filter the query carried narrows
+// the store's newest-first order before the limit/offset window, so
+// pagination pages the filtered result (#344). active=true passes the
+// runner's live session set as the id restriction — the same source
+// the /events/status sync snapshot reads, so "what is running" is one
+// cheap filtered listing.
+const listingFilterFor = (
+  ctx: ServerContext,
+  query: ParsedListQuery,
+): SessionFilter => ({
+  ...VIEWER_FILTER,
+  limit: query.limit,
+  offset: query.offset,
+  ...(query.agent === undefined ? {} : { agent: query.agent }),
+  ...(query.workingDirPrefix === undefined
+    ? {}
+    : { workingDirPrefix: query.workingDirPrefix }),
+  ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
+});
+
 // The JSON surface for non-browser clients (curl, CI), reached with an
 // API-token bearer header — the only credential the write endpoints
 // accept — or a session cookie for the reads. Reads delegate to the same
@@ -67,22 +90,7 @@ const registerApiRoutes = (
     const lastRuns = lastRunsFor(ctx);
     return reply.send(
       ctx.sessions
-        .listSessions({
-          ...VIEWER_FILTER,
-          limit: query.limit,
-          offset: query.offset,
-          // The listing filters (#344): each narrows the store's
-          // newest-first order before the limit/offset window, so
-          // pagination pages the filtered result. active=true passes the
-          // runner's live session set as the id restriction — the same
-          // source the /events/status sync snapshot reads, so "what is
-          // running" is one cheap filtered listing.
-          ...(query.agent === undefined ? {} : { agent: query.agent }),
-          ...(query.workingDirPrefix === undefined
-            ? {}
-            : { workingDirPrefix: query.workingDirPrefix }),
-          ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
-        })
+        .listSessions(listingFilterFor(ctx, query))
         .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
     );
   });
