@@ -456,6 +456,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "/api/sessions/{id}/prompt",
         "/api/sessions/{id}/stop",
         "/api/sessions/{id}/wait",
+        "/api/tokens",
       ]);
       expect(Object.keys(doc.components.securitySchemes)).toContain(
         "bearerAuth",
@@ -471,6 +472,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "ForkAccepted",
         "ForkForm",
         "LastRun",
+        "MintedToken",
         "ModelEntry",
         "ModelSelection",
         "Models",

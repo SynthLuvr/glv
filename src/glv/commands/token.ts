@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import {
+  API_TOKEN_NAME_ERROR,
+  ApiTokenName,
   type ApiTokenSummary,
   createApiToken,
   listApiTokenSummaries,
@@ -8,12 +10,6 @@ import {
   revokeApiToken,
 } from "../auth/db.js";
 import { renderTable } from "../format/index.js";
-
-// Same 1–64-char label rule as the browser surface
-// (server/routes/tokens.tsx).
-const ApiTokenName = type("string.trim").pipe(type("1<=string<=64"));
-
-const NAME_ERROR = "A token name of 1–64 characters is required.";
 
 const HEADERS = ["ID", "Name", "Created", "Last used", "Expires"];
 
@@ -32,7 +28,7 @@ const tokenToCells = (t: ApiTokenSummary): string[] => [
 const runTokenCreate = (db: DatabaseSync, rawName: string): void => {
   const name = ApiTokenName(rawName);
   if (name instanceof type.errors) {
-    console.error(NAME_ERROR);
+    console.error(API_TOKEN_NAME_ERROR);
     process.exitCode = 1;
     return;
   }
