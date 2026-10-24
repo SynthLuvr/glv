@@ -134,10 +134,10 @@ const createApp = (
     serializer: (data) => (typeof data === "string" ? data : String(data)),
   });
 
-  // The loopback-only token bootstrap (issue #365) lives at the app
-  // root, ahead of the auth-gated scope below: it must answer without a
-  // credential, because a credential is what it mints. register… no-ops
-  // unless the flag is on, so the default server never has the route.
+  // The token bootstrap lives at the app root, ahead of the auth-gated
+  // scope below: it must answer without a credential, because a
+  // credential is what it mints. No-op unless the flag is on, so the
+  // default server never has the route.
   registerTokenBootstrapRoute(app, ctx);
 
   // Registered inside a scope so the auth gate — an onRequest hook — runs

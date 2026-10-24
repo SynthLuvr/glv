@@ -55,9 +55,9 @@ type ServerOptions = {
   prompts?: DatabaseSync;
   groups?: DatabaseSync;
   /**
-   * Loopback-only POST /api/tokens token bootstrap (issue #365).
-   * Default off — off means the route is not registered at all, so the
-   * path answers exactly like any unknown /api route.
+   * Loopback-only POST /api/tokens bootstrap (issue #365), default off —
+   * off means the route is not registered at all, so the path answers
+   * exactly like any unknown /api route.
    */
   allowTokenBootstrap?: boolean;
   /** The suggestions store; optional so app-less tests work. */

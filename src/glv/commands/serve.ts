@@ -97,8 +97,8 @@ type ServeOpts = {
   rpName: string;
   rpIdOverride?: string;
   /**
-   * Loopback-only POST /api/tokens bootstrap (issue #365), default off.
-   * Off means the route is not registered at all.
+   * Loopback-only POST /api/tokens bootstrap (issue #365), default off —
+   * off means the route is not registered at all.
    */
   allowTokenBootstrap: boolean;
   debug: boolean;
@@ -351,10 +351,10 @@ const runServe = (opts: ServeOpts): void => {
     console.log(
       `glv web viewer (${agentNames}) → ${address.replace("[::]", "localhost")}`,
     );
-    // The flag's one sharp edge, said out loud at every boot it is on:
-    // the bootstrap's loopback gate reads the TCP peer, so a reverse
-    // proxy in front of serve would hand every proxied request a
-    // loopback peer — world-open minting (issue #365).
+    // The flag's one sharp edge, said at every boot it is on: the
+    // loopback gate reads the TCP peer, so behind a reverse proxy every
+    // proxied request arrives from the proxy's own loopback hop —
+    // minting would be world-open (issue #365).
     if (opts.allowTokenBootstrap)
       console.warn(
         "token bootstrap: POST /api/tokens mints an API token for " +

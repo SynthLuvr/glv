@@ -6,26 +6,26 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   authedFetch,
   bearerFetch,
+  type Databases,
   type FlavorFixture,
   type IntegrationEnv,
   seedApiToken,
 } from "../harness.js";
 
 // End-to-end for the loopback-only HTTP token bootstrap (issue #365):
-// default-off boots answer POST /api/tokens exactly like an unknown
-// /api route; --allow-token-bootstrap boots mint from loopback (decided
-// on the socket address — forwarded headers never consulted) and the
-// fresh token drives the JSON API; non-loopback peers are refused;
-// blank names mint nothing; an ownerless app refuses; minting is
-// rate-bounded; and the existing revoke surface kills a bootstrapped
-// token.
+// flag-off boots answer POST /api/tokens exactly like an unknown /api
+// route; flag-on boots mint from loopback (decided on the socket
+// address — forwarded headers never consulted) and the fresh token
+// drives the JSON API; non-loopback peers, blank names, and ownerless
+// apps are refused; minting is rate-bounded; and the existing revoke
+// surface kills a bootstrapped token.
 
 type MintedToken = { token: string; name: string };
 
-// A local non-loopback address, when the host has one: serve binds the
-// wildcard, so connecting to it from the same machine produces exactly
-// the non-loopback TCP peer the bootstrap must refuse. Hosts with only
-// loopback interfaces skip that one test.
+// The host's own non-loopback address, when it has one: serve binds the
+// wildcard, so connecting to it from this machine yields exactly the
+// non-loopback TCP peer the bootstrap must refuse. Loopback-only hosts
+// skip that one test.
 const nonLoopbackLocalAddress = (): string | undefined => {
   for (const addrs of Object.values(networkInterfaces()))
     for (const addr of addrs ?? []) if (!addr.internal) return addr.address;
@@ -35,6 +35,14 @@ const nonLoopbackLocalAddress = (): string | undefined => {
 const NON_LOOPBACK = nonLoopbackLocalAddress();
 
 const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
+  const startFlaggedEnv = (
+    prefix: string,
+    prepareDbs?: (dbs: Databases) => void,
+  ): Promise<IntegrationEnv> =>
+    fx.startEnv(prefix, undefined, undefined, undefined, prepareDbs, [
+      "--allow-token-bootstrap",
+    ]);
+
   const postBootstrap = (
     env: IntegrationEnv,
     init: RequestInit = {},
@@ -57,33 +65,31 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     body: JSON.stringify(name === "" ? {} : { name }),
   });
 
-  // One row from the server's api_tokens table, by token name.
-  const tokenRow = (
+  const authRow = <T>(
     env: IntegrationEnv,
-    name: string,
-  ): { id: string } | undefined => {
+    sql: string,
+    ...args: string[]
+  ): T | undefined => {
     const db = new DatabaseSync(env.dbs.authDb, { readOnly: true });
     try {
-      const row = db
-        .prepare("SELECT id FROM api_tokens WHERE name = ?")
-        .get(name) as { id: string } | undefined;
-      return row;
+      return db.prepare(sql).get(...args) as T | undefined;
     } finally {
       db.close();
     }
   };
 
-  const apiTokenCount = (env: IntegrationEnv): number => {
-    const db = new DatabaseSync(env.dbs.authDb, { readOnly: true });
-    try {
-      const row = db.prepare("SELECT COUNT(*) AS n FROM api_tokens").get() as {
-        n: number;
-      };
-      return row.n;
-    } finally {
-      db.close();
-    }
-  };
+  const tokenRow = (
+    env: IntegrationEnv,
+    name: string,
+  ): { id: string } | undefined =>
+    authRow<{ id: string }>(
+      env,
+      "SELECT id FROM api_tokens WHERE name = ?",
+      name,
+    );
+
+  const apiTokenCount = (env: IntegrationEnv): number =>
+    authRow<{ n: number }>(env, "SELECT COUNT(*) AS n FROM api_tokens")?.n ?? 0;
 
   describe("flag off (default)", () => {
     let env: IntegrationEnv;
@@ -97,9 +103,10 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     });
 
     it("answers POST /api/tokens exactly like an unknown /api route", async () => {
-      // The invariant is indistinguishability: with the flag off the
+      // Indistinguishability is the invariant: with the flag off the
       // route does not exist, so a probe learns nothing — same status,
-      // body, and content type as any never-route.
+      // body, and content type as any never-route (today: the auth
+      // gate's JSON 401, never a mint).
       const probe = async (
         path: string,
       ): Promise<{ status: number; body: string; type: string | null }> => {
@@ -116,8 +123,6 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
       const bootstrap = await probe("/api/tokens");
       const unknown = await probe("/api/never-a-route");
       expect(bootstrap).toEqual(unknown);
-      // The concrete shape today: the auth gate's credential-less /api
-      // answer, a JSON 401 — never a mint.
       expect(bootstrap.status).toBe(401);
     });
 
@@ -138,14 +143,7 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     let env: IntegrationEnv;
 
     beforeAll(async () => {
-      env = await fx.startEnv(
-        "glv-tokboot-on-",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        ["--allow-token-bootstrap"],
-      );
+      env = await startFlaggedEnv("glv-tokboot-on-");
     }, 180000);
 
     afterAll(async () => {
@@ -165,21 +163,20 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
       expect(body.name).toBe("remote agent");
       // glv_at_ + 43 base64url chars, returned exactly once.
       expect(body.token).toMatch(/^glv_at_[A-Za-z0-9_-]{43}$/);
-      // Hash-only storage: the row id is the SHA-256 of the plaintext,
-      // never the plaintext itself.
+      // Hash-only storage: the row id is the SHA-256 of the plaintext.
       const row = tokenRow(env, "remote agent");
       expect(row?.id).toBe(
         createHash("sha256").update(body.token).digest("hex"),
       );
-      // The full filesystem-less bootstrap story: the bearer minted
-      // over HTTP is the sole credential, and it works.
+      // The filesystem-less bootstrap story: the HTTP-minted bearer is
+      // the sole credential, and it works.
       const sessions = await bearerFetch(env, "/api/sessions", body.token);
       expect(sessions.status).toBe(200);
     });
 
     it("ignores x-forwarded-for — the peer is the socket address", async () => {
       // A forged forwarded header must neither upgrade nor downgrade a
-      // loopback peer: an implementation that trusted the header over
+      // loopback peer: an implementation trusting the header over
       // request.raw.socket.remoteAddress fails here.
       const res = await postBootstrap(
         env,
@@ -203,9 +200,7 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     it("refuses a non-loopback TCP peer", {
       skip: NON_LOOPBACK === undefined,
     }, async () => {
-      // serve binds the wildcard, so the host's own non-loopback
-      // address is reachable and connecting to it from this machine
-      // yields a non-loopback socket peer.
+      // Bracket IPv6 literals for the URL; IPv4 needs nothing.
       const host = NON_LOOPBACK?.includes(":")
         ? `[${NON_LOOPBACK}]`
         : NON_LOOPBACK;
@@ -248,27 +243,18 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     let env: IntegrationEnv;
 
     beforeAll(async () => {
-      env = await fx.startEnv(
-        "glv-tokboot-noowner-",
-        undefined,
-        undefined,
-        undefined,
-        (dbs) => {
-          // Remove the owner row the harness seeds: the app that has
-          // never had a passkey registered. node:sqlite enforces the
-          // schema's foreign keys, so the seeded session row (and any
-          // stray credential/token rows) go first — only tables the
-          // harness schema creates exist yet at prepare time.
-          const db = new DatabaseSync(dbs.authDb);
-          db.exec("PRAGMA busy_timeout=5000");
-          db.exec("DELETE FROM sessions");
-          db.exec("DELETE FROM credentials");
-          db.exec("DELETE FROM api_tokens");
-          db.exec("DELETE FROM users");
-          db.close();
-        },
-        ["--allow-token-bootstrap"],
-      );
+      env = await startFlaggedEnv("glv-tokboot-noowner-", (dbs) => {
+        // The app that never had a passkey registered: drop the
+        // harness-seeded owner row. node:sqlite enforces the schema's
+        // foreign keys, so rows referencing users go first.
+        const db = new DatabaseSync(dbs.authDb);
+        db.exec("PRAGMA busy_timeout=5000");
+        db.exec("DELETE FROM sessions");
+        db.exec("DELETE FROM credentials");
+        db.exec("DELETE FROM api_tokens");
+        db.exec("DELETE FROM users");
+        db.close();
+      });
     }, 180000);
 
     afterAll(async () => {
@@ -291,14 +277,7 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
     let env: IntegrationEnv;
 
     beforeAll(async () => {
-      env = await fx.startEnv(
-        "glv-tokboot-valve-",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        ["--allow-token-bootstrap"],
-      );
+      env = await startFlaggedEnv("glv-tokboot-valve-");
     }, 180000);
 
     afterAll(async () => {

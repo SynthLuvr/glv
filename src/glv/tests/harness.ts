@@ -913,7 +913,7 @@ const startServer = (
   port: number,
   env: Record<string, string>,
   sinks: { stdout: { text: string }; stderr: { text: string } },
-  extraArgs: readonly string[] = [],
+  extraArgs: readonly string[],
 ): ChildProcess => {
   const proc = spawnLauncher(
     adapter.binPath,

@@ -663,7 +663,9 @@ const nameBodySchema = {
   type: "object",
   properties: { name: { type: "string" } },
   required: ["name"],
-} as const; // The 201 every creator answers with: the created resource plus its
+};
+
+// The 201 every creator answers with: the created resource plus its
 // Location header.
 const createdResponse = (
   description: string,
