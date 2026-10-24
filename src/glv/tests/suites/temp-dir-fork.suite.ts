@@ -22,10 +22,8 @@ const MARKER = ".glv-session-id";
 
 type ApiMeta = {
   session: {
-    id: string;
     working_dir: string;
-    status: string;
-    last_run?: { state: string; reason?: string };
+    last_run?: { state: string };
   };
 };
 
@@ -33,14 +31,14 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let token = "";
 
+  // Both readers throw instead of expect(): they also run inside
+  // expect.poll callbacks, where a nested expect breaks the retry.
   const readMeta = async (id: string): Promise<ApiMeta> => {
     const res = await bearerFetch(
       env,
       `/api/sessions/${id}?fields=meta`,
       token,
     );
-    // Throws instead of expect(): these helpers also run inside
-    // expect.poll callbacks, where a nested expect breaks the retry.
     if (res.status !== 200) throw new Error(`meta read failed: ${res.status}`);
     return (await res.json()) as ApiMeta;
   };
@@ -53,8 +51,7 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
     return body.messages?.length ?? 0;
   };
 
-  // The temp working dirs under GLV's private storage whose marker names
-  // the given session id.
+  // The managed temp dirs whose marker names the given session id.
   const tempDirsOf = (id: string): string[] => {
     if (!existsSync(env.tempDir)) return [];
     return readdirSync(env.tempDir, { withFileTypes: true })
@@ -69,31 +66,25 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
       });
   };
 
-  // Starts a temp-dir session over the JSON API — the exact repro shape
-  // from the issue (`session_mode=temp`, no working_dir field).
-  const startTempSession = async (
-    prompt: string,
-  ): Promise<{ id: string } | { error: string; status: number }> => {
+  // Starts a temp-dir session — the exact repro shape from the issue
+  // (`session_mode=temp`, no working_dir field).
+  const startTempSession = async (prompt: string): Promise<string> => {
     const res = await bearerFetch(env, "/api/sessions", token, {
       method: "POST",
       body: new URLSearchParams({ prompt, session_mode: "temp" }),
     });
-    const body = (await res.json()) as { id?: string; error?: string };
-    return res.status === 201 && body.id !== undefined
-      ? { id: body.id }
-      : { error: body.error ?? `status ${res.status}`, status: res.status };
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string };
+    return body.id;
   };
 
-  const forkSession = async (
-    id: string,
-  ): Promise<{ id: string } | { error: string; status: number }> => {
+  const forkSession = async (id: string): Promise<string> => {
     const res = await bearerFetch(env, `/api/sessions/${id}/fork`, token, {
       method: "POST",
     });
-    const body = (await res.json()) as { id?: string; error?: string };
-    return res.status === 201 && body.id !== undefined
-      ? { id: body.id }
-      : { error: body.error ?? `status ${res.status}`, status: res.status };
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string };
+    return body.id;
   };
 
   const promptSession = (id: string, prompt: string): Promise<Response> =>
@@ -141,18 +132,11 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
       .toBeGreaterThan(before);
   };
 
-  const expectStarted = (
-    outcome: { id: string } | { error: string; status: number },
-  ): string => {
-    if (!("id" in outcome)) throw new Error(outcome.error);
-    return outcome.id;
-  };
-
   beforeAll(async () => {
     env = await fx.startEnv("glv-tempfork-", { writeDb: true });
     token = seedApiToken(env.dbs.authDb, "tempfork");
-    // The vanished-directory session for the follow-up guard: its
-    // working dir is deliberately never created.
+    // The follow-up guard's vanished-directory session: its working dir
+    // is deliberately never created.
     fx.seedSessions(env, [
       {
         id: "gone-dir",
@@ -172,7 +156,7 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
     let sharedDir = "";
 
     it("starts a temp session whose directory is tagged with its id", async () => {
-      sourceId = expectStarted(await startTempSession("work in a scratch dir"));
+      sourceId = await startTempSession("work in a scratch dir");
       await settleRun(sourceId);
 
       const dirs = tempDirsOf(sourceId);
@@ -182,7 +166,7 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
     });
 
     it("forks the session and records the fork as a directory co-owner", async () => {
-      forkId = expectStarted(await forkSession(sourceId));
+      forkId = await forkSession(sourceId);
 
       // The fork keeps working in the same managed directory…
       const body = await readMeta(forkId);
@@ -220,12 +204,12 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
     let sharedDir = "";
 
     it("keeps the directory for the fork after the delete", async () => {
-      sourceId = expectStarted(await startTempSession("delete me later"));
+      sourceId = await startTempSession("delete me later");
       await settleRun(sourceId);
       sharedDir = tempDirsOf(sourceId)[0] ?? "";
       expect(sharedDir).not.toBe("");
 
-      forkId = expectStarted(await forkSession(sourceId));
+      forkId = await forkSession(sourceId);
 
       const res = await authedFetch(env, `/sessions/${sourceId}/delete`, {
         method: "POST",
@@ -245,8 +229,8 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
 
   describe("batch archive", () => {
     it("sweeps the temp directories of every archived session", async () => {
-      const first = expectStarted(await startTempSession("batch one"));
-      const second = expectStarted(await startTempSession("batch two"));
+      const first = await startTempSession("batch one");
+      const second = await startTempSession("batch two");
       await settleRun(first);
       await settleRun(second);
 
