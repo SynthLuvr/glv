@@ -255,9 +255,15 @@ const runTokenBootstrapSuite = (fx: FlavorFixture): void => {
         undefined,
         (dbs) => {
           // Remove the owner row the harness seeds: the app that has
-          // never had a passkey registered.
+          // never had a passkey registered. node:sqlite enforces the
+          // schema's foreign keys, so the seeded session row (and any
+          // stray credential/token rows) go first.
           const db = new DatabaseSync(dbs.authDb);
           db.exec("PRAGMA busy_timeout=5000");
+          db.exec("DELETE FROM sessions");
+          db.exec("DELETE FROM credentials");
+          db.exec("DELETE FROM api_tokens");
+          db.exec("DELETE FROM enrollment_tokens");
           db.exec("DELETE FROM users");
           db.close();
         },
