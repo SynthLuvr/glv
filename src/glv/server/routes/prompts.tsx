@@ -1,13 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import type { PromptInput, PromptSort } from "../../prompts/db.js";
+import type { PromptSort } from "../../prompts/db.js";
 import {
-  createPrompt,
   deletePrompt,
   getPrompt,
   listCategories,
   listPrompts,
   reorderPrompts,
-  updatePrompt,
 } from "../../prompts/db.js";
 import {
   PromptCard,
@@ -18,17 +16,7 @@ import {
 import type { ServerContext } from "../context.js";
 import { fieldString, parseForm } from "../forms.js";
 import { queryValue, sendHtml, sendNotFound, sendText } from "../http.js";
-
-const REQUIRED_ERROR = "A title and prompt body are required.";
-
-const readInput = (body: Record<string, unknown>): PromptInput => ({
-  title: fieldString(body, "title"),
-  body: fieldString(body, "body"),
-  category: fieldString(body, "category") || undefined,
-});
-
-const isValid = (input: PromptInput): boolean =>
-  input.title.trim() !== "" && input.body.trim() !== "";
+import { createSavedPrompt, updateSavedPrompt } from "../prompt-operations.js";
 
 // The prompts store is optional (tests may omit it); when absent no routes
 // are registered, so requests fall through to a 404.
@@ -75,19 +63,18 @@ const registerPromptRoutes = (
   );
 
   app.post("/prompts", async (request, reply) => {
-    const input = readInput(await parseForm(request));
-    if (!isValid(input))
+    const result = createSavedPrompt(prompts, await parseForm(request));
+    if (!result.ok)
       return sendHtml(
         reply,
         <PromptSaveForm
           agentName={ctx.agentNames}
-          title={input.title}
-          body={input.body}
-          category={input.category ?? ""}
-          error={REQUIRED_ERROR}
+          title={result.input.title}
+          body={result.input.body}
+          category={result.input.category ?? ""}
+          error={result.error}
         />,
       );
-    createPrompt(prompts, input);
     // No in-place content: the save slot is cleared while the refreshed
     // library swaps in out-of-band.
     return sendHtml(
@@ -124,24 +111,21 @@ const registerPromptRoutes = (
     "/prompts/:id",
     async (request, reply) => {
       const id = request.params.id;
-      const input = readInput(await parseForm(request));
-      const existing = getPrompt(prompts, id);
-      if (existing === undefined) return sendNotFound(reply);
-      if (!isValid(input))
+      const result = updateSavedPrompt(prompts, id, await parseForm(request));
+      if (!result.ok) {
+        if (result.status === 404) return sendNotFound(reply);
         return sendHtml(
           reply,
           <PromptEditForm
             id={id}
-            title={input.title}
-            body={input.body}
-            category={input.category ?? ""}
-            error={REQUIRED_ERROR}
+            title={result.input.title}
+            body={result.input.body}
+            category={result.input.category ?? ""}
+            error={result.error}
           />,
         );
-      updatePrompt(prompts, id, input);
-      const updated = getPrompt(prompts, id);
-      if (updated === undefined) return sendNotFound(reply);
-      return sendHtml(reply, <PromptCard prompt={updated} />);
+      }
+      return sendHtml(reply, <PromptCard prompt={result.prompt} />);
     },
   );
 

@@ -609,6 +609,8 @@ these endpoints safe behind an app that ships no CSRF protection:
 | `POST /api/sessions/:id/prompt` | queue a follow-up prompt |
 | `POST /api/sessions/:id/stop` | stop the run (idempotent: `200` either way) |
 | `POST /api/sessions/:id/fork` | copy the session under a fresh id |
+| `POST /api/prompts` | save a prompt to the library (see below) |
+| `PUT /api/prompts/:id` | update a saved prompt (see below) |
 
 Start a session in a working directory — or send `session_mode=temp`
 instead of `working_dir` for a scratch directory glv owns and sweeps on
@@ -883,18 +885,45 @@ cache, so a call also warms it for submit-time pin validation.
 from the same schemas the routes validate with, so it cannot drift —
 behind the same auth as every other `/api` path. Destructive operations
 (archive, delete) and every management surface (tokens, groups) stay in
-the browser; the saved-prompt library is readable over JSON (below).
+the browser; the saved-prompt library is written and read over JSON
+(below).
 
-### Reading saved prompts over the API
+### Managing saved prompts over the API
 
-The prompt library is readable over JSON — the same rows the browser
-library renders, bodies included, so a script can pull a prompt’s
-content to fill an editor with or submit it as a session prompt:
+The prompt library is scriptable both ways — the same rows the browser
+library renders, written and read through the same operation layer the
+browser’s save and edit forms use, so both surfaces run identical
+effects. Reads need only the cookie; writes take the bearer only:
 
-| Endpoint               | Effect                            |
-|------------------------|-----------------------------------|
-| `GET /api/prompts`     | list saved prompts (manual order) |
-| `GET /api/prompts/:id` | read one prompt, body included    |
+| Endpoint               | Effect                                        |
+|------------------------|-----------------------------------------------|
+| `GET /api/prompts`     | list saved prompts (manual order)             |
+| `GET /api/prompts/:id` | read one prompt, body included                |
+| `POST /api/prompts`    | save a prompt (multipart form, bearer only)   |
+| `PUT /api/prompts/:id` | update a prompt (multipart form, bearer only) |
+
+``` bash
+# seed or repair a library entry from a script
+PROMPT_ID=$(curl -sS -X POST http://localhost:3457/api/prompts \
+  -H "Authorization: Bearer glv_at_…" \
+  -F title="Refactor sweep" \
+  -F body="Tidy {{repo}} on branch {{branch}} and summarize." \
+  -F category="Code care" | jq -r .id)
+
+# edit it later — a full save; every submit rewrites the three fields
+curl -sS -X PUT "http://localhost:3457/api/prompts/$PROMPT_ID" \
+  -H "Authorization: Bearer glv_at_…" \
+  -F title="Refactor sweep (strict)" \
+  -F body="Tidy {{repo}} and summarize, failing on any leftover TODO."
+```
+
+The create answers `201` with a `Location` header and the stored prompt;
+the update answers `200` with the row as stored — id, sort position, and
+usage stats untouched. Both take the fields the browser forms accept:
+`title` and `body` required (blank answers `422 {"error":"…"}`),
+`category` optional (blank stores `null`, clearing it). Unknown ids
+answer `404`. Deleting a prompt and reordering the library stay in the
+browser — a destructive op and a UI concern, respectively.
 
 ``` bash
 curl -sS -H "Authorization: Bearer glv_at_…" \
@@ -906,8 +935,7 @@ Each row carries the prompt `body` verbatim — placeholders like
 run time) — plus `category`, `usage_count`, and the timestamps (ISO 8601
 UTC with an explicit `Z`, like every other timestamp the API returns).
 Rows with no category spell it `null`, and a prompt that has never been
-run carries `last_used_at: null`. Unknown ids answer
-`404 {"error":"…"}`. Creating and editing prompts stays in the browser.
+run carries `last_used_at: null`.
 
 ### Scheduling runs over the API
 

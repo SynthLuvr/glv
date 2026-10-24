@@ -371,6 +371,16 @@ const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   updated_at: toApiTimestamp(prompt.updatedAt),
 });
 
+// The multipart form fields POST /api/prompts and PUT /api/prompts/{id}
+// accept — the same title, body, and optional category the browser's
+// save and edit forms submit. Blank title or body answers 422, so both
+// stay required; a blank category clears it.
+const ApiPromptForm = type({
+  title: "string",
+  body: "string",
+  "category?": "string",
+});
+
 // --- The model catalogue (#342) ---------------------------------------
 
 // A model selection as the catalogue spells it: the provider/model pair
@@ -752,9 +762,10 @@ const openApiDocument = (
         "sessions/{id}/wait. Destructive " +
         "operations (archive, delete) and every management surface " +
         "(tokens, groups) stay in the browser; the saved-prompt library " +
-        "is readable over JSON at /api/prompts (creating and editing " +
-        "prompts stays in the browser), and scheduled runs are created, " +
-        "listed, run on demand, and deleted over JSON at /api/cron. The " +
+        "is written and read over JSON at /api/prompts (deleting and " +
+        "reordering prompts stay in the browser), and scheduled runs " +
+        "are created, listed, run on demand, and deleted over JSON at " +
+        "/api/cron. The " +
         "combined model catalogue behind the New Session picker is " +
         "readable at /api/models — each model's pin is the exact " +
         "spelling the model fields accept. Every timestamp on the wire " +
@@ -798,6 +809,7 @@ const openApiDocument = (
         CronDeleted: component(ApiCronDeleted),
         CronRunAccepted: component(ApiCronRunAccepted),
         Prompt: component(ApiPrompt),
+        PromptForm: component(ApiPromptForm),
         MintedToken: {
           type: "object",
           properties: {
@@ -951,6 +963,26 @@ const openApiDocument = (
             ...bearerResponses(),
           },
         },
+        post: {
+          summary: "Save a prompt",
+          description:
+            "Multipart form, the same fields the browser's save form " +
+            "accepts: title and body required (blank answers 422), " +
+            "category optional — a blank category stores null. Answers " +
+            "with the stored prompt and a Location naming its detail " +
+            "URL. The write rides the same operation layer the browser " +
+            "form does, so both surfaces run identical effects.",
+          requestBody: multipartRequest("PromptForm"),
+          responses: {
+            "201": createdResponse(
+              "The prompt was saved.",
+              "The new prompt's detail URL.",
+              "Prompt",
+            ),
+            "422": jsonResponse("Title or body blank.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
       },
       "/api/prompts/{id}": {
         get: {
@@ -959,6 +991,23 @@ const openApiDocument = (
           responses: {
             "200": jsonResponse("The saved prompt.", ref("Prompt")),
             "404": jsonResponse("Unknown prompt id.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+        put: {
+          summary: "Update a saved prompt",
+          description:
+            "Multipart form with the same fields the create accepts — " +
+            "a full save, not a patch: every submit rewrites title, " +
+            "body, and category together. The row keeps its id, sort " +
+            "position, and usage stats. Blank title or body answers " +
+            "422; an unknown id answers 404.",
+          parameters: [promptIdParam()],
+          requestBody: multipartRequest("PromptForm"),
+          responses: {
+            "200": jsonResponse("The updated prompt.", ref("Prompt")),
+            "404": jsonResponse("Unknown prompt id.", ref("Error")),
+            "422": jsonResponse("Title or body blank.", ref("Error")),
             ...bearerResponses(),
           },
         },
