@@ -24,6 +24,7 @@ import {
   createTempDir,
   removeDir,
   saveUploads,
+  shareTempDir,
   tagDir,
   uploadErrorMessage,
 } from "./uploads.js";
@@ -338,6 +339,14 @@ const createSessionOperations = (ctx: ServerContext) => {
     const prompt = firstString(body.prompt);
     if (prompt === "") return fail("A prompt is required.");
 
+    // A follow-up spawns the agent in the session's working directory;
+    // one deleted out from under the session (a shared temp dir swept
+    // too early, a directory removed by hand) would die at spawn with an
+    // opaque ENOENT (#367) — reject it with the actual reason instead.
+    // Empty stays permitted: the store may hold sessions without one.
+    if (session.working_dir !== "" && !existsSync(session.working_dir))
+      return fail("That working directory no longer exists.");
+
     const runtime = ctx.agentOf(id);
     if (runtime === undefined)
       return fail("This session's agent is not enabled.");
@@ -411,8 +420,8 @@ const createSessionOperations = (ctx: ServerContext) => {
       error,
     });
 
-    if (ctx.sessions.getSession(id) === undefined)
-      return fail(404, `No session ${id}.`);
+    const source = ctx.sessions.getSession(id);
+    if (source === undefined) return fail(404, `No session ${id}.`);
 
     const cutoffField = firstString(body.cutoff);
     const cutoff = cutoffField === "" ? null : Number(cutoffField);
@@ -435,6 +444,13 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     const forked = ctx.sessions.forkSession(id, cutoff);
     if (!forked.ok) return forked;
+
+    // A fork copies the source's working_dir verbatim, so a fork of a
+    // temp-dir session shares the managed directory (#367): record the
+    // fork as a co-owner so archiving or deleting either session leaves
+    // the directory in place until the last owner is gone — otherwise
+    // the survivor's next prompt spawns into a deleted directory.
+    shareTempDir(ctx.dataDirName, source.working_dir, forked.row.id);
 
     // A submitted prompt rides the exact follow-up path against the new
     // id, so the fork starts as an ordinary resumed session.

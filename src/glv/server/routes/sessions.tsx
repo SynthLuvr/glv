@@ -35,6 +35,16 @@ const registerSessionRoutes = (
 ): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
 
+  // Whether a session id still holds a directory it owns in use: the row
+  // exists and is not archived. Managed dirs carry their owners' ids in
+  // the marker (#367), so a sweep may only remove a dir once no owner
+  // passes this check — a fork keeps its source's temp dir alive after
+  // the source is archived, and the last owner out sweeps it.
+  const dirOwnerInUse = (id: string): boolean => {
+    const row = ctx.sessions.getSession(id);
+    return row !== undefined && row.archived_at === null;
+  };
+
   const NEW_SESSION_TITLE = "New Session — GLV";
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
 
@@ -270,8 +280,8 @@ const registerSessionRoutes = (
       // the run writing into deleted directories.
       stop(ctx.runner, id);
       ctx.sessions.archiveSessions([id]);
-      deleteUploads(ctx.dataDirName, id);
-      deleteTempDir(ctx.dataDirName, id);
+      deleteUploads(ctx.dataDirName, id, dirOwnerInUse);
+      deleteTempDir(ctx.dataDirName, id, dirOwnerInUse);
       return newSessionLanding(request, reply);
     },
   );
@@ -291,8 +301,8 @@ const registerSessionRoutes = (
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
       if (ctx.suggestions !== undefined) forgetSession(ctx.suggestions, id);
       if (ctx.stopNotices !== undefined) clearStopNotice(ctx.stopNotices, id);
-      deleteUploads(ctx.dataDirName, id);
-      deleteTempDir(ctx.dataDirName, id);
+      deleteUploads(ctx.dataDirName, id, dirOwnerInUse);
+      deleteTempDir(ctx.dataDirName, id, dirOwnerInUse);
       return newSessionLanding(request, reply);
     },
   );
@@ -323,7 +333,17 @@ const registerSessionRoutes = (
 
   app.post("/sessions/archive", async (request, reply) => {
     const body = await parseForm(request);
-    ctx.sessions.archiveSessions(extractIds(body.id));
+    const ids = extractIds(body.id);
+    // Mirror the single-id archive: stop any in-flight run first (a live
+    // agent must not find its working dir swept under it), then sweep
+    // each archived session's uploads and temp dirs — previously the
+    // batch route skipped the sweep entirely and the dirs leaked.
+    for (const id of ids) stop(ctx.runner, id);
+    ctx.sessions.archiveSessions(ids);
+    for (const id of ids) {
+      deleteUploads(ctx.dataDirName, id, dirOwnerInUse);
+      deleteTempDir(ctx.dataDirName, id, dirOwnerInUse);
+    }
     return sendHtml(reply, sessionList(sessionsAll()));
   });
 
