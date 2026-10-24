@@ -135,7 +135,6 @@ const runApiPromptsSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  // The form submit exactly as curl -F would send it.
   const postPrompt = (fields: Record<string, string>): Promise<Response> =>
     bearerFetch(env, "/api/prompts", token, {
       method: "POST",
@@ -261,9 +260,6 @@ const runApiPromptsSuite = (fx: FlavorFixture): void => {
     });
   });
 
-  // The published contract grows with the routes: the generated document
-  // must carry the new operations, generated from the same schemas the
-  // handlers validate with.
   describe("GET /api/openapi.json (prompt writes)", () => {
     it("documents POST /api/prompts and PUT /api/prompts/:id", async () => {
       const res = await bearerFetch(env, "/api/openapi.json", token);

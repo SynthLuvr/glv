@@ -371,10 +371,8 @@ const toApiPrompt = (prompt: SavedPrompt): ApiPromptData => ({
   updated_at: toApiTimestamp(prompt.updatedAt),
 });
 
-// The multipart form fields POST /api/prompts and PUT /api/prompts/{id}
-// accept — the same title, body, and optional category the browser's
-// save and edit forms submit. Blank title or body answers 422, so both
-// stay required; a blank category clears it.
+// The form fields the prompt writes accept — the same title, body,
+// and optional category the browser's save and edit forms submit.
 const ApiPromptForm = type({
   title: "string",
   body: "string",

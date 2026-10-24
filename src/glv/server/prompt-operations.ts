@@ -10,10 +10,9 @@ import { fieldString } from "./forms.js";
 
 // The prompt-library operation layer: the validate-and-execute core the
 // HTML prompt routes and the JSON /api/prompts endpoints share, so both
-// surfaces run identical effects — the same pattern the session and
-// cron surfaces already use. Failures come back as {ok: false, status,
-// error} with the parsed input riding along, and each surface decides
-// how to render them — an HTML form re-render or a JSON status code.
+// surfaces run identical effects. Failures carry the parsed input along
+// for the HTML form re-render; the surface decides how to render the
+// error — HTML or JSON.
 
 const REQUIRED_ERROR = "A title and prompt body are required.";
 
@@ -29,10 +28,7 @@ type PromptSaveOutcome =
   | PromptOperationFailure
   | { readonly ok: true; readonly prompt: SavedPrompt };
 
-// The fields both surfaces accept, straight from a parsed form body
-// (multipart or urlencoded — parseForm has already normalized them):
-// the same title, body, and optional category the browser's save and
-// edit forms submit.
+// A blank category field stores none — and clears one on update.
 const readPromptInput = (body: Record<string, unknown>): PromptInput => ({
   title: fieldString(body, "title"),
   body: fieldString(body, "body"),

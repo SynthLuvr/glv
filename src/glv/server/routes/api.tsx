@@ -243,10 +243,7 @@ const registerApiRoutes = (
     );
 
     // The library writes, riding the same operation layer the HTML
-    // prompt routes delegate to — so both surfaces run identical
-    // effects. 201 names the created row (Location plus the stored
-    // prompt, mirroring POST /api/cron); the update answers with the
-    // row as stored, usage stats and sort position untouched.
+    // prompt routes use — both surfaces run identical effects.
     app.post("/api/prompts", async (request, reply) => {
       const result = createSavedPrompt(prompts, await parseForm(request));
       if (!result.ok)
