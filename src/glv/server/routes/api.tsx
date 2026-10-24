@@ -24,6 +24,7 @@ import { VIEWER_FILTER } from "../context.js";
 import type { CronOperations } from "../cron-operations.js";
 import { firstString, parseForm, stringFields } from "../forms.js";
 import type { SessionOperations } from "../operations.js";
+import { createSavedPrompt, updateSavedPrompt } from "../prompt-operations.js";
 import { activeSessionIds } from "../status.js";
 import { waitForRunSettle } from "../wait.js";
 
@@ -238,6 +239,30 @@ const registerApiRoutes = (
         if (prompt === undefined)
           return reply.status(404).send({ error: `No saved prompt ${id}.` });
         return reply.send(toApiPrompt(prompt));
+      },
+    );
+
+    // The library writes, riding the same operation layer the HTML
+    // prompt routes use — both surfaces run identical effects.
+    app.post("/api/prompts", async (request, reply) => {
+      const result = createSavedPrompt(prompts, await parseForm(request));
+      if (!result.ok)
+        return reply.status(result.status).send({ error: result.error });
+      reply.header("Location", `/api/prompts/${result.prompt.id}`);
+      return reply.status(201).send(toApiPrompt(result.prompt));
+    });
+
+    app.put<{ Params: { id: string } }>(
+      "/api/prompts/:id",
+      async (request, reply) => {
+        const result = updateSavedPrompt(
+          prompts,
+          request.params.id,
+          await parseForm(request),
+        );
+        if (!result.ok)
+          return reply.status(result.status).send({ error: result.error });
+        return reply.send(toApiPrompt(result.prompt));
       },
     );
   }

@@ -477,6 +477,7 @@ const runApiWriteSuite = (fx: FlavorFixture): void => {
         "ModelSelection",
         "Models",
         "Prompt",
+        "PromptForm",
         "RunAccepted",
         "Session",
         "StartSessionForm",
