@@ -1,16 +1,11 @@
 import { type } from "arktype";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { API_TOKEN_NAME_ERROR, ApiTokenName } from "../../auth/db.js";
 import type { AuthService } from "../../auth/service.js";
 import { TokensPage } from "../../views/Auth.js";
 import type { ServerContext } from "../context.js";
 import { fieldString, parseForm } from "../forms.js";
 import { sendHtml } from "../http.js";
-
-// A free-form label (the stored hash is the identifier): 1–64 characters
-// once trimmed.
-const ApiTokenName = type("string.trim").pipe(type("1<=string<=64"));
-
-const NAME_ERROR = "A token name of 1–64 characters is required.";
 
 const renderTokensPage = (
   reply: FastifyReply,
@@ -52,7 +47,7 @@ const registerTokenRoutes = (
     if (name instanceof type.errors)
       return renderTokensPage(reply, auth, ctx, {
         tokenName: rawName,
-        error: NAME_ERROR,
+        error: API_TOKEN_NAME_ERROR,
       });
     const token = auth.createApiToken(name);
     if (token === undefined)

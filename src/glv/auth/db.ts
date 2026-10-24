@@ -332,6 +332,13 @@ const API_TOKEN_PREFIX = "glv_at_";
 const tokenHash = (token: string): string =>
   createHash("sha256").update(token).digest("hex");
 
+// The label every minting surface (browser page, CLI, loopback bootstrap)
+// requires: 1–64 characters once trimmed. One rule, one message — the
+// three surfaces must never drift apart.
+const ApiTokenName = type("string.trim").pipe(type("1<=string<=64"));
+
+const API_TOKEN_NAME_ERROR = "A token name of 1–64 characters is required.";
+
 // All the management screen can show: the raw token is never stored, so
 // it can never be listed.
 type ApiTokenSummary = {
@@ -413,6 +420,8 @@ const revokeApiToken = (db: DatabaseSync, id: string): void => {
 
 export type { ApiTokenSummary, CredentialSummary, NewCredential };
 export {
+  API_TOKEN_NAME_ERROR,
+  ApiTokenName,
   addCredential,
   apiTokenValid,
   consumeEnrollmentToken,

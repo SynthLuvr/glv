@@ -657,8 +657,13 @@ const multipartRequest = (schema: string): Record<string, unknown> => ({
     "multipart/form-data": { schema: ref(schema) },
   },
 });
-
-// The 201 every creator answers with: the created resource plus its
+// The token-bootstrap request body: one required field, spellable as a
+// JSON object or a form field.
+const nameBodySchema = {
+  type: "object",
+  properties: { name: { type: "string" } },
+  required: ["name"],
+} as const; // The 201 every creator answers with: the created resource plus its
 // Location header.
 const createdResponse = (
   description: string,
@@ -754,7 +759,9 @@ const openApiDocument = (
         "— created_at, updated_at, archived_at, message timestamps, " +
         "last_run.ended_at, last_fired_at — is ISO 8601 UTC with an " +
         "explicit zone designator (2026-10-21T18:22:36Z): storage is " +
-        "UTC, and the wire says so.",
+        "UTC, and the wire says so. The one credential-less path is the " +
+        "flag-gated, loopback-only token bootstrap POST /api/tokens " +
+        "(see there).",
     },
     security: [{ bearerAuth: [] }],
     components: {
@@ -789,6 +796,19 @@ const openApiDocument = (
         CronDeleted: component(ApiCronDeleted),
         CronRunAccepted: component(ApiCronRunAccepted),
         Prompt: component(ApiPrompt),
+        MintedToken: {
+          type: "object",
+          properties: {
+            token: {
+              type: "string",
+              description:
+                "The raw glv_at_… credential — returned exactly once; " +
+                "only its SHA-256 hash is stored.",
+            },
+            name: { type: "string", description: "The label passed in." },
+          },
+          required: ["token", "name"],
+        },
         ModelSelection: component(ApiModelSelection),
         ModelEntry: component(ApiModelEntry),
         AgentModels: component(ApiAgentModels),
@@ -1188,6 +1208,58 @@ const openApiDocument = (
             "404": jsonResponse("Unknown session id.", ref("Error")),
             "422": jsonResponse("Invalid cutoff.", ref("Error")),
             ...bearerResponses(),
+          },
+        },
+      },
+      "/api/tokens": {
+        post: {
+          summary: "Mint an API token (loopback bootstrap; flag-gated)",
+          description:
+            "Exists only while serve runs with --allow-token-bootstrap " +
+            "(default off — without the flag this path answers exactly " +
+            "like any unknown /api route). The bootstrap for clients with " +
+            "network reach but no filesystem access to the data " +
+            "directory (SSH port-forwards, sibling containers, CI " +
+            "executors): no credential is required, because a credential " +
+            "is what it mints — reachability is bounded by network " +
+            "position instead. The decision is the TCP peer's socket " +
+            "address (127.0.0.1 / ::1 only); x-forwarded-* headers are " +
+            "never consulted, so do not put serve behind a reverse proxy " +
+            "with this flag on — every proxied request arrives from the " +
+            "proxy's own loopback hop. Minting reuses the exact operation " +
+            "the browser's /auth/tokens page and `glv token create` use " +
+            "(hash-only storage, fixed 30-day TTL, last_used_at audit " +
+            "trail) and still requires an owner to exist. Bounded to 10 " +
+            "mints per rolling minute.",
+          security: [],
+          requestBody: {
+            required: true,
+            description: "The token's label: 1–64 characters, trimmed.",
+            content: {
+              "application/json": { schema: nameBodySchema },
+              "application/x-www-form-urlencoded": { schema: nameBodySchema },
+              "multipart/form-data": { schema: nameBodySchema },
+            },
+          },
+          responses: {
+            "201": jsonResponse(
+              "The minted token — the plaintext crosses the wire exactly " +
+                "this once.",
+              ref("MintedToken"),
+            ),
+            "403": jsonResponse("The TCP peer is not loopback.", ref("Error")),
+            "409": jsonResponse(
+              "No owner yet — a passkey must be registered once first.",
+              ref("Error"),
+            ),
+            "422": jsonResponse(
+              "Missing or blank name; nothing was minted.",
+              ref("Error"),
+            ),
+            "429": jsonResponse(
+              "Mint valve: more than 10 mints in the last minute.",
+              ref("Error"),
+            ),
           },
         },
       },

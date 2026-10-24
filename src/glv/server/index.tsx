@@ -31,6 +31,7 @@ import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerSidebarMetaRoutes } from "./routes/sidebarMeta.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { registerTokenBootstrapRoute } from "./routes/token-bootstrap.js";
 import { registerTokenRoutes } from "./routes/tokens.js";
 
 const createApp = (
@@ -64,6 +65,7 @@ const createApp = (
     auth: opts.auth,
     prompts: opts.prompts,
     groups: opts.groups,
+    allowTokenBootstrap: opts.allowTokenBootstrap ?? false,
     suggestions: opts.suggestions,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
@@ -131,6 +133,12 @@ const createApp = (
     heartbeatInterval: 0,
     serializer: (data) => (typeof data === "string" ? data : String(data)),
   });
+
+  // The loopback-only token bootstrap (issue #365) lives at the app
+  // root, ahead of the auth-gated scope below: it must answer without a
+  // credential, because a credential is what it mints. register… no-ops
+  // unless the flag is on, so the default server never has the route.
+  registerTokenBootstrapRoute(app, ctx);
 
   // Registered inside a scope so the auth gate — an onRequest hook — runs
   // after @fastify/cookie's root-level parse hook (parent hooks run first)

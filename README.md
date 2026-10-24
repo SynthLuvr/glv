@@ -484,30 +484,54 @@ retry with the same URL until one succeeds.
 ### API tokens (curl, CI)
 
 A passkey ceremony needs a browser, so scripts, CI, and agents get their
-own credential minted *underneath* the passkey. Two surfaces mint the
+own credential minted *underneath* the passkey. Three surfaces mint the
 same credential against the same auth database:
 
 - **In the browser** — log in once, visit `/auth/tokens`, name a token,
   and copy the `glv_at_…` value.
+
 - **From the shell** — `glv token create --name "orchestrator-loop"`
   prints the raw token as its entire stdout, so a script or agent can
   capture it directly (`TOKEN=$(glv token create --name ci)`). The same
   data-dir resolution the other subcommands use applies (`--auth-db` or
   `GLV_AUTH_DB`), so it works wherever `serve` reads its users.
 
-``` bash
-glv token create --name "orchestrator-loop"  # prints the token once
-glv token list                               # id, name, created, last used, expires
-glv token revoke <id>                        # id from `glv token list`
-```
+  ``` bash
+  glv token create --name "orchestrator-loop"  # prints the token once
+  glv token list                               # id, name, created, last used, expires
+  glv token revoke <id>                        # id from `glv token list`
+  ```
+
+- **Over HTTP, from the machine running `serve`** — for agents with
+  network reach to the viewer but *no* filesystem access to the data
+  directory (SSH port-forwards, sibling containers, CI executors). Start
+  serve with `--allow-token-bootstrap` and a loopback peer may mint
+  without any credential — a credential is exactly what it is minting:
+
+  ``` bash
+  curl -sS -X POST http://localhost:3457/api/tokens \
+    -H 'content-type: application/json' -d '{"name":"remote agent"}'
+  # → 201 {"token":"glv_at_…","name":"remote agent"}
+  ```
+
+  The endpoint is **off by default** — without the flag
+  `POST /api/tokens` answers exactly like any unknown `/api` path. When
+  on, the decision is the **TCP peer’s socket address**: `127.0.0.1` /
+  `::1` only. `x-forwarded-*` headers are never consulted, and that is
+  why **you must not enable the flag behind a reverse proxy**: every
+  proxied request arrives from the proxy’s own loopback hop, which would
+  make minting world-open (serve warns about this at every boot the flag
+  is on). Minting is bounded to 10 tokens per rolling minute and still
+  requires the app to have an owner.
 
 Either way the `glv_at_…` value is displayed exactly once and only its
-SHA-256 hash is stored — revoking by that hash from either surface kills
+SHA-256 hash is stored — revoking by that hash from any surface kills
 the credential. Minting requires the app to have an owner (a passkey
 registered once in the browser); tokens live 30 days (no sliding
 renewal), record their `last_used_at` time, and a token still grants
-only the single owner’s identity — the CLI widens *who can mint*, from
-the machine that already owns the data directory.
+only the single owner’s identity — the CLI and the loopback bootstrap
+widen *who can mint*, from the machine that already owns the data
+directory (the CLI) or can reach its loopback (the bootstrap).
 
 ``` bash
 curl -sS -H "Authorization: Bearer glv_at_…" \
@@ -525,8 +549,10 @@ indistinguishable from you) — mint a token instead.
 ### Driving runs over the API
 
 The whole loop a driving agent needs is now shell-only — the token
-bootstrap included (mint it with `glv token create`, above; the app must
-already have a passkey-registered owner):
+bootstrap included (mint it with `glv token create`, above, or — with no
+filesystem access to the data dir — with the loopback-only
+`--allow-token-bootstrap` endpoint; the app must already have a
+passkey-registered owner):
 
 ``` bash
 TOKEN=$(glv token create --name "orchestrator-loop")   # mint once, capture

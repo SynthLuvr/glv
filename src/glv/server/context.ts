@@ -54,6 +54,12 @@ type ServerOptions = {
   auth?: AuthService;
   prompts?: DatabaseSync;
   groups?: DatabaseSync;
+  /**
+   * Loopback-only POST /api/tokens token bootstrap (issue #365).
+   * Default off — off means the route is not registered at all, so the
+   * path answers exactly like any unknown /api route.
+   */
+  allowTokenBootstrap?: boolean;
   /** The suggestions store; optional so app-less tests work. */
   suggestions?: DatabaseSync;
   rpName?: string;
@@ -114,6 +120,8 @@ type ServerContext = {
   readonly auth: AuthService | undefined;
   readonly prompts: DatabaseSync | undefined;
   readonly groups: DatabaseSync | undefined;
+  /** Loopback-only POST /api/tokens bootstrap; false unless flagged on. */
+  readonly allowTokenBootstrap: boolean;
   /** The suggested-next-prompts store, when the server opened one. */
   readonly suggestions: DatabaseSync | undefined;
   readonly rpName: string | undefined;

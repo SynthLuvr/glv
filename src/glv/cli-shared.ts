@@ -88,6 +88,12 @@ const addServeTailOptions = (cmd: Command): Command =>
       "--rp-id <domain>",
       "WebAuthn relying party ID (defaults to the request host)",
     )
+    .option(
+      "--allow-token-bootstrap",
+      "let loopback-only POST /api/tokens mint an API token with no " +
+        "credential — for agents with network reach but no filesystem " +
+        "access to the data dir; not safe behind a reverse proxy",
+    )
     .option("--debug", "enable debug logging (equivalent to GLV_DEBUG=1)");
 
 // Commander hands the action a plain option bag, so the tail is read
@@ -99,10 +105,12 @@ const serveTail = (
   rpName: string;
   rpIdOverride?: string;
   debug: boolean;
+  allowTokenBootstrap: boolean;
 } => ({
   rpName: typeof opts.rpName === "string" ? opts.rpName : "GLV",
   rpIdOverride: typeof opts.rpId === "string" ? opts.rpId : undefined,
   debug: opts.debug === true,
+  allowTokenBootstrap: opts.allowTokenBootstrap === true,
 });
 
 // Raw argv can't decide "is there a subcommand" by sign alone: a global

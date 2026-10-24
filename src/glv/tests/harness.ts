@@ -458,6 +458,12 @@ type FlavorFixture = {
     homeDir?: string,
     extraEnv?: Record<string, string>,
     prepareDbs?: (dbs: Databases) => void,
+    /**
+     * Extra `serve` argv appended after the adapter's own flags — the
+     * escape hatch for suites that exercise an opt-in serve flag (e.g.
+     * --allow-token-bootstrap) against the real boot path.
+     */
+    extraServeArgs?: readonly string[],
   ) => Promise<IntegrationEnv>;
   readonly seedSessions: (env: IntegrationEnv, seeds: SessionSeed[]) => void;
   readonly seedMessages: (
@@ -907,10 +913,11 @@ const startServer = (
   port: number,
   env: Record<string, string>,
   sinks: { stdout: { text: string }; stderr: { text: string } },
+  extraArgs: readonly string[] = [],
 ): ChildProcess => {
   const proc = spawnLauncher(
     adapter.binPath,
-    ["serve", "-p", String(port), ...adapter.serveArgs(dbs)],
+    ["serve", "-p", String(port), ...adapter.serveArgs(dbs), ...extraArgs],
     {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
@@ -937,6 +944,7 @@ const startEnv = async (
   homeDir?: string,
   extraEnv: Record<string, string> = {},
   prepareDbs?: (dbs: Databases) => void,
+  extraServeArgs: readonly string[] = [],
 ): Promise<IntegrationEnv> => {
   const scratchDir = mkdtempSync(join(tmpdir(), prefix));
   const dbs = adapter.createDatabases(scratchDir);
@@ -1014,7 +1022,14 @@ const startEnv = async (
     for (let attempt = 1; ; attempt++) {
       const port = await findFreePort();
       const candidate = `http://localhost:${port}`;
-      const started = startServer(adapter, dbs, port, spawnEnv, sinks);
+      const started = startServer(
+        adapter,
+        dbs,
+        port,
+        spawnEnv,
+        sinks,
+        extraServeArgs,
+      );
       proc = started;
       // `close`, not `exit`: it fires once stderr has flushed too, so the
       // EADDRINUSE check below is guaranteed to see why a dying serve
@@ -1116,8 +1131,23 @@ const startEnv = async (
 // only flavor-specific part is the adapter.
 const makeStartEnv =
   (adapter: FlavorAdapter): FlavorFixture["startEnv"] =>
-  (prefix, mock = {}, homeDir, extraEnv = {}, prepareDbs) =>
-    startEnv(adapter, prefix, mock, homeDir, extraEnv, prepareDbs);
+  (
+    prefix,
+    mock = {},
+    homeDir,
+    extraEnv = {},
+    prepareDbs,
+    extraServeArgs = [],
+  ) =>
+    startEnv(
+      adapter,
+      prefix,
+      mock,
+      homeDir,
+      extraEnv,
+      prepareDbs,
+      extraServeArgs,
+    );
 
 // The scripted agent records every invocation of the mocked binary; the
 // session run is the one carrying the resume flag, because other features

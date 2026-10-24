@@ -96,6 +96,11 @@ type ServeOpts = {
   stopNoticesDbPath: string;
   rpName: string;
   rpIdOverride?: string;
+  /**
+   * Loopback-only POST /api/tokens bootstrap (issue #365), default off.
+   * Off means the route is not registered at all.
+   */
+  allowTokenBootstrap: boolean;
   debug: boolean;
 };
 
@@ -329,6 +334,7 @@ const runServe = (opts: ServeOpts): void => {
     runCronJob: cron.runNow,
     rpName: opts.rpName,
     rpIdOverride: opts.rpIdOverride,
+    allowTokenBootstrap: opts.allowTokenBootstrap,
   });
   // One banner for one product: the served agents ride along in
   // parentheses (the same spelling as ctx.agentNames) instead of
@@ -345,6 +351,18 @@ const runServe = (opts: ServeOpts): void => {
     console.log(
       `glv web viewer (${agentNames}) → ${address.replace("[::]", "localhost")}`,
     );
+    // The flag's one sharp edge, said out loud at every boot it is on:
+    // the bootstrap's loopback gate reads the TCP peer, so a reverse
+    // proxy in front of serve would hand every proxied request a
+    // loopback peer — world-open minting (issue #365).
+    if (opts.allowTokenBootstrap)
+      console.warn(
+        "token bootstrap: POST /api/tokens mints an API token for " +
+          "loopback peers only (decided on the socket address; forwarded " +
+          "headers are ignored). Do not put serve behind a reverse proxy " +
+          "with this flag on — every proxied request arrives from the " +
+          "proxy's own loopback hop and would be mint-eligible.",
+      );
     // Enumerating a model catalogue can spawn the agent binary, which
     // takes seconds; warm every picker now so the first New Session
     // render is instant. Best-effort only: a failure degrades the
