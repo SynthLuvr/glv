@@ -35,6 +35,20 @@ const registerSessionRoutes = (
 ): void => {
   const sessionsAll = () => ctx.sessions.listSessions(VIEWER_FILTER);
 
+  // A managed directory's marker names every owning session (#367), so
+  // a sweep may remove it only once no owner is a live, unarchived row.
+  const dirOwnerInUse = (id: string): boolean => {
+    const row = ctx.sessions.getSession(id);
+    return row !== undefined && row.archived_at === null;
+  };
+
+  // Sweeps an archived or deleted session's uploads and temp working
+  // dir; the temp dir only goes once its last owner is gone.
+  const sweepSessionDirs = (id: string): void => {
+    deleteUploads(ctx.dataDirName, id, dirOwnerInUse);
+    deleteTempDir(ctx.dataDirName, id, dirOwnerInUse);
+  };
+
   const NEW_SESSION_TITLE = "New Session — GLV";
   const sessionTitle = (name: string): string => `${displayName(name)} — GLV`;
 
@@ -270,8 +284,7 @@ const registerSessionRoutes = (
       // the run writing into deleted directories.
       stop(ctx.runner, id);
       ctx.sessions.archiveSessions([id]);
-      deleteUploads(ctx.dataDirName, id);
-      deleteTempDir(ctx.dataDirName, id);
+      sweepSessionDirs(id);
       return newSessionLanding(request, reply);
     },
   );
@@ -291,8 +304,7 @@ const registerSessionRoutes = (
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
       if (ctx.suggestions !== undefined) forgetSession(ctx.suggestions, id);
       if (ctx.stopNotices !== undefined) clearStopNotice(ctx.stopNotices, id);
-      deleteUploads(ctx.dataDirName, id);
-      deleteTempDir(ctx.dataDirName, id);
+      sweepSessionDirs(id);
       return newSessionLanding(request, reply);
     },
   );
@@ -323,7 +335,13 @@ const registerSessionRoutes = (
 
   app.post("/sessions/archive", async (request, reply) => {
     const body = await parseForm(request);
-    ctx.sessions.archiveSessions(extractIds(body.id));
+    const ids = extractIds(body.id);
+    // Mirror the single-id archive: stop any in-flight run first, then
+    // sweep each archived session's dirs — previously the batch route
+    // skipped the sweep entirely and the dirs leaked.
+    for (const id of ids) stop(ctx.runner, id);
+    ctx.sessions.archiveSessions(ids);
+    for (const id of ids) sweepSessionDirs(id);
     return sendHtml(reply, sessionList(sessionsAll()));
   });
 

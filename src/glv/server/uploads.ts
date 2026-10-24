@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { resolveDataPath } from "../db-path.js";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file
@@ -130,11 +130,42 @@ const buildUploadContext = (paths: string[]): string => {
   return `\n\n---\nAttached files (read them as needed):\n${list}`;
 };
 
-// Tags a managed directory with its owning session id via a marker file.
-// The dir keeps its uuid name because renaming would break the absolute
-// paths already handed to the agent for the run's lifetime.
+// The session ids owning a managed directory, one per line in the
+// marker file. A temp working dir shared with a fork lists every owner
+// so its sweep can wait for the last one out (#367).
+const markerIds = (markerPath: string): string[] =>
+  readFileSync(markerPath, "utf-8")
+    .trim()
+    .split(/\s+/)
+    .filter((id) => id !== "");
+
+// Records a session as an owner of a managed directory; re-tagging an
+// id already present changes nothing. The dir keeps its uuid name
+// because renaming would break the absolute paths already handed to the
+// agent for the run's lifetime.
 const tagDir = (dir: string, sessionId: string): void => {
-  writeFileSync(join(dir, SESSION_MARKER), sessionId);
+  const markerPath = join(dir, SESSION_MARKER);
+  const existing = existsSync(markerPath) ? markerIds(markerPath) : [];
+  const owners = existing.includes(sessionId)
+    ? existing
+    : [...existing, sessionId];
+  writeFileSync(markerPath, `${owners.join("\n")}\n`);
+};
+
+// Adds a fork's id to the temp dir it now shares with its source
+// (#367): the fork copies the source's working_dir verbatim, so the
+// directory may only be swept once every owner is archived or deleted.
+// A working dir outside GLV's temp base — or already deleted — is left
+// alone.
+const shareTempDir = (
+  dataDirName: string,
+  workingDir: string,
+  sessionId: string,
+): void => {
+  const rel = relative(resolveTempBase(dataDirName), workingDir);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return;
+  if (!existsSync(workingDir)) return;
+  tagDir(workingDir, sessionId);
 };
 
 // Windows can transiently refuse a recursive delete with EPERM while the
@@ -149,21 +180,38 @@ const RM_OPTIONS = {
   retryDelay: 100,
 } as const;
 
-// Removes any sub-directory whose marker matches the session id. Untagged
-// dirs (from crashed sessions) are left untouched.
-const deleteTaggedDir = (base: string, sessionId: string): void => {
+// Decides whether a session named in a directory's marker still holds
+// the directory in use: its row exists and is not archived.
+type OwnerInUse = (id: string) => boolean;
+
+// Removes any sub-directory the session owns — its marker names the
+// session id — but only once no owner the marker names is still in use:
+// a shared temp dir outlives the first owner's archive and is swept by
+// the last one out (#367). Untagged dirs (from crashed sessions) are
+// left untouched.
+const deleteTaggedDir = (
+  base: string,
+  sessionId: string,
+  ownerInUse: OwnerInUse,
+): void => {
   if (!existsSync(base)) return;
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const markerPath = join(base, entry.name, SESSION_MARKER);
     if (!existsSync(markerPath)) continue;
-    if (readFileSync(markerPath, "utf-8").trim() === sessionId)
-      rmSync(join(base, entry.name), RM_OPTIONS);
+    const owners = markerIds(markerPath);
+    if (!owners.includes(sessionId)) continue;
+    if (owners.some(ownerInUse)) continue;
+    rmSync(join(base, entry.name), RM_OPTIONS);
   }
 };
 
-const deleteUploads = (dataDirName: string, sessionId: string): void =>
-  deleteTaggedDir(resolveUploadsBase(dataDirName), sessionId);
+const deleteUploads = (
+  dataDirName: string,
+  sessionId: string,
+  ownerInUse: OwnerInUse,
+): void =>
+  deleteTaggedDir(resolveUploadsBase(dataDirName), sessionId, ownerInUse);
 
 const createTempDir = (dataDirName: string): string => {
   const dir = join(resolveTempBase(dataDirName), randomUUID());
@@ -171,8 +219,11 @@ const createTempDir = (dataDirName: string): string => {
   return dir;
 };
 
-const deleteTempDir = (dataDirName: string, sessionId: string): void =>
-  deleteTaggedDir(resolveTempBase(dataDirName), sessionId);
+const deleteTempDir = (
+  dataDirName: string,
+  sessionId: string,
+  ownerInUse: OwnerInUse,
+): void => deleteTaggedDir(resolveTempBase(dataDirName), sessionId, ownerInUse);
 
 // Pre-tag failure cleanup — the sweep can only find tagged directories.
 const removeDir = (dir: string): void => {
@@ -187,6 +238,7 @@ export {
   deleteUploads,
   removeDir,
   saveUploads,
+  shareTempDir,
   tagDir,
   uploadErrorMessage,
 };
