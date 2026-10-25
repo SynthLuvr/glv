@@ -187,10 +187,8 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
 
       // Offset spelling — zones sitting on +2 now, offset in the label.
-      // The probe must sit on +02:00 in both halves of the year:
-      // Johannesburg never observes DST, while Europe/Berlin reads as
-      // +01:00 from late October — this assertion burned the weekly
-      // Windows run the morning the EU clocks went back.
+      // The probe must hold +02:00 year-round: Johannesburg has no DST,
+      // unlike Europe/Berlin, which drops to +01:00 in late October.
       const offset = await authedFetch(
         env,
         "/cron/timezones?q=" + encodeURIComponent("utc+2"),
