@@ -187,12 +187,16 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
 
       // Offset spelling — zones sitting on +2 now, offset in the label.
+      // The probe must hold +02:00 year-round: Johannesburg has no DST,
+      // unlike Europe/Berlin, which drops to +01:00 in late October.
       const offset = await authedFetch(
         env,
         "/cron/timezones?q=" + encodeURIComponent("utc+2"),
       );
       const offsetHtml = await offset.text();
-      expect(offsetHtml).toContain('data-autocomplete-value="Europe/Berlin"');
+      expect(offsetHtml).toContain(
+        'data-autocomplete-value="Africa/Johannesburg"',
+      );
       expect(offsetHtml).toContain("UTC+02:00");
 
       // Nothing matches: an honest empty list, no option rows.

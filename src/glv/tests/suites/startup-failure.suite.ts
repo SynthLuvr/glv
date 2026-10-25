@@ -21,6 +21,9 @@ import {
 // agent (a crashing run that prints to stderr, a silent one that never
 // speaks) and asserted over HTTP.
 
+// The verdict the settle path persists as the session's last run.
+type LastRun = { state: string; reason?: string; ended_at: string };
+
 const runStartupFailureSuite = (fx: FlavorFixture): void => {
   let envCrash: IntegrationEnv;
   let envStall: IntegrationEnv;
@@ -102,6 +105,51 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
             `last seen: ${html.slice(0, 500)}`,
         );
       await delay(250);
+    }
+  };
+
+  // The session's persisted last-run verdict via the JSON read, or
+  // undefined before the first settle.
+  const lastRunOf = async (
+    e: IntegrationEnv,
+    id: string,
+  ): Promise<LastRun | undefined> => {
+    const res = await authedFetch(e, `/api/sessions/${fx.viewId(id)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { session: { last_run?: LastRun } };
+    return body.session.last_run;
+  };
+
+  // Waits for the verdict persisted for `id` to be younger than `after`
+  // and name the watchdog kill — this run's own settle, not a previous
+  // run's replayed row. The handle flips to error the instant the
+  // watchdog fires, but the verdict row is written only after the agent
+  // process dies — a long tail on Windows, whose tree kill (taskkill
+  // /T /F) costs far more than a POSIX signal. The stop-notice row is
+  // written immediately before the verdict, so a fresh verdict proves
+  // the diagnostic is on disk before anything restarts serve: on
+  // Windows a restart hard-terminates the old process, and a write
+  // still in flight is lost for good.
+  const waitForVerdictAfter = async (
+    e: IntegrationEnv,
+    id: string,
+    after: number,
+  ): Promise<LastRun> => {
+    const deadline = Date.now() + 20000;
+    for (;;) {
+      const lastRun = await lastRunOf(e, id);
+      if (
+        lastRun !== undefined &&
+        Date.parse(lastRun.ended_at) > after &&
+        lastRun.reason?.includes("was killed")
+      )
+        return lastRun;
+      if (Date.now() > deadline)
+        throw new Error(
+          `last_run for ${id} never carried a fresh watchdog verdict; ` +
+            `seen: ${JSON.stringify(lastRun ?? null)}`,
+        );
+      await delay(200);
     }
   };
 
@@ -202,6 +250,10 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
     }, 45000);
 
     it("releases the runner slot: the next prompt runs and fails again", async () => {
+      // The prompt clears the stop-notice row, and the previous run's
+      // verdict still sits in last_run — snapshot the pre-run instant
+      // so the settle wait matches only this run's fresh verdict.
+      const before = Date.now();
       const stream = collectSse(
         envStall,
         `/sessions/${fx.viewId("stall-1")}/events`,
@@ -217,9 +269,15 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
         "produced no output",
       );
       expect(html).toContain("Run stopped early");
+      // Settle, not render: the next test restarts serve, which would
+      // drop a verdict still in flight (see waitForVerdictAfter).
+      const settled = await waitForVerdictAfter(envStall, "stall-1", before);
+      expect(settled.state).toBe("failed");
     }, 45000);
 
     it("keeps the watchdog diagnostic across a restart", async () => {
+      // Safe to restart: the previous test waited out the settle, so
+      // the diagnostic is already on disk.
       await envStall.restart();
       const after = await pageHtml(envStall, "stall-1");
       expect(after).toContain("produced no output within 2.5s");
