@@ -5,7 +5,7 @@ import { LocationButton, LocationFields } from "./location.js";
 import { ModelPickerSlot } from "./model-picker.js";
 import { PromptLibrarySection } from "./prompt-library.js";
 import { ScheduledRunsSection } from "./schedule.js";
-import { PaperclipButton, UploadFields } from "./uploads.js";
+import { GalleryButton, PaperclipButton, UploadFields } from "./uploads.js";
 
 const WorkingDirBody = ({
   workingDir,
@@ -148,6 +148,7 @@ const NewSessionForm = ({
       <p class="paste-hint">Tip: paste images with ⌘/Ctrl+V</p>
       <div class="form-actions upload-actions">
         <PaperclipButton />
+        <GalleryButton />
         <LocationButton />
         <button type="submit" class="send-btn">
           Start session

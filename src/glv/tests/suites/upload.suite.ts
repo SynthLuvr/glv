@@ -91,6 +91,76 @@ const runUploadSuite = (fx: FlavorFixture): void => {
     });
   });
 
+  describe("gallery attach button", () => {
+    it("renders beside the paperclip on the New Session form and prompt bar", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl);
+        await expect(page.locator("form.new-session-form")).toBeVisible();
+        await expect(
+          page.locator(".new-session-form .gallery-btn"),
+        ).toBeVisible();
+        // Still exactly one hidden input — the gallery button drives the
+        // same input, it only narrows its accept list.
+        await expect(page.locator('input[type="file"]')).toHaveCount(1);
+        await expect(page.locator('input[type="file"]')).toHaveAttribute(
+          "accept",
+          /application\/pdf/,
+        );
+
+        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("seed-session")}`);
+        await expect(page.locator("form.prompt-bar")).toBeVisible();
+        await expect(page.locator(".prompt-bar .gallery-btn")).toBeVisible();
+      });
+    });
+
+    it("opens the picker image-only, then restores the full list", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl);
+        await expect(page.locator("form.new-session-form")).toBeVisible();
+        const input = page.locator('input[type="file"]');
+        const defaultAccept = await input.getAttribute("accept");
+        expect(defaultAccept).toContain("application/pdf");
+
+        // The click opens the OS picker; headless Chromium just emits the
+        // filechooser event, which nothing here answers.
+        page.on("filechooser", () => undefined);
+
+        await page.locator(".new-session-form .gallery-btn").click();
+        // image/* alone is what makes mobile pickers offer the gallery
+        // directly instead of routing through the Files browser.
+        await expect(input).toHaveAttribute("accept", "image/*");
+
+        // The paperclip flips the same input back to the mixed list.
+        await page.locator(".new-session-form .paperclip-btn").click();
+        await expect(input).toHaveAttribute("accept", defaultAccept ?? "");
+      });
+    });
+
+    it("stages a photo picked through the gallery picker", async () => {
+      await withPage(env.context, async (page) => {
+        await page.goto(env.baseUrl);
+        await expect(page.locator("form.new-session-form")).toBeVisible();
+        page.on("filechooser", () => undefined);
+
+        await page.locator(".new-session-form .gallery-btn").click();
+        await expect(page.locator('input[type="file"]')).toHaveAttribute(
+          "accept",
+          "image/*",
+        );
+
+        // Answer the picker the way a gallery selection would; the chip
+        // flow from here is the same one the submit path consumes.
+        const pngPath = join(env.scratchDir, "gallery-pick.png");
+        writeFileSync(pngPath, Buffer.from(PASTED_PNG_B64, "base64"));
+        await page.locator('input[type="file"]').setInputFiles(pngPath);
+        await expect(page.locator(".upload-chip")).toBeVisible();
+        await expect(page.locator(".chip-name")).toContainText(
+          "gallery-pick.png",
+        );
+      });
+    });
+  });
+
   describe("file upload — session with attachments", () => {
     it(`starts a session, saves files to GLV private storage, and passes paths to ${fx.name}`, async () => {
       await withPage(env.context, async (page) => {

@@ -1715,6 +1715,7 @@ pre::-webkit-scrollbar-thumb {
   align-items: flex-end;
 }
 .prompt-input-row .paperclip-btn,
+.prompt-input-row .gallery-btn,
 .prompt-input-row .location-btn {
   display: flex;
   align-items: center;
@@ -1935,6 +1936,7 @@ form[data-upload-form] {
   flex-wrap: wrap;
 }
 .paperclip-btn,
+.gallery-btn,
 .location-btn {
   display: inline-flex;
   align-items: center;
@@ -1955,12 +1957,14 @@ form[data-upload-form] {
     background 0.12s ease;
 }
 .paperclip-btn:hover,
+.gallery-btn:hover,
 .location-btn:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
 .paperclip-btn svg,
+.gallery-btn svg,
 .location-btn svg {
   flex-shrink: 0;
 }

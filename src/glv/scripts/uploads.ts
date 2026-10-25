@@ -136,10 +136,17 @@ const collectPastedImages = (dt: DataTransfer): File[] => {
 const wireForm = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>('input[type="file"]');
   const button = form.querySelector<HTMLButtonElement>(".paperclip-btn");
+  const galleryBtn = form.querySelector<HTMLButtonElement>(".gallery-btn");
   const chipsContainer = form.querySelector<HTMLElement>(".upload-chips");
   const errorEl = form.querySelector<HTMLElement>(".upload-error");
 
   if (input === null || button === null) return;
+
+  // Accept lists live on the hidden input (set by the view): the default
+  // mixed list for the paperclip, and an image-only override the gallery
+  // button swaps in so mobile pickers surface the photo gallery directly.
+  const defaultAccept = input.accept;
+  const imageAccept = input.dataset.imageAccept ?? defaultAccept;
 
   // A fresh form node starts empty — unless it is the same session's prompt
   // bar re-rendered by a busy/idle swap, which inherits the staged chips
@@ -163,8 +170,19 @@ const wireForm = (form: HTMLFormElement): void => {
   // mobile (see syncInput). This also lets the same file be picked twice.
   button.addEventListener("click", () => {
     input.value = "";
+    input.accept = defaultAccept;
     input.click();
   });
+
+  // Same hidden input, image-only accept: with accept="image/*" Android's
+  // chooser sheet offers Camera and Gallery outright instead of routing
+  // through the Files browser.
+  if (galleryBtn !== null)
+    galleryBtn.addEventListener("click", () => {
+      input.value = "";
+      input.accept = imageAccept;
+      input.click();
+    });
 
   input.addEventListener("change", () => {
     if (input.files === null) return;

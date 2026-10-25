@@ -25,7 +25,7 @@ import {
   MessageView,
 } from "./message-blocks.js";
 import { SessionTitleWrap } from "./Rename.js";
-import { PaperclipButton, UploadFields } from "./uploads.js";
+import { GalleryButton, PaperclipButton, UploadFields } from "./uploads.js";
 
 const MetaCopyButton = ({ value, label }: { value: string; label: string }) => {
   const action = `Copy ${label.toLowerCase()}`;
@@ -402,6 +402,7 @@ const PromptBar = ({
           autofocus={focusPrompt ? true : undefined}
         />
         <PaperclipButton compact />
+        <GalleryButton compact />
         <LocationButton compact />
         {busy ? (
           <>
