@@ -1,19 +1,18 @@
-# Guided Live Velocity
+# glv
 
 [![CI](https://github.com/SynthLuvr/glv/actions/workflows/ci.yml/badge.svg)](https://github.com/SynthLuvr/glv/actions/workflows/ci.yml)
 
 A self-hosted web app that **increases your development speed with
-agentic coding**. Guided Live Velocity drives the
+agentic coding**. glv (short for Guided Live Velocity) drives the
 [goose](https://github.com/aaif-goose/goose) agentic engine from a fast
 browser UI: launch guided coding sessions, watch them stream live, and
 turn raw transcripts into navigable, searchable velocity.
 
 goose records every session — prompts, model responses, tool calls, and
-reasoning — in an on-disk SQLite database. **Guided Live Velocity** (or
-**glv**) turns that database into a fast, self-hosted web UI: browse
-past sessions, watch live runs stream in real time, kick off fresh runs,
-and even launch goose against a GitHub repository — all without leaving
-the browser.
+reasoning — in an on-disk SQLite database. **glv** turns that database
+into a fast, self-hosted web UI: browse past sessions, watch live runs
+stream in real time, kick off fresh runs, and even launch goose against
+a GitHub repository — all without leaving the browser.
 
 ## Screenshots
 
@@ -33,10 +32,9 @@ live, with the upcoming runs previewed:
 
 ## Why
 
-- **Ship faster with agentic coding.** Guided Live Velocity puts the
-  goose agentic engine behind one fast UI, so you spend less time
-  juggling terminals and more time shipping guided, live-streamed
-  sessions.
+- **Ship faster with agentic coding.** glv puts the goose agentic engine
+  behind one fast UI, so you spend less time juggling terminals and more
+  time shipping guided, live-streamed sessions.
 - **Make your session history navigable.** goose’s transcripts are rich
   (markdown, tool calls, thinking blocks, token usage), but they live in
   a database that is hard to read directly. glv renders them as a clean,
