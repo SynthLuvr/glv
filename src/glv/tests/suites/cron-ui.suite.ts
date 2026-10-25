@@ -30,6 +30,18 @@ import {
 // lifecycle. The cron database stays the source of truth throughout —
 // every assertion about state reads the rows the UI claims to write.
 
+// A zone's current UTC offset, labeled the way the endpoint labels it
+// ("UTC+02:00"; bare GMT means zero). The suite compares this against
+// the labels the server renders, so DST flips can't stale the fixture.
+const zoneOffsetLabelNow = (zone: string): string => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    timeZoneName: "longOffset",
+  }).formatToParts();
+  const name = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+  return name === "GMT" ? "UTC+00:00" : name.replace("GMT", "UTC");
+};
+
 // A prompt (and follow-on step) long enough to overflow the rows
 // attribute an edit-form box opens at; the PR shots reuse both.
 const LONG_PROMPT = [
@@ -187,13 +199,22 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       );
 
       // Offset spelling — zones sitting on +2 now, offset in the label.
+      // The leading zone rotates with DST (Europe/Berlin sits on +2 only
+      // in summer), so assert the invariant rather than a hardcoded
+      // zone: the winner really is on +2 today, labeled accordingly.
       const offset = await authedFetch(
         env,
         "/cron/timezones?q=" + encodeURIComponent("utc+2"),
       );
       const offsetHtml = await offset.text();
-      expect(offsetHtml).toContain('data-autocomplete-value="Europe/Berlin"');
-      expect(offsetHtml).toContain("UTC+02:00");
+      const lead = offsetHtml.match(
+        /data-autocomplete-value="([^"]+)"><span class="timezone-option-name">[^<]+<\/span><span class="timezone-option-offset">(UTC[+-]\d{2}:\d{2})<\/span>/,
+      );
+      expect(lead).not.toBeNull();
+      if (lead === null) throw new Error("no option row in response");
+      const [, leadZone, leadOffset] = lead;
+      expect(zoneOffsetLabelNow(leadZone)).toBe(leadOffset);
+      expect(leadOffset).toBe("UTC+02:00");
 
       // Nothing matches: an honest empty list, no option rows.
       const none = await authedFetch(
