@@ -1,22 +1,9 @@
 allowBuilds:
-  '@ast-grep/cli': true
-  '@parcel/watcher': true
+  "@ast-grep/cli": true
+  "@parcel/watcher": true
   esbuild: true
 minimumReleaseAgeExclude:
-  - ts-canon@0.2.0
-  - type-a-bin@0.1.7
-  - cronstrue@3.25.0
-  - jscpd-darwin-arm64@5.2.0
-  - jscpd-darwin-x64@5.2.0
-  - jscpd-linux-arm64-gnu@5.2.0
-  - jscpd-linux-arm64-musl@5.2.0
-  - jscpd-linux-x64-gnu@5.2.0
-  - jscpd-linux-x64-musl@5.2.0
-  - jscpd-windows-arm64-msvc@5.2.0
-  - jscpd-windows-x64-msvc@5.2.0
-  - jscpd@5.2.0
-  - tsx@4.23.15
-  - croner@11.0.0-dev.6
+  - ts-canon@0.3.2
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
 # 127; pnpm's per-platform default handles every script fine.
