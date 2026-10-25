@@ -105,6 +105,55 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
     }
   };
 
+  // The session's persisted last-run verdict via the JSON read, or
+  // undefined before the first settle.
+  const lastRunOf = async (
+    id: string,
+  ): Promise<
+    { state: string; reason?: string; ended_at: string } | undefined
+  > => {
+    const res = await authedFetch(envStall, `/api/sessions/${fx.viewId(id)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      session: {
+        last_run?: { state: string; reason?: string; ended_at: string };
+      };
+    };
+    return body.session.last_run;
+  };
+
+  // Waits until the persisted verdict is younger than `after` — this
+  // run's own settle, not a previous run's replayed row. The page can
+  // render a watchdog diagnostic earlier than that: the run handle
+  // flips to error the instant the watchdog fires, while the settle
+  // observer writes the sidecar only after the agent process dies — a
+  // long tail on Windows, whose tree kill (taskkill /T /F) costs far
+  // more than a POSIX signal. recordRunEnd writes the stop-notice row
+  // immediately before the verdict row, so a fresh verdict here proves
+  // the diagnostic is on disk; killing serve before that write (a
+  // restart's hard TerminateProcess on Windows) loses it for good.
+  const waitForVerdictAfter = async (
+    id: string,
+    after: number,
+  ): Promise<{ state: string; reason?: string; ended_at: string }> => {
+    const deadline = Date.now() + 20000;
+    for (;;) {
+      const lastRun = await lastRunOf(id);
+      if (
+        lastRun !== undefined &&
+        Date.parse(lastRun.ended_at) > after &&
+        lastRun.reason?.includes("was killed")
+      )
+        return lastRun;
+      if (Date.now() > deadline)
+        throw new Error(
+          `last_run for ${id} never carried a fresh watchdog verdict; ` +
+            `seen: ${JSON.stringify(lastRun ?? null)}`,
+        );
+      await delay(200);
+    }
+  };
+
   beforeAll(async () => {
     // A run that prints its abort reason to stderr and dies — the shape
     // repro B substitutes for the agent binary.
@@ -202,6 +251,11 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
     }, 45000);
 
     it("releases the runner slot: the next prompt runs and fails again", async () => {
+      // The prompt below clears the persisted stop notice, so the only
+      // writer of the verdict the restart test reads is this run's own
+      // settle. Timestamp the pre-run state so the settle wait below
+      // cannot mistake the previous run's verdict for this one's.
+      const before = Date.now();
       const stream = collectSse(
         envStall,
         `/sessions/${fx.viewId("stall-1")}/events`,
@@ -217,9 +271,17 @@ const runStartupFailureSuite = (fx: FlavorFixture): void => {
         "produced no output",
       );
       expect(html).toContain("Run stopped early");
+      // Settle, not render: wait for the verdict to be persisted before
+      // letting the test end — the next test restarts serve, and on
+      // Windows that restart TerminateProcesses the old process, so a
+      // verdict still in flight never lands.
+      const settled = await waitForVerdictAfter("stall-1", before);
+      expect(settled.state).toBe("failed");
     }, 45000);
 
     it("keeps the watchdog diagnostic across a restart", async () => {
+      // Safe to restart here: the previous test waited out the settle,
+      // so the diagnostic this page read needs is already on disk.
       await envStall.restart();
       const after = await pageHtml(envStall, "stall-1");
       expect(after).toContain("produced no output within 2.5s");
