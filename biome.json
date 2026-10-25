@@ -1,10 +1,4 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
-  "extends": ["ts-canon/presets/biome.preset.json"],
-  "formatter": {
-    "includes": ["**", "!**/pnpm-lock.yaml", "!**/*.md"]
-  },
-  "linter": {
-    "includes": ["**", "!**/*.js", "!**/*.md"]
-  }
+  "extends": ["ts-canon/presets/biome.preset.json"]
 }

@@ -31,7 +31,7 @@
     "glv": "bin/glv.mjs"
   },
   "type": "module",
-  "packageManager": "pnpm@12.11.2",
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=26"
   },
@@ -66,7 +66,7 @@
     "jscpd": "^5.4.2",
     "npm-run-all2": "^9.0.4",
     "tailwindcss": "^4.3.3",
-    "ts-canon": "^0.3.0",
+    "ts-canon": "^0.3.2",
     "tsx": "^4.23.15",
     "type-a-bin": "^0.1.7",
     "typescript": "^7.0.2",
