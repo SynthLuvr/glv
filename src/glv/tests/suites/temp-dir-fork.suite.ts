@@ -1,4 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -17,6 +23,14 @@ import {
 // every owner's id and swept only once the last owner is archived or
 // deleted. Also covers the batch archive route's sweep and the clear
 // 422 a follow-up gets when its working directory vanished.
+//
+// #387 follow-up: a managed temp dir is glv's to heal. A fork of a
+// session whose dir already vanished re-creates it instead of
+// inheriting a dead path; a follow-up whose dir vanished re-creates and
+// re-tags it instead of 422ing, so the guard stays for genuinely
+// vanished, unmanaged directories only; and the per-prompt re-tag heals
+// a stale single-owner marker (the pre-#370 fork shape) before a sweep
+// can act on it.
 
 const MARKER = ".glv-session-id";
 
@@ -251,6 +265,90 @@ const runTempDirForkSuite = (fx: FlavorFixture): void => {
 
       expect(existsSync(firstDir)).toBe(false);
       expect(existsSync(secondDir)).toBe(false);
+    });
+  });
+
+  describe("forking a session whose temp dir already vanished (#387)", () => {
+    let sourceId = "";
+    let forkId = "";
+    let dir = "";
+
+    it("re-creates the directory for the fork instead of a dead path", async () => {
+      sourceId = await startTempSession("scratch that will vanish");
+      await settleRun(sourceId);
+      dir = tempDirsOf(sourceId)[0] ?? "";
+      expect(dir).not.toBe("");
+
+      // Simulate the vanished source dir: a pre-#370 sweep, a stale
+      // marker, or plain disk loss.
+      rmSync(dir, { recursive: true, force: true });
+      expect(existsSync(dir)).toBe(false);
+
+      forkId = await forkSession(sourceId);
+      expect(existsSync(dir)).toBe(true);
+
+      // The fork still points at the shared path, now re-created and
+      // owned by the fork.
+      const body = await readMeta(forkId);
+      expect(body.session.working_dir).toBe(dir);
+      const markerIds = readFileSync(join(dir, MARKER), "utf-8")
+        .trim()
+        .split(/\s+/);
+      expect(markerIds).toContain(forkId);
+    });
+
+    it("the fork's first prompt runs in the re-created directory", async () => {
+      await promptRuns(forkId, "back in business");
+    });
+  });
+
+  describe("follow-up on a vanished managed temp dir (#387)", () => {
+    it("re-creates the directory and runs instead of 422ing", async () => {
+      const id = await startTempSession("heal me on prompt");
+      await settleRun(id);
+      const dir = tempDirsOf(id)[0] ?? "";
+      expect(dir).not.toBe("");
+
+      rmSync(dir, { recursive: true, force: true });
+
+      await promptRuns(id, "reclaim the working dir");
+      expect(existsSync(dir)).toBe(true);
+    });
+  });
+
+  describe("stale single-owner marker (pre-#370 fork shape)", () => {
+    it("a prompt re-tags the marker, so the source's archive keeps the dir", async () => {
+      const sourceId = await startTempSession("stale marker retag");
+      await settleRun(sourceId);
+      const dir = tempDirsOf(sourceId)[0] ?? "";
+      const forkId = await forkSession(sourceId);
+
+      // Forge the pre-#370 shape: the marker names only the source.
+      writeFileSync(join(dir, MARKER), `${sourceId}\n`);
+
+      await promptRuns(forkId, "retag my dir");
+
+      const res = await archive(sourceId);
+      expect(res.status).toBe(200);
+      expect(existsSync(dir)).toBe(true);
+    });
+
+    it("an unprompted fork still recovers its dir on the next prompt", async () => {
+      const sourceId = await startTempSession("stale marker sweep");
+      await settleRun(sourceId);
+      const dir = tempDirsOf(sourceId)[0] ?? "";
+      const forkId = await forkSession(sourceId);
+
+      writeFileSync(join(dir, MARKER), `${sourceId}\n`);
+
+      // The stale marker lets the source's archive sweep the dir…
+      const res = await archive(sourceId);
+      expect(res.status).toBe(200);
+      expect(existsSync(dir)).toBe(false);
+
+      // …but the fork's next prompt claims it back instead of 422ing.
+      await promptRuns(forkId, "my dir again");
+      expect(existsSync(dir)).toBe(true);
     });
   });
 

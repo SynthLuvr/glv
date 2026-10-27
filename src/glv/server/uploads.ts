@@ -140,32 +140,38 @@ const markerIds = (markerPath: string): string[] =>
     .filter((id) => id !== "");
 
 // Records a session as an owner of a managed directory; re-tagging an
-// id already present changes nothing. The dir keeps its uuid name
-// because renaming would break the absolute paths already handed to the
-// agent for the run's lifetime.
+// id already present changes nothing — and skips the rewrite, so a
+// per-prompt claim (#387) costs nothing on the common path. The dir
+// keeps its uuid name because renaming would break the absolute paths
+// already handed to the agent for the run's lifetime.
 const tagDir = (dir: string, sessionId: string): void => {
   const markerPath = join(dir, SESSION_MARKER);
   const existing = existsSync(markerPath) ? markerIds(markerPath) : [];
-  const owners = existing.includes(sessionId)
-    ? existing
-    : [...existing, sessionId];
-  writeFileSync(markerPath, `${owners.join("\n")}\n`);
+  if (existing.includes(sessionId)) return;
+  writeFileSync(markerPath, `${[...existing, sessionId].join("\n")}\n`);
 };
 
-// Adds a fork's id to the temp dir it now shares with its source
-// (#367): the fork copies the source's working_dir verbatim, so the
-// directory may only be swept once every owner is archived or deleted.
-// A working dir outside GLV's temp base — or already deleted — is left
-// alone.
-const shareTempDir = (
+// Claims a managed temp working dir for a session (#367, #387):
+// records the session as an owner so the directory may only be swept
+// once every owner is archived or deleted, and re-creates the directory
+// when it has already vanished — swept on a stale single-owner marker
+// (a fork predating #370, a working_dir copied outside forkSession), by
+// a pre-#370 build, or lost to plain disk damage. An empty directory at
+// the recorded path keeps the session promptable (the previous files
+// are unrecoverable either way) instead of leaving it — or a fork
+// copying the path verbatim — to inherit a dead working dir. Returns
+// false for a path outside GLV's temp base: an unmanaged directory is
+// never created or written.
+const claimTempDir = (
   dataDirName: string,
   workingDir: string,
   sessionId: string,
-): void => {
+): boolean => {
   const rel = relative(resolveTempBase(dataDirName), workingDir);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return;
-  if (!existsSync(workingDir)) return;
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return false;
+  if (!existsSync(workingDir)) mkdirSync(workingDir, { recursive: true });
   tagDir(workingDir, sessionId);
+  return true;
 };
 
 // Windows can transiently refuse a recursive delete with EPERM while the
@@ -232,13 +238,13 @@ const removeDir = (dir: string): void => {
 
 export {
   buildUploadContext,
+  claimTempDir,
   collectFiles,
   createTempDir,
   deleteTempDir,
   deleteUploads,
   removeDir,
   saveUploads,
-  shareTempDir,
   tagDir,
   uploadErrorMessage,
 };

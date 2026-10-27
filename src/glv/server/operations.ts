@@ -20,11 +20,11 @@ import { expandHome } from "./paths.js";
 import { activeRunPrompt } from "./session.js";
 import {
   buildUploadContext,
+  claimTempDir,
   collectFiles,
   createTempDir,
   removeDir,
   saveUploads,
-  shareTempDir,
   tagDir,
   uploadErrorMessage,
 } from "./uploads.js";
@@ -343,9 +343,16 @@ const createSessionOperations = (ctx: ServerContext) => {
     // out from under the session (a shared temp dir collected too
     // early, #367) would die at spawn with an opaque ENOENT — reject it
     // with the actual reason instead. Empty stays permitted: rows
-    // without a working directory exist.
-    if (session.working_dir !== "" && !existsSync(session.working_dir))
-      return fail("That working directory no longer exists.");
+    // without a working directory exist. A managed temp dir is glv's to
+    // heal (#387): the claim re-creates one that vanished and re-records
+    // this session as an owner, so the guard stays unreachable for
+    // managed dirs and fires only for genuinely vanished, unmanaged
+    // ones.
+    if (session.working_dir !== "") {
+      const claimed = claimTempDir(ctx.dataDirName, session.working_dir, id);
+      if (!claimed && !existsSync(session.working_dir))
+        return fail("That working directory no longer exists.");
+    }
 
     const runtime = ctx.agentOf(id);
     if (runtime === undefined)
@@ -446,9 +453,11 @@ const createSessionOperations = (ctx: ServerContext) => {
     if (!forked.ok) return forked;
 
     // The fork copies the source's working_dir verbatim, so a temp-dir
-    // fork shares the managed directory (#367): record the fork as a
-    // co-owner so the directory survives until the last owner is gone.
-    shareTempDir(ctx.dataDirName, source.working_dir, forked.row.id);
+    // fork shares the managed directory (#367): claim it for the fork so
+    // the directory survives until the last owner is gone — re-created
+    // when the source's copy already vanished (#387), so the fork never
+    // inherits a dead path. Unmanaged working dirs are left alone.
+    claimTempDir(ctx.dataDirName, source.working_dir, forked.row.id);
 
     // A submitted prompt rides the exact follow-up path against the new
     // id, so the fork starts as an ordinary resumed session.
