@@ -4,6 +4,7 @@ import { jobNameFor, untagCronSession } from "../../cron-sessions.js";
 import { displayName, parseMessage, pendingTool } from "../../format/index.js";
 import { removeMember } from "../../groups/db.js";
 import { clearPending, getHandle, stop } from "../../runner/index.js";
+import { forgetParentLinks, parentSessionFor } from "../../session-links.js";
 import type { SessionRow } from "../../sessions.js";
 import { clearStopNotice } from "../../stop-notices.js";
 import { forgetSession } from "../../suggestions/db.js";
@@ -107,6 +108,16 @@ const registerSessionRoutes = (
     const messages = ctx.sessions.listMessages(id).map(parseMessage);
     const cronJob =
       ctx.cronDb !== undefined ? jobNameFor(ctx.cronDb, id) : undefined;
+    // #385: the orchestrator link, resolved to a name for the header chip.
+    // A vanished parent (deleted, or a stale sidecar row) renders no chip.
+    const parentId =
+      ctx.cronDb !== undefined ? parentSessionFor(ctx.cronDb, id) : undefined;
+    const parentSession =
+      parentId === undefined ? undefined : ctx.sessions.getSession(parentId);
+    const parent =
+      parentSession === undefined
+        ? undefined
+        : { id: parentSession.id, name: displayName(parentSession.name) };
     const runtime = ctx.agentOf(id);
     return render(
       request,
@@ -122,6 +133,7 @@ const registerSessionRoutes = (
         prompt={prompt}
         uploadError={uploadError}
         cronJob={cronJob}
+        parent={parent}
         focusPrompt={focusPrompt}
         suggestions={currentSuggestions(
           ctx.suggestions,
@@ -302,6 +314,7 @@ const registerSessionRoutes = (
       ctx.sessions.deleteSessions([id]);
       if (ctx.groups !== undefined) removeMember(ctx.groups, id);
       if (ctx.cronDb !== undefined) untagCronSession(ctx.cronDb, id);
+      if (ctx.cronDb !== undefined) forgetParentLinks(ctx.cronDb, id);
       if (ctx.suggestions !== undefined) forgetSession(ctx.suggestions, id);
       if (ctx.stopNotices !== undefined) clearStopNotice(ctx.stopNotices, id);
       sweepSessionDirs(id);

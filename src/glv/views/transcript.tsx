@@ -16,7 +16,7 @@ import { detectPrUrl } from "../pr.js";
 import type { RunHandle } from "../runner/index.js";
 import type { SessionRow } from "../sessions.js";
 import { ACTION_SENTENCE, splitStopNotice } from "../stop-reason.js";
-import { CronChip, PrChip } from "./chips.js";
+import { CronChip, ParentChip, PrChip } from "./chips.js";
 import { LocationButton, LocationFields } from "./location.js";
 import {
   CopyableText,
@@ -145,11 +145,14 @@ const TranscriptHeader = ({
   session,
   prUrl,
   cronJob,
+  parent,
 }: {
   session: SessionRow;
   prUrl?: string;
   /** Name of the scheduled job that started this session, if any. */
   cronJob?: string;
+  /** The orchestrator that launched this session, if any (#385). */
+  parent?: { id: string; name: string };
 }) => (
   <header class="session-header">
     <div class="session-header-top">
@@ -171,6 +174,9 @@ const TranscriptHeader = ({
     <div class="session-meta">
       <MetaChip label="ID" value={session.id} mono />
       {cronJob !== undefined && <CronChip jobName={cronJob} />}
+      {parent !== undefined && (
+        <ParentChip parentId={parent.id} parentName={parent.name} />
+      )}
       {session.model !== null && (
         <MetaChip label="Model" value={session.model} mono />
       )}
@@ -436,6 +442,7 @@ const Transcript = ({
   prompt,
   uploadError,
   cronJob,
+  parent,
   focusPrompt,
   suggestions,
   stopNotice,
@@ -448,6 +455,8 @@ const Transcript = ({
   uploadError?: string;
   /** Name of the scheduled job that started this session, if any. */
   cronJob?: string;
+  /** The orchestrator that launched this session, if any (#385). */
+  parent?: { id: string; name: string };
   /** Focus the prompt bar when this transcript renders (a fresh fork). */
   focusPrompt?: boolean;
   /** Next-prompt suggestions for the current finished turn, if any. */
@@ -473,7 +482,12 @@ const Transcript = ({
       data-run-status={run?.status}
       data-cursor={String(messages.length)}
     >
-      <TranscriptHeader session={session} prUrl={prUrl} cronJob={cronJob} />
+      <TranscriptHeader
+        session={session}
+        prUrl={prUrl}
+        cronJob={cronJob}
+        parent={parent}
+      />
       {/* Always present so the tail stream can append; the empty placeholder
         is a sibling the client clears once content arrives. */}
       <div id="messages">

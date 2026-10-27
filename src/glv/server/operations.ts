@@ -11,6 +11,7 @@ import {
 } from "../models.js";
 import { bumpUsage } from "../prompts/db.js";
 import { enqueueOrQueue, getHandle, stop } from "../runner/index.js";
+import { tagParentSession } from "../session-links.js";
 import type { SessionRow } from "../sessions.js";
 import { clearStopNotice } from "../stop-notices.js";
 import type { AgentRuntime, ServerContext } from "./context.js";
@@ -183,6 +184,9 @@ const createSessionOperations = (ctx: ServerContext) => {
     const promptId = bodyField("prompt_id");
     // #343: labels the session at creation; see applyCreationName.
     const name = bodyField("name");
+    // #385: links the session to the orchestrator that launched it, so
+    // loops become visible as a unit (sidebar nesting, ?parent_session=).
+    const parentSessionId = bodyField("parent_session");
     const sessionMode = bodyField("session_mode");
     const submittedWorkingDir = canonicalWorkingDir(
       expandHome(bodyField("working_dir")),
@@ -211,6 +215,16 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     if (location !== undefined && !location.ok)
       return fail(422, location.error);
+
+    // A parent link names an existing session — validated before anything is
+    // created so a typo'd id answers loudly instead of silently landing an
+    // unlinked worker (#385). The id is the namespaced spelling every API
+    // row carries.
+    if (
+      parentSessionId !== "" &&
+      ctx.sessions.getSession(parentSessionId) === undefined
+    )
+      return fail(422, `No session ${parentSessionId} to link as parent.`);
 
     // The dropdown listed render-time config; resolve the pick against a
     // fresh read in case the agent's config changed since the form was
@@ -303,6 +317,11 @@ const createSessionOperations = (ctx: ServerContext) => {
     }
     const { sessionId, session: established } = result;
     const session = applyCreationName(ctx, sessionId, established, name);
+
+    // #385: the orchestrator link rides the same sidecar the cron
+    // job-started tags use (the cron database), keyed by the namespaced id.
+    if (parentSessionId !== "" && ctx.cronDb !== undefined)
+      tagParentSession(ctx.cronDb, sessionId, parentSessionId);
 
     // Tag the upload dir with the real session id so cleanup finds it when
     // the session is archived.

@@ -132,6 +132,45 @@ const CronChip = ({
     <span class="cron-chip-label">{jobName}</span>
   </span>
 );
+
+// Octicon repo-forked path — a node with two children: the orchestrator
+// link's shape (#385).
+const NODE_ICON =
+  "M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z";
+
+// Names the orchestrator that launched this session (#385) — a link to
+// its transcript, so a worker review is one hop from its loop's head.
+// Same visual weight as the cron chip.
+const ParentChip = ({
+  parentId,
+  parentName,
+}: {
+  parentId: string;
+  parentName: string;
+}) => {
+  const href = `/sessions/${parentId}`;
+  return (
+    <a
+      class="cron-chip parent-chip"
+      href={href}
+      hx-get={href}
+      hx-target="#detail-pane"
+      hx-swap="innerHTML"
+      title={`Launched by orchestrator: ${parentName}`}
+    >
+      <svg
+        class="cron-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d={NODE_ICON} />
+      </svg>
+      <span class="cron-chip-label">{parentName}</span>
+    </a>
+  );
+};
 // URL renders instantly from offline detection; the colored state is swapped
 // in lazily via htmx, so any failure just leaves a plain link. `compact`
 // shrinks the chip for the sidebar and gives the state element a per-session
@@ -191,4 +230,12 @@ const AgentChip = ({ agent }: { agent: string }) => (
   </span>
 );
 
-export { AgentChip, BranchChip, CLOCK_ICON, CronChip, PrChip, WorktreeChip };
+export {
+  AgentChip,
+  BranchChip,
+  CLOCK_ICON,
+  CronChip,
+  ParentChip,
+  PrChip,
+  WorktreeChip,
+};

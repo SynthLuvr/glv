@@ -4,6 +4,7 @@ import { CRON_SESSIONS_SCHEMA } from "./cron-sessions.js";
 import { openGlvDb } from "./db-path.js";
 import { validateAll } from "./query.js";
 import { MAX_CRON_STEPS } from "./schedule.js";
+import { SESSION_LINKS_SCHEMA } from "./session-links.js";
 import { positiveEnvNumber } from "./util.js";
 
 // The cron job store: jobs live in the cron database (cron.db) beside
@@ -80,6 +81,7 @@ const openCronDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(SCHEMA);
   db.exec(CRON_SESSIONS_SCHEMA);
+  db.exec(SESSION_LINKS_SCHEMA);
   return db;
 };
 

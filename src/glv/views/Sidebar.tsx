@@ -1,6 +1,7 @@
 import type { ListEntry } from "../groups/model.js";
 import type { SessionRow } from "../sessions.js";
 import { GroupEntry } from "./GroupEntry.js";
+import { OrchestratorEntry } from "./OrchestratorEntry.js";
 import { SessionItem } from "./SessionItem.js";
 import {
   ApiTokensLink,
@@ -68,6 +69,12 @@ const SessionList = ({
             session={entry.session}
             selected={entry.session.id === selectedId}
             running={runningIds.has(entry.session.id)}
+          />
+        ) : entry.kind === "orchestrator" ? (
+          <OrchestratorEntry
+            entry={entry}
+            selectedId={selectedId}
+            runningIds={runningIds}
           />
         ) : (
           <GroupEntry

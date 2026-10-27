@@ -1,5 +1,10 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
+import {
+  childSessionIds,
+  parentSessionFor,
+  parentSessionsFor,
+} from "../../session-links.js";
 import type { MessageRow, SessionFilter } from "../../sessions.js";
 import {
   type LastRunRecord,
@@ -59,26 +64,69 @@ const runHistoryFor = (
     ? []
     : readRunHistory(ctx.stopNotices, sessionId);
 
+// The orchestrator links behind the session reads (#385): the sidecar is
+// optional (app-less tests), and its absence reads as "no parent" — the
+// same guard the last-run reads apply to their sidecar.
+const parentOf = (ctx: ServerContext, sessionId: string): string | undefined =>
+  ctx.cronDb === undefined
+    ? undefined
+    : parentSessionFor(ctx.cronDb, sessionId);
+
+const parentsFor = (
+  ctx: ServerContext,
+  sessionIds: readonly string[],
+): Map<string, string> | undefined =>
+  ctx.cronDb === undefined
+    ? undefined
+    : parentSessionsFor(ctx.cronDb, sessionIds);
+
+// Set intersection that keeps `undefined` meaning "no restriction": the
+// listing's id restrictions (active, parent_session) compose — both
+// arriving keeps only the sessions in both sets, and an empty result
+// set is meaningful (the store answers no rows).
+const intersectIds = (
+  a: Set<string> | undefined,
+  b: Set<string>,
+): Set<string> => {
+  if (a === undefined) return new Set(b);
+  const out = new Set<string>();
+  for (const id of a) if (b.has(id)) out.add(id);
+  return out;
+};
+
 // The store filter the listing runs with: the sidebar's default window
 // narrowed by the parsed query — each filter the query carried narrows
 // the store's newest-first order before the limit/offset window, so
 // pagination pages the filtered result (#344). active=true passes the
 // runner's live session set as the id restriction — the same source
 // the /events/status sync snapshot reads, so "what is running" is one
-// cheap filtered listing.
+// cheap filtered listing. parent_session narrows the same way: the
+// sidecar's child set becomes the id restriction, intersected with
+// active's when both arrive (#385).
 const listingFilterFor = (
   ctx: ServerContext,
   query: ParsedListQuery,
-): SessionFilter => ({
-  ...VIEWER_FILTER,
-  limit: query.limit,
-  offset: query.offset,
-  ...(query.agent === undefined ? {} : { agent: query.agent }),
-  ...(query.workingDirPrefix === undefined
-    ? {}
-    : { workingDirPrefix: query.workingDirPrefix }),
-  ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
-});
+): SessionFilter => {
+  const activeIds = query.active ? activeSessionIds(ctx.runner) : undefined;
+  const childIds =
+    query.parentSession === undefined || ctx.cronDb === undefined
+      ? undefined
+      : new Set(childSessionIds(ctx.cronDb, query.parentSession));
+  const ids = [activeIds, childIds].reduce<Set<string> | undefined>(
+    (acc, next) => (next === undefined ? acc : intersectIds(acc, next)),
+    undefined,
+  );
+  return {
+    ...VIEWER_FILTER,
+    limit: query.limit,
+    offset: query.offset,
+    ...(query.agent === undefined ? {} : { agent: query.agent }),
+    ...(query.workingDirPrefix === undefined
+      ? {}
+      : { workingDirPrefix: query.workingDirPrefix }),
+    ...(ids === undefined ? {} : { ids }),
+  };
+};
 
 // The transcript window the detail read serializes (#339, #383):
 // after keeps everything from an index on, head the first n messages,
@@ -119,11 +167,21 @@ const registerApiRoutes = (
   app.get("/api/sessions", (request, reply) => {
     const query = parseListQuery(request, VIEWER_FILTER.limit, servedAgents);
     if (!query.ok) return reply.status(422).send({ error: query.error });
+    const rows = ctx.sessions.listSessions(listingFilterFor(ctx, query));
     const lastRuns = lastRunsFor(ctx);
+    const parents = parentsFor(
+      ctx,
+      rows.map((row) => row.id),
+    );
     return reply.send(
-      ctx.sessions
-        .listSessions(listingFilterFor(ctx, query))
-        .map((row) => toApiSession(row, ctx.runner, lastRuns?.get(row.id))),
+      rows.map((row) =>
+        toApiSession(
+          row,
+          ctx.runner,
+          lastRuns?.get(row.id),
+          parents?.get(row.id),
+        ),
+      ),
     );
   });
 
@@ -136,7 +194,12 @@ const registerApiRoutes = (
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
-    const sessionBody = toApiSession(session, ctx.runner, lastRunFor(ctx, id));
+    const sessionBody = toApiSession(
+      session,
+      ctx.runner,
+      lastRunFor(ctx, id),
+      parentOf(ctx, id),
+    );
     // fields=meta answers with the transcript's length instead of the
     // transcript, so a liveness poll compares integers across ticks
     // (#383).
