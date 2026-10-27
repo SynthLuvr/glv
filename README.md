@@ -357,7 +357,7 @@ and a stray `cronJobs` key is inert.
     part, or a nickname like `"@daily"`. croner 11 carries the
     clock-step fix — a forward clock step across the scheduled instant
     no longer swallows the occurrence (#272) — so glv tracks the 11
-    line, the one the cron-clockstep suite pins down.
+    line, which the cron-clockstep suite pins down.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the database.
     Seconds are optional (`"2026-09-03T09:00:30"` fires at that second);

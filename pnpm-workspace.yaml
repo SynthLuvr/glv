@@ -4,6 +4,8 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - ts-canon@0.3.2
+  # croner 11.0.0 shipped 2026-10-26, inside the 24h freshness window;
+  # the next dependency sweep can drop this entry.
   - croner@11.0.0
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
