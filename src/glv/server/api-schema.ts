@@ -48,7 +48,9 @@ const ApiForkAccepted = type({
 // it), agent keeps one served agent's sessions, and active=true keeps
 // only sessions with a live run (queued or running). active also
 // accepts an explicit false — it reads as absent, the natural spelling
-// of "no restriction".
+// of "no restriction". parent_session (#385) keeps only the sessions one
+// orchestrator launched — the loop-membership query that used to be
+// approximated with working_dir plus name conventions.
 const MAX_LIST_LIMIT = 500;
 const ListLimit = type(`1 <= number.integer <= ${MAX_LIST_LIMIT}`);
 const ListOffset = type("number.integer >= 0");
@@ -59,6 +61,7 @@ const ApiListQuery = type({
   "working_dir?": "string",
   "agent?": "string",
   "active?": ApiListActive,
+  "parent_session?": "string",
 });
 
 // The detail read's windows (#339, #383): fields=meta answers a poll
@@ -178,9 +181,11 @@ type ApiRunStatusData = typeof ApiRunStatus.infer;
 // store's SessionRow plus `status`, the run state toApiSession projects
 // from the runner's registry — the same vocabulary the session's SSE
 // stream emits — and `last_run`, the persisted verdict of the most
-// recent settled run (omitted until one has settled). The timestamp
-// fields re-spell to the wire's zoned form (toApiTimestamp); everything
-// else passes through as the store spelled it.
+// recent settled run (omitted until one has settled), and
+// `parent_session`, the orchestrator that launched this session (#385,
+// omitted when nobody did — a human submit or an agent's own run). The
+// timestamp fields re-spell to the wire's zoned form (toApiTimestamp);
+// everything else passes through as the store spelled it.
 const ApiSession = type({
   id: "string",
   "agent?": "string",
@@ -197,6 +202,7 @@ const ApiSession = type({
   archived_at: "string | null",
   status: ApiRunStatus,
   "last_run?": ApiLastRun,
+  "parent_session?": "string",
 });
 
 type ApiSessionData = typeof ApiSession.infer;
@@ -207,13 +213,15 @@ type ApiSessionData = typeof ApiSession.infer;
 // window a settled run lingers in the registry so a polling client sees
 // how it ended — and "idle" once no handle remains. The last-run
 // verdict, when one is recorded, rides along so "how did the last run
-// end?" stays answerable past that window and across a restart. Beside
+// end?" stays answerable past that window and across a restart; so does
+// the parent link (#385), when the sidecar recorded one. Beside
 // the schema, like toApiCronJob/toApiPrompt, so the wire shape cannot
 // drift from it.
 const toApiSession = (
   row: SessionRow,
   runner: Runner,
   lastRun?: LastRunRecord,
+  parentSession?: string,
 ): ApiSessionData => ({
   ...row,
   created_at: toApiTimestamp(row.created_at),
@@ -221,6 +229,7 @@ const toApiSession = (
   archived_at: toApiTimestampOrNull(row.archived_at),
   status: getHandle(runner, row.id)?.status ?? "idle",
   ...lastRunField(lastRun),
+  ...(parentSession === undefined ? {} : { parent_session: parentSession }),
 });
 
 // One transcript message as the detail endpoint spells it: parseMessage's
@@ -262,7 +271,10 @@ const toApiWaitResult = (
 // OpenAPI's binary format. `name`, when submitted non-blank, names the
 // session at creation through the same viewer-managed rename the
 // browser's rename action performs; absent or blank leaves naming to
-// the agent's own mid-run retitling.
+// the agent's own mid-run retitling. `parent_session`, when submitted,
+// links the new session to the orchestrator launching it (#385) — the
+// namespaced id of an existing session; the link nests the worker under
+// its orchestrator in the sidebar and answers ?parent_session= queries.
 const ApiStartSessionForm = type({
   prompt: "string",
   "name?": "string",
@@ -270,6 +282,7 @@ const ApiStartSessionForm = type({
   "session_mode?": "'temp'",
   "model?": "string",
   "location?": "string",
+  "parent_session?": "string",
 });
 
 // The multipart form fields POST /api/sessions/:id/prompt accepts.
@@ -495,6 +508,7 @@ type ParsedListQuery = {
   readonly agent: string | undefined;
   readonly workingDirPrefix: string | undefined;
   readonly active: boolean;
+  readonly parentSession: string | undefined;
 };
 
 type ListQuery =
@@ -590,6 +604,7 @@ const parseListQuery = (
     agent,
     workingDirPrefix,
     active: active.value === "true",
+    parentSession: parseStringQuery(request, "parent_session"),
   };
 };
 
@@ -1083,8 +1098,10 @@ const openApiDocument = (
             "persisted verdict of each session's most recent settled run " +
             "(finished/stopped/stopped_early/failed with a reason), so a " +
             "scan can flag runs that ended badly without opening each " +
-            "session. Three filters narrow the list server-side — " +
-            "working_dir, agent, active — and every one applies before " +
+            "session, and parent_session, the orchestrator that launched " +
+            "the row (#385; omitted when nobody did). Four filters narrow " +
+            "the list server-side — working_dir, agent, active, " +
+            "parent_session — and every one applies before " +
             "the limit/offset window, so pagination pages the filtered " +
             "order exactly as it pages the unfiltered one.",
           parameters: [
@@ -1119,6 +1136,14 @@ const openApiDocument = (
                 "(queued or running) — the same set the /events/status " +
                 "sync snapshot carries. false reads as absent.",
             ),
+            queryParam(
+              "parent_session",
+              queryProps.parent_session,
+              "Restrict the list to the sessions this orchestrator " +
+                "launched through POST /api/sessions with parent_session — " +
+                "loop membership without name conventions. An id with no " +
+                "children answers an empty list.",
+            ),
           ],
           responses: {
             "200": jsonResponse("The session list.", {
@@ -1141,7 +1166,12 @@ const openApiDocument = (
             "the session at creation — the same viewer-managed rename the " +
             "browser's rename action performs — so a driven loop can tell " +
             "its runs apart before any agent-derived title arrives; " +
-            "absent or blank keeps auto-derived naming. Returns once the " +
+            "absent or blank keeps auto-derived naming. An optional " +
+            "parent_session field (#385) links the new session to the " +
+            "orchestrator launching it — the namespaced id of an existing " +
+            "session (unknown ids answer 422) — so its workers nest under " +
+            "the orchestrator in the sidebar and answer ?parent_session= " +
+            "queries. Returns once the " +
             "session exists — not when the run completes; park on GET " +
             "/api/sessions/{id}/wait (it resolves with the run's " +
             "verdict), poll GET /api/sessions/{id} (its session.status " +

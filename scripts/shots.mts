@@ -9,6 +9,10 @@ import {
   type Page,
 } from "@playwright/test";
 import {
+  openSessionLinksDb,
+  tagParentSession,
+} from "../src/glv/session-links.js";
+import {
   openStopNoticesDb,
   recordStopNotice,
 } from "../src/glv/stop-notices.js";
@@ -136,7 +140,24 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
     { id: "shots-limit", name: "Usage Limit Session", workingDir },
     { id: "shots-crash", name: "Crashed Startup Session", workingDir },
     { id: "shots-scroll", name: "Long Transcript Session", workingDir },
+    { id: "shots-orch", name: "Issue loop 2/2 — glv#379, glv#328", workingDir },
+    { id: "shots-w379f", name: "glv#379 fix", workingDir },
+    { id: "shots-w379r", name: "glv#379 refactor", workingDir },
+    { id: "shots-w328f", name: "glv#328 fix", workingDir },
   ]);
+  // #385: the loop's worker links, written exactly as the server's create
+  // path records them — the sidebar nests the workers under their
+  // orchestrator.
+  {
+    const links = openSessionLinksDb(env.dbs.cronDb);
+    for (const worker of ["shots-w379f", "shots-w379r", "shots-w328f"])
+      tagParentSession(
+        links,
+        gooseFixture.viewId(worker),
+        gooseFixture.viewId("shots-orch"),
+      );
+    links.close();
+  }
   gooseFixture.seedMessages(env, "shots-limit", [
     {
       role: "user",
@@ -540,6 +561,30 @@ const captureScheduledRuns = async (browser: Browser, env: IntegrationEnv) => {
   await context.close();
 };
 
+// The orchestrator loop state (#385): the sidebar with the workers
+// nested under their orchestrator, and a worker's header naming the
+// orchestrator it belongs to.
+const captureOrchestrator = async (browser: Browser, env: IntegrationEnv) => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(env.baseUrl);
+  await page.locator(".sidebar").waitFor();
+  await capture(page, "orchestrator-sidebar-desktop.png", ".sidebar");
+  const worker = page.locator(
+    ".orchestrator-group .group-members .session-item",
+  );
+  await worker.first().locator(".session-link").click();
+  await page.locator(".session-header").waitFor();
+  await expect(page.locator(".parent-chip")).toBeVisible();
+  await capture(
+    page,
+    "orchestrator-worker-header-desktop.png",
+    ".session-header",
+  );
+  await context.close();
+};
+
 // The seeded session row's updated_at, as the goose store reads it —
 // the suggestion row's turn fingerprint must match it exactly or the
 // strip stays hidden.
@@ -568,6 +613,7 @@ try {
   await captureDarkViews(browser, env);
   await capturePromptBarPlacement(browser, env);
   await captureTokens(browser, env);
+  await captureOrchestrator(browser, env);
   await captureForks(browser, env);
   await captureCronEdit(browser, env);
   await captureScheduledRuns(browser, env);

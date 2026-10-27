@@ -489,6 +489,25 @@ body {
   display: none;
 }
 
+/* ---------- orchestrator subtrees (#385) ---------- */
+/* A worker-nesting entry reuses the group wrappers (so collapse and the
+   members rail apply), but its header is the parent's own session item
+   flanked by the toggle and the worker count — not a renameable group
+   label, and deliberately not .group-header: a drag onto it must read
+   as a drop on the parent session, not on a group. */
+.orchestrator-header {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.orchestrator-header .session-item {
+  flex: 1;
+  min-width: 0;
+}
+.orchestrator-group > .group-members {
+  margin-left: 0.95rem;
+}
+
 /* drag affordances */
 .session-item.dragging {
   opacity: 0.4;
@@ -3679,6 +3698,15 @@ form[data-upload-form] {
 .cron-chip-sm {
   padding: 0.18rem 0.4rem;
   font-size: 0.74rem;
+}
+/* The parent chip is a link (to the orchestrator's transcript); the cron
+   chip it borrows its look from is a span. */
+a.parent-chip {
+  text-decoration: none;
+}
+a.parent-chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 /* ---------- reduced motion ---------- */

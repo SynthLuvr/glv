@@ -6,6 +6,7 @@ import type { ListEntry } from "../groups/model.js";
 import { buildEntries } from "../groups/model.js";
 import { encodeAgentModelValue, modelLabel } from "../models.js";
 import { listCategories, listPrompts } from "../prompts/db.js";
+import { parentSessionsFor } from "../session-links.js";
 import type { SessionRow } from "../sessions.js";
 import { errorMessage } from "../util.js";
 import { Layout } from "../views/Layout.js";
@@ -21,16 +22,27 @@ import { isHtmxRequest, sendHtml } from "./http.js";
 import { resolveAgentPick } from "./operations.js";
 import { activeSessionIds } from "./status.js";
 
-// Folds the session list and the viewer-owned group memberships into a
-// single ordered entry list.  When the groups sidecar is absent the list is
-// purely flat — identical to today's experience.
+// Folds the session list, the viewer-owned group memberships, and the
+// orchestrator links (#385) into a single ordered entry list. Each
+// optional sidecar — the groups database, or the cron database's
+// parent links in app-less tests — simply contributes nothing when
+// absent.
 const sidebarEntries = (
   ctx: ServerContext,
   sessions: SessionRow[],
 ): ListEntry[] => {
-  if (ctx.groups === undefined)
-    return sessions.map((session) => ({ kind: "session", session }));
-  return buildEntries(sessions, listGroups(ctx.groups));
+  const parents =
+    ctx.cronDb === undefined
+      ? undefined
+      : parentSessionsFor(
+          ctx.cronDb,
+          sessions.map((session) => session.id),
+        );
+  return buildEntries(
+    sessions,
+    ctx.groups === undefined ? undefined : listGroups(ctx.groups),
+    parents,
+  );
 };
 
 const PaneButton = ({

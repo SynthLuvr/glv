@@ -582,11 +582,13 @@ TOKEN=$(glv token create --name "orchestrator-loop")   # mint once, capture
 BASE=http://localhost:3457
 
 # start a run — name and model are optional; model takes the picker
-# spelling (agent:provider:model, listed by GET /api/models)
+# spelling (agent:provider:model, listed by GET /api/models);
+# parent_session links the run to the orchestrator's own session id,
+# nesting it in the sidebar and answering ?parent_session= queries
 ID=$(curl -sS -X POST "$BASE/api/sessions" \
   -H "Authorization: Bearer $TOKEN" \
   -F prompt="address issue #57" -F working_dir="$PWD" \
-  -F name="issue #57 fix" | jq -r .id)
+  -F name="issue #57 fix" -F parent_session="$LOOP_ID" | jq -r .id)
 
 # wait for it to settle, then read the verdict
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/sessions/$ID/wait" \
@@ -594,7 +596,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/sessions/$ID/wait" \
 ```
 
 The listing paginates and filters server-side: `?limit=` (1–500, default
-100) and `?offset=` window the newest-first order, and three filters
+100) and `?offset=` window the newest-first order, and four filters
 narrow it — every one applies *before* the window, so pagination pages
 the filtered order exactly as it pages the unfiltered one:
 
@@ -607,6 +609,11 @@ the filtered order exactly as it pages the unfiltered one:
 - `?active=true` — only sessions with a live run (`queued` or
   `running`), the same set the `/events/status` sync snapshot carries.
   `false` reads as absent.
+- `?parent_session=<id>` — only the sessions that orchestrator launched
+  (they were created with the `parent_session` form field). Loop
+  membership without name conventions: the rows also carry
+  `parent_session` themselves, and the sidebar nests workers under their
+  orchestrator.
 
 ``` bash
 # what is running in this repo right now
@@ -653,6 +660,15 @@ An optional non-blank `name` labels the session at creation — the same
 viewer-managed rename the browser’s rename action performs — so a driven
 loop starting several runs can tell them apart before any agent-derived
 title arrives. Absent or blank keeps auto-derived naming.
+
+An optional `parent_session` field (the orchestrator’s own session id,
+as the API spells it — `goose:…`) links the new session to the session
+that launched it: the sidebar nests the worker under its orchestrator,
+the session rows carry `parent_session`, and
+`GET /api/sessions?parent_session=<id>` answers exactly that loop’s
+sessions. An unknown id answers `422`. The agent’s own stores are
+untouched — the link lives in glv’s sidecar, beside the scheduled-run
+tags.
 
 The answer is `201` with a `Location` header and
 `{"id":"goose:…","status":"started"}`. `"queued"` means the prompt is
