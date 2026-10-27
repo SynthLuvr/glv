@@ -612,8 +612,8 @@ the filtered order exactly as it pages the unfiltered one:
 - `?parent_session=<id>` — only the sessions that orchestrator launched
   (they were created with the `parent_session` form field). Loop
   membership without name conventions: the rows also carry
-  `parent_session` themselves, and the sidebar nests workers under
-  their orchestrator.
+  `parent_session` themselves, and the sidebar nests workers under their
+  orchestrator.
 
 ``` bash
 # what is running in this repo right now
