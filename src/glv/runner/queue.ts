@@ -241,10 +241,9 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
 // Prefixed so it can never collide with a real agent session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
-// Stops one session's live or queued run. The optional reason marks a
-// stop that did not come from the user — today the server's shutdown
-// teardown — so the persisted verdict can say so; a user stop passes no
-// reason and records none, exactly as before (#379).
+// Stops one session's live or queued run. `reason` is set only when the
+// stop did not come from the user (today, the server's shutdown
+// teardown), so the persisted verdict can say so (#379).
 const stop = (runner: Runner, sessionId: string, reason?: string): boolean => {
   const handle = runner.registry.get(sessionId);
   if (handle === undefined) return false;
@@ -253,7 +252,7 @@ const stop = (runner: Runner, sessionId: string, reason?: string): boolean => {
   if (handle.status === "queued") {
     handle.cancelled = true;
     handle.status = "stopped";
-    if (reason !== undefined) handle.stopReason = reason;
+    handle.stopReason = reason;
     handle.pendingPrompts = [];
     handle.queuePosition = undefined;
     refreshQueuePositions(runner);
@@ -264,7 +263,7 @@ const stop = (runner: Runner, sessionId: string, reason?: string): boolean => {
 
   if (handle.status === "running") {
     handle.status = "stopped";
-    if (reason !== undefined) handle.stopReason = reason;
+    handle.stopReason = reason;
     handle.pendingPrompts = [];
     // A running handle may briefly have no process (the spawn assignment
     // hasn't run yet); in that case defer the kill via cancelled.
@@ -282,16 +281,13 @@ const stop = (runner: Runner, sessionId: string, reason?: string): boolean => {
   return false;
 };
 
-// Reaps all live agent processes on server shutdown. The reason, when
-// given, lands in every stopped run's last_run verdict (state
-// "stopped", reason e.g. "server shutdown") so a teardown stop is
-// diagnosable afterwards instead of reading as a user stop with no
-// explanation — the diagnosis gap of #379.
-const stopAll = (runner: Runner, reason?: string): number => {
+// Reaps all live agent processes on server shutdown, recording why in
+// each stopped run's last_run verdict (#379).
+const stopAll = (runner: Runner, reason: string): number => {
   let stopped = 0;
   for (const sessionId of runner.registry.keys())
     if (stop(runner, sessionId, reason)) stopped++;
-  if (reason !== undefined && stopped > 0)
+  if (stopped > 0)
     console.warn(`run: stopped ${stopped} live run(s): ${reason}`);
   return stopped;
 };

@@ -4,33 +4,22 @@ import { unrefTimer } from "../util.js";
 // `killDescendants: true` — the runner's agent processes, the
 // suggestions ask, the goose ACP catalogue probe.
 //
-// execa's killDescendants logic only runs inside subprocess.kill(), so
-// when glv itself kills the process (a manual stop, the escalation
-// ladder, the startup watchdog) the whole tree is torn down — but when
-// the process dies on its own (crash exit, signal death, a kernel OOM
-// kill) its descendants (MCP servers, tool-spawned background jobs) are
-// re-parented to init while staying in glv's own process group, and
-// under systemd in glv.service's cgroup. Nothing signals that group
-// again: the descendants leak, unowned and unaccounted, for as long as
+// execa only tears down descendants inside kill(), so when a spawned
+// process dies on its own (crash exit, signal death, a kernel OOM kill)
+// its descendants — MCP servers, tool-spawned background jobs — are
+// re-parented to init while staying in glv's own process group (under
+// systemd, in the unit's cgroup): they leak, unowned, for as long as
 // they live (#379).
 //
-// The group itself survives the leader: killDescendants spawns the
-// subprocess as its own process-group leader, and a pid stays reserved
-// as a group id while any member lives, so signalling the group after
-// the leader settled is safe and useful — execa's kill() routes
-// process.kill(-pid) there and reports whether the signal reached
-// anyone. One SIGTERM per settle, for every settle reason, makes
-// descendants unable to outlive their run; an agent that genuinely
-// wants a deliberate daemon can still setsid its way out, visibly.
+// The group outlives the leader: killDescendants spawns the subprocess
+// as its own process-group leader, and a pid stays reserved as a group
+// id while any member lives, so signalling the group after the leader
+// settled is safe — execa's kill() routes process.kill(-pid) there and
+// reports whether the signal reached anyone.
 //
-// execa no-ops the call on Windows (no process groups; a pid is only
-// reserved while a handle is open, which closes at exit), so that
-// platform keeps its current behaviour: leaks there are covered only by
-// the cleanup-on-parent-exit path. Documented limitation, shared with
-// execa's own forceKillAfterDelay: once a group emptied, the OS may
-// re-assign its pid to a new process-group leader, and a sweep landing
-// in that window would signal the unrelated group — unlikely, and the
-// same primitive every existing kill path already accepts.
+// Two limitations, both shared with execa's own kill paths: Windows
+// no-ops a settled kill (no process groups), and once a group has
+// emptied the OS may recycle its pid into an unrelated process group.
 
 // Matches execa's forceKillAfterDelay default and the runner's stop
 // grace: a descendant that traps SIGTERM is SIGKILLed one window later.
@@ -46,9 +35,9 @@ type Reapable = {
 };
 
 // One group-targeted signal. execa reports an already-gone group as
-// false rather than throwing; the try/catch guards anything else,
-// because a throw inside a promise handler would surface as an
-// unhandled rejection, which the server treats as fatal.
+// false rather than throwing; the catch guards anything else, because a
+// throw inside a promise handler would surface as an unhandled
+// rejection, which the server treats as fatal.
 const signalGroup = (proc: Reapable, signal: NodeJS.Signals): boolean => {
   try {
     return proc.kill(signal);
@@ -57,9 +46,9 @@ const signalGroup = (proc: Reapable, signal: NodeJS.Signals): boolean => {
   }
 };
 
-// Reaps the descendants of a subprocess that has settled, whatever the
-// settle reason: SIGTERM to the group now, SIGKILL after the grace
-// window if anyone trapped it. No-op once the group is gone.
+// Reaps the descendants of a settled subprocess, whatever the settle
+// reason: SIGTERM to the group now, SIGKILL after the grace window if
+// anyone trapped it. No-op once the group is gone.
 const reapDescendants = (proc: Reapable): void => {
   if (!signalGroup(proc, "SIGTERM")) return;
   const timer = setTimeout(() => {
@@ -72,10 +61,8 @@ const reapDescendants = (proc: Reapable): void => {
 // after spawn. Both handlers matter: the rejection path (a crash exit)
 // is the very leak this exists for.
 const reapDescendantsOnSettle = <T>(proc: PromiseLike<T> & Reapable): void => {
-  void proc.then(
-    () => reapDescendants(proc),
-    () => reapDescendants(proc),
-  );
+  const onSettled = (): void => reapDescendants(proc);
+  void proc.then(onSettled, onSettled);
 };
 
 export { reapDescendantsOnSettle };

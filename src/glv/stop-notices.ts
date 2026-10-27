@@ -138,9 +138,8 @@ const LAST_RUN_COLS = Object.keys(lastRunShape).join(", ");
 // exits 0, so the exit code alone would mislabel it "finished" (or
 // "failed" and lose the reset time). An error without a refusal is a
 // crash verdict; anything else settled by the book. A stop carrying a
-// stopReason was the server's doing (the shutdown teardown), not the
-// user's — the state stays "stopped" but the reason says who stopped
-// it and why (#379).
+// stopReason was the server's doing — the state stays "stopped" but the
+// reason says why (#379).
 const lastRunOutcomeFor = (handle: RunHandle): LastRunOutcome => ({
   state:
     handle.stopNotice !== undefined

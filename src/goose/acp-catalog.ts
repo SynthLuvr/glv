@@ -98,9 +98,7 @@ const startAcp = (binary: string) => {
   // Resolves once the process is gone for any reason (spawn failure,
   // crash, our kill): nothing may hang waiting on a dead agent.
   void proc.then(failAll, failAll);
-  // Post-settle tree reap (#379): an agent that dies on its own would
-  // leak its descendants into glv's process group — same rationale as
-  // the runner's spawn.
+  // #379: an agent that dies on its own still reaps its tree.
   reapDescendantsOnSettle(proc);
 
   let nextId = 0;

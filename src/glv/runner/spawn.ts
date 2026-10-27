@@ -57,24 +57,16 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
-  // Post-settle tree reap (#379): killDescendants only fires inside
-  // kill(), so an agent that dies on its own — crash, SIGKILL, host
-  // memory pressure — left its descendants (MCP servers, tool-spawned
-  // background jobs) alive in glv's process group forever. One
-  // group-targeted signal after every settle, whatever its reason,
-  // makes run descendants unable to outlive the run. On Windows execa
-  // no-ops the settled kill (no process groups), preserving that
-  // platform's behaviour.
+  // killDescendants only fires inside kill(), so an agent that dies on
+  // its own would leak its tree — reap at settle too (#379).
   reapDescendantsOnSettle(proc);
 
   // execa exposes no synchronous exit state, and its Windows tree-kill
   // (taskkill /PID <pid> /T /F) never verifies the pid still belongs to us
   // — dangerous where pids recycle quickly. Track liveness off the settled
-  // promise so a retired pid is never signalled again. The post-settle
-  // reap above is exempt by design: execa no-ops the settled kill on
-  // Windows, and on Unix the group id stays reserved while any member
-  // lives, so the sweep cannot hit a recycled pid until the group is
-  // empty.
+  // promise so a retired pid is never signalled again. (The settle reap
+  // above is exempt: a group id stays reserved while any member lives, so
+  // it cannot hit a recycled pid.)
   let exited = false;
   const markExited = (): void => {
     exited = true;

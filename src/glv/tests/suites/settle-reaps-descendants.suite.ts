@@ -9,18 +9,16 @@ import {
   waitForAgentRun,
 } from "../harness.js";
 
-// #379: execa's killDescendants only fires inside kill(), so a run whose
-// agent died on its own — crash, SIGKILL, host memory pressure — leaked
-// its descendants (MCP servers, tool-spawned background jobs) into
-// glv's process group forever; a cleanly finished run leaked them too,
-// just less often. The runner now signals the agent's process group once
-// after every settle, whatever the reason, so descendants cannot
-// outlive their run. This suite pins both halves: the unclean death
-// (the incident's mechanism) and the clean finish.
+// #379: killDescendants only fires inside kill(), so a run whose agent
+// died on its own — crash, SIGKILL, host memory pressure — leaked its
+// descendants into glv's process group forever; a clean finish leaked
+// them too, just less often. The runner now signals the agent's process
+// group once after every settle, whatever the reason. This suite pins
+// both halves: the unclean death (the incident's mechanism) and the
+// clean finish.
 //
-// POSIX-only: execa no-ops a settled kill on Windows (no process groups;
-// a pid is only reserved while a handle is open), so the bindings are in
-// WINDOWS_EXCLUDED_SUITES in vitest.config.ts.
+// POSIX-only (see WINDOWS_EXCLUDED_SUITES in vitest.config.ts): execa
+// no-ops a settled kill on Windows — no process groups.
 const runSettleReapsDescendantsSuite = (fx: FlavorFixture): void => {
   let crash: IntegrationEnv;
   let finish: IntegrationEnv;
@@ -54,11 +52,9 @@ const runSettleReapsDescendantsSuite = (fx: FlavorFixture): void => {
   };
 
   beforeAll(async () => {
-    // Two environments, one behaviour each: a silent long-lived agent
-    // whose descendant outlives an unclean death, and a fast agent that
-    // finishes cleanly with a descendant still hanging around. Both
-    // descendants bound their own lifetime, so a reap the code somehow
-    // misses cannot outlive the suite.
+    // A silent long-lived agent (for the unclean death) and a fast one
+    // (for the clean finish); both descendants bound their own lifetime,
+    // so a reap the code somehow misses cannot outlive the suite.
     crash = await fx.startEnv("glv-settle-crash-", {
       behaviour: { delayMs: 30000, spawnChild: true },
     });

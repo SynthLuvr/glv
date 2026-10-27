@@ -9,18 +9,17 @@ import {
   seedApiToken,
 } from "../harness.js";
 
-// #379: stopAll() during server teardown wrote the verdict `stopped`
-// with an empty reason — indistinguishable from a user stop, which cost
-// real diagnosis time after a systemd OOM-kill tore the unit down and
-// every live run died with it. The shutdown path now threads a reason
-// through stopAll → stop → the handle → the last_run sidecar, so a
+// #379: a teardown stopAll() used to write the verdict `stopped` with
+// no reason — indistinguishable from a user stop, which cost real
+// diagnosis time after a systemd OOM-kill tore the unit down. The
+// shutdown path now threads a reason into the last_run sidecar, so a
 // teardown stop says so. (A user stop still records no reason: the
 // api-last-run suite pins that.)
 //
-// POSIX-only: the harness stops the serve process with SIGTERM, which on
-// Windows is an unconditional TerminateProcess — the exit handlers this
-// suite depends on never run — so the bindings are in
-// WINDOWS_EXCLUDED_SUITES in vitest.config.ts.
+// POSIX-only (see WINDOWS_EXCLUDED_SUITES in vitest.config.ts): the
+// harness stops the serve process with SIGTERM, which on Windows is an
+// unconditional TerminateProcess — the exit handlers this suite depends
+// on never run.
 const runShutdownReasonSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let token: string;
@@ -35,21 +34,16 @@ const runShutdownReasonSuite = (fx: FlavorFixture): void => {
     return body.session;
   };
 
-  // Polls the session row until its status is one of `want`.
-  const waitForStatus = async (
-    id: string,
-    want: readonly string[],
-  ): Promise<string> => {
+  // Polls the session row until its status is `want`.
+  const waitForStatus = async (id: string, want: string): Promise<string> => {
     const deadline = Date.now() + 30000;
     for (;;) {
       const status = (await sessionOf(id)).status;
-      if (typeof status === "string" && want.includes(status)) return status;
-      if (Date.now() > deadline) {
-        const seen = typeof status === "string" ? status : String(status);
+      if (status === want) return status;
+      if (Date.now() > deadline)
         throw new Error(
-          `status of ${id} stayed "${seen}"; wanted ${want.join("/")}`,
+          `status of ${id} stayed "${String(status)}"; wanted ${want}`,
         );
-      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   };
@@ -80,7 +74,7 @@ const runShutdownReasonSuite = (fx: FlavorFixture): void => {
         }),
       });
       expect(res.status).toBe(200);
-      expect(await waitForStatus(id, ["running"])).toBe("running");
+      await waitForStatus(id, "running");
 
       // SIGTERM, the same path systemd's unit teardown takes.
       await env.restart();
