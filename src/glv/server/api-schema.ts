@@ -72,21 +72,15 @@ const ApiDetailQuery = type({
 
 // The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
 // may park before answering 202 with the still-active status. One hour
-// (#382) — the original five-minute cap forced an orchestration loop to
-// re-park every few minutes through runs that last far longer (36- and
-// 81-minute fix sessions, a five-hour replay), and each re-park is a
-// fresh agent turn that re-sends its whole transcript; an hour spans a
-// typical worker run in one park, and longer ones re-dial once an hour.
-// 0 keeps its "answer now" reading — a single snapshot, no park — and
-// the -1 sentinel opts into a deadline-free park: the call parks until
-// the run settles, and dies safely with the caller's own connection,
-// because the route discards answers to disconnected clients, so no
-// socket is pinned open nobody is reading.
+// (#382) spans a typical worker run in one park; past it a script
+// re-dials, each re-park a fresh agent turn that re-sends its whole
+// transcript. 0 answers with a single snapshot, no park; -1 drops the
+// deadline entirely — park until the run settles or the caller hangs up.
 const MAX_WAIT_MS = 3_600_000;
-const WAIT_UNBOUNDED = -1;
+const UNBOUNDED_TIMEOUT = -1;
 const DEFAULT_WAIT_MS = 30_000;
 const ApiWaitTimeout = type(
-  `${WAIT_UNBOUNDED} | 0 <= number.integer <= ${MAX_WAIT_MS}`,
+  `${UNBOUNDED_TIMEOUT} | 0 <= number.integer <= ${MAX_WAIT_MS}`,
 );
 const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
 
@@ -611,11 +605,9 @@ const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
   };
 };
 
-// The wait endpoint's deadline: absent (or empty) reads as the default,
-// the park bound scripts re-dial to cover runs longer than one deadline.
-// The -1 sentinel parses to Infinity — the deadline-free park (#382),
-// carried through to the wait loop, whose deadline arithmetic treats
-// Infinity as "never lapses".
+// The wait endpoint's deadline: absent (or empty) reads as the default;
+// -1 reads as Infinity, the deadline-free park (#382) the wait loop
+// honours by never letting its deadline lapse.
 type WaitQuery =
   | { readonly ok: true; readonly timeout: number }
   | { readonly ok: false; readonly error: string };
@@ -623,7 +615,7 @@ type WaitQuery =
 const parseWaitQuery = (request: FastifyRequest): WaitQuery => {
   const timeout = parseNumberQuery(request, "timeout", ApiWaitTimeout);
   if (!timeout.ok) return timeout;
-  if (timeout.value === WAIT_UNBOUNDED)
+  if (timeout.value === UNBOUNDED_TIMEOUT)
     return { ok: true, timeout: Number.POSITIVE_INFINITY };
   return { ok: true, timeout: timeout.value ?? DEFAULT_WAIT_MS };
 };

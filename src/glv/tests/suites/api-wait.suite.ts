@@ -254,8 +254,6 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
     });
 
     it("accepts a deadline up to the one-hour cap (#382)", async () => {
-      // 3600000 was out of range when the cap was five minutes; now it
-      // answers like any other deadline — idle settles at once, no park.
       const id = fx.viewId("aw-fresh");
       const answer = await waitOn(main, id, 3_600_000);
       expect(answer.status).toBe(200);
@@ -267,8 +265,6 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       expect(created.status).toBe(201);
       const { id } = (await created.json()) as RunAccepted;
       expect((await waitOn(slow, id, 0)).status).toBe(202);
-      // The unbounded park must not fall through to an answer — 422, a
-      // snapshot, a 202 — while the run is still live.
       let resolved = false;
       const parked = waitOn(slow, id, -1).then((answer) => {
         resolved = true;
@@ -276,8 +272,6 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       });
       await new Promise((resolve) => setTimeout(resolve, 700));
       expect(resolved).toBe(false);
-      // A stop settles the run; the parked call resolves on its own —
-      // no re-dial — with the terminal status and verdict.
       const stop = await fetchApi(slow, `/api/sessions/${id}/stop`, {
         method: "POST",
       });
@@ -347,17 +341,14 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       expect(wait?.responses?.["404"]).toBeDefined();
       expect(wait?.responses?.["422"]).toBeDefined();
       expect(wait?.parameters?.map((p) => p.name)).toContain("timeout");
-      // The timeout parameter documents the raised cap and the -1
-      // deadline-free sentinel (#382): the union's anyOf carries the
-      // bounded integer range plus the -1 const.
-      const timeoutParam = wait?.parameters?.find((p) => p.name === "timeout");
+      // The generated schema spells the timeout union as anyOf: the -1
+      // sentinel beside the bounded integer range.
+      const members =
+        wait?.parameters?.find((p) => p.name === "timeout")?.schema?.anyOf ??
+        [];
+      expect(members.map((member) => member.const)).toContain(-1);
       expect(
-        timeoutParam?.schema?.anyOf?.map((member) => member.const),
-      ).toContain(-1);
-      expect(
-        timeoutParam?.schema?.anyOf?.find(
-          (member) => member.maximum !== undefined,
-        )?.maximum,
+        members.find((member) => member.maximum !== undefined)?.maximum,
       ).toBe(3_600_000);
       const result = doc.components.schemas.WaitResult?.properties;
       expect(result?.status?.enum).toEqual([
