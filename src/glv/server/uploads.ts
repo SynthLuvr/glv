@@ -140,10 +140,9 @@ const markerIds = (markerPath: string): string[] =>
     .filter((id) => id !== "");
 
 // Records a session as an owner of a managed directory; re-tagging an
-// id already present changes nothing — and skips the rewrite, so a
-// per-prompt claim (#387) costs nothing on the common path. The dir
-// keeps its uuid name because renaming would break the absolute paths
-// already handed to the agent for the run's lifetime.
+// id already present changes nothing. The dir keeps its uuid name
+// because renaming would break the absolute paths already handed to the
+// agent for the run's lifetime.
 const tagDir = (dir: string, sessionId: string): void => {
   const markerPath = join(dir, SESSION_MARKER);
   const existing = existsSync(markerPath) ? markerIds(markerPath) : [];
@@ -153,13 +152,10 @@ const tagDir = (dir: string, sessionId: string): void => {
 
 // Claims a managed temp working dir for a session (#367, #387):
 // records the session as an owner so the directory may only be swept
-// once every owner is archived or deleted, and re-creates the directory
-// when it has already vanished — swept on a stale single-owner marker
-// (a fork predating #370, a working_dir copied outside forkSession), by
-// a pre-#370 build, or lost to plain disk damage. An empty directory at
-// the recorded path keeps the session promptable (the previous files
-// are unrecoverable either way) instead of leaving it — or a fork
-// copying the path verbatim — to inherit a dead working dir. Returns
+// once every owner is archived or deleted, and re-creates it empty when
+// it has already vanished — the previous files are unrecoverable either
+// way, and an empty dir keeps the session (or a fork copying the path
+// verbatim) promptable instead of stuck on a dead working_dir. Returns
 // false for a path outside GLV's temp base: an unmanaged directory is
 // never created or written.
 const claimTempDir = (
@@ -167,6 +163,9 @@ const claimTempDir = (
   workingDir: string,
   sessionId: string,
 ): boolean => {
+  // A row without a working dir is unmanaged, and relative("") would
+  // resolve against the process cwd and could pass the check below.
+  if (workingDir === "") return false;
   const rel = relative(resolveTempBase(dataDirName), workingDir);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return false;
   if (!existsSync(workingDir)) mkdirSync(workingDir, { recursive: true });

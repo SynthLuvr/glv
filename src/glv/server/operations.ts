@@ -340,14 +340,12 @@ const createSessionOperations = (ctx: ServerContext) => {
     if (prompt === "") return fail("A prompt is required.");
 
     // The agent spawns in the session's working directory; one swept
-    // out from under the session (a shared temp dir collected too
-    // early, #367) would die at spawn with an opaque ENOENT — reject it
-    // with the actual reason instead. Empty stays permitted: rows
-    // without a working directory exist. A managed temp dir is glv's to
-    // heal (#387): the claim re-creates one that vanished and re-records
-    // this session as an owner, so the guard stays unreachable for
-    // managed dirs and fires only for genuinely vanished, unmanaged
-    // ones.
+    // out from under the session would die at spawn with an opaque
+    // ENOENT — reject it with the actual reason instead. Empty stays
+    // permitted: rows without a working directory exist. A managed
+    // temp dir is glv's to heal (#387): the claim re-creates a
+    // vanished one, so the guard fires only for genuinely vanished,
+    // unmanaged directories.
     if (session.working_dir !== "") {
       const claimed = claimTempDir(ctx.dataDirName, session.working_dir, id);
       if (!claimed && !existsSync(session.working_dir))
@@ -453,10 +451,9 @@ const createSessionOperations = (ctx: ServerContext) => {
     if (!forked.ok) return forked;
 
     // The fork copies the source's working_dir verbatim, so a temp-dir
-    // fork shares the managed directory (#367): claim it for the fork so
-    // the directory survives until the last owner is gone — re-created
-    // when the source's copy already vanished (#387), so the fork never
-    // inherits a dead path. Unmanaged working dirs are left alone.
+    // fork shares the managed directory (#367): claim it for the fork —
+    // re-created first when the source's copy already vanished (#387) —
+    // so the directory survives until the last owner is gone.
     claimTempDir(ctx.dataDirName, source.working_dir, forked.row.id);
 
     // A submitted prompt rides the exact follow-up path against the new
