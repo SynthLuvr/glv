@@ -849,6 +849,32 @@ curl -sS -H "Authorization: Bearer glv_at_…" \
 #  usage limit reached. … resets at 17:01. …","ended_at":"2026-10-22T21:04:11.512Z"}
 ```
 
+#### Reading the run history
+
+`last_run` answers only for the newest settle — every run overwrites it,
+and a clean settle clears the notice, so once a stalled loop recovers
+the stall itself leaves no trace. `GET /api/sessions/:id/runs` returns
+the whole verdict history instead: one row per settled run, oldest
+first, each spelled like `last_run` (`state`, optional `reason`,
+`ended_at`) plus `started_at`, the instant the run’s process spawned. It
+survives the registry window and server restarts, and is capped at the
+newest 20 runs per session — which is what makes stall frequency,
+crash-then-retry chains, and repeated provider refusals queryable after
+the fact instead of overwritten:
+
+``` bash
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  http://localhost:3457/api/sessions/goose:abc123/runs
+# {"id":"goose:abc123","runs":[
+#  {"state":"stopped_early","reason":"… usage limit reached …",
+#   "started_at":"2026-10-27T09:02:11.000Z","ended_at":"2026-10-27T09:07:06.000Z"},
+#  {"state":"finished","started_at":"2026-10-27T10:16:39.000Z",
+#   "ended_at":"2026-10-27T10:31:02.000Z"}]}
+```
+
+An unknown session answers `404`; a session that never settled a run
+answers `runs: []`.
+
 Queue a follow-up while it runs, and stop a runaway:
 
 ``` bash

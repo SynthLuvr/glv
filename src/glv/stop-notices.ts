@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { type } from "arktype";
 import { openGlvDb, resolveDataPath } from "./db-path.js";
@@ -15,6 +16,10 @@ import type { RunHandle } from "./runner/index.js";
 // manual stop clears the row, so the notice always describes the *last*
 // run. A second table, last_run, keeps the verdict of every settled run
 // — clean finishes and user stops included — for the read API.
+// A third table, run_history, appends every verdict instead of
+// overwriting: one row per settled run, capped per session, so
+// after-the-fact diagnosis of an orchestration loop's stalls and
+// retries stays queryable (#384).
 const STOP_NOTICES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS stop_notices (
   session_id TEXT PRIMARY KEY,
@@ -40,6 +45,28 @@ CREATE TABLE IF NOT EXISTS last_run (
 );
 `;
 
+// One row per settled run (#384), keyed by the per-spawn run id. Unlike
+// the upserts above, appends instead of overwriting — capped at the
+// newest RUN_HISTORY_CAP rows per session, so a long-lived loop cannot
+// grow the file without bound.
+const RUN_HISTORY_SCHEMA = `
+CREATE TABLE IF NOT EXISTS run_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  reason TEXT,
+  started_at TEXT,
+  ended_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS run_history_session
+  ON run_history(session_id, id);
+`;
+
+// How many settled runs each session keeps; twenty spans a day of an
+// orchestration loop's stalls and retries.
+const RUN_HISTORY_CAP = 20;
+
 const resolveStopNoticesDbPath = (
   dataDirName: string,
   override?: string,
@@ -56,6 +83,7 @@ const openStopNoticesDb = (dbPath: string): DatabaseSync => {
   const db = openGlvDb(dbPath);
   db.exec(STOP_NOTICES_SCHEMA);
   db.exec(LAST_RUN_SCHEMA);
+  db.exec(RUN_HISTORY_SCHEMA);
   return db;
 };
 
@@ -227,7 +255,103 @@ const addVerdictRows = (
   }
 };
 
-export type { LastRunOutcome, LastRunRecord };
+// ---- the run-history append ----
+
+// One settled run as the history read returns it: the last-run outcome
+// plus the invocation's span — startedAt is undefined only for a run
+// stopped before its process ever spawned.
+type RunHistoryRecord = LastRunOutcome & {
+  startedAt: string | undefined;
+  endedAt: string;
+};
+
+// A stored run_history row, validated by ArkType at this boundary so
+// the state union narrows without a cast; a malformed row is skipped,
+// the same way the last_run readers treat one.
+const runHistoryShape = {
+  run_id: "string",
+  session_id: "string",
+  state: LastRunState,
+  reason: "string | null",
+  started_at: "string | null",
+  ended_at: "string",
+} as const;
+
+const RunHistoryRow = type(runHistoryShape);
+
+// The column list every run_history statement names, derived from the
+// shape like LAST_RUN_COLS.
+const RUN_HISTORY_COLS = Object.keys(runHistoryShape).join(", ");
+
+// One settle can notify twice — the stop request and the process exit —
+// and both carry the same run id, so the upsert folds them into one row
+// and ended_at settles on the true exit instant. A run stopped while
+// still queued never began an invocation, so it has no stamped id and
+// records under a fresh one, exactly once. The write then trims the
+// session's history to its newest RUN_HISTORY_CAP rows.
+const recordRunHistory = (
+  db: DatabaseSync,
+  sessionId: string,
+  outcome: LastRunOutcome,
+  run: RunHandle,
+): void => {
+  const runId = run.runId ?? randomUUID();
+  db.prepare(
+    `INSERT INTO run_history (${RUN_HISTORY_COLS}) ` +
+      "VALUES (?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(run_id) DO UPDATE SET " +
+      "state = excluded.state, reason = excluded.reason, " +
+      "ended_at = excluded.ended_at",
+  ).run(
+    runId,
+    sessionId,
+    outcome.state,
+    outcome.reason ?? null,
+    run.startedAt === undefined ? null : new Date(run.startedAt).toISOString(),
+    new Date().toISOString(),
+  );
+  db.prepare(
+    "DELETE FROM run_history WHERE session_id = ? AND id NOT IN (" +
+      "SELECT id FROM run_history WHERE session_id = ? " +
+      "ORDER BY id DESC LIMIT ?)",
+  ).run(sessionId, sessionId, RUN_HISTORY_CAP);
+};
+
+const runHistoryRowToRecord = (row: unknown): RunHistoryRecord | undefined => {
+  const parsed = RunHistoryRow(row);
+  if (parsed instanceof type.errors) return undefined;
+  const { state, reason, started_at, ended_at } = parsed;
+  return {
+    state,
+    reason: reason ?? undefined,
+    startedAt: started_at ?? undefined,
+    endedAt: ended_at,
+  };
+};
+
+// The session's settled runs, oldest first — the order a
+// crash-then-retry chain reads in. Every read failure (missing table,
+// malformed row) degrades to fewer rows, the way the verdict reads do.
+const readRunHistory = (
+  db: DatabaseSync,
+  sessionId: string,
+): RunHistoryRecord[] => {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT ${RUN_HISTORY_COLS} FROM run_history ` +
+          "WHERE session_id = ? ORDER BY id",
+      )
+      .all(sessionId);
+    return rows
+      .map(runHistoryRowToRecord)
+      .filter((record) => record !== undefined);
+  } catch {
+    return [];
+  }
+};
+
+export type { LastRunOutcome, LastRunRecord, RunHistoryRecord };
 export {
   clearStopNotice,
   LastRunState,
@@ -235,8 +359,10 @@ export {
   openStopNoticesDb,
   readLastRun,
   readLastRuns,
+  readRunHistory,
   readStopNotice,
   recordLastRun,
+  recordRunHistory,
   recordStopNotice,
   resolveStopNoticesDbPath,
 };

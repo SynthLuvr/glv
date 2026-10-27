@@ -12,6 +12,14 @@ import type {
   RunStatus,
 } from "./types.js";
 
+// Stamps the run-history identity for a new invocation: a fresh run
+// id (both notifications of one settle share it, so the run records
+// once, #384) and its start instant.
+const beginInvocation = (handle: InternalHandle): void => {
+  handle.runId = randomUUID();
+  handle.startedAt = Date.now();
+};
+
 const failRun = (handle: InternalHandle, err: unknown): void => {
   if (handle.status === "stopped") return;
   handle.status = "error";
@@ -131,6 +139,8 @@ const enqueueInvocation = (
     error: undefined,
     stopNotice: undefined,
     stopReason: undefined,
+    runId: undefined,
+    startedAt: undefined,
     cancelled: false,
     process: undefined,
     evictionTimer: undefined,
@@ -145,6 +155,7 @@ const enqueueInvocation = (
       if (handle.cancelled) return;
       handle.status = "running";
       handle.queuePosition = undefined;
+      beginInvocation(handle);
       refreshQueuePositions(runner);
 
       try {
