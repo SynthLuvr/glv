@@ -23,10 +23,10 @@ import { resolveAgentPick } from "./operations.js";
 import { activeSessionIds } from "./status.js";
 
 // Folds the session list, the viewer-owned group memberships, and the
-// orchestrator links (#385) into a single ordered entry list. When the
-// groups sidecar is absent the list is purely flat — identical to
-// today's experience; when the cron sidecar is absent (app-less tests)
-// no parent links exist and the same flat list falls out.
+// orchestrator links (#385) into a single ordered entry list. Each
+// optional sidecar — the groups database, or the cron database's
+// parent links in app-less tests — simply contributes nothing when
+// absent.
 const sidebarEntries = (
   ctx: ServerContext,
   sessions: SessionRow[],
@@ -38,9 +38,11 @@ const sidebarEntries = (
           ctx.cronDb,
           sessions.map((session) => session.id),
         );
-  if (ctx.groups === undefined)
-    return buildEntries(sessions, undefined, parents);
-  return buildEntries(sessions, listGroups(ctx.groups), parents);
+  return buildEntries(
+    sessions,
+    ctx.groups === undefined ? undefined : listGroups(ctx.groups),
+    parents,
+  );
 };
 
 const PaneButton = ({

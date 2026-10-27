@@ -80,18 +80,16 @@ const parentsFor = (
     ? undefined
     : parentSessionsFor(ctx.cronDb, sessionIds);
 
-// Set intersection that keeps `undefined` meaning "no restriction": the
-// listing's id restrictions (active, parent_session) compose — both
-// arriving keeps only the sessions in both sets, and an empty result
-// set is meaningful (the store answers no rows).
+// Set intersection where undefined means "no restriction": the
+// listing's id restrictions (active, parent_session) compose, and an
+// empty intersection is meaningful — the store answers no rows.
 const intersectIds = (
   a: Set<string> | undefined,
-  b: Set<string>,
-): Set<string> => {
-  if (a === undefined) return new Set(b);
-  const out = new Set<string>();
-  for (const id of a) if (b.has(id)) out.add(id);
-  return out;
+  b: Set<string> | undefined,
+): Set<string> | undefined => {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return new Set([...a].filter((id) => b.has(id)));
 };
 
 // The store filter the listing runs with: the sidebar's default window
@@ -100,9 +98,8 @@ const intersectIds = (
 // pagination pages the filtered result (#344). active=true passes the
 // runner's live session set as the id restriction — the same source
 // the /events/status sync snapshot reads, so "what is running" is one
-// cheap filtered listing. parent_session narrows the same way: the
-// sidecar's child set becomes the id restriction, intersected with
-// active's when both arrive (#385).
+// cheap filtered listing. parent_session narrows to the sidecar's
+// child set the same way (#385).
 const listingFilterFor = (
   ctx: ServerContext,
   query: ParsedListQuery,
@@ -112,10 +109,7 @@ const listingFilterFor = (
     query.parentSession === undefined || ctx.cronDb === undefined
       ? undefined
       : new Set(childSessionIds(ctx.cronDb, query.parentSession));
-  const ids = [activeIds, childIds].reduce<Set<string> | undefined>(
-    (acc, next) => (next === undefined ? acc : intersectIds(acc, next)),
-    undefined,
-  );
+  const ids = intersectIds(activeIds, childIds);
   return {
     ...VIEWER_FILTER,
     limit: query.limit,

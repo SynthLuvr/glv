@@ -28,11 +28,11 @@ type ActiveGroup = {
   members: SessionRow[];
 };
 
-// The visible parent-link forest (#385): each map entry points a session
-// at the session that launched it. Edges only count when both endpoints
-// are visible and neither is claimed by a visible user group — a worker
-// its user grouped explicitly stays where the user put it, and a worker
-// whose orchestrator is archived (or out of window) lists flat.
+// One session's visible parent, from the parent-link map (#385): the
+// edge only counts when both endpoints are visible and neither is
+// claimed by a visible user group — a worker its user grouped
+// explicitly stays where the user put it, and a worker whose
+// orchestrator is archived (or out of window) lists flat.
 const visibleParentOf = (
   session: SessionRow,
   parents: ReadonlyMap<string, string> | undefined,
@@ -49,8 +49,10 @@ const visibleParentOf = (
 
 // Collects the subtree rooted at `root` in recency order: the root plus
 // every visible session that links to it (recursively — a worker may be
-// an orchestrator itself). `seen` guards against a link cycle, which the
-// write path cannot produce but a hand-edited sidecar could.
+// an orchestrator itself). `seen` doubles as the caller's emitted set:
+// every visited session lands in it, so later list rows inside the
+// subtree are skipped — and a link cycle (impossible from the write
+// path, possible from a hand-edited sidecar) cannot loop forever.
 const collectSubtree = (
   root: SessionRow,
   childrenOf: ReadonlyMap<string, SessionRow[]>,
@@ -77,12 +79,14 @@ const subtreeSize = (entry: NestedEntry): number =>
     : 1 + entry.children.reduce((sum, child) => sum + subtreeSize(child), 0);
 
 // The topmost visible ancestor: a worker of a worker nests under the
-// whole chain's head, so one glance shows the loop's shape.
+// whole chain's head, so one glance shows the loop's shape. The seen
+// set guards against a link cycle, which the write path cannot produce
+// but a hand-edited sidecar could.
 const rootAncestorOf = (
   session: SessionRow,
   parentOf: (session: SessionRow) => SessionRow | undefined,
-  seen: Set<string>,
 ): SessionRow => {
+  const seen = new Set<string>();
   let root = session;
   for (;;) {
     if (seen.has(root.id)) return root;
@@ -139,7 +143,7 @@ const buildEntries = (
     if (emitted.has(session.id)) continue;
     const group = sessionGroup.get(session.id);
     if (group === undefined) {
-      const root = rootAncestorOf(session, parentOf, new Set());
+      const root = rootAncestorOf(session, parentOf);
       const children = collectSubtree(root, childrenOf, emitted);
       if (children.length > 0) {
         entries.push({ kind: "orchestrator", parent: root, children });

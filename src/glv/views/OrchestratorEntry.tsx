@@ -48,39 +48,43 @@ const OrchestratorEntry = ({
   entry: Extract<NestedEntry, { kind: "orchestrator" }>;
   selectedId: string | undefined;
   runningIds: Set<string>;
-}) => (
-  <div class="session-group orchestrator-group" data-group-id={entry.parent.id}>
-    <div class="orchestrator-header">
-      <button
-        type="button"
-        class="group-toggle"
-        data-action="toggle-group"
-        data-group-id={entry.parent.id}
-        aria-expanded="true"
-        title="Collapse / expand"
-      >
-        {icon(<polyline points="6 9 12 15 18 9" />)}
-      </button>
-      <SessionItem
-        session={entry.parent}
-        selected={entry.parent.id === selectedId}
-        running={runningIds.has(entry.parent.id)}
+}) => {
+  const launched = subtreeSize(entry) - 1;
+  return (
+    <div
+      class="session-group orchestrator-group"
+      data-group-id={entry.parent.id}
+    >
+      <div class="orchestrator-header">
+        <button
+          type="button"
+          class="group-toggle"
+          data-action="toggle-group"
+          data-group-id={entry.parent.id}
+          aria-expanded="true"
+          title="Collapse / expand"
+        >
+          {icon(<polyline points="6 9 12 15 18 9" />)}
+        </button>
+        <SessionItem
+          session={entry.parent}
+          selected={entry.parent.id === selectedId}
+          running={runningIds.has(entry.parent.id)}
+        />
+        <span
+          class="group-count"
+          title={`${launched} launched session${launched === 1 ? "" : "s"}`}
+        >
+          {launched}
+        </span>
+      </div>
+      <NestedMembers
+        entries={entry.children}
+        selectedId={selectedId}
+        runningIds={runningIds}
       />
-      <span
-        class="group-count"
-        title={`${subtreeSize(entry) - 1} launched session${
-          subtreeSize(entry) === 2 ? "" : "s"
-        }`}
-      >
-        {subtreeSize(entry) - 1}
-      </span>
     </div>
-    <NestedMembers
-      entries={entry.children}
-      selectedId={selectedId}
-      runningIds={runningIds}
-    />
-  </div>
-);
+  );
+};
 
 export { OrchestratorEntry };

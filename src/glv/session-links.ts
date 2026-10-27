@@ -4,18 +4,16 @@ import { openGlvDb } from "./db-path.js";
 import { placeholders } from "./query.js";
 
 // Viewer-owned sidecar linking worker sessions to the orchestrator session
-// that launched them (#385). An orchestrator loop drives the whole pipeline
-// through POST /api/sessions; the parent link is the only record of who
+// that launched them (#385): the parent link is the only record of who
 // launched whom, so the sidebar can nest workers under their orchestrator
-// and loops can query "my children" (?parent_session=) without leaning on
+// and loops can query their members (?parent_session=) without leaning on
 // working-directory or name conventions, which break the moment a human
-// works in the same place. The agent's own stores stay untouched — like
-// cron_sessions (which answers the same question for scheduled runs), this
-// table is glv's, keyed by the namespaced session id every consumer sees.
+// works in the same place. Like cron_sessions (the same question for
+// scheduled runs), the table lives in the cron database and is keyed by
+// the namespaced session id; the agent's own stores stay untouched.
 
 // Exported so openCronDb can create it beside the cron tables through one
-// handle — the link table lives in the cron database, the home of
-// "who launched this session" records.
+// handle.
 const SESSION_LINKS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS session_parents (
   session_id TEXT PRIMARY KEY,
@@ -52,8 +50,7 @@ const tagParentSession = (
   ).run(sessionId, parentSessionId);
 };
 
-// The parent one session row should carry; undefined when the session was
-// launched by nobody in particular.
+// The parent recorded for one session, if any.
 const parentSessionFor = (
   db: DatabaseSync,
   sessionId: string,

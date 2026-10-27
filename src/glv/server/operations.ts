@@ -184,8 +184,8 @@ const createSessionOperations = (ctx: ServerContext) => {
     const promptId = bodyField("prompt_id");
     // #343: labels the session at creation; see applyCreationName.
     const name = bodyField("name");
-    // #385: links the session to the orchestrator that launched it, so
-    // loops become visible as a unit (sidebar nesting, ?parent_session=).
+    // #385: the orchestrator that launched this session; see
+    // session-links.ts.
     const parentSessionId = bodyField("parent_session");
     const sessionMode = bodyField("session_mode");
     const submittedWorkingDir = canonicalWorkingDir(
@@ -216,10 +216,9 @@ const createSessionOperations = (ctx: ServerContext) => {
     if (location !== undefined && !location.ok)
       return fail(422, location.error);
 
-    // A parent link names an existing session — validated before anything is
-    // created so a typo'd id answers loudly instead of silently landing an
-    // unlinked worker (#385). The id is the namespaced spelling every API
-    // row carries.
+    // A parent link names an existing session — validated before anything
+    // is created so a typo'd id fails loudly instead of silently landing
+    // an unlinked worker (#385).
     if (
       parentSessionId !== "" &&
       ctx.sessions.getSession(parentSessionId) === undefined
