@@ -4,6 +4,7 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - ts-canon@0.3.2
+  - croner@11.0.0
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
 # 127; pnpm's per-platform default handles every script fine.

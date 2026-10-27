@@ -354,9 +354,10 @@ and a stray `cronJobs` key is inert.
 
   - a [croner](https://github.com/hexagon/croner) pattern — the usual
     5-field cron (`"0 9 * * 1-5"`), 6 fields with a leading seconds
-    part, or a nickname like `"@daily"`. croner’s stable line is 10.x;
-    glv pins an 11.0.0 dev build for the timer fix it carries, and the
-    pin moves to the stable 11 release once that ships.
+    part, or a nickname like `"@daily"`. croner 11 carries the
+    clock-step fix — a forward clock step across the scheduled instant
+    no longer swallows the occurrence (#272) — so glv tracks the 11
+    line, the one the cron-clockstep suite pins down.
   - an ISO 8601 local datetime like `"2026-09-03T09:00"` for a one-time
     run. A one-shot fires once and retires itself from the database.
     Seconds are optional (`"2026-09-03T09:00:30"` fires at that second);
