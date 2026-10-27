@@ -84,7 +84,7 @@
     "arktype": "^2.2.9",
     "commander": "^15.0.0",
     "consola": "^3.4.2",
-    "croner": "^11.0.0-dev.7",
+    "croner": "^11.0.0",
     "cronstrue": "^3.38.0",
     "dompurify": "^3.4.17",
     "execa": "^10.2.1",
