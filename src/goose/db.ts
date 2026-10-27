@@ -219,6 +219,19 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
     ),
   );
 
+// The transcript length the detail read's fields=meta answer carries
+// (#383): a COUNT, not a row read, so a liveness poll costs one integer
+// however long the transcript has grown.
+const CountRow = type({ count: "number.integer >= 0" });
+
+const countMessages = (db: DatabaseSync, sessionId: string): number =>
+  validate(
+    CountRow,
+    db
+      .prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id = ?")
+      .get(sessionId),
+  )?.count ?? 0;
+
 const IdRow = type({ id: "string" });
 
 // Lets the new-session poll distinguish a freshly created session from
@@ -507,6 +520,7 @@ const createSessionStore = (
   listSessions: (filter) => listSessions(db, filter),
   getSession: (id) => getSession(db, id),
   listMessages: (sessionId) => listMessages(db, sessionId),
+  countMessages: (sessionId) => countMessages(db, sessionId),
   archiveSessions: (ids) => archiveSessions(dbWritable, ids),
   renameSession: (id, rawName) => renameSession(dbWritable, id, rawName),
   deleteSessions: (ids) => deleteSessions(dbWritable, ids),

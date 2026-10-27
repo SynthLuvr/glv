@@ -57,17 +57,28 @@ const ApiListQuery = type({
   "active?": ApiListActive,
 });
 
-// The detail read's windows (#339): fields=meta answers a poll with the
-// session row alone — no transcript — and after=<message-index> starts
-// the transcript at that index (the count of messages the caller
-// already holds, so 0 reads everything). Either way a poll on a
-// 300-message run costs what it costs on a fresh one, instead of
-// re-downloading the whole history every time.
+// The detail read's windows (#339, #383): fields=meta answers a poll
+// with the session row alone — no transcript, but carrying
+// message_count, the transcript's length, so a liveness check compares
+// integers instead of downloading messages to count them — and the
+// three window parameters each select a slice server-side, before
+// serialization: after=<message-index> starts the transcript at that
+// index (the count of messages the caller already holds, so 0 reads
+// everything), head=<n> keeps the first n (the fingerprint check on a
+// fresh session), and last=<n> keeps the final n (the tail read that
+// pulls a run's verdict out of a 200-message transcript without paying
+// for the other 195). Either way a poll on a 300-message run costs
+// what it costs on a fresh one, instead of re-downloading the whole
+// history every time.
 const ApiDetailFields = type("'meta'");
 const ApiDetailAfter = type("number.integer >= 0");
+const ApiDetailHead = type("number.integer >= 0");
+const ApiDetailLast = type("number.integer >= 0");
 const ApiDetailQuery = type({
   "fields?": ApiDetailFields,
   "after?": ApiDetailAfter,
+  "head?": ApiDetailHead,
+  "last?": ApiDetailLast,
 });
 
 // The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
@@ -572,16 +583,23 @@ const parseListQuery = (
 // cursor advances by the length of each answer; 0 reads the whole
 // transcript. This is the cursor the SSE feed's append ids and the
 // store tail already speak (a message count), never a -1 sentinel for
-// "nothing held yet". fields=meta and after are mutually exclusive:
-// one omits the transcript, the other windows it, and passing both
-// would silently answer a smaller question than the caller asked, so
-// it is refused.
+// "nothing held yet". `head` is a count of leading messages to keep
+// (the first-prompt fingerprint check) and `last` a count of trailing
+// ones (the cheap tail read) — each clamped to the transcript's length,
+// so 0 answers an empty window and a count past the end answers
+// everything. fields=meta and the windows are mutually exclusive:
+// meta omits the transcript, a window selects part of it, and passing
+// both would silently answer a smaller question than the caller asked,
+// so it is refused — as is passing more than one window, for the same
+// reason.
+type DetailWindow = {
+  readonly after: number | undefined;
+  readonly head: number | undefined;
+  readonly last: number | undefined;
+};
+
 type DetailQuery =
-  | {
-      readonly ok: true;
-      readonly metaOnly: boolean;
-      readonly after: number | undefined;
-    }
+  | ({ readonly ok: true; readonly metaOnly: boolean } & DetailWindow)
   | { readonly ok: false; readonly error: string };
 
 // fields=meta: present reads as meta-only, absent (or empty) as the
@@ -591,17 +609,35 @@ const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
   if (!fields.ok) return fields;
   const after = parseNumberQuery(request, "after", ApiDetailAfter);
   if (!after.ok) return after;
-  if (fields.value !== undefined && after.value !== undefined)
+  const head = parseNumberQuery(request, "head", ApiDetailHead);
+  if (!head.ok) return head;
+  const last = parseNumberQuery(request, "last", ApiDetailLast);
+  if (!last.ok) return last;
+  const windows = [
+    ...(after.value === undefined ? [] : ["after"]),
+    ...(head.value === undefined ? [] : ["head"]),
+    ...(last.value === undefined ? [] : ["last"]),
+  ];
+  if (fields.value !== undefined && windows.length > 0)
     return {
       ok: false,
       error:
-        '"fields=meta" omits messages while "after" windows them — ' +
-        "pass one, not both.",
+        '"fields=meta" omits messages while a window parameter selects ' +
+        "them — pass one, not both.",
+    };
+  if (windows.length > 1)
+    return {
+      ok: false,
+      error:
+        `"${windows[0]}" and "${windows[1]}" are alternative transcript ` +
+        "windows — pass at most one of after, head, or last.",
     };
   return {
     ok: true,
     metaOnly: fields.value !== undefined,
     after: after.value,
+    head: head.value,
+    last: last.value,
   };
 };
 
@@ -1126,18 +1162,24 @@ const openApiDocument = (
             "server restart, so a session that merely left the active " +
             "list can never be mistaken for a successful finish. " +
             "Long transcripts need not ride every poll: fields=meta " +
-            "answers with the session row and no messages, and " +
-            "after=<message-index> answers with only the messages from " +
-            "that transcript index on — advance the cursor (the count " +
-            "of messages held) by the length of each answer. The two " +
-            "cannot be combined (422).",
+            "answers with the session row, no messages, and " +
+            "message_count — the transcript's length, so a liveness " +
+            "check compares integers instead of downloading messages " +
+            "to count them; after=<message-index> answers with only " +
+            "the messages from that transcript index on (advance the " +
+            "cursor, the count of messages held, by the length of each " +
+            "answer); head=<n> answers with the first n messages; " +
+            "last=<n> with the final n — the tail read that pulls a " +
+            "run's verdict out of a long transcript without paying for " +
+            "the rest. The parameters cannot be combined (422).",
           parameters: [
             sessionParam(),
             queryParam(
               "fields",
               detailQueryProps.fields,
               'Pass "meta" to read the session row without the ' +
-                "transcript — the cheap poll for done-yet checks.",
+                "transcript — the cheap poll for done-yet checks; the " +
+                "answer carries message_count.",
             ),
             queryParam(
               "after",
@@ -1147,26 +1189,48 @@ const openApiDocument = (
                 "on (empty once caught up), so a poll downloads just " +
                 "what landed since. 0 reads the whole transcript.",
             ),
+            queryParam(
+              "head",
+              detailQueryProps.head,
+              "Count of leading messages to keep — the first-prompt " +
+                "window a fingerprint check needs; clamped to the " +
+                "transcript's length.",
+            ),
+            queryParam(
+              "last",
+              detailQueryProps.last,
+              "Count of trailing messages to keep — the tail window " +
+                "that reads a run's final answer without downloading " +
+                "the transcript behind it; clamped to the transcript's " +
+                "length.",
+            ),
           ],
           responses: {
             "200": jsonResponse("The session row and its parsed messages.", {
               type: "object",
               properties: {
                 session: ref("Session"),
+                message_count: {
+                  type: "integer",
+                  description:
+                    "The transcript's message count. Carried by the " +
+                    "fields=meta answer, so a liveness poll compares " +
+                    "integers instead of downloading the transcript.",
+                },
                 messages: {
                   type: "array",
                   description:
                     "Parsed transcript messages, oldest first (each " +
                     "timestamp ISO 8601 UTC, zoned). Omitted " +
-                    "under fields=meta; starting at the after index when " +
-                    "given.",
+                    "under fields=meta; windowed by after, head, or " +
+                    "last when one is given.",
                 },
               },
               required: ["session"],
             }),
             "404": jsonResponse("Unknown session id.", ref("Error")),
             "422": jsonResponse(
-              "Invalid fields/after combination.",
+              "Invalid fields/after/head/last combination.",
               ref("Error"),
             ),
             ...bearerResponses(),
@@ -1332,6 +1396,7 @@ const openApiDocument = (
 };
 
 export {
+  type DetailWindow,
   openApiDocument,
   type ParsedListQuery,
   parseDetailQuery,

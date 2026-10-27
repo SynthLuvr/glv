@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPrompt, listPrompts } from "../../prompts/db.js";
-import type { SessionFilter } from "../../sessions.js";
+import type { MessageRow, SessionFilter } from "../../sessions.js";
 import {
   type LastRunRecord,
   readLastRun,
   readLastRuns,
 } from "../../stop-notices.js";
 import {
+  type DetailWindow,
   openApiDocument,
   type ParsedListQuery,
   parseDetailQuery,
@@ -68,6 +69,23 @@ const listingFilterFor = (
   ...(query.active ? { ids: activeSessionIds(ctx.runner) } : {}),
 });
 
+// The transcript window the detail read serializes (#339, #383):
+// after=<index> keeps everything from that index on (the incremental
+// cursor), head=<n> the first n messages, last=<n> the final n — each
+// clamped to the transcript's length, so a count past the end answers
+// everything and 0 answers nothing. Slicing the store rows before
+// toApiMessage is what keeps a window read's wire cost at the window's
+// size, never the transcript's.
+const detailWindowRows = (
+  rows: readonly MessageRow[],
+  window: DetailWindow,
+): MessageRow[] => {
+  if (window.after !== undefined) return rows.slice(window.after);
+  if (window.head !== undefined) return rows.slice(0, window.head);
+  if (window.last === undefined) return rows.slice();
+  return rows.slice(Math.max(0, rows.length - window.last));
+};
+
 // The JSON surface for non-browser clients (curl, CI), reached with an
 // API-token bearer header — the only credential the write endpoints
 // accept — or a session cookie for the reads. Reads delegate to the same
@@ -105,17 +123,21 @@ const registerApiRoutes = (
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
-    // fields=meta omits the transcript entirely; after=<index> slices
-    // the store read itself, so a poll parses and serializes only the
-    // messages it has not seen (#339).
+    // fields=meta omits the transcript entirely and carries its length
+    // instead (message_count), so a liveness poll compares integers
+    // rather than downloading messages to count them; after/head/last
+    // slice the store read itself, so a poll parses and serializes only
+    // the messages the window selects (#339, #383).
     const messages = query.metaOnly
       ? undefined
-      : ctx.sessions
-          .listMessages(id)
-          .slice(query.after ?? 0)
-          .map(toApiMessage);
+      : detailWindowRows(ctx.sessions.listMessages(id), query).map(
+          toApiMessage,
+        );
     return reply.send({
       session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
+      ...(query.metaOnly
+        ? { message_count: ctx.sessions.countMessages(id) }
+        : {}),
       ...(messages === undefined ? {} : { messages }),
     });
   });

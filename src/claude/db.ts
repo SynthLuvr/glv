@@ -156,6 +156,15 @@ const listMessages = (
   }));
 };
 
+// The transcript length the detail read's fields=meta answer carries
+// (#383): the parsed transcript's message count (through the same
+// mtime-keyed cache listMessages reads), without mapping and
+// re-serializing every message's content along the way.
+const countMessages = (store: ClaudeStoreData, sessionId: string): number => {
+  const path = findTranscript(store.root, sessionId);
+  return path === undefined ? 0 : parseTranscriptFile(path).messages.length;
+};
+
 // Cheap pre-filter for sidebar PR detection: only transcripts whose raw
 // text references a GitHub pull URL can resolve to a PR, so callers skip
 // parsing messages for the rest.
@@ -233,6 +242,7 @@ const createSessionStore = (root: string, meta: DatabaseSync): SessionStore => {
     listSessions: (filter) => listSessions(store, filter),
     getSession: (id) => getSession(store, id),
     listMessages: (sessionId) => listMessages(store, sessionId),
+    countMessages: (sessionId) => countMessages(store, sessionId),
     archiveSessions: (ids) => archiveMeta(store.meta, ids),
     renameSession: (id, rawName) => renameMeta(store.meta, id, rawName),
     deleteSessions: (ids) => {
