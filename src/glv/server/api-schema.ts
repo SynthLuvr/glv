@@ -71,12 +71,17 @@ const ApiDetailQuery = type({
 });
 
 // The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
-// may park before answering 202 with the still-active status. Bounded so
-// no script pins a connection open indefinitely; 0 reads as "answer now"
-// — a single snapshot, no park.
-const MAX_WAIT_MS = 300_000;
+// may park before answering 202 with the still-active status. One hour
+// (#382) spans a typical worker run in one park; past it a script
+// re-dials, each re-park a fresh agent turn that re-sends its whole
+// transcript. 0 answers with a single snapshot, no park; -1 drops the
+// deadline entirely — park until the run settles or the caller hangs up.
+const MAX_WAIT_MS = 3_600_000;
+const UNBOUNDED_TIMEOUT = -1;
 const DEFAULT_WAIT_MS = 30_000;
-const ApiWaitTimeout = type(`0 <= number.integer <= ${MAX_WAIT_MS}`);
+const ApiWaitTimeout = type(
+  `${UNBOUNDED_TIMEOUT} | 0 <= number.integer <= ${MAX_WAIT_MS}`,
+);
 const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
 
 // How the last run ended, persisted in the stop-notices sidecar beyond
@@ -600,8 +605,9 @@ const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
   };
 };
 
-// The wait endpoint's deadline: absent (or empty) reads as the default,
-// the park bound scripts re-dial to cover runs longer than one deadline.
+// The wait endpoint's deadline: absent (or empty) reads as the default;
+// -1 reads as Infinity, the deadline-free park (#382) the wait loop
+// honours by never letting its deadline lapse.
 type WaitQuery =
   | { readonly ok: true; readonly timeout: number }
   | { readonly ok: false; readonly error: string };
@@ -609,6 +615,8 @@ type WaitQuery =
 const parseWaitQuery = (request: FastifyRequest): WaitQuery => {
   const timeout = parseNumberQuery(request, "timeout", ApiWaitTimeout);
   if (!timeout.ok) return timeout;
+  if (timeout.value === UNBOUNDED_TIMEOUT)
+    return { ok: true, timeout: Number.POSITIVE_INFINITY };
   return { ok: true, timeout: timeout.value ?? DEFAULT_WAIT_MS };
 };
 
@@ -1181,8 +1189,10 @@ const openApiDocument = (
             "with the run still active the answer is 202 with the live " +
             "status — call again to keep waiting, which is how a script " +
             "covers runs longer than any single deadline. timeout is " +
-            `milliseconds (0–${MAX_WAIT_MS}, default ${DEFAULT_WAIT_MS}); ` +
-            "0 answers with a single snapshot, no park.",
+            `milliseconds (0–${MAX_WAIT_MS}, default ${DEFAULT_WAIT_MS}): ` +
+            "0 answers with a single snapshot, no park, and -1 parks " +
+            "with no deadline at all — one call spans any run length, " +
+            "and a caller that hangs up mid-park drops the answer.",
           parameters: [
             sessionParam(),
             queryParam(
@@ -1190,7 +1200,8 @@ const openApiDocument = (
               properties(ApiWaitQuery).timeout,
               `Deadline in milliseconds (0–${MAX_WAIT_MS}; default ` +
                 `${DEFAULT_WAIT_MS}). On expiry the answer is 202 with ` +
-                "the live status.",
+                "the live status; -1 parks with no deadline, until the " +
+                "run settles or the caller hangs up.",
             ),
           ],
           responses: {

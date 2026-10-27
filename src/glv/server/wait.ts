@@ -44,6 +44,10 @@ const sleep = (ms: number): Promise<void> =>
 // return means the deadline hit; a cancelled connection's snapshot is
 // discarded by the route, which has nobody left to answer.
 //
+// An Infinity timeout is the deadline-free park (#382): any finite
+// value added to Infinity stays Infinity, so `remaining` never hits 0
+// and the loop parks until the run settles or the caller hangs up.
+//
 // A tick cannot race the run-settle bookkeeping: the runner flips a
 // handle terminal and persists the sidecar verdict in one synchronous
 // continuation — the exit path settles the status and fires

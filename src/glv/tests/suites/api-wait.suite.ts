@@ -246,11 +246,40 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
 
     it("rejects an unparsable or out-of-range timeout", async () => {
       const id = fx.viewId("aw-1");
-      for (const timeout of ["abc", "-1", "300001"]) {
+      for (const timeout of ["abc", "-2", "1.5", "3600001"]) {
         const answer = await waitOn(main, id, timeout);
         expect(answer.status, `timeout=${timeout}`).toBe(422);
         expect(answer.body.error).toContain("timeout");
       }
+    });
+
+    it("accepts a deadline up to the one-hour cap (#382)", async () => {
+      const id = fx.viewId("aw-fresh");
+      const answer = await waitOn(main, id, 3_600_000);
+      expect(answer.status).toBe(200);
+      expect(answer.body).toEqual({ id, status: "idle" });
+    });
+
+    it("parks deadline-free on timeout=-1 until the run settles (#382)", async () => {
+      const created = await postCreate(slow, "wait: park without a deadline");
+      expect(created.status).toBe(201);
+      const { id } = (await created.json()) as RunAccepted;
+      expect((await waitOn(slow, id, 0)).status).toBe(202);
+      let resolved = false;
+      const parked = waitOn(slow, id, -1).then((answer) => {
+        resolved = true;
+        return answer;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(resolved).toBe(false);
+      const stop = await fetchApi(slow, `/api/sessions/${id}/stop`, {
+        method: "POST",
+      });
+      expect(stop.status).toBe(200);
+      const answer = await parked;
+      expect(answer.status).toBe(200);
+      expect(answer.body).toMatchObject({ id, status: "stopped" });
+      expect(answer.body.last_run?.state).toBe("stopped");
     });
 
     it("requires a credential", async () => {
@@ -288,7 +317,12 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
           string,
           {
             get?: {
-              parameters?: Array<{ name?: string }>;
+              parameters?: Array<{
+                name?: string;
+                schema?: {
+                  anyOf?: Array<{ const?: number; maximum?: number }>;
+                };
+              }>;
               responses?: Record<string, unknown>;
             };
           }
@@ -307,6 +341,15 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       expect(wait?.responses?.["404"]).toBeDefined();
       expect(wait?.responses?.["422"]).toBeDefined();
       expect(wait?.parameters?.map((p) => p.name)).toContain("timeout");
+      // The generated schema spells the timeout union as anyOf: the -1
+      // sentinel beside the bounded integer range.
+      const members =
+        wait?.parameters?.find((p) => p.name === "timeout")?.schema?.anyOf ??
+        [];
+      expect(members.map((member) => member.const)).toContain(-1);
+      expect(
+        members.find((member) => member.maximum !== undefined)?.maximum,
+      ).toBe(3_600_000);
       const result = doc.components.schemas.WaitResult?.properties;
       expect(result?.status?.enum).toEqual([
         "completed",

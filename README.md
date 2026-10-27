@@ -713,8 +713,8 @@ done
 `GET /api/sessions/:id/wait?timeout=<ms>` is the wait primitive: the
 request parks while the session’s run is queued or running and answers
 the moment it settles — or immediately when no run is active. `timeout`
-bounds the park in milliseconds (0–300000, default 30000; `0` answers
-with a single snapshot, no park):
+bounds the park in milliseconds (0–3600000, default 30000; `0` answers
+with a single snapshot, no park; `-1` parks with no deadline):
 
 ``` bash
 curl -sS -H "Authorization: Bearer glv_at_…" \
@@ -749,6 +749,12 @@ while :; do
   case "$s" in running | queued) ;; *) break ;; esac
 done
 ```
+
+Runs measured in hours need no re-dial loop at all: `timeout=-1` drops
+the deadline, so one call parks until the run settles — a whole worker
+run in a single park. A caller that hangs up mid-park is detected
+server-side and its answer discarded, so the parked connection ends with
+the process that opened it.
 
 #### Polling without re-downloading the transcript
 
