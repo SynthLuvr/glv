@@ -144,6 +144,13 @@ const createCompositeSessionStore = (
         : target.entry.store.listMessages(target.nativeId);
     },
 
+    countMessages: (id) => {
+      const target = route(id);
+      return target === undefined
+        ? 0
+        : target.entry.store.countMessages(target.nativeId);
+    },
+
     archiveSessions: (ids) => {
       for (const [entry, native] of byAgent(ids))
         entry.store.archiveSessions(native);

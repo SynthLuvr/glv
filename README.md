@@ -615,8 +615,9 @@ curl -sS -H "Authorization: Bearer glv_at_…" \
 ```
 
 The detail read has its own windows: `?fields=meta` answers with the
-session row and no transcript, and `?after=<message-index>` answers with
-only the messages from that transcript index on — see [Polling without
+session row, no transcript, and a `message_count` of its length;
+`?after=<message-index>`, `?head=<n>`, and `?last=<n>` each answer with
+a server-side slice of the transcript — see [Polling without
 re-downloading the
 transcript](#polling-without-re-downloading-the-transcript) below.
 
@@ -760,14 +761,25 @@ the process that opened it.
 
 The detail endpoint returns the whole transcript by default, so a poll
 loop pays full-transcript cost on every tick — and the runs that most
-need polling are the long ones. Two query windows keep the cost flat:
+need polling are the long ones. The query windows keep the cost flat:
 
 - `?fields=meta` answers with the `session` object and **no `messages`
-  key** — the cheap poll above, which wants only the status.
+  key** — the cheap poll above, which wants only the status. The answer
+  also carries `message_count`, the transcript’s current length, so a
+  liveness check compares two integers across ticks instead of
+  downloading messages to count them.
 - `?after=<message-index>` answers with the `session` object and only
   the messages **from** that transcript index on (0-based, oldest first
   — the index is the count of messages you already hold). Empty once
   caught up.
+- `?head=<n>` answers with only the **first** `n` messages — the window
+  a first-prompt fingerprint check needs when classifying a directory’s
+  sessions.
+- `?last=<n>` answers with only the **final** `n` messages — the tail
+  read that pulls a settled run’s verdict (branch, PR URL, worktree
+  path) out of a 200-message transcript without paying for the
+  other 195. Clamped to the transcript’s length: a count past the end
+  answers everything, `0` answers an empty window.
 
 An incremental poll keeps a cursor — the count of messages it holds —
 and advances it by the length of each answer:
@@ -787,8 +799,24 @@ done
 
 An `after` at or past the transcript’s end answers `messages: []` — the
 cursor never goes stale. Invalid values (`?after=-1`, `?after=abc`,
-`?fields=anything-else`, or both parameters at once) are rejected with
-`422`.
+`?fields=anything-else`) are rejected with `422`, as is combining
+`fields=meta` with any window or passing more than one window at once
+(`after`, `head`, and `last` are alternatives).
+
+The tail and meta reads together replace the two most expensive poll
+shapes an orchestration loop performs — “read the final assistant
+message” and “is the transcript still growing”:
+
+``` bash
+# the run's last word, without the 200 messages behind it
+curl -sS -H "Authorization: Bearer glv_at_…" \
+  "http://localhost:3457/api/sessions/goose:abc123?last=1"
+
+# liveness: is the transcript still growing?
+count=$(curl -sS -H "Authorization: Bearer glv_at_…" \
+  "http://localhost:3457/api/sessions/goose:abc123?fields=meta" \
+  | jq .message_count)
+```
 
 `status` alone cannot say *how* the last run ended once the registry
 window closes — and while it is open, a provider’s usage-limit refusal
