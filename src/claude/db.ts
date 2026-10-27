@@ -156,9 +156,8 @@ const listMessages = (
   }));
 };
 
-// The transcript length the detail read's fields=meta answer carries
-// (#383): the parsed transcript's message count (through the same
-// mtime-keyed cache listMessages reads), without mapping and
+// fields=meta's message_count (#383): the parsed transcript's length,
+// read through the same mtime-keyed cache listMessages uses, without
 // re-serializing every message's content along the way.
 const countMessages = (store: ClaudeStoreData, sessionId: string): number => {
   const path = findTranscript(store.root, sessionId);

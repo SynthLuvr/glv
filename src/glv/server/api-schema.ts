@@ -59,26 +59,18 @@ const ApiListQuery = type({
 
 // The detail read's windows (#339, #383): fields=meta answers a poll
 // with the session row alone — no transcript, but carrying
-// message_count, the transcript's length, so a liveness check compares
-// integers instead of downloading messages to count them — and the
-// three window parameters each select a slice server-side, before
-// serialization: after=<message-index> starts the transcript at that
-// index (the count of messages the caller already holds, so 0 reads
-// everything), head=<n> keeps the first n (the fingerprint check on a
-// fresh session), and last=<n> keeps the final n (the tail read that
-// pulls a run's verdict out of a 200-message transcript without paying
-// for the other 195). Either way a poll on a 300-message run costs
-// what it costs on a fresh one, instead of re-downloading the whole
-// history every time.
+// message_count, its length — while the window parameters each select
+// a server-side slice before serialization: after=<message-index>
+// starts the transcript at that index (the count of messages the
+// caller already holds), head=<n> keeps the first n, and last=<n> the
+// final n. A poll costs the window's size, not the transcript's.
 const ApiDetailFields = type("'meta'");
-const ApiDetailAfter = type("number.integer >= 0");
-const ApiDetailHead = type("number.integer >= 0");
-const ApiDetailLast = type("number.integer >= 0");
+const ApiDetailWindow = type("number.integer >= 0");
 const ApiDetailQuery = type({
   "fields?": ApiDetailFields,
-  "after?": ApiDetailAfter,
-  "head?": ApiDetailHead,
-  "last?": ApiDetailLast,
+  "after?": ApiDetailWindow,
+  "head?": ApiDetailWindow,
+  "last?": ApiDetailWindow,
 });
 
 // The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
@@ -577,21 +569,16 @@ const parseListQuery = (
   };
 };
 
-// The detail read's windows. `after` is the transcript index to start
-// from — the count of messages the caller already holds, so the answer
-// carries everything from that index on (empty once caught up) and the
-// cursor advances by the length of each answer; 0 reads the whole
-// transcript. This is the cursor the SSE feed's append ids and the
-// store tail already speak (a message count), never a -1 sentinel for
-// "nothing held yet". `head` is a count of leading messages to keep
-// (the first-prompt fingerprint check) and `last` a count of trailing
-// ones (the cheap tail read) — each clamped to the transcript's length,
-// so 0 answers an empty window and a count past the end answers
-// everything. fields=meta and the windows are mutually exclusive:
-// meta omits the transcript, a window selects part of it, and passing
-// both would silently answer a smaller question than the caller asked,
-// so it is refused — as is passing more than one window, for the same
-// reason.
+// The detail read's parsed windows. `after` is the transcript index to
+// start from — the count of messages the caller already holds, the same
+// count cursor the SSE feed's append ids and the store tail speak, so
+// the answer carries everything from that index on and 0 reads the
+// whole transcript. `head` and `last` keep the first or final n
+// messages, clamped to the transcript's length (0 answers an empty
+// window, a count past the end everything). At most one window may
+// arrive, and never with fields=meta: meta omits the transcript, a
+// window selects part of it, and either combination would silently
+// answer a smaller question than the caller asked.
 type DetailWindow = {
   readonly after: number | undefined;
   readonly head: number | undefined;
@@ -607,17 +594,19 @@ type DetailQuery =
 const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
   const fields = parseEnumQuery(request, "fields", ApiDetailFields);
   if (!fields.ok) return fields;
-  const after = parseNumberQuery(request, "after", ApiDetailAfter);
+  const after = parseNumberQuery(request, "after", ApiDetailWindow);
   if (!after.ok) return after;
-  const head = parseNumberQuery(request, "head", ApiDetailHead);
+  const head = parseNumberQuery(request, "head", ApiDetailWindow);
   if (!head.ok) return head;
-  const last = parseNumberQuery(request, "last", ApiDetailLast);
+  const last = parseNumberQuery(request, "last", ApiDetailWindow);
   if (!last.ok) return last;
-  const windows = [
-    ...(after.value === undefined ? [] : ["after"]),
-    ...(head.value === undefined ? [] : ["head"]),
-    ...(last.value === undefined ? [] : ["last"]),
-  ];
+  const windows = Object.entries({
+    after: after.value,
+    head: head.value,
+    last: last.value,
+  })
+    .filter(([, count]) => count !== undefined)
+    .map(([name]) => name);
   if (fields.value !== undefined && windows.length > 0)
     return {
       ok: false,

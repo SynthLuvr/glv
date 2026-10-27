@@ -87,10 +87,8 @@ type SessionStore = {
   readonly listSessions: (filter: SessionFilter) => SessionRow[];
   readonly getSession: (id: string) => SessionRow | undefined;
   readonly listMessages: (sessionId: string) => MessageRow[];
-  // The transcript's length without reading (or parsing) the message
-  // rows — the count the detail read's fields=meta answer carries, so a
-  // liveness poll compares two integers instead of downloading the
-  // transcript to count it.
+  // The transcript's length without reading the message rows — the
+  // count the detail read's fields=meta answer carries.
   readonly countMessages: (sessionId: string) => number;
   readonly archiveSessions: (ids: string[]) => void;
   readonly renameSession: (id: string, rawName: string) => void;

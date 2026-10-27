@@ -70,20 +70,22 @@ const listingFilterFor = (
 });
 
 // The transcript window the detail read serializes (#339, #383):
-// after=<index> keeps everything from that index on (the incremental
-// cursor), head=<n> the first n messages, last=<n> the final n — each
-// clamped to the transcript's length, so a count past the end answers
-// everything and 0 answers nothing. Slicing the store rows before
-// toApiMessage is what keeps a window read's wire cost at the window's
-// size, never the transcript's.
+// after keeps everything from an index on, head the first n messages,
+// last the final n — each clamped to the transcript's length, so a
+// count past the end answers everything and 0 answers nothing. last
+// slices from length - n, not -n, because slice(-0) would read the
+// whole transcript. Slicing the store rows before toApiMessage keeps a
+// window read's wire cost at the window's size, never the
+// transcript's.
 const detailWindowRows = (
   rows: readonly MessageRow[],
   window: DetailWindow,
 ): MessageRow[] => {
   if (window.after !== undefined) return rows.slice(window.after);
   if (window.head !== undefined) return rows.slice(0, window.head);
-  if (window.last === undefined) return rows.slice();
-  return rows.slice(Math.max(0, rows.length - window.last));
+  if (window.last !== undefined)
+    return rows.slice(Math.max(0, rows.length - window.last));
+  return rows.slice();
 };
 
 // The JSON surface for non-browser clients (curl, CI), reached with an
@@ -123,23 +125,19 @@ const registerApiRoutes = (
     const session = ctx.sessions.getSession(id);
     if (session === undefined)
       return reply.status(404).send({ error: `No session ${id}.` });
-    // fields=meta omits the transcript entirely and carries its length
-    // instead (message_count), so a liveness poll compares integers
-    // rather than downloading messages to count them; after/head/last
-    // slice the store read itself, so a poll parses and serializes only
-    // the messages the window selects (#339, #383).
-    const messages = query.metaOnly
-      ? undefined
-      : detailWindowRows(ctx.sessions.listMessages(id), query).map(
-          toApiMessage,
-        );
-    return reply.send({
-      session: toApiSession(session, ctx.runner, lastRunFor(ctx, id)),
-      ...(query.metaOnly
-        ? { message_count: ctx.sessions.countMessages(id) }
-        : {}),
-      ...(messages === undefined ? {} : { messages }),
-    });
+    const sessionBody = toApiSession(session, ctx.runner, lastRunFor(ctx, id));
+    // fields=meta answers with the transcript's length instead of the
+    // transcript, so a liveness poll compares integers across ticks
+    // (#383).
+    if (query.metaOnly)
+      return reply.send({
+        session: sessionBody,
+        message_count: ctx.sessions.countMessages(id),
+      });
+    const messages = detailWindowRows(ctx.sessions.listMessages(id), query).map(
+      toApiMessage,
+    );
+    return reply.send({ session: sessionBody, messages });
   });
 
   // The wait primitive (#341): one request parks while the session's run

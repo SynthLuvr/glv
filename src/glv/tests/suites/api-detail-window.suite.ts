@@ -11,18 +11,13 @@ import {
 
 // End-to-end over real HTTP: the transcript windows on the session
 // detail read (#339, #383). GET /api/sessions/:id used to re-download
-// every message on every poll, so an orchestrator polling a long run
-// paid full-transcript cost per poll — and the cost grew with exactly
-// the runs that most need polling. fields=meta now answers with the
-// session row alone (the "done yet?" poll) plus message_count (the
-// "is it still progressing?" poll, comparing integers instead of
-// downloading messages to count them), after=<message-index> with only
-// the messages from that transcript index on (the "any new messages?"
-// poll), head=<n> with the first n (the fingerprint check), and
-// last=<n> with the final n (the tail read that pulls a run's verdict
-// out of a long transcript). One environment suffices: the windows are
-// pure read logic over a seeded transcript, plus one real follow-up
-// run whose reply must land past a cursor held before the run started.
+// every message on every poll. fields=meta now answers with the session
+// row alone plus message_count (the liveness poll), after=<index> with
+// only the messages from that index on (the incremental poll),
+// head=<n> with the first n, and last=<n> with the final n. One
+// environment suffices: pure read logic over a seeded transcript, plus
+// one real follow-up run whose reply must land past a cursor held
+// before the run started.
 
 type ParsedMessage = {
   role: string;
@@ -192,7 +187,7 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
           // message_count grows past the seeded length, no transcript
           // downloaded.
           const meta = await readBody("?fields=meta");
-          expect(meta.message_count ?? 0).toBeGreaterThan(SEED_TEXTS.length);
+          expect(meta.message_count).toBeGreaterThan(SEED_TEXTS.length);
           expect("messages" in meta).toBe(false);
           return;
         }
@@ -215,7 +210,7 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
         "?head=-1",
         "?head=abc",
         "?head=1.5",
-        "?last=-3",
+        "?last=-1",
         "?last=abc",
         "?last=1.5",
         "?fields=rows",
@@ -228,18 +223,17 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
     });
 
     it("names the rejected parameter in the error", async () => {
-      const res = await readDetail("?after=nope");
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toContain('"after"');
-      const head = await readDetail("?head=nope");
-      const headBody = (await head.json()) as { error: string };
-      expect(headBody.error).toContain('"head"');
-      const last = await readDetail("?last=nope");
-      const lastBody = (await last.json()) as { error: string };
-      expect(lastBody.error).toContain('"last"');
-      const fields = await readDetail("?fields=rows");
-      const fieldsBody = (await fields.json()) as { error: string };
-      expect(fieldsBody.error).toContain('"fields"');
+      for (const [query, param] of [
+        ["?after=nope", "after"],
+        ["?head=nope", "head"],
+        ["?last=nope", "last"],
+        ["?fields=rows", "fields"],
+      ] as const) {
+        const res = await readDetail(query);
+        expect(res.status, query).toBe(422);
+        const body = (await res.json()) as { error: string };
+        expect(body.error, query).toContain(`"${param}"`);
+      }
     });
 
     it("refuses fields=meta combined with a window", async () => {
@@ -256,18 +250,16 @@ const runApiDetailWindowSuite = (fx: FlavorFixture): void => {
     });
 
     it("refuses two windows at once, naming both", async () => {
-      for (const query of [
-        "?after=1&head=1",
-        "?after=1&last=1",
-        "?head=1&last=1",
-      ]) {
+      const pairs = [
+        ["after", "head"],
+        ["after", "last"],
+        ["head", "last"],
+      ] as const;
+      for (const [first, second] of pairs) {
+        const query = `?${first}=1&${second}=1`;
         const res = await readDetail(query);
         expect(res.status, query).toBe(422);
         const body = (await res.json()) as { error: string };
-        const [first, second] = query
-          .slice(1)
-          .split("&")
-          .map((part) => part.split("=")[0]);
         expect(body.error, query).toContain(`"${first}"`);
         expect(body.error, query).toContain(`"${second}"`);
       }

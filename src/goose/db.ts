@@ -219,9 +219,8 @@ const listMessages = (db: DatabaseSync, sessionId: string): MessageRow[] =>
     ),
   );
 
-// The transcript length the detail read's fields=meta answer carries
-// (#383): a COUNT, not a row read, so a liveness poll costs one integer
-// however long the transcript has grown.
+// fields=meta's message_count (#383): a COUNT, not a row read, so a
+// liveness poll costs one integer however long the transcript.
 const CountRow = type({ count: "number.integer >= 0" });
 
 const countMessages = (db: DatabaseSync, sessionId: string): number =>
