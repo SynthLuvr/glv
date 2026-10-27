@@ -12,6 +12,15 @@ import type {
   RunStatus,
 } from "./types.js";
 
+// One invocation begins: it gets the identity the run-history recorder
+// needs — a fresh runId (the settle notification(s) of this invocation
+// share it, so a stop-request notify and the exit notify fold into one
+// history row #384) and its start instant.
+const beginInvocation = (handle: InternalHandle): void => {
+  handle.runId = randomUUID();
+  handle.startedAt = Date.now();
+};
+
 const failRun = (handle: InternalHandle, err: unknown): void => {
   if (handle.status === "stopped") return;
   handle.status = "error";
@@ -101,6 +110,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.stopNotice = undefined;
   handle.stopReason = undefined;
   handle.status = "running";
+  beginInvocation(handle);
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
     stdin: nextPrompt,
@@ -131,6 +141,8 @@ const enqueueInvocation = (
     error: undefined,
     stopNotice: undefined,
     stopReason: undefined,
+    runId: undefined,
+    startedAt: undefined,
     cancelled: false,
     process: undefined,
     evictionTimer: undefined,
@@ -145,6 +157,7 @@ const enqueueInvocation = (
       if (handle.cancelled) return;
       handle.status = "running";
       handle.queuePosition = undefined;
+      beginInvocation(handle);
       refreshQueuePositions(runner);
 
       try {

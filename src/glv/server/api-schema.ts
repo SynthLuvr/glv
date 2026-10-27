@@ -8,7 +8,11 @@ import type { Runner } from "../runner/index.js";
 import { getHandle } from "../runner/index.js";
 import { parseSchedule } from "../schedule.js";
 import type { MessageRow, SessionRow } from "../sessions.js";
-import { type LastRunRecord, LastRunState } from "../stop-notices.js";
+import {
+  type LastRunRecord,
+  LastRunState,
+  type RunHistoryRecord,
+} from "../stop-notices.js";
 import type { AgentRuntime } from "./context.js";
 import { isRecord, queryValue } from "./http.js";
 
@@ -138,6 +142,27 @@ const lastRunField = (
   lastRun: LastRunRecord | undefined,
 ): { last_run?: ApiLastRunData } =>
   lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) };
+
+// One settled run as the history endpoint returns it: the last-run
+// verdict shape plus started_at, the instant the run's process spawned
+// (omitted for a run stopped while still queued). Built by composing
+// ApiLastRun, so the verdict fields cannot drift from the rows' and
+// the wait answer's spelling.
+const ApiRunHistoryEntry = ApiLastRun.and({ "started_at?": "string" });
+
+type ApiRunHistoryEntryData = typeof ApiRunHistoryEntry.infer;
+
+// Beside toApiLastRun, for the same no-drift reason.
+const toApiRunHistoryEntry = (
+  record: RunHistoryRecord,
+): ApiRunHistoryEntryData => ({
+  state: record.state,
+  ...(record.reason === undefined ? {} : { reason: record.reason }),
+  ended_at: toApiTimestamp(record.endedAt),
+  ...(record.startedAt === undefined
+    ? {}
+    : { started_at: toApiTimestamp(record.startedAt) }),
+});
 
 // The run-state vocabulary every status field speaks: the live states
 // from the runner's registry ("queued"/"running"), its terminal states
@@ -801,9 +826,12 @@ const openApiDocument = (
         "/api/cron. The " +
         "combined model catalogue behind the New Session picker is " +
         "readable at /api/models — each model's pin is the exact " +
-        "spelling the model fields accept. Every timestamp on the wire " +
-        "— created_at, updated_at, archived_at, message timestamps, " +
-        "last_run.ended_at, last_fired_at — is ISO 8601 UTC with an " +
+        "spelling the model fields accept. The verdict history behind " +
+        "last_run — every settled run, not just the latest — is " +
+        "readable at /api/sessions/{id}/runs. Every timestamp on the " +
+        "wire — created_at, updated_at, archived_at, message " +
+        "timestamps, last_run.ended_at, the run-history instants, " +
+        "last_fired_at — is ISO 8601 UTC with an " +
         "explicit zone designator (2026-10-21T18:22:36Z): storage is " +
         "UTC, and the wire says so. The one credential-less path is the " +
         "flag-gated, loopback-only token bootstrap POST /api/tokens " +
@@ -822,6 +850,7 @@ const openApiDocument = (
         Session: component(ApiSession),
         LastRun: component(ApiLastRun),
         WaitResult: component(ApiWaitResult),
+        RunHistoryEntry: component(ApiRunHistoryEntry),
         StartSessionForm: {
           ...component(ApiStartSessionForm),
           properties: {
@@ -1273,6 +1302,49 @@ const openApiDocument = (
           },
         },
       },
+      "/api/sessions/{id}/runs": {
+        get: {
+          summary: "Read the session's settled-run history",
+          description:
+            "Every verdict the session has settled, not just the " +
+            "latest: one row per settled run, oldest first, each " +
+            "spelled like last_run (state, optional reason, ended_at — " +
+            "the settle instant) plus started_at, the instant the run's " +
+            "process spawned (omitted for a run stopped while still " +
+            "queued). The history is append-only — a later run never " +
+            "overwrites an earlier verdict — so a loop's stall " +
+            "frequency, crash-then-retry chains, and repeated provider " +
+            "refusals stay queryable after the fact, across the run " +
+            "handle's registry window and server restarts. Capped at " +
+            "the newest 20 runs per session; an empty runs array means " +
+            "the session has never settled a run.",
+          parameters: [sessionParam()],
+          responses: {
+            "200": jsonResponse(
+              "The session's recent settled runs, oldest first.",
+              {
+                type: "object",
+                properties: {
+                  id: {
+                    type: "string",
+                    description: "The session id, as spelled in the path.",
+                  },
+                  runs: {
+                    type: "array",
+                    items: ref("RunHistoryEntry"),
+                    description:
+                      "One entry per settled run, oldest first (each " +
+                      "timestamp ISO 8601 UTC, zoned), newest 20 kept.",
+                  },
+                },
+                required: ["id", "runs"],
+              },
+            ),
+            "404": jsonResponse("Unknown session id.", ref("Error")),
+            ...bearerResponses(),
+          },
+        },
+      },
       "/api/sessions/{id}/prompt": {
         post: {
           summary: "Queue a follow-up prompt",
@@ -1395,6 +1467,7 @@ export {
   toApiCronJob,
   toApiMessage,
   toApiPrompt,
+  toApiRunHistoryEntry,
   toApiSession,
   toApiWaitResult,
 };

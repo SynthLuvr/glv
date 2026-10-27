@@ -45,6 +45,7 @@ import {
   lastRunOutcomeFor,
   openStopNoticesDb,
   recordLastRun,
+  recordRunHistory,
   recordStopNotice,
 } from "../stop-notices.js";
 import type { EphemeralAsk } from "../suggestions/ask.js";
@@ -233,6 +234,9 @@ const runServe = (opts: ServeOpts): void => {
   // it, every settle — finished and user-stopped included — writes the
   // last-run verdict, so the API can answer "how did the last run
   // end?" beyond the run handle's registry window and across restarts.
+  // The same settle also appends the verdict to the session's run
+  // history, so the question "and the runs before that?" stays
+  // answerable too (#384).
   const recordRunEnd = (handle: RunHandle): void => {
     const message =
       handle.stopNotice ??
@@ -240,7 +244,9 @@ const runServe = (opts: ServeOpts): void => {
     if (message !== undefined)
       recordStopNotice(stopNotices, handle.sessionId, message);
     else clearStopNotice(stopNotices, handle.sessionId);
-    recordLastRun(stopNotices, handle.sessionId, lastRunOutcomeFor(handle));
+    const outcome = lastRunOutcomeFor(handle);
+    recordLastRun(stopNotices, handle.sessionId, outcome);
+    recordRunHistory(stopNotices, handle.sessionId, outcome, handle);
   };
   // Created here so shutdown can reap detached agent processes. One
   // runner, one concurrency pool, every agent.

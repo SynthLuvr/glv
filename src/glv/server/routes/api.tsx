@@ -5,6 +5,7 @@ import {
   type LastRunRecord,
   readLastRun,
   readLastRuns,
+  readRunHistory,
 } from "../../stop-notices.js";
 import {
   type DetailWindow,
@@ -17,6 +18,7 @@ import {
   toApiCronJob,
   toApiMessage,
   toApiPrompt,
+  toApiRunHistoryEntry,
   toApiSession,
   toApiWaitResult,
 } from "../api-schema.js";
@@ -177,6 +179,28 @@ const registerApiRoutes = (
             outcome.settled ? lastRunFor(ctx, id) : undefined,
           ),
         );
+    },
+  );
+
+  // The settled-run history (#384): last_run is an upsert, so every
+  // settle overwrote the verdict before it — after two silent stalls
+  // and two later successes, nothing in glv's own data could say the
+  // stalls happened. The sidecar now appends one row per settled run
+  // (capped at the newest 20 per session); this read returns them
+  // oldest-first, the order a crash-then-retry chain reads in. The
+  // sidecar is optional (app-less tests); its absence reads as no
+  // history, the same guard lastRunFor applies.
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/runs",
+    (request, reply) => {
+      const id = request.params.id;
+      if (ctx.sessions.getSession(id) === undefined)
+        return reply.status(404).send({ error: `No session ${id}.` });
+      const runs =
+        ctx.stopNotices === undefined
+          ? []
+          : readRunHistory(ctx.stopNotices, id);
+      return reply.send({ id, runs: runs.map(toApiRunHistoryEntry) });
     },
   );
 

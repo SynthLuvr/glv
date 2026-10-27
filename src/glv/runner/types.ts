@@ -117,6 +117,20 @@ type RunHandle = {
    * undefined for a user stop, which records no reason (#379).
    */
   stopReason: string | undefined;
+  /**
+   * Unique id of the invocation that most recently started on this
+   * handle — one per process spawn, so a chained prompt starts a fresh
+   * one. The two notifications one settle can produce (the stop-request
+   * notify and the exit notify) share it, letting the run-history
+   * recorder fold them into a single row instead of double-counting the
+   * run (#384). Undefined until the first invocation starts.
+   */
+  runId: string | undefined;
+  /**
+   * When the current invocation started (epoch ms) — paired with runId
+   * so the history row can name the run's span. Undefined while queued.
+   */
+  startedAt: number | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
   readonly pendingPrompts: readonly string[];
   /** Every prompt that has begun executing, oldest first (for stream replay). */
