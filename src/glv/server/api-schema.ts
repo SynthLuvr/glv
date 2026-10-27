@@ -152,13 +152,12 @@ const ApiRunHistoryEntry = ApiLastRun.and({ "started_at?": "string" });
 
 type ApiRunHistoryEntryData = typeof ApiRunHistoryEntry.infer;
 
-// Beside toApiLastRun, for the same no-drift reason.
+// Composed on toApiLastRun so the entry's verdict fields cannot drift
+// from the last_run spelling; started_at joins only when known.
 const toApiRunHistoryEntry = (
   record: RunHistoryRecord,
 ): ApiRunHistoryEntryData => ({
-  state: record.state,
-  ...(record.reason === undefined ? {} : { reason: record.reason }),
-  ended_at: toApiTimestamp(record.endedAt),
+  ...toApiLastRun(record),
   ...(record.startedAt === undefined
     ? {}
     : { started_at: toApiTimestamp(record.startedAt) }),

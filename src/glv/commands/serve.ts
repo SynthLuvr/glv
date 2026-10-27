@@ -234,9 +234,8 @@ const runServe = (opts: ServeOpts): void => {
   // it, every settle — finished and user-stopped included — writes the
   // last-run verdict, so the API can answer "how did the last run
   // end?" beyond the run handle's registry window and across restarts.
-  // The same settle also appends the verdict to the session's run
-  // history, so the question "and the runs before that?" stays
-  // answerable too (#384).
+  // The same settle appends to the run history (#384), so "and the
+  // runs before that?" stays answerable too.
   const recordRunEnd = (handle: RunHandle): void => {
     const message =
       handle.stopNotice ??

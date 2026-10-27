@@ -45,15 +45,10 @@ CREATE TABLE IF NOT EXISTS last_run (
 );
 `;
 
-// The append-only verdict history (#384): one row per settled run, keyed
-// by a run id the runner stamps per process spawn. last_run above is an
-// upsert — every settle overwrites it, and a clean settle clears the
-// stop notice — so "how did the runs before the last one end?" had no
-// answer: the Oct 27 orchestrator stalls could not be diagnosed from
-// glv's own data once the later successful runs overwrote the verdicts.
-// This table keeps every verdict (clean finishes included), capped at
-// the newest RUN_HISTORY_CAP rows per session so a long-lived loop
-// cannot grow the file without bound.
+// One row per settled run (#384), keyed by the per-spawn run id. Unlike
+// the upserts above, appends instead of overwriting — capped at the
+// newest RUN_HISTORY_CAP rows per session, so a long-lived loop cannot
+// grow the file without bound.
 const RUN_HISTORY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS run_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,8 +63,8 @@ CREATE INDEX IF NOT EXISTS run_history_session
   ON run_history(session_id, id);
 `;
 
-// How many settled runs each session keeps. Twenty spans a day of an
-// orchestration loop's stalls and retries without unbounded growth.
+// How many settled runs each session keeps; twenty spans a day of an
+// orchestration loop's stalls and retries.
 const RUN_HISTORY_CAP = 20;
 
 const resolveStopNoticesDbPath = (
@@ -288,14 +283,12 @@ const RunHistoryRow = type(runHistoryShape);
 // shape like LAST_RUN_COLS.
 const RUN_HISTORY_COLS = Object.keys(runHistoryShape).join(", ");
 
-// Appends one settled run to the history. The run id is the invocation
-// identity the runner stamps — one settle can notify twice (the
-// stop-request notify and the exit notify of the same run), and both
-// carry the same id, so the upsert folds them into one row and ended_at
-// settles on the true exit instant. A run stopped while queued never
-// started an invocation, so it has no id; it can only be notified once,
-// and a fresh id records it exactly once. After the write the session's
-// history is capped at its newest RUN_HISTORY_CAP rows.
+// One settle can notify twice — the stop request and the process exit —
+// and both carry the same run id, so the upsert folds them into one row
+// and ended_at settles on the true exit instant. A run stopped while
+// still queued never began an invocation, so it has no stamped id and
+// records under a fresh one, exactly once. The write then trims the
+// session's history to its newest RUN_HISTORY_CAP rows.
 const recordRunHistory = (
   db: DatabaseSync,
   sessionId: string,
@@ -320,8 +313,8 @@ const recordRunHistory = (
   db.prepare(
     "DELETE FROM run_history WHERE session_id = ? AND id NOT IN (" +
       "SELECT id FROM run_history WHERE session_id = ? " +
-      `ORDER BY id DESC LIMIT ${RUN_HISTORY_CAP})`,
-  ).run(sessionId, sessionId);
+      "ORDER BY id DESC LIMIT ?)",
+  ).run(sessionId, sessionId, RUN_HISTORY_CAP);
 };
 
 const runHistoryRowToRecord = (row: unknown): RunHistoryRecord | undefined => {
@@ -350,12 +343,9 @@ const readRunHistory = (
           "WHERE session_id = ? ORDER BY id",
       )
       .all(sessionId);
-    const out: RunHistoryRecord[] = [];
-    for (const row of rows) {
-      const record = runHistoryRowToRecord(row);
-      if (record !== undefined) out.push(record);
-    }
-    return out;
+    return rows
+      .map(runHistoryRowToRecord)
+      .filter((record) => record !== undefined);
   } catch {
     return [];
   }

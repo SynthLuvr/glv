@@ -3,6 +3,7 @@ import { getPrompt, listPrompts } from "../../prompts/db.js";
 import type { MessageRow, SessionFilter } from "../../sessions.js";
 import {
   type LastRunRecord,
+  type RunHistoryRecord,
   readLastRun,
   readLastRuns,
   readRunHistory,
@@ -49,6 +50,14 @@ const lastRunsFor = (
   ctx: ServerContext,
 ): Map<string, LastRunRecord> | undefined =>
   ctx.stopNotices === undefined ? undefined : readLastRuns(ctx.stopNotices);
+
+const runHistoryFor = (
+  ctx: ServerContext,
+  sessionId: string,
+): RunHistoryRecord[] =>
+  ctx.stopNotices === undefined
+    ? []
+    : readRunHistory(ctx.stopNotices, sessionId);
 
 // The store filter the listing runs with: the sidebar's default window
 // narrowed by the parsed query — each filter the query carried narrows
@@ -183,24 +192,20 @@ const registerApiRoutes = (
   );
 
   // The settled-run history (#384): last_run is an upsert, so every
-  // settle overwrote the verdict before it — after two silent stalls
-  // and two later successes, nothing in glv's own data could say the
-  // stalls happened. The sidecar now appends one row per settled run
-  // (capped at the newest 20 per session); this read returns them
-  // oldest-first, the order a crash-then-retry chain reads in. The
-  // sidecar is optional (app-less tests); its absence reads as no
-  // history, the same guard lastRunFor applies.
+  // settle overwrote the verdict before it. The sidecar appends one
+  // row per settled run instead (capped at the newest 20 per session);
+  // this read returns them oldest-first, the order a
+  // crash-then-retry chain reads in.
   app.get<{ Params: { id: string } }>(
     "/api/sessions/:id/runs",
     (request, reply) => {
       const id = request.params.id;
       if (ctx.sessions.getSession(id) === undefined)
         return reply.status(404).send({ error: `No session ${id}.` });
-      const runs =
-        ctx.stopNotices === undefined
-          ? []
-          : readRunHistory(ctx.stopNotices, id);
-      return reply.send({ id, runs: runs.map(toApiRunHistoryEntry) });
+      return reply.send({
+        id,
+        runs: runHistoryFor(ctx, id).map(toApiRunHistoryEntry),
+      });
     },
   );
 

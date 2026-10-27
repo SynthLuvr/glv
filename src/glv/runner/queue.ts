@@ -12,10 +12,9 @@ import type {
   RunStatus,
 } from "./types.js";
 
-// One invocation begins: it gets the identity the run-history recorder
-// needs — a fresh runId (the settle notification(s) of this invocation
-// share it, so a stop-request notify and the exit notify fold into one
-// history row #384) and its start instant.
+// Stamps the run-history identity for a new invocation: a fresh run
+// id (both notifications of one settle share it, so the run records
+// once, #384) and its start instant.
 const beginInvocation = (handle: InternalHandle): void => {
   handle.runId = randomUUID();
   handle.startedAt = Date.now();
@@ -110,7 +109,6 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.stopNotice = undefined;
   handle.stopReason = undefined;
   handle.status = "running";
-  beginInvocation(handle);
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
     stdin: nextPrompt,

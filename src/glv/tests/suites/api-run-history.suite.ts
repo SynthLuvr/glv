@@ -12,18 +12,15 @@ import {
 } from "../harness.js";
 
 // The settled-run history over real HTTP (#384): last_run is a
-// PRIMARY KEY (session_id) upsert, so every settle overwrote the
-// verdict before it and a clean settle cleared the stop notice — after
-// an orchestrator loop's two silent stalls were followed by successful
-// runs, glv's own data could no longer say the stalls happened at all.
-// The stop-notices sidecar now appends one row per settled run (capped
-// at the newest 20 per session), and GET /api/sessions/:id/runs
-// returns them oldest-first. The suites here hold the accumulation
-// (the point of the issue), the stop dedupe (a stop notifies twice —
-// at the request and at the exit — but is one run), the cap, and the
-// restart survival. Three environments hold the mock behaviours
-// (scripted lines file re-read per run, long-lived run, crash exit)
-// because the mock's sleep and exit code are fixed per environment.
+// session-keyed upsert, so every settle overwrote the verdict before
+// it. The sidecar now appends one row per settled run (capped at the
+// newest 20 per session), and GET /api/sessions/:id/runs returns them
+// oldest-first. The suites hold the accumulation (the point of the
+// issue), the stop dedupe (a stop notifies twice — at the request and
+// at the exit — but is one run), the cap, and the restart survival.
+// Three environments hold the mock behaviours (scripted lines file
+// re-read per run, long-lived run, crash exit) because the mock's
+// sleep and exit code are fixed per environment.
 
 type RunEntry = {
   state: string;
@@ -66,15 +63,24 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
     init: RequestInit = {},
   ): Promise<Response> => bearerFetch(client.env, path, client.token, init);
 
-  // Follow-up runs spawn the agent in the session's working dir, so the
-  // dir must exist or the spawn rejects and the run errors immediately.
-  const ensureDir = (dir: string): void => {
-    mkdirSync(dir, { recursive: true });
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  const waitStatus = async (
+    client: HistoryClient,
+    id: string,
+    query = "",
+  ): Promise<string> => {
+    const res = await fetchApi(client, `/api/sessions/${id}/wait${query}`);
+    return ((await res.json()) as { status: string }).status;
   };
 
   const seedSession = (client: HistoryClient, id: string, name: string) => {
     const workingDir = join(client.env.scratchDir, "w");
-    ensureDir(workingDir);
+    // Follow-up runs spawn the agent in the session's working dir, so
+    // the dir must exist or the spawn rejects and the run errors
+    // immediately.
+    mkdirSync(workingDir, { recursive: true });
     fx.seedSessions(client.env, [{ id, name, workingDir }]);
     fx.seedMessages(client.env, id, [
       { role: "user", content: [{ type: "text", text: "seed" }] },
@@ -113,40 +119,39 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
     expect(res.status).toBe(200);
     const deadline = Date.now() + 30000;
     for (;;) {
-      const wait = await fetchApi(client, `/api/sessions/${id}/wait`);
-      const body = (await wait.json()) as { status: string };
-      if (body.status === "running" || body.status === "queued") {
-        if (Date.now() > deadline) throw new Error(`run never settled`);
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        continue;
+      const status = await waitStatus(client, id);
+      if (status !== "running" && status !== "queued") {
+        expect(want, `settled as ${status}`).toContain(status);
+        return;
       }
-      expect(want, `settled as ${body.status}`).toContain(body.status);
-      return;
+      if (Date.now() > deadline) throw new Error("run never settled");
+      await sleep(200);
     }
   };
 
-  // A settled entry worth asserting on: parseable instants, the run
-  // spanning this suite, and no reason where none belongs.
-  const expectEntry = (
-    entry: RunEntry,
+  // A settled entry worth asserting on: the state, the reason (a
+  // substring when given, absence when omitted), and a parseable span
+  // that starts no later than it ends. Every run here began executing,
+  // so started_at must be present — only a queued-then-stopped run
+  // may omit it.
+  const expectRun = (
+    runs: readonly RunEntry[],
+    index: number,
     state: string,
-    reason: boolean,
+    reason?: string,
   ): void => {
+    const entry = runs.at(index);
+    if (entry === undefined) throw new Error(`no run at index ${index}`);
     expect(entry.state).toBe(state);
-    expect(reason ? "reason" in entry : !("reason" in entry)).toBe(true);
+    if (reason === undefined) expect("reason" in entry).toBe(false);
+    else expect(entry.reason).toContain(reason);
     const ended = Date.parse(entry.ended_at);
     expect(Number.isNaN(ended)).toBe(false);
     expect(ended).toBeGreaterThan(Date.now() - 300000);
-    if (entry.started_at !== undefined) {
-      const started = Date.parse(entry.started_at);
-      expect(Number.isNaN(started)).toBe(false);
-      expect(started).toBeLessThanOrEqual(ended);
-    } else {
-      // A run that began executing always knows when it started; only
-      // a queued-then-stopped run may omit it, and no entry here is
-      // one (this suite never stops a queued run).
-      throw new Error(`entry of ${state} carries no started_at`);
-    }
+    expect(entry.started_at).toBeDefined();
+    const started = Date.parse(entry.started_at ?? "");
+    expect(Number.isNaN(started)).toBe(false);
+    expect(started).toBeLessThanOrEqual(ended);
   };
 
   beforeAll(async () => {
@@ -196,9 +201,8 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
       await runAndSettle(main, id, "continue please", ["completed"]);
       const { runs } = await historyOf(main, id);
       expect(runs.length).toBe(2);
-      expectEntry(runs[0] as RunEntry, "stopped_early", true);
-      expect((runs[0] as RunEntry).reason).toContain("usage limit reached");
-      expectEntry(runs[1] as RunEntry, "finished", false);
+      expectRun(runs, 0, "stopped_early", "usage limit reached");
+      expectRun(runs, 1, "finished");
     });
 
     it("records a crash verdict with its reason", async () => {
@@ -206,8 +210,7 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
       await runAndSettle(crash, id, "crash please", ["error"]);
       const { runs } = await historyOf(crash, id);
       expect(runs.length).toBe(1);
-      expectEntry(runs[0] as RunEntry, "failed", true);
-      expect((runs[0] as RunEntry).reason).toContain("exited with code 1");
+      expectRun(runs, 0, "failed", "exited with code 1");
     });
 
     it("counts a stopped run once, not once per notification", async () => {
@@ -225,10 +228,8 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
       const { id } = (await created.json()) as { id: string };
       // timeout=0 snapshots the status without parking — the slow mock
       // would otherwise hold every wait for its full 30 s deadline.
-      const snapshot = async (): Promise<string> => {
-        const res = await fetchApi(slow, `/api/sessions/${id}/wait?timeout=0`);
-        return ((await res.json()) as { status: string }).status;
-      };
+      const snapshot = async (): Promise<string> =>
+        waitStatus(slow, id, "?timeout=0");
       const deadline = Date.now() + 30000;
       for (;;) {
         const status = await snapshot();
@@ -241,19 +242,19 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
         }
         if (Date.now() > deadline)
           throw new Error(`run never stopped (last status: ${status})`);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await sleep(200);
       }
       const { runs } = await historyOf(slow, id);
       expect(runs.length).toBe(1);
-      expectEntry(runs[0] as RunEntry, "stopped", false);
+      expectRun(runs, 0, "stopped");
     });
 
     it("keeps the history across a server restart", async () => {
       await main.env.restart();
       const body = await historyOf(main, fx.viewId("rh-1"));
       expect(body.runs.length).toBe(2);
-      expectEntry(body.runs[0] as RunEntry, "stopped_early", true);
-      expectEntry(body.runs[1] as RunEntry, "finished", false);
+      expectRun(body.runs, 0, "stopped_early", "usage limit reached");
+      expectRun(body.runs, 1, "finished");
     });
 
     it("caps the history at the newest 20 runs per session", async () => {
@@ -265,7 +266,7 @@ const runApiRunHistorySuite = (fx: FlavorFixture): void => {
         await runAndSettle(main, id, `cap run ${i}`, ["completed"]);
       const { runs } = await historyOf(main, id);
       expect(runs.length).toBe(20);
-      for (const entry of runs) expectEntry(entry, "finished", false);
+      runs.forEach((_, index) => expectRun(runs, index, "finished"));
     }, 110000);
   });
 
