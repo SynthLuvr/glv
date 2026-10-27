@@ -146,26 +146,31 @@ const markerIds = (markerPath: string): string[] =>
 const tagDir = (dir: string, sessionId: string): void => {
   const markerPath = join(dir, SESSION_MARKER);
   const existing = existsSync(markerPath) ? markerIds(markerPath) : [];
-  const owners = existing.includes(sessionId)
-    ? existing
-    : [...existing, sessionId];
-  writeFileSync(markerPath, `${owners.join("\n")}\n`);
+  if (existing.includes(sessionId)) return;
+  writeFileSync(markerPath, `${[...existing, sessionId].join("\n")}\n`);
 };
 
-// Adds a fork's id to the temp dir it now shares with its source
-// (#367): the fork copies the source's working_dir verbatim, so the
-// directory may only be swept once every owner is archived or deleted.
-// A working dir outside GLV's temp base — or already deleted — is left
-// alone.
-const shareTempDir = (
+// Claims a managed temp working dir for a session (#367, #387):
+// records the session as an owner so the directory may only be swept
+// once every owner is archived or deleted, and re-creates it empty when
+// it has already vanished — the previous files are unrecoverable either
+// way, and an empty dir keeps the session (or a fork copying the path
+// verbatim) promptable instead of stuck on a dead working_dir. Returns
+// false for a path outside GLV's temp base: an unmanaged directory is
+// never created or written.
+const claimTempDir = (
   dataDirName: string,
   workingDir: string,
   sessionId: string,
-): void => {
+): boolean => {
+  // A row without a working dir is unmanaged, and relative("") would
+  // resolve against the process cwd and could pass the check below.
+  if (workingDir === "") return false;
   const rel = relative(resolveTempBase(dataDirName), workingDir);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return;
-  if (!existsSync(workingDir)) return;
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return false;
+  if (!existsSync(workingDir)) mkdirSync(workingDir, { recursive: true });
   tagDir(workingDir, sessionId);
+  return true;
 };
 
 // Windows can transiently refuse a recursive delete with EPERM while the
@@ -232,13 +237,13 @@ const removeDir = (dir: string): void => {
 
 export {
   buildUploadContext,
+  claimTempDir,
   collectFiles,
   createTempDir,
   deleteTempDir,
   deleteUploads,
   removeDir,
   saveUploads,
-  shareTempDir,
   tagDir,
   uploadErrorMessage,
 };
