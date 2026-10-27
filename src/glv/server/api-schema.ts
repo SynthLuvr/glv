@@ -81,7 +81,9 @@ const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
 
 // How the last run ended, persisted in the stop-notices sidecar beyond
 // the registry window: "finished" settled cleanly, "stopped" was stopped
-// by the user, "stopped_early" was refused service by the provider (a
+// by the user or by the server's own teardown (reason says which — a
+// shutdown stop carries e.g. "server shutdown", a user stop carries
+// nothing), "stopped_early" was refused service by the provider (a
 // usage limit with its reset time, a network outage) — reason carries
 // the notice wording — and "failed" crashed (non-zero exit, signal
 // death, startup-watchdog kill), reason carrying the verdict with its
@@ -1106,10 +1108,12 @@ const openApiDocument = (
             'run lingers — then "idle"), so a polling client can tell a ' +
             "live run from a finished one without opening the SSE feed. " +
             "last_run names how the most recent settled run ended — " +
-            "finished, stopped (by request), stopped_early (the provider " +
-            "refused service: a usage limit with its reset time, a " +
-            "network outage), or failed (a crash exit, signal death, or " +
-            "the startup watchdog) with the reason wording and the settle " +
+            "finished, stopped (by request, or by the server's own " +
+            "shutdown teardown — reason says which), stopped_early (the " +
+            "provider refused service: a usage limit with its reset " +
+            "time, a network outage), or failed (a crash exit, signal " +
+            "death, or the startup watchdog) with the reason wording and " +
+            "the settle " +
             "instant — persisted beyond the registry window and across a " +
             "server restart, so a session that merely left the active " +
             "list can never be mistaken for a successful finish. " +

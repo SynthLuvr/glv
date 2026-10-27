@@ -111,6 +111,12 @@ type RunHandle = {
    * handle's lifetime.
    */
   stopNotice: string | undefined;
+  /**
+   * Set when the run was stopped by the server (today only the shutdown
+   * teardown) rather than the user, so the last-run verdict can say why;
+   * undefined for a user stop, which records no reason (#379).
+   */
+  stopReason: string | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
   readonly pendingPrompts: readonly string[];
   /** Every prompt that has begun executing, oldest first (for stream replay). */

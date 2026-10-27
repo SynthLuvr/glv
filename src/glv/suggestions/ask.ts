@@ -9,6 +9,7 @@ import {
 } from "../format/index.js";
 import type { ModelSelection } from "../models.js";
 import { isRecord } from "../parse.js";
+import { reapDescendantsOnSettle } from "../runner/reap.js";
 import type { MessageRow, SessionRow } from "../sessions.js";
 import { errorMessage, unrefTimer } from "../util.js";
 
@@ -96,6 +97,8 @@ const collectLines = async (
     env: ask.env(),
     killDescendants: true,
   });
+  // #379: an ask that dies on its own still reaps its tree.
+  reapDescendantsOnSettle(proc);
   const lines: string[] = [];
   const timer = setTimeout(() => {
     proc.kill("SIGKILL");

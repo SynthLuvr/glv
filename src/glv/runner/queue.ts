@@ -99,6 +99,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.prompt = nextPrompt;
   handle.error = undefined;
   handle.stopNotice = undefined;
+  handle.stopReason = undefined;
   handle.status = "running";
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
@@ -129,6 +130,7 @@ const enqueueInvocation = (
     output: createRingBuffer(runner.config.maxLines),
     error: undefined,
     stopNotice: undefined,
+    stopReason: undefined,
     cancelled: false,
     process: undefined,
     evictionTimer: undefined,
@@ -239,13 +241,18 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
 // Prefixed so it can never collide with a real agent session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
-const stop = (runner: Runner, sessionId: string): boolean => {
+// Stops one session's live or queued run. `reason` is set only when the
+// stop did not come from the user (today, the server's shutdown
+// teardown), so the persisted verdict can say so (#379).
+const stop = (runner: Runner, sessionId: string, reason?: string): boolean => {
   const handle = runner.registry.get(sessionId);
   if (handle === undefined) return false;
 
+  // A queued handle is stopped in place: nothing has spawned yet.
   if (handle.status === "queued") {
     handle.cancelled = true;
     handle.status = "stopped";
+    handle.stopReason = reason;
     handle.pendingPrompts = [];
     handle.queuePosition = undefined;
     refreshQueuePositions(runner);
@@ -256,6 +263,7 @@ const stop = (runner: Runner, sessionId: string): boolean => {
 
   if (handle.status === "running") {
     handle.status = "stopped";
+    handle.stopReason = reason;
     handle.pendingPrompts = [];
     // A running handle may briefly have no process (the spawn assignment
     // hasn't run yet); in that case defer the kill via cancelled.
@@ -273,11 +281,14 @@ const stop = (runner: Runner, sessionId: string): boolean => {
   return false;
 };
 
-// Reaps all live agent processes on server shutdown.
-const stopAll = (runner: Runner): number => {
+// Reaps all live agent processes on server shutdown, recording why in
+// each stopped run's last_run verdict (#379).
+const stopAll = (runner: Runner, reason: string): number => {
   let stopped = 0;
   for (const sessionId of runner.registry.keys())
-    if (stop(runner, sessionId)) stopped++;
+    if (stop(runner, sessionId, reason)) stopped++;
+  if (stopped > 0)
+    console.warn(`run: stopped ${stopped} live run(s): ${reason}`);
   return stopped;
 };
 

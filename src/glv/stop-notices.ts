@@ -137,7 +137,9 @@ const LAST_RUN_COLS = Object.keys(lastRunShape).join(", ");
 // every other signal — goose prints its usage-limit record and still
 // exits 0, so the exit code alone would mislabel it "finished" (or
 // "failed" and lose the reset time). An error without a refusal is a
-// crash verdict; anything else settled by the book.
+// crash verdict; anything else settled by the book. A stop carrying a
+// stopReason was the server's doing — the state stays "stopped" but the
+// reason says why (#379).
 const lastRunOutcomeFor = (handle: RunHandle): LastRunOutcome => ({
   state:
     handle.stopNotice !== undefined
@@ -147,9 +149,10 @@ const lastRunOutcomeFor = (handle: RunHandle): LastRunOutcome => ({
         : handle.status === "stopped"
           ? "stopped"
           : "finished",
-  // For "finished"/"stopped" neither field is set; the ?? order keeps a
-  // refusal's notice (reset time included) ahead of any exit wording.
-  reason: handle.stopNotice ?? handle.error,
+  // For "finished" neither field is set; the ?? order keeps a refusal's
+  // notice (reset time included) ahead of any exit wording, and a
+  // shutdown's reason behind both.
+  reason: handle.stopNotice ?? handle.error ?? handle.stopReason,
 });
 
 const recordLastRun = (

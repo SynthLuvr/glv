@@ -2,6 +2,7 @@ import { type } from "arktype";
 import { execa } from "execa";
 import { truncate } from "../format/text.js";
 import { detectStopNotice } from "../stop-reason.js";
+import { reapDescendantsOnSettle } from "./reap.js";
 import type {
   InternalHandle,
   Invocation,
@@ -56,10 +57,16 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
+  // killDescendants only fires inside kill(), so an agent that dies on
+  // its own would leak its tree — reap at settle too (#379).
+  reapDescendantsOnSettle(proc);
+
   // execa exposes no synchronous exit state, and its Windows tree-kill
   // (taskkill /PID <pid> /T /F) never verifies the pid still belongs to us
   // — dangerous where pids recycle quickly. Track liveness off the settled
-  // promise so a retired pid is never signalled again.
+  // promise so a retired pid is never signalled again. (The settle reap
+  // above is exempt: a group id stays reserved while any member lives, so
+  // it cannot hit a recycled pid.)
   let exited = false;
   const markExited = (): void => {
     exited = true;
