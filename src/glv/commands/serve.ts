@@ -385,7 +385,7 @@ const runServe = (opts: ServeOpts): void => {
   // SIGKILL, so detached agent children are reaped even if the async
   // shutdown above never started or finished.
   process.on("exit", () => {
-    stopAll(runner);
+    stopAll(runner, "server shutdown");
   });
 
   const shutdown = createShutdown({
@@ -393,7 +393,7 @@ const runServe = (opts: ServeOpts): void => {
     destroyConnections,
     stopCron: cron.stop,
     stopSuggestions: suggestionService.stop,
-    stopProcesses: () => stopAll(runner),
+    stopProcesses: () => stopAll(runner, "server shutdown"),
     closeDbs,
     exit: (code?: number) => process.exit(code),
   });

@@ -2,6 +2,7 @@ import { type } from "arktype";
 import { execa } from "execa";
 import { truncate } from "../format/text.js";
 import { detectStopNotice } from "../stop-reason.js";
+import { reapDescendantsOnSettle } from "./reap.js";
 import type {
   InternalHandle,
   Invocation,
@@ -56,10 +57,24 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     },
   );
 
+  // Post-settle tree reap (#379): killDescendants only fires inside
+  // kill(), so an agent that dies on its own — crash, SIGKILL, host
+  // memory pressure — left its descendants (MCP servers, tool-spawned
+  // background jobs) alive in glv's process group forever. One
+  // group-targeted signal after every settle, whatever its reason,
+  // makes run descendants unable to outlive the run. On Windows execa
+  // no-ops the settled kill (no process groups), preserving that
+  // platform's behaviour.
+  reapDescendantsOnSettle(proc);
+
   // execa exposes no synchronous exit state, and its Windows tree-kill
   // (taskkill /PID <pid> /T /F) never verifies the pid still belongs to us
   // — dangerous where pids recycle quickly. Track liveness off the settled
-  // promise so a retired pid is never signalled again.
+  // promise so a retired pid is never signalled again. The post-settle
+  // reap above is exempt by design: execa no-ops the settled kill on
+  // Windows, and on Unix the group id stays reserved while any member
+  // lives, so the sweep cannot hit a recycled pid until the group is
+  // empty.
   let exited = false;
   const markExited = (): void => {
     exited = true;

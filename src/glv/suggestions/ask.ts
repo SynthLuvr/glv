@@ -9,6 +9,7 @@ import {
 } from "../format/index.js";
 import type { ModelSelection } from "../models.js";
 import { isRecord } from "../parse.js";
+import { reapDescendantsOnSettle } from "../runner/reap.js";
 import type { MessageRow, SessionRow } from "../sessions.js";
 import { errorMessage, unrefTimer } from "../util.js";
 
@@ -96,6 +97,10 @@ const collectLines = async (
     env: ask.env(),
     killDescendants: true,
   });
+  // Post-settle tree reap (#379): killDescendants only fires inside
+  // kill(), so an ask that dies on its own would leak its descendants
+  // into glv's process group — same rationale as the runner's spawn.
+  reapDescendantsOnSettle(proc);
   const lines: string[] = [];
   const timer = setTimeout(() => {
     proc.kill("SIGKILL");

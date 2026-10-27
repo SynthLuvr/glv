@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { type } from "arktype";
 import { execa } from "execa";
 import { isRecord, parseJson } from "../glv/parse.js";
+import { reapDescendantsOnSettle } from "../glv/runner/reap.js";
 
 // goose exposes its provider/model catalogue over ACP (the same protocol
 // `goose acp` serves to editors) as unstable extensions:
@@ -97,6 +98,10 @@ const startAcp = (binary: string) => {
   // Resolves once the process is gone for any reason (spawn failure,
   // crash, our kill): nothing may hang waiting on a dead agent.
   void proc.then(failAll, failAll);
+  // Post-settle tree reap (#379): an agent that dies on its own would
+  // leak its descendants into glv's process group — same rationale as
+  // the runner's spawn.
+  reapDescendantsOnSettle(proc);
 
   let nextId = 0;
   const request = (

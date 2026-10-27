@@ -8,9 +8,19 @@ import { configDefaults } from "vitest/config";
 // its NODE_V8_COVERAGE profile — the artifacts the suite asserts cannot
 // exist. Subprocess coverage for serve processes is therefore POSIX-only
 // for now; normally-exiting CLI invocations still flush and merge there.
+//
+// The settle-reaps-descendants and shutdown-reason suites are POSIX-only
+// for the same root cause from the other end (#379): execa no-ops a
+// settled kill() on Windows (no process groups), so a reaped-descendant
+// assertion cannot pass there, and a shutdown stopped via TerminateProcess
+// never runs the teardown whose recorded reason the suite reads.
 const WINDOWS_EXCLUDED_SUITES = [
   "src/goose/tests/coverage-propagation.integration.test.ts",
   "src/claude/tests/coverage-propagation.integration.test.ts",
+  "src/goose/tests/settle-reaps-descendants.integration.test.ts",
+  "src/claude/tests/settle-reaps-descendants.integration.test.ts",
+  "src/goose/tests/shutdown-reason.integration.test.ts",
+  "src/claude/tests/shutdown-reason.integration.test.ts",
 ];
 
 // The canonical shape (v8 coverage, thresholds, src/tests layout) comes

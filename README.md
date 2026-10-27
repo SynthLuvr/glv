@@ -68,6 +68,13 @@ live, with the upcoming runs previewed:
   view says why the run stopped early and that sending a message
   continues it. The notice survives closing and reopening the session
   and clears itself once the session runs again.
+- **Contained runs.** Every run spawns in its own process group, and the
+  group is signalled once when the run settles — whatever ended it (a
+  clean finish, a crash, a kill), not only a manual stop — so an agent’s
+  descendants (MCP servers, tool-spawned background jobs) cannot outlive
+  their run and leak inside the service’s cgroup. A run stopped by the
+  server’s own shutdown teardown records why (`last_run` reason “server
+  shutdown”) instead of reading as a user stop.
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
   database and streams only the deltas, so you can keep an eye on a run
@@ -297,6 +304,23 @@ Options:
 
 The viewer rebuilds its stylesheet and client scripts on every start, so
 it always serves current assets.
+
+### Running under systemd
+
+glv reaps each run’s whole process tree when the run settles, so a
+crashed agent no longer leaks its descendants into the unit’s cgroup —
+but the unit still shares one memory budget with everything the agents
+spawn. If you serve under systemd, consider pinning a ceiling so a
+runaway process fails the unit instead of taking the host down (the
+default `KillMode=control-group` then tears every run down with it, each
+recording `last_run` state `stopped`, reason “server shutdown”):
+
+    [Service]
+    MemoryHigh=12G
+    MemoryMax=14G
+
+With swap disabled, one unbounded process can otherwise OOM the whole
+host (#379).
 
 ### Scheduled runs (cron)
 
