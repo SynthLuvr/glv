@@ -71,12 +71,23 @@ const ApiDetailQuery = type({
 });
 
 // The wait endpoint's deadline (#341): how long GET /api/sessions/:id/wait
-// may park before answering 202 with the still-active status. Bounded so
-// no script pins a connection open indefinitely; 0 reads as "answer now"
-// — a single snapshot, no park.
-const MAX_WAIT_MS = 300_000;
+// may park before answering 202 with the still-active status. One hour
+// (#382) — the original five-minute cap forced an orchestration loop to
+// re-park every few minutes through runs that last far longer (36- and
+// 81-minute fix sessions, a five-hour replay), and each re-park is a
+// fresh agent turn that re-sends its whole transcript; an hour spans a
+// typical worker run in one park, and longer ones re-dial once an hour.
+// 0 keeps its "answer now" reading — a single snapshot, no park — and
+// the -1 sentinel opts into a deadline-free park: the call parks until
+// the run settles, and dies safely with the caller's own connection,
+// because the route discards answers to disconnected clients, so no
+// socket is pinned open nobody is reading.
+const MAX_WAIT_MS = 3_600_000;
+const WAIT_UNBOUNDED = -1;
 const DEFAULT_WAIT_MS = 30_000;
-const ApiWaitTimeout = type(`0 <= number.integer <= ${MAX_WAIT_MS}`);
+const ApiWaitTimeout = type(
+  `${WAIT_UNBOUNDED} | 0 <= number.integer <= ${MAX_WAIT_MS}`,
+);
 const ApiWaitQuery = type({ "timeout?": ApiWaitTimeout });
 
 // How the last run ended, persisted in the stop-notices sidecar beyond
@@ -602,6 +613,9 @@ const parseDetailQuery = (request: FastifyRequest): DetailQuery => {
 
 // The wait endpoint's deadline: absent (or empty) reads as the default,
 // the park bound scripts re-dial to cover runs longer than one deadline.
+// The -1 sentinel parses to Infinity — the deadline-free park (#382),
+// carried through to the wait loop, whose deadline arithmetic treats
+// Infinity as "never lapses".
 type WaitQuery =
   | { readonly ok: true; readonly timeout: number }
   | { readonly ok: false; readonly error: string };
@@ -609,6 +623,8 @@ type WaitQuery =
 const parseWaitQuery = (request: FastifyRequest): WaitQuery => {
   const timeout = parseNumberQuery(request, "timeout", ApiWaitTimeout);
   if (!timeout.ok) return timeout;
+  if (timeout.value === WAIT_UNBOUNDED)
+    return { ok: true, timeout: Number.POSITIVE_INFINITY };
   return { ok: true, timeout: timeout.value ?? DEFAULT_WAIT_MS };
 };
 
@@ -1181,8 +1197,10 @@ const openApiDocument = (
             "with the run still active the answer is 202 with the live " +
             "status — call again to keep waiting, which is how a script " +
             "covers runs longer than any single deadline. timeout is " +
-            `milliseconds (0–${MAX_WAIT_MS}, default ${DEFAULT_WAIT_MS}); ` +
-            "0 answers with a single snapshot, no park.",
+            `milliseconds (0–${MAX_WAIT_MS}, default ${DEFAULT_WAIT_MS}): ` +
+            "0 answers with a single snapshot, no park, and -1 parks " +
+            "with no deadline at all — one call spans any run length, " +
+            "and a caller that hangs up mid-park drops the answer.",
           parameters: [
             sessionParam(),
             queryParam(
@@ -1190,7 +1208,8 @@ const openApiDocument = (
               properties(ApiWaitQuery).timeout,
               `Deadline in milliseconds (0–${MAX_WAIT_MS}; default ` +
                 `${DEFAULT_WAIT_MS}). On expiry the answer is 202 with ` +
-                "the live status.",
+                "the live status; -1 parks with no deadline, until the " +
+                "run settles or the caller hangs up.",
             ),
           ],
           responses: {

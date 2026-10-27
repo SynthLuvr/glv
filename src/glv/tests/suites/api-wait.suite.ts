@@ -246,11 +246,46 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
 
     it("rejects an unparsable or out-of-range timeout", async () => {
       const id = fx.viewId("aw-1");
-      for (const timeout of ["abc", "-1", "300001"]) {
+      for (const timeout of ["abc", "-2", "1.5", "3600001"]) {
         const answer = await waitOn(main, id, timeout);
         expect(answer.status, `timeout=${timeout}`).toBe(422);
         expect(answer.body.error).toContain("timeout");
       }
+    });
+
+    it("accepts a deadline up to the one-hour cap (#382)", async () => {
+      // 3600000 was out of range when the cap was five minutes; now it
+      // answers like any other deadline — idle settles at once, no park.
+      const id = fx.viewId("aw-fresh");
+      const answer = await waitOn(main, id, 3_600_000);
+      expect(answer.status).toBe(200);
+      expect(answer.body).toEqual({ id, status: "idle" });
+    });
+
+    it("parks deadline-free on timeout=-1 until the run settles (#382)", async () => {
+      const created = await postCreate(slow, "wait: park without a deadline");
+      expect(created.status).toBe(201);
+      const { id } = (await created.json()) as RunAccepted;
+      expect((await waitOn(slow, id, 0)).status).toBe(202);
+      // The unbounded park must not fall through to an answer — 422, a
+      // snapshot, a 202 — while the run is still live.
+      let resolved = false;
+      const parked = waitOn(slow, id, -1).then((answer) => {
+        resolved = true;
+        return answer;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(resolved).toBe(false);
+      // A stop settles the run; the parked call resolves on its own —
+      // no re-dial — with the terminal status and verdict.
+      const stop = await fetchApi(slow, `/api/sessions/${id}/stop`, {
+        method: "POST",
+      });
+      expect(stop.status).toBe(200);
+      const answer = await parked;
+      expect(answer.status).toBe(200);
+      expect(answer.body).toMatchObject({ id, status: "stopped" });
+      expect(answer.body.last_run?.state).toBe("stopped");
     });
 
     it("requires a credential", async () => {
@@ -288,7 +323,12 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
           string,
           {
             get?: {
-              parameters?: Array<{ name?: string }>;
+              parameters?: Array<{
+                name?: string;
+                schema?: {
+                  anyOf?: Array<{ const?: number; maximum?: number }>;
+                };
+              }>;
               responses?: Record<string, unknown>;
             };
           }
@@ -307,6 +347,18 @@ const runApiWaitSuite = (fx: FlavorFixture): void => {
       expect(wait?.responses?.["404"]).toBeDefined();
       expect(wait?.responses?.["422"]).toBeDefined();
       expect(wait?.parameters?.map((p) => p.name)).toContain("timeout");
+      // The timeout parameter documents the raised cap and the -1
+      // deadline-free sentinel (#382): the union's anyOf carries the
+      // bounded integer range plus the -1 const.
+      const timeoutParam = wait?.parameters?.find((p) => p.name === "timeout");
+      expect(
+        timeoutParam?.schema?.anyOf?.map((member) => member.const),
+      ).toContain(-1);
+      expect(
+        timeoutParam?.schema?.anyOf?.find(
+          (member) => member.maximum !== undefined,
+        )?.maximum,
+      ).toBe(3_600_000);
       const result = doc.components.schemas.WaitResult?.properties;
       expect(result?.status?.enum).toEqual([
         "completed",
