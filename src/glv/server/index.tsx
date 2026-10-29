@@ -26,6 +26,7 @@ import { registerCronRoutes } from "./routes/cron.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerGroupRoutes } from "./routes/groups.js";
+import { registerPitchRoutes } from "./routes/pitch.js";
 import { registerPrRoutes } from "./routes/pr.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -157,6 +158,7 @@ const createApp = (
     registerPrRoutes(scope, ctx);
     registerGitRoutes(scope, ctx);
     registerPromptRoutes(scope, ctx);
+    registerPitchRoutes(scope, ctx);
     registerCronRoutes(scope, ctx, cronOps);
     registerStreamRoutes(scope, ctx);
     registerEventsRoutes(scope, ctx);

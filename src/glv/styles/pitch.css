@@ -1,0 +1,338 @@
+/*
+  Styles for the /pitch page (src/glv/views/Pitch.tsx) — the public
+  single-page tour of glv. Imported by app.css so the page ships in the
+  one compiled stylesheet and consumes the same design tokens as the
+  app, including the dark-theme overrides (.dark on <html>, applied by
+  the same theme bootstrap the viewer uses).
+*/
+
+/* ---------- pitch: base ---------- */
+html {
+  scroll-behavior: smooth;
+}
+.pitch-body {
+  height: auto;
+  font-size: 16px;
+}
+.pitch-body code {
+  font-family:
+    ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--color-inline);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.pitch-terminal pre code,
+.pitch-code code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+.pitch-container {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+.pitch-section {
+  scroll-margin-top: 4.5rem;
+  padding: 4.5rem 0;
+}
+.pitch-section h2 {
+  font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.75rem;
+}
+.pitch-section-sub {
+  color: var(--color-muted);
+  max-width: 46rem;
+  margin: 0 0 2rem;
+  font-size: 1.05rem;
+}
+
+/* ---------- pitch: nav ---------- */
+.pitch-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.pitch-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  height: 3.5rem;
+}
+.pitch-brand {
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.pitch-nav-links {
+  display: flex;
+  gap: 1.25rem;
+  margin-left: auto;
+}
+.pitch-nav-links a {
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.pitch-nav-links a:hover {
+  color: var(--color-text);
+}
+@media (max-width: 720px) {
+  .pitch-nav-links {
+    display: none;
+  }
+  .pitch-nav-inner {
+    justify-content: space-between;
+  }
+}
+
+/* ---------- pitch: buttons ---------- */
+.pitch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 8px;
+  padding: 0.65rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.pitch-btn-sm {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.875rem;
+}
+.pitch-btn-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.pitch-btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+.pitch-btn-ghost {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.pitch-btn-ghost:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* ---------- pitch: hero ---------- */
+.pitch-hero {
+  padding: 5.5rem 0 3.5rem;
+}
+.pitch-hero h1 {
+  font-size: clamp(2.4rem, 6vw, 4.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  margin: 0 0 1.25rem;
+  max-width: 56rem;
+}
+.pitch-hero-sub {
+  color: var(--color-muted);
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  line-height: 1.6;
+  max-width: 44rem;
+  margin: 0 0 2rem;
+}
+.pitch-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 3rem;
+}
+
+/* ---------- pitch: terminal ---------- */
+.pitch-terminal {
+  margin: 0;
+  max-width: 46rem;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+.pitch-terminal-bar {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.7rem 0.9rem;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+.pitch-terminal .dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+}
+.pitch-terminal .dot-r {
+  background: #ff5f56;
+}
+.pitch-terminal .dot-y {
+  background: #ffbd2e;
+}
+.pitch-terminal .dot-g {
+  background: #27c93f;
+}
+.pitch-terminal pre {
+  margin: 0;
+  padding: 1.1rem 1.2rem;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-family:
+    ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  overflow-x: auto;
+}
+.pitch-terminal-line:first-child {
+  color: var(--color-faint);
+}
+.pitch-terminal-line:last-child {
+  color: #3fb950;
+}
+
+/* ---------- pitch: stats ---------- */
+.pitch-stats {
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  padding: 2.25rem 0;
+}
+.pitch-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem 1rem;
+}
+@media (max-width: 640px) {
+  .pitch-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.pitch-stat-value {
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.pitch-stat-label {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin-top: 0.15rem;
+}
+
+/* ---------- pitch: feature cards ---------- */
+.pitch-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+}
+.pitch-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+.pitch-card h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+.pitch-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.pitch-card p code {
+  color: var(--color-text);
+}
+.pitch-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.pitch-card-list li {
+  padding-left: 1.1rem;
+  position: relative;
+  margin-bottom: 0.45rem;
+}
+.pitch-card-list li:last-child {
+  margin-bottom: 0;
+}
+.pitch-card-list li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--color-accent);
+  font-weight: 700;
+}
+.pitch-code {
+  margin: 1rem 0 0;
+  padding: 1rem 1.1rem;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  border-radius: 8px;
+  font-family:
+    ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* ---------- pitch: oss + final CTA ---------- */
+.pitch-oss {
+  background: var(--color-surface-2);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.pitch-final {
+  text-align: center;
+  padding: 6rem 0;
+}
+.pitch-final .pitch-section-sub {
+  margin-left: auto;
+  margin-right: auto;
+}
+.pitch-final .pitch-hero-actions {
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+/* ---------- pitch: footer ---------- */
+.pitch-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 1.75rem 0;
+}
+.pitch-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--color-faint);
+  font-size: 0.9rem;
+}
+.pitch-footer a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+.pitch-footer a:hover {
+  color: var(--color-text);
+}

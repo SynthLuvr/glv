@@ -23,4 +23,4 @@ const HeadMeta = ({ agentName }: { agentName: string }) => (
   </>
 );
 
-export { HeadMeta };
+export { favicon, HeadMeta };
