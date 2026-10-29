@@ -41,4 +41,4 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
   </html>
 );
 
-export { Layout };
+export { Layout, themeBootstrap };
