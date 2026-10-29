@@ -6,7 +6,7 @@ import {
   parsePayload,
   StringListPayload,
 } from "../sse-events.js";
-import { getHtmx } from "./htmx.js";
+import { getHtmx, htmxRequestDetail } from "./htmx.js";
 import { onSessionListSwap, safeStorage } from "./shared";
 
 const getChecks = (): HTMLInputElement[] => [
@@ -218,7 +218,77 @@ const applyUnread = (): void => {
   }
 };
 
+// ---------- new-session queue wait ----------
+// A create submitted while the concurrency pool is full queues, and the
+// form's POST stays pending until a slot frees. The queued run has no
+// sidebar row yet — the agent writes the session only once the run
+// starts — so while the create is in flight a status for an id the
+// sidebar doesn't know drives a hint in the form: queued waits for a
+// free slot, running means the agent is starting, anything else clears
+// it.
+
+const NEW_SESSION_FORM = "form.new-session-form";
+
+let createPending = false;
+
+const showQueueWaitHint = (text: string): void => {
+  const form = document.querySelector(NEW_SESSION_FORM);
+  if (form === null) return;
+  let hint = form.querySelector("[data-queue-wait]");
+  if (hint === null) {
+    hint = document.createElement("p");
+    hint.className = "status-hint queued";
+    hint.setAttribute("data-queue-wait", "");
+    hint.setAttribute("aria-live", "polite");
+    const actions = form.querySelector(".form-actions");
+    if (actions === null) form.append(hint);
+    else actions.before(hint);
+  }
+  hint.textContent = text;
+};
+
+const removeQueueWaitHint = (): void => {
+  document.querySelector(`${NEW_SESSION_FORM} [data-queue-wait]`)?.remove();
+};
+
+const isCreateSubmit = (e: Event): boolean => {
+  const requestConfig = htmxRequestDetail(e).requestConfig;
+  if (requestConfig === undefined) return false;
+  const { path, verb, elt } = requestConfig;
+  if (path !== "/sessions" || verb?.toUpperCase() !== "POST") return false;
+  return elt instanceof Element && elt.matches(NEW_SESSION_FORM);
+};
+
+document.body.addEventListener("htmx:beforeRequest", (e) => {
+  if (isCreateSubmit(e)) createPending = true;
+});
+
+// Cleared on every settle, success or not: the swapped-in response replaces
+// the form either way, but a request that dies without a swap (network
+// error, proxy timeout) must not leave the hint behind.
+document.body.addEventListener("htmx:afterRequest", (e) => {
+  if (!isCreateSubmit(e)) return;
+  createPending = false;
+  removeQueueWaitHint();
+});
+
+const QUEUE_WAIT_TEXT: Partial<Record<FeedStatusPayload["status"], string>> = {
+  queued: "Waiting for a free slot…",
+  running: "Starting the session…",
+};
+
+const updateQueueWaitHint = (payload: FeedStatusPayload): void => {
+  // An id with no sidebar row while the create pends is this create's
+  // queued run — the feed emits deltas on change, so the first such event
+  // is the queue state arriving.
+  if (!createPending || findSessionItem(payload.sessionId) !== null) return;
+  const text = QUEUE_WAIT_TEXT[payload.status];
+  if (text === undefined) removeQueueWaitHint();
+  else showQueueWaitHint(text);
+};
+
 const onStatusEvent = (payload: FeedStatusPayload): void => {
+  updateQueueWaitHint(payload);
   const running = payload.status !== "done";
   setStatusIndicator(payload.sessionId, running);
   if (running) return;

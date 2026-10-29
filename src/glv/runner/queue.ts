@@ -11,7 +11,20 @@ import type {
   RunHandle,
   Runner,
   RunStatus,
+  StdinPlan,
 } from "./types.js";
+
+// The stdin plan an agent with no stdin opinion gets: the prompt as
+// one-shot text.
+const planStdin = (
+  agent: AgentInvocation,
+  prompt: string,
+  newSession: boolean,
+): StdinPlan =>
+  agent.stdinPlan?.(prompt, newSession) ?? {
+    kind: "one-shot",
+    input: prompt,
+  };
 
 // Stamps the run-history identity for a new invocation: a fresh run
 // id (both notifications of one settle share it, so the run records
@@ -93,15 +106,14 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
 };
 
 // One follow-up turn on an existing session: the agent's resume argv
-// plus the prompt framed for its stdin.
+// plus the stdin plan for its prompt.
 const resumeInvocation = (
   agent: AgentInvocation,
   key: string,
   prompt: string,
 ): Invocation => ({
   args: agent.resume(key, prompt),
-  prompt,
-  stdin: agent.stdin(prompt, false),
+  stdin: planStdin(agent, prompt, false),
 });
 
 // Advance to the next queued prompt after a run finishes, or end the chain.
@@ -129,6 +141,7 @@ const enqueueInvocation = (
   runner: Runner,
   key: string,
   invocation: Invocation,
+  prompt: string,
   workingDir: string,
   agent: AgentInvocation,
   memoryMax?: MemoryCeiling,
@@ -139,7 +152,7 @@ const enqueueInvocation = (
 
   const handle: InternalHandle = {
     sessionId: key,
-    prompt: invocation.prompt,
+    prompt,
     pendingPrompts: [],
     startedPrompts: [],
     workingDir,
@@ -203,9 +216,9 @@ const enqueueNewSession = (
     key,
     {
       args: agent.newSession(prompt, key, model),
-      prompt,
-      stdin: agent.stdin(prompt, true),
+      stdin: planStdin(agent, prompt, true),
     },
+    prompt,
     workingDir,
     agent,
     memoryMax,
@@ -224,6 +237,7 @@ const enqueueRun = (
     runner,
     key,
     resumeInvocation(agent, key, prompt),
+    prompt,
     workingDir,
     agent,
     memoryMax,
@@ -277,6 +291,20 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
 // Prefixed so it can never collide with a real agent session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// Resolves when the run leaves the queue: true once the run has started
+// (or already settled), false when it was stopped while queued. Unbounded
+// by design — queueing for a slot is the runner's contract, and slots
+// free as the runs ahead settle.
+const awaitRunStart = async (runner: Runner, key: string): Promise<boolean> => {
+  const handle = runner.registry.get(key);
+  if (handle === undefined) return false;
+  while (handle.status === "queued") await sleep(50);
+  return handle.status !== "stopped";
+};
+
 // Stops one session's live or queued run. `reason` is set only when the
 // stop did not come from the user (today, the server's shutdown
 // teardown), so the persisted verdict can say so (#379).
@@ -329,6 +357,7 @@ const stopAll = (runner: Runner, reason: string): number => {
 };
 
 export {
+  awaitRunStart,
   clearPending,
   enqueueNewSession,
   enqueueOrQueue,

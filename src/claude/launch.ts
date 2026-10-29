@@ -5,7 +5,11 @@ import {
   prefixedInvocation,
 } from "../glv/composite-launcher.js";
 import type { SessionLauncher } from "../glv/launch.js";
-import { enqueueNewSession, type Runner } from "../glv/runner/index.js";
+import {
+  awaitRunStart,
+  enqueueNewSession,
+  type Runner,
+} from "../glv/runner/index.js";
 import type { AgentInvocation } from "../glv/runner/types.js";
 import type { SessionStore } from "../glv/sessions.js";
 import { findTranscript } from "./store/transcript.js";
@@ -50,6 +54,7 @@ const makeClaudeLauncher = (
     // within the timeout. Only this one specific id is checked, so a
     // misattribution is impossible by construction.
     awaitNew: async (handle, _workingDir, timeoutMs) => {
+      if (!(await awaitRunStart(runner, handle))) return undefined;
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         if (findTranscript(root, keys.native(handle)) !== undefined)

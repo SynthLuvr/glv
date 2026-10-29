@@ -9,11 +9,36 @@ import {
   parseMemoryCeiling,
 } from "./scope.js";
 
+// How the prompt travels over stdin. "one-shot" (the default) writes the
+// prompt and closes the pipe — the text-prompt model, where the agent
+// answers the single prompt it was fed and exits. "held" writes it and
+// keeps the pipe open: claude's stream-json input mode treats an open
+// stdin as "the session is live" — background tasks survive the end of a
+// turn, their completion wakes the agent into a new turn, and the
+// process exits only when the policy closes the pipe (ADR 0010).
+type StdinPlan =
+  | { readonly kind: "one-shot"; readonly input: string }
+  | {
+      readonly kind: "held";
+      readonly input: string;
+      readonly policy: StdinClosePolicy;
+    };
+
+// Watches the agent's own stdout and decides when a held-open stdin may
+// close — that is, when the process is allowed to exit. Called once per
+// invocation with the runner's idempotent close handle; `onLine` sees
+// every ingested stream line, oldest first; `stop` fires once at exit
+// or teardown so pending timers are cancelled.
+type StdinClosePolicy = (close: () => void) => {
+  onLine: (line: string) => void;
+  stop: () => void;
+};
+
 // How the shared runner talks to one flavor's agent binary. argv is built
 // per invocation; the prompt itself always travels over stdin, so
 // arbitrarily long prompts never hit argument-length limits or shell
-// quoting. How it is framed there is the flavor's call: goose reads raw
-// text, claude reads stream-json frames.
+// quoting. How it travels there — raw text or framed — is the flavor's
+// call (see stdinPlan).
 type AgentInvocation = {
   /** Agent name in exit/error messages ("goose", "claude"). */
   readonly name: string;
@@ -31,13 +56,16 @@ type AgentInvocation = {
   ) => string[];
   /** argv for a follow-up run on an existing session. */
   readonly resume: (key: string, prompt: string) => string[];
-  /**
-   * The bytes written to the agent's stdin for one invocation;
-   * `newSession` tells a brand-new run from a follow-up.
-   */
-  readonly stdin: (prompt: string, newSession: boolean) => string;
   /** Extra environment variables for the agent process. */
   readonly env: () => Record<string, string>;
+  /**
+   * The agent's stdin plan for one invocation; absent means one-shot
+   * text. `newSession` tells a brand-new run from a follow-up — claude
+   * frames the prompt as stream-json (a title request rides along on
+   * brand-new runs) and holds stdin open so background work outlives a
+   * turn (ADR 0010).
+   */
+  readonly stdinPlan?: (prompt: string, newSession: boolean) => StdinPlan;
 };
 
 // The agent is not part of the config: one runner serves several agents
@@ -184,21 +212,25 @@ type SpawnedProcess = {
   /** Newline-split stderr, drained into a bounded diagnostic tail. */
   stderr: AsyncIterable<string>;
   exit: Promise<ProcessResult>;
+  /**
+   * Ends the agent's stdin, idempotently and safely at any point in the
+   * process's life: a no-op for a one-shot spawn (the prompt write
+   * already ended the pipe), the "you may exit now" signal for a
+   * held-open one.
+   */
+  closeStdin: () => void;
 };
 
 /** Subprocess factory; tests inject a fake to avoid spawning a real agent. */
 type SpawnFn = (
   binary: string,
   args: string[],
-  opts: { stdin: string; cwd: string; env: Record<string, string> },
+  opts: { stdin: StdinPlan; cwd: string; env: Record<string, string> },
 ) => SpawnedProcess;
 
 type Invocation = {
   args: string[];
-  /** The user's prompt as submitted (what the handle reports). */
-  prompt: string;
-  /** The prompt as framed for the agent's stdin. */
-  stdin: string;
+  stdin: StdinPlan;
 };
 
 type InternalHandle = Omit<
@@ -253,5 +285,7 @@ export type {
   RunStatus,
   SpawnedProcess,
   SpawnFn,
+  StdinClosePolicy,
+  StdinPlan,
 };
 export { makeRunnerConfig };

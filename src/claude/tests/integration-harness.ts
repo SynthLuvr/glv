@@ -196,6 +196,40 @@ const claudeFixture: harness.FlavorFixture = {
       is_error: true,
       result: detail,
     }),
+  // claude's clean headless verdict, printed before the kill epilogue.
+  cleanResultRecord: JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    num_turns: 3,
+    result: "mock claude reply",
+  }),
+  // The kill epilogue claude 2.1.289 streams in the text-stdin model
+  // when no Monitor task is pending: the plain background tasks the
+  // turn outlived are killed at process teardown, each announced as a
+  // stopped task_notification. Held-open stdin (ADR 0010) keeps
+  // glv-driven runs from producing it; the classifier stays armed as a
+  // drift tripwire, so the suite still scripts it.
+  killedTaskRecords: (summary) => [
+    JSON.stringify({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [],
+    }),
+    JSON.stringify({
+      type: "system",
+      subtype: "task_updated",
+      task_id: "bib06qe7n",
+      patch: { status: "killed", end_time: 1793266070123 },
+    }),
+    JSON.stringify({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "bib06qe7n",
+      status: "stopped",
+      summary,
+    }),
+  ],
   // The foreign dialect for claude is goose's top-level envelope.
   foreignLine: JSON.stringify({
     role: "assistant",

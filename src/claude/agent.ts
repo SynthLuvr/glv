@@ -2,6 +2,7 @@ import type { ModelSelection } from "../glv/models.js";
 import type { AgentInvocation } from "../glv/runner/types.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../glv/system.js";
 import { claudeProfile } from "./profile.js";
+import { claudeStdinPolicy } from "./stdin-policy.js";
 
 // DESIGN DECISION: the default is "inherit", which passes no
 // --permission-mode flag, so claude applies permissions.defaultMode from
@@ -26,16 +27,19 @@ const PERMISSION_MODES: readonly string[] = [
 // prompt — this sidesteps the OS argument-length limit and all shell-quoting
 // concerns, and works for arbitrarily long prompts. `--verbose` is required
 // for stream-json to emit the full event stream rather than just the final
-// result record. stdin is stream-json too (see stdinFrames below); claude
-// echoes nothing extra for it, so stdout is the same event stream as with
-// a raw-text prompt plus one control_response line per control request.
+// result record. `--input-format stream-json` also switches the prompt to
+// newline-terminated JSON frames — and, the reason it is here, makes an
+// open stdin mean "the session is live": background tasks survive the end
+// of a turn, their completion wakes the agent into a new turn, and the
+// process exits only when the pipe closes (verified against claude
+// 2.1.289; see ADR 0010).
 const STREAM_FLAGS = [
   "--print",
-  "--input-format",
-  "stream-json",
   "--output-format",
   "stream-json",
   "--verbose",
+  "--input-format",
+  "stream-json",
 ];
 
 const userFrame = (prompt: string): string =>
@@ -65,8 +69,8 @@ const titleFrame = (prompt: string): string =>
     },
   });
 
-// One turn's stdin under `--input-format stream-json`: the prompt in a
-// user frame, and on a brand-new session the title request after it.
+// The frames one turn writes to stream-json stdin: the prompt in a user
+// frame, and on a brand-new session the title request after it.
 const stdinFrames = (prompt: string, newSession: boolean): string => {
   const frames = [userFrame(prompt)];
   if (newSession) frames.push(titleFrame(prompt));
@@ -141,7 +145,6 @@ const makeClaudeAgent = (
       ...permissionFlags(permissionMode),
       ...STREAM_FLAGS,
     ],
-    stdin: stdinFrames,
     // claude gates a directory it has never seen behind an interactive "do
     // you trust the files in this folder?" dialog that a headless --print run
     // can never answer, and drops project-scoped settings until it is
@@ -149,6 +152,14 @@ const makeClaudeAgent = (
     // marks the directory trusted — what claude may do there is still bounded
     // by the permission mode.
     env: () => ({ CLAUDE_CODE_SANDBOXED: "1" }),
+    // Held-open stream-json stdin: background tasks survive the turn
+    // that armed them, and the policy closes the pipe once the run has
+    // nothing left to wait for (ADR 0010).
+    stdinPlan: (prompt: string, newSession: boolean) => ({
+      kind: "held",
+      input: stdinFrames(prompt, newSession),
+      policy: claudeStdinPolicy,
+    }),
   };
 };
 
