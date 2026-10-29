@@ -81,7 +81,8 @@ const decodeUserFrame = (line: string): string | undefined => {
 };
 
 // The request id of a persisting generate_session_title control
-// request, when the line is one.
+// request, when the line is one. The id rides the frame itself, not
+// the request payload.
 const titleRequestIdOf = (line: string): string | undefined => {
   const parsed = parseJson(line, JsonObject);
   if (!parsed.ok || parsed.data.type !== "control_request") return undefined;
@@ -92,8 +93,8 @@ const titleRequestIdOf = (line: string): string | undefined => {
     request.persist !== true
   )
     return undefined;
-  return typeof request.request_id === "string"
-    ? request.request_id
+  return typeof parsed.data.request_id === "string"
+    ? parsed.data.request_id
     : undefined;
 };
 
