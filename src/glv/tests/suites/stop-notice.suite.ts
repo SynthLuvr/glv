@@ -80,6 +80,58 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     id: string,
   ): Promise<string> => waitForPageText(e, id, "send-btn");
 
+  // Runs a prompt and resolves once the stream settles on an error
+  // status, carrying every streamed status and the error's text.
+  const runUntilError = async (
+    e: IntegrationEnv,
+    id: string,
+    prompt: string,
+  ): Promise<{ statuses: unknown[]; error: unknown }> => {
+    const stream = collectSse(
+      e,
+      `/sessions/${fx.viewId(id)}/events`,
+      (evs) =>
+        evs.some(
+          (ev) =>
+            ev.event === "status" && parseSseData(ev.data).status === "error",
+        ),
+      15000,
+    );
+    await startRun(e, id, prompt);
+    const data = (await stream)
+      .filter((ev) => ev.event === "status")
+      .map((ev) => parseSseData(ev.data));
+    return {
+      statuses: data.map((d) => d.status),
+      error: data.find((d) => d.status === "error")?.error,
+    };
+  };
+
+  // The structured prompt-bar card every stop kind renders.
+  const expectNoticeCard = (
+    e: IntegrationEnv,
+    id: string,
+    classification: string,
+    reasons: readonly string[],
+  ): Promise<void> =>
+    withPage(e.context, async (page) => {
+      await page.goto(`${e.baseUrl}/sessions/${fx.viewId(id)}`);
+      const hint = page.locator("form.prompt-bar .status-hint.error");
+      await expect(hint).toContainText("Run stopped early");
+      await expect(hint.locator(".stop-notice-icon")).toBeVisible();
+      await expect(hint.locator(".stop-notice-title")).toContainText(
+        "Run stopped early",
+      );
+      await expect(hint.locator(".stop-notice-classification")).toContainText(
+        classification,
+      );
+      const reason = hint.locator(".stop-notice-reason");
+      for (const text of reasons) await expect(reason).toContainText(text);
+      await expect(hint.locator(".stop-notice-action")).toContainText(
+        "Send a message to continue",
+      );
+    });
+
   beforeAll(async () => {
     linesDir = mkdtempSync(join(tmpdir(), "glv-stop-lines-"));
     // The file is re-read per invocation, so one environment walks through
@@ -107,8 +159,9 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
         { id: "limit-1", name: "Limit", workingDir: join(e.scratchDir, "w") },
         { id: "net-1", name: "Net", workingDir: join(e.scratchDir, "w") },
         { id: "ok-1", name: "Ok", workingDir: join(e.scratchDir, "w") },
+        { id: "bg-1", name: "Bg", workingDir: join(e.scratchDir, "w") },
       ]);
-      for (const id of ["limit-1", "net-1", "ok-1"])
+      for (const id of ["limit-1", "net-1", "ok-1", "bg-1"])
         fx.seedMessages(e, id, [
           { role: "user", content: [{ type: "text", text: "seed" }] },
         ]);
@@ -129,30 +182,16 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
           "Rate limit exceeded: usage limit reached. Your quota resets at 17:01.",
         ),
       ]);
-      const stream = collectSse(
+      const { statuses, error } = await runUntilError(
         env,
-        `/sessions/${fx.viewId("limit-1")}/events`,
-        (evs) =>
-          evs.some(
-            (e) =>
-              e.event === "status" && parseSseData(e.data).status === "error",
-          ),
-        15000,
+        "limit-1",
+        "hit the limit please",
       );
-      await startRun(env, "limit-1", "hit the limit please");
-      const events = await stream;
-      const statuses = events
-        .filter((e) => e.event === "status")
-        .map((e) => parseSseData(e.data).status);
       expect(statuses).not.toContain("completed");
-      const error = events
-        .filter((e) => e.event === "status")
-        .map((e) => parseSseData(e.data))
-        .find((data) => data.status === "error");
-      expect(error?.error).toContain("Session stopped early");
-      expect(error?.error).toContain("usage limit reached");
-      expect(error?.error).toContain("resets at 17:01");
-      expect(error?.error).toContain("Send a message to continue");
+      expect(error).toContain("Session stopped early");
+      expect(error).toContain("usage limit reached");
+      expect(error).toContain("resets at 17:01");
+      expect(error).toContain("Send a message to continue");
     });
 
     it("shows the notice in the session view", async () => {
@@ -162,25 +201,10 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     });
 
     it("renders the structured notice card in the browser", async () => {
-      await withPage(env.context, async (page) => {
-        await page.goto(`${env.baseUrl}/sessions/${fx.viewId("limit-1")}`);
-        const hint = page.locator("form.prompt-bar .status-hint.error");
-        await expect(hint).toContainText("Run stopped early");
-        await expect(hint).toContainText("usage limit reached");
-        await expect(hint.locator(".stop-notice-icon")).toBeVisible();
-        await expect(hint.locator(".stop-notice-title")).toContainText(
-          "Run stopped early",
-        );
-        await expect(hint.locator(".stop-notice-classification")).toContainText(
-          "Provider usage limit reached",
-        );
-        await expect(hint.locator(".stop-notice-reason")).toContainText(
-          "resets at 17:01",
-        );
-        await expect(hint.locator(".stop-notice-action")).toContainText(
-          "Send a message to continue",
-        );
-      });
+      await expectNoticeCard(env, "limit-1", "Provider usage limit reached", [
+        "usage limit reached",
+        "resets at 17:01",
+      ]);
     });
 
     it("keeps the notice across a server restart", async () => {
@@ -229,34 +253,14 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
 
   describe("failures the agent never announced", () => {
     it("persists the exit-code message beyond the handle's eviction", async () => {
-      const stream = collectSse(
-        envExit,
-        `/sessions/${fx.viewId("net-1")}/events`,
-        (evs) =>
-          evs.some(
-            (e) =>
-              e.event === "status" && parseSseData(e.data).status === "error",
-          ),
-        15000,
-      );
-      await startRun(envExit, "net-1", "crash please");
-      const events = await stream;
-      const error = events
-        .filter((e) => e.event === "status")
-        .map((e) => parseSseData(e.data))
-        .find((data) => data.status === "error");
-      expect(error?.error).toContain("exited with code 1");
-      expect(error?.error).not.toContain("Send a message to continue");
+      const { error } = await runUntilError(envExit, "net-1", "crash please");
+      expect(error).toContain("exited with code 1");
+      expect(error).not.toContain("Send a message to continue");
 
       // The live handle explains the crash in the prompt bar, and — since
       // run-terminal errors are persisted too — a restart (handle gone)
       // keeps explaining it instead of leaving an unexplained transcript.
-      const html = await waitForPageText(
-        envExit,
-        "net-1",
-        "exited with code 1",
-      );
-      expect(html).toContain("exited with code 1");
+      await waitForPageText(envExit, "net-1", "exited with code 1");
       await envExit.restart();
       const after = await pageHtml(envExit, "net-1");
       expect(after).toContain("exited with code 1");
@@ -276,6 +280,67 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       expect(after).not.toContain('class="status-hint error"');
     });
   });
+
+  // The kill-at-exit epilogue is claude's stream dialect, so the scenario
+  // binds only to flavors that can produce it. With held-open stdin
+  // (ADR 0010) glv-driven runs no longer produce it — the classifier is
+  // a tripwire for claude drift: if a release re-introduces an exit-time
+  // kill, the run must still surface it instead of settling clean.
+  const killedTaskRecords = fx.killedTaskRecords;
+  const cleanResultRecord = fx.cleanResultRecord;
+
+  if (killedTaskRecords !== undefined && cleanResultRecord !== undefined)
+    describe("background tasks killed at exit", () => {
+      const WATCHER = "CI watcher: sleep 30; until gh pr checks 394";
+
+      it("turns the silent kill into a stop notice on an exit-0 run", async () => {
+        writeLines("main.txt", [
+          fx.streamLine("Pushed the fix — CI is running. I'll report back."),
+          cleanResultRecord,
+          ...killedTaskRecords(WATCHER),
+        ]);
+        const { statuses, error } = await runUntilError(
+          env,
+          "bg-1",
+          "watch the pr and report back please",
+        );
+        expect(statuses).not.toContain("completed");
+        expect(error).toContain("Session stopped early");
+        expect(error).toContain("background tasks were killed");
+        expect(error).toContain(WATCHER);
+        expect(error).toContain("Send a message to continue");
+      });
+
+      it("renders the kill card in the browser", async () => {
+        const html = await waitForPageText(
+          env,
+          "bg-1",
+          "Background tasks killed at exit",
+        );
+        expect(html).toContain(WATCHER);
+        await expectNoticeCard(env, "bg-1", "Background tasks killed at exit", [
+          WATCHER,
+        ]);
+      });
+
+      it("keeps the notice across a server restart", async () => {
+        await env.restart();
+        const html = await pageHtml(env, "bg-1");
+        expect(html).toContain("Background tasks killed at exit");
+        expect(html).toContain(WATCHER);
+      });
+
+      it("does not flag a mid-run TaskStop followed by a clean finish", async () => {
+        writeLines("main.txt", [
+          ...killedTaskRecords("old watcher"),
+          fx.streamLine("Watcher handed off; continuing."),
+          cleanResultRecord,
+        ]);
+        await startRun(env, "bg-1", "hand off cleanly please");
+        const html = await waitForIdleBar(env, "bg-1");
+        expect(html).not.toContain("Session stopped early");
+      });
+    });
 };
 
 export { runStopNoticeSuite };

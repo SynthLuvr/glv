@@ -2,6 +2,7 @@ import type { ModelSelection } from "../glv/models.js";
 import type { AgentInvocation } from "../glv/runner/types.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../glv/system.js";
 import { claudeProfile } from "./profile.js";
+import { claudeStdinPolicy } from "./stdin-policy.js";
 
 // DESIGN DECISION: the default is "inherit", which passes no
 // --permission-mode flag, so claude applies permissions.defaultMode from
@@ -26,8 +27,28 @@ const PERMISSION_MODES: readonly string[] = [
 // prompt — this sidesteps the OS argument-length limit and all shell-quoting
 // concerns, and works for arbitrarily long prompts. `--verbose` is required
 // for stream-json to emit the full event stream rather than just the final
-// result record.
-const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
+// result record. `--input-format stream-json` also switches the prompt to
+// one newline-terminated JSON user line — and, the reason it is here, makes
+// an open stdin mean "the session is live": background tasks survive the
+// end of a turn, their completion wakes the agent into a new turn, and the
+// process exits only when the pipe closes (verified against claude
+// 2.1.289; see ADR 0010).
+const STREAM_FLAGS = [
+  "--print",
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--input-format",
+  "stream-json",
+];
+
+// The prompt wrapped as one stream-json user line, the wire form
+// `--input-format stream-json` reads.
+const streamJsonUserLine = (prompt: string): string =>
+  `${JSON.stringify({
+    type: "user",
+    message: { role: "user", content: prompt },
+  })}\n`;
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
@@ -104,6 +125,14 @@ const makeClaudeAgent = (
     // marks the directory trusted — what claude may do there is still bounded
     // by the permission mode.
     env: () => ({ CLAUDE_CODE_SANDBOXED: "1" }),
+    // Held-open stream-json stdin: background tasks survive the turn
+    // that armed them, and the policy closes the pipe once the run has
+    // nothing left to wait for (ADR 0010).
+    stdinPlan: (prompt: string) => ({
+      kind: "held",
+      input: streamJsonUserLine(prompt),
+      policy: claudeStdinPolicy,
+    }),
   };
 };
 

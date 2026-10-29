@@ -24,6 +24,18 @@ For any non-trivial request:
   sure” beat a confident guess. More steps to the right answer beat
   fewer steps to a wrong one.
 
+## Background work outliving the turn
+
+Ending a turn does not necessarily end the run. When you leave
+background work pending (a watcher armed with Bash `run_in_background`,
+say), the host may keep the process alive until that work completes, and
+the completion wakes you for a follow-up turn — in glv this holds for
+claude runs even though they are headless, so “I’ll report back when it
+finishes” is a promise you can keep. If your runtime instead kills
+background jobs when the run ends, finish the work or stop it explicitly
+before ending the turn — never leave a report-back promise on work that
+cannot wake you.
+
 ## Git identity
 
 - Never pass `-c user.name`/`-c user.email` or set
