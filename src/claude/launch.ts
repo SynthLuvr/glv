@@ -52,11 +52,7 @@ const makeClaudeLauncher = (
     },
     // Confirms the agent actually created the pre-assigned session's data
     // within the timeout. Only this one specific id is checked, so a
-    // misattribution is impossible by construction. The countdown starts
-    // only once the run leaves the concurrency queue — a queued run has
-    // not spawned, so waiting out the queue must not consume the
-    // deadline (otherwise a new session created while every slot is busy
-    // would always time out instead of queueing).
+    // misattribution is impossible by construction.
     awaitNew: async (handle, _workingDir, timeoutMs) => {
       if (!(await awaitRunStart(runner, handle))) return undefined;
       const deadline = Date.now() + timeoutMs;

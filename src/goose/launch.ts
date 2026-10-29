@@ -55,12 +55,6 @@ const makeGooseLauncher = (
       return keys.out(tempKey);
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {
-      // A run parked in the concurrency queue has not spawned yet, so no
-      // session can appear — waiting out the queue must not eat into the
-      // discovery deadline, or a queued new session would always time out
-      // (reported as "did not create a session in time"). Wait for the run
-      // to start first; the deadline below then bounds only the agent's
-      // own startup + session creation.
       if (!(await awaitRunStart(runner, handle))) return undefined;
       const known = knownIds.get(handle) ?? new Set<string>();
       const deadline = Date.now() + timeoutMs;
