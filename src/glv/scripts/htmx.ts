@@ -48,12 +48,17 @@ const htmxSwapTarget = (e: Event): Element | null => {
   return target instanceof Element ? target : null;
 };
 
-// The slice of htmx:afterRequest's detail consumers read: which path the
-// finished request hit and whether it succeeded. A detail missing or
-// failing the schema yields no fields, so consumers see a neutral "no
-// information" instead of trusting unknown shapes.
+// The slice of htmx:beforeRequest/afterRequest's detail consumers read:
+// which request hit (path, verb, originating element) and whether it
+// succeeded. A detail missing or failing the schema yields no fields, so
+// consumers see a neutral "no information" instead of trusting unknown
+// shapes.
 const HtmxRequestDetailSchema = type({
-  "requestConfig?": { "path?": "string" },
+  "requestConfig?": {
+    "path?": "string",
+    "verb?": "string",
+    "elt?": "unknown",
+  },
   "successful?": "boolean",
 });
 

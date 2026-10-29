@@ -7,6 +7,7 @@ import {
   type FlavorFixture,
   type IntegrationEnv,
   seedApiToken,
+  withPage,
 } from "../harness.js";
 
 // A new session submitted while every runner slot is busy must queue and
@@ -27,7 +28,8 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
   let token = "";
   let dirA: string;
   let dirB: string;
-
+  let dirC: string;
+  let dirD: string;
   beforeAll(async () => {
     env = await fx.startEnv(
       "glv-sessionqueue-",
@@ -42,8 +44,12 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
     token = seedApiToken(env.dbs.authDb, "session-queue");
     dirA = join(env.scratchDir, "queue-a");
     dirB = join(env.scratchDir, "queue-b");
+    dirC = join(env.scratchDir, "queue-c");
+    dirD = join(env.scratchDir, "queue-d");
     mkdirSync(dirA, { recursive: true });
     mkdirSync(dirB, { recursive: true });
+    mkdirSync(dirC, { recursive: true });
+    mkdirSync(dirD, { recursive: true });
   }, 180000);
 
   afterAll(async () => {
@@ -89,6 +95,43 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
       expect(detail.status).toBe(200);
     }
   }, 60000);
+
+  it("surfaces the queue wait on the form while the create waits for a slot", async () => {
+    // Fill the only slot; the mock holds it ~12s.
+    const filler = await bearerFetch(env, "/api/sessions", token, {
+      method: "POST",
+      body: new URLSearchParams({
+        prompt: "queue-wait filler — holds the slot",
+        working_dir: dirC,
+      }),
+    });
+    expect(filler.status).toBe(201);
+
+    await withPage(env.context, async (page) => {
+      await page.goto(env.baseUrl);
+      await page.locator("form.new-session-form").waitFor();
+      await page.locator('input[name="working_dir"]').fill(dirD);
+      await page
+        .locator("textarea[name=prompt]")
+        .fill("second session — the pool is full");
+      await page.locator("form.new-session-form button[type=submit]").click();
+
+      // The submit pends for as long as the pool stays full; the hint
+      // names the wait instead of leaving a silently disabled button.
+      await expect(
+        page.locator("form.new-session-form button[type=submit]"),
+      ).toBeDisabled();
+      await expect(page.locator("[data-queue-wait]")).toHaveText(
+        "Waiting for a free slot…",
+        { timeout: 10000 },
+      );
+
+      // The slot frees, the queued run starts, and the create lands the
+      // session; the swapped-in transcript view has no wait hint.
+      await page.waitForURL("**/sessions/**", { timeout: 30000 });
+      await expect(page.locator("[data-queue-wait]")).toHaveCount(0);
+    });
+  }, 90000);
 };
 
 export { runSessionQueueSuite };
