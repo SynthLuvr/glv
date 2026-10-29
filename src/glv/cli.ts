@@ -299,10 +299,10 @@ serveCmd.action((opts: Record<string, unknown>) => {
     agents: specs,
     dataDirName: DATA_DIR,
     assetsFlavor: "glv",
-    runner: cli.makeRunnerConfig(Number(opts.maxConcurrent), {
-      memoryMaxSpec:
-        typeof opts.runMemoryMax === "string" ? opts.runMemoryMax : undefined,
-    }),
+    runner: cli.makeRunnerConfig(
+      Number(opts.maxConcurrent),
+      typeof opts.runMemoryMax === "string" ? opts.runMemoryMax : undefined,
+    ),
     authDbPath: paths.authDbPath,
     promptsDbPath: paths.promptsDbPath,
     groupsDbPath: paths.groupsDbPath,

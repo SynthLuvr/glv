@@ -19,11 +19,11 @@ import {
 // `systemd-run --user --scope` unit — named glv-run-<run id>, so journal
 // OOM records attribute — with MemoryMax (and MemorySwapMax=0) set, and
 // the unit lands in the settled-run history. A shimmed systemd-run on
-// PATH (the only mock: a real script standing in for a real binary, the
-// harness's mock-bin pattern) makes the wrapped path deterministic on
-// hosts without a user systemd; the disabled path (the test harness
-// pins GLV_RUN_MEMORY_MAX=off) falls back to a direct spawn with a
-// logged warning.
+// PATH (a real script standing in for a real binary, the harness's only
+// mock) makes the wrapped path deterministic on hosts without a user
+// systemd; the disabled path (the test harness pins
+// GLV_RUN_MEMORY_MAX=off) falls back to a direct spawn with a logged
+// warning.
 
 const fakeSystemdRunPath = fileURLToPath(
   new URL("../fake-systemd-run.ts", import.meta.url),
@@ -58,32 +58,82 @@ type ScopeEnv = {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+// One shimmed invocation line: the argv systemd-run received.
+const invocationArgs = (line: string): string[] => {
+  const parsed: unknown = JSON.parse(line);
+  return Array.isArray(parsed) && parsed.every((a) => typeof a === "string")
+    ? parsed
+    : [];
+};
+
+const shimInvocations = async (scope: ScopeEnv): Promise<string[][]> =>
+  (await waitForFile(scope.logPath))
+    .split("\n")
+    .filter((line) => line !== "")
+    .map(invocationArgs);
+
+// The invocation lines that carried a run scope — the availability
+// probe's line has no --unit. The last one belongs to the most
+// recently settled session.
+const scopeInvocations = (lines: readonly string[][]): string[][] =>
+  lines.filter((argv) => argv.some(isRunUnitArg));
+
+// The full unit name (`glv-run-<run id>`) — the same string the run
+// history records.
+const unitOf = (argv: readonly string[]): string | undefined =>
+  argv.find(isRunUnitArg)?.slice(UNIT_ARG.length);
+
+// Starts a session over the JSON API exactly as a script would, with
+// the given extra form fields (memory_max for the override tests).
+const startSession = async (
+  env: IntegrationEnv,
+  token: string,
+  fields: Record<string, string> = {},
+): Promise<string> => {
+  const workingDir = join(env.scratchDir, "w");
+  mkdirSync(workingDir, { recursive: true });
+  const res = await bearerFetch(env, "/api/sessions", token, {
+    method: "POST",
+    body: new URLSearchParams({
+      prompt: "memory scope test",
+      working_dir: workingDir,
+      ...fields,
+    }),
+  });
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as { id: string };
+  return body.id;
+};
+
+// The wait endpoint parks until the run settles; the loop only guards
+// a deadline the endpoint's own default may not reach.
+const waitSettled = async (
+  env: IntegrationEnv,
+  token: string,
+  id: string,
+): Promise<string> => {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const res = await bearerFetch(env, `/api/sessions/${id}/wait`, token);
+    expect(res.status).toBe(200);
+    const { status } = (await res.json()) as { status: string };
+    if (status !== "queued" && status !== "running") return status;
+    if (Date.now() > deadline) throw new Error("run never settled");
+    await sleep(100);
+  }
+};
+
+const historyOf = async (
+  env: IntegrationEnv,
+  token: string,
+  id: string,
+): Promise<RunHistory> => {
+  const res = await bearerFetch(env, `/api/sessions/${id}/runs`, token);
+  expect(res.status).toBe(200);
+  return (await res.json()) as RunHistory;
+};
+
 const runScopeSuite = (fx: FlavorFixture): void => {
-  // One shimmed invocation line: the argv systemd-run received.
-  const invocationArgs = (line: string): string[] => {
-    const parsed: unknown = JSON.parse(line);
-    return Array.isArray(parsed) && parsed.every((a) => typeof a === "string")
-      ? parsed
-      : [];
-  };
-
-  const shimInvocations = async (scope: ScopeEnv): Promise<string[][]> =>
-    (await waitForFile(scope.logPath))
-      .split("\n")
-      .filter((line) => line !== "")
-      .map(invocationArgs);
-
-  // The invocation lines that carried a run scope — the availability
-  // probe's line has no --unit. Runs execute in submit order, so the
-  // last one belongs to the most recently settled session.
-  const scopeInvocations = (lines: readonly string[][]): string[][] =>
-    lines.filter((argv) => argv.some(isRunUnitArg));
-
-  // The full unit name (`glv-run-<run id>`) — the same string the run
-  // history records.
-  const unitOf = (argv: readonly string[]): string | undefined =>
-    argv.find(isRunUnitArg)?.slice(UNIT_ARG.length);
-
   const startScopeEnv = async (
     prefix: string,
     extraEnv: Record<string, string>,
@@ -108,56 +158,6 @@ const runScopeSuite = (fx: FlavorFixture): void => {
       rmSync(logDir, { recursive: true, force: true });
       throw err;
     }
-  };
-
-  // Starts a session over the JSON API exactly as a script would, with
-  // the given extra form fields (memory_max for the override tests).
-  const startSession = async (
-    env: IntegrationEnv,
-    token: string,
-    fields: Record<string, string> = {},
-  ): Promise<string> => {
-    const workingDir = join(env.scratchDir, "w");
-    mkdirSync(workingDir, { recursive: true });
-    const res = await bearerFetch(env, "/api/sessions", token, {
-      method: "POST",
-      body: new URLSearchParams({
-        prompt: "memory scope test",
-        working_dir: workingDir,
-        ...fields,
-      }),
-    });
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { id: string };
-    return body.id;
-  };
-
-  // The wait endpoint parks until the run settles; the loop only guards
-  // a deadline the endpoint's own default may not reach.
-  const waitSettled = async (
-    env: IntegrationEnv,
-    token: string,
-    id: string,
-  ): Promise<string> => {
-    const deadline = Date.now() + 30_000;
-    for (;;) {
-      const res = await bearerFetch(env, `/api/sessions/${id}/wait`, token);
-      expect(res.status).toBe(200);
-      const { status } = (await res.json()) as { status: string };
-      if (status !== "queued" && status !== "running") return status;
-      if (Date.now() > deadline) throw new Error("run never settled");
-      await sleep(100);
-    }
-  };
-
-  const historyOf = async (
-    env: IntegrationEnv,
-    token: string,
-    id: string,
-  ): Promise<RunHistory> => {
-    const res = await bearerFetch(env, `/api/sessions/${id}/runs`, token);
-    expect(res.status).toBe(200);
-    return (await res.json()) as RunHistory;
   };
 
   describe("with the ceiling on (shimmed systemd-run)", () => {
@@ -241,7 +241,7 @@ const runScopeSuite = (fx: FlavorFixture): void => {
 
     beforeAll(async () => {
       // No shim and no GLV_RUN_MEMORY_MAX: the harness's default pin
-      // disables the ceiling, so this is today's behavior on every host.
+      // disables the ceiling — the direct-spawn fallback on every host.
       env = await fx.startEnv("glv-scope-off-");
       token = seedApiToken(env.dbs.authDb, "run-scope-off");
     });

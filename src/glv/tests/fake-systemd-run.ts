@@ -4,9 +4,9 @@ import { appendFileSync } from "node:fs";
 // A stand-in for the real systemd-run (#392's integration suite): every
 // invocation appends its argv as one JSON line to the path in
 // GLV_FAKE_SYSTEMD_RUN_LOG, then runs the command after "--" in this
-// process's own process group — the same shape real `systemd-run
-// --user --scope` gives: the agent shares the caller's group (so glv's
-// group kill on stop/settle still reaches the whole tree, #379) and the
+// process's own process group — the same shape real `systemd-run --user
+// --scope` gives: the agent shares the caller's group (so glv's group
+// kill on stop/settle still reaches the whole tree, #379) and the
 // caller's stdio (so the prompt over stdin and NDJSON over stdout keep
 // flowing). Signals are forwarded to the child, and the child's exit
 // code — or signal death — is propagated.

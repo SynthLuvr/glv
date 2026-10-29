@@ -147,13 +147,12 @@ const lastRunField = (
   lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) };
 
 // One settled run as the history endpoint returns it: the last-run
-// verdict shape plus started_at, the instant the run's process spawned
-// (omitted for a run stopped while still queued), and scope_unit, the
-// transient systemd scope the run executed in (#392; omitted when it
-// spawned directly) — journalctl names the same unit when the kernel
-// OOM-kills a breached scope, so an entry attributes itself to the run.
-// Built by composing ApiLastRun, so the verdict fields cannot drift
-// from the rows' and the wait answer's spelling.
+// verdict shape plus started_at (omitted for a run stopped while still
+// queued) and scope_unit, the systemd scope the run executed in (#392;
+// omitted when it spawned directly) — journalctl names the same unit
+// when the kernel OOM-kills a breached scope, so an entry attributes
+// itself to the run. Composed from ApiLastRun so the verdict fields
+// cannot drift from the last_run spelling.
 const ApiRunHistoryEntry = ApiLastRun.and({
   "started_at?": "string",
   "scope_unit?": "string",
@@ -172,6 +171,7 @@ const toApiRunHistoryEntry = (
     : { started_at: toApiTimestamp(record.startedAt) }),
   ...(record.scopeUnit === undefined ? {} : { scope_unit: record.scopeUnit }),
 });
+
 // The run-state vocabulary every status field speaks: the live states
 // from the runner's registry ("queued"/"running"), its terminal states
 // ("completed"/"stopped"/"error", visible for the short window a
@@ -292,8 +292,7 @@ const ApiStartSessionForm = type({
   /**
    * This run's memory ceiling (#392): a size like "512M"/"8G" or "off";
    * absent keeps the server-wide default (--run-memory-max /
-   * GLV_RUN_MEMORY_MAX). The run executes inside its own systemd scope
-   * with MemoryMax set.
+   * GLV_RUN_MEMORY_MAX).
    */
   "memory_max?": "string",
 });

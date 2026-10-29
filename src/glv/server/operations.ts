@@ -158,22 +158,13 @@ const createRunStatus = (
 ): RunStartStatus =>
   getHandle(ctx.runner, sessionId)?.status === "queued" ? "queued" : "started";
 
-// The submitted per-run memory ceiling (#392): "512M"/"8G" overrides
-// the server-wide default for this run, "off" exempts it, absent keeps
-// the default. Parsed once, here, so both session surfaces validate the
-// field identically and answer with the shared spec error.
+// The submitted per-run memory ceiling (#392): absent keeps the
+// server-wide default, a size or "off" overrides it for this run, and a
+// malformed spec reads as "invalid" so the caller can reject the submit.
 const parseMemoryMaxField = (
   raw: string,
-): {
-  readonly ceiling: MemoryCeiling | undefined;
-  readonly invalid: boolean;
-} => {
-  if (raw === "") return { ceiling: undefined, invalid: false };
-  const ceiling = parseMemoryCeiling(raw);
-  return ceiling === undefined
-    ? { ceiling: undefined, invalid: true }
-    : { ceiling, invalid: false };
-};
+): MemoryCeiling | "invalid" | undefined =>
+  raw === "" ? undefined : (parseMemoryCeiling(raw) ?? "invalid");
 
 // Applies a creation-time name to a just-established session (#343):
 // the rename rides the same viewer-managed rename the browser's rename
@@ -222,7 +213,7 @@ const createSessionOperations = (ctx: ServerContext) => {
     );
     // #392: the submit's own memory ceiling, validated before anything
     // is created so a typo fails loudly.
-    const memory = parseMemoryMaxField(bodyField("memory_max"));
+    const memoryMax = parseMemoryMaxField(bodyField("memory_max"));
 
     const files = collectFiles(body.uploads);
     // Validated before any directory or session is created.
@@ -240,7 +231,7 @@ const createSessionOperations = (ctx: ServerContext) => {
     if (prompt === "")
       return fail(422, "A prompt is required to start a session.");
 
-    if (memory.invalid) return fail(422, MEMORY_SPEC_ERROR);
+    if (memoryMax === "invalid") return fail(422, MEMORY_SPEC_ERROR);
 
     if (location !== undefined && !location.ok)
       return fail(422, location.error);
@@ -306,7 +297,7 @@ const createSessionOperations = (ctx: ServerContext) => {
             workingDir,
             fullPrompt,
             model,
-            memory.ceiling,
+            memoryMax,
           );
 
           const sessionId = await ctx.launcher.awaitNew(
@@ -387,11 +378,10 @@ const createSessionOperations = (ctx: ServerContext) => {
     const prompt = firstString(body.prompt);
     if (prompt === "") return fail("A prompt is required.");
 
-    // #392: the submit's own memory ceiling, validated before the run is
-    // queued; an override on a chained submit applies from the session's
-    // next invocation.
-    const memory = parseMemoryMaxField(firstString(body.memory_max));
-    if (memory.invalid) return fail(MEMORY_SPEC_ERROR);
+    // #392: the submit's own memory ceiling, validated before the run
+    // is queued.
+    const memoryMax = parseMemoryMaxField(firstString(body.memory_max));
+    if (memoryMax === "invalid") return fail(MEMORY_SPEC_ERROR);
 
     // The agent spawns in the session's working directory; one swept
     // out from under the session would die at spawn with an opaque
@@ -434,7 +424,7 @@ const createSessionOperations = (ctx: ServerContext) => {
       id,
       fullPrompt,
       session.working_dir,
-      memory.ceiling,
+      memoryMax,
     );
 
     // Continuing the session resolves whatever the last run's notice

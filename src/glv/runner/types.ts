@@ -56,8 +56,8 @@ type RunnerConfig = {
    * The server-wide per-run memory ceiling (#392): each invocation runs
    * in its own transient systemd scope with MemoryMax set to this
    * budget, so one ballooning run cannot OOM-kill the whole service.
-   * `{ kind: "off" }` restores today's shared-cgroup behavior (with a
-   * logged warning); individual runs may override it (see RunHandle's
+   * `{ kind: "off" }` restores the shared-cgroup behavior (with a
+   * logged warning); individual runs may override it (RunHandle's
    * memoryMax).
    */
   memoryMax: MemoryCeiling;
@@ -72,12 +72,9 @@ const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 // (the same test-facing pattern as GLV_CRON_SESSION_TIMEOUT_MS).
 const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 
-// The default per-run ceiling (#392): generous enough that healthy agent
-// runs never graze it (a model catalogue, a few MCP servers, a big
-// context — single-digit GB), tight enough that a runaway run (a leaked
-// tool loop ballooning past it) dies alone in its own scope instead of
-// taking the whole service down. GLV_RUN_MEMORY_MAX and
-// --run-memory-max override it.
+// The default per-run ceiling (#392): generous enough that healthy
+// agent runs never graze it, tight enough that a runaway one dies alone
+// in its own scope. GLV_RUN_MEMORY_MAX and --run-memory-max override it.
 const DEFAULT_RUN_MEMORY_MAX_SPEC = "8G";
 
 const RunnerConfigSchema = type({
@@ -90,44 +87,31 @@ const RunnerConfigSchema = type({
 
 const makeRunnerConfig = (
   maxConcurrent: number,
-  overrides: {
-    /**
-     * The server-wide per-run memory ceiling spec (#392): "8G", "512M",
-     * plain bytes, or "off". Defaults to GLV_RUN_MEMORY_MAX, then 8G.
-     */
-    readonly memoryMaxSpec?: string;
-  } = {},
+  memoryMaxSpec?: string,
 ): RunnerConfig => {
-  const startupTimeoutMs = positiveEnvNumber(
-    "GLV_STARTUP_TIMEOUT_MS",
-    DEFAULT_STARTUP_TIMEOUT_MS,
-  );
-  const memoryMaxSpec =
-    overrides.memoryMaxSpec ??
-    nonEmptyEnv("GLV_RUN_MEMORY_MAX", DEFAULT_RUN_MEMORY_MAX_SPEC);
-  const result = RunnerConfigSchema({
+  const config = {
     maxConcurrent,
     stopGraceMs: DEFAULT_STOP_GRACE_MS,
     maxLines: DEFAULT_MAX_LINES,
     terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
-    startupTimeoutMs,
-  });
+    startupTimeoutMs: positiveEnvNumber(
+      "GLV_STARTUP_TIMEOUT_MS",
+      DEFAULT_STARTUP_TIMEOUT_MS,
+    ),
+  };
+  const result = RunnerConfigSchema(config);
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
-  const memoryMax = parseMemoryCeiling(memoryMaxSpec);
+  const spec =
+    memoryMaxSpec ??
+    nonEmptyEnv("GLV_RUN_MEMORY_MAX", DEFAULT_RUN_MEMORY_MAX_SPEC);
+  const memoryMax = parseMemoryCeiling(spec);
   if (memoryMax === undefined)
     throw new Error(
-      `Invalid runner configuration: memory limit "${memoryMaxSpec}" — ` +
+      `Invalid runner configuration: memory limit "${spec}" — ` +
         MEMORY_SPEC_ERROR,
     );
-  return {
-    maxConcurrent,
-    stopGraceMs: DEFAULT_STOP_GRACE_MS,
-    maxLines: DEFAULT_MAX_LINES,
-    terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
-    startupTimeoutMs,
-    memoryMax,
-  };
+  return { ...config, memoryMax };
 };
 
 type RunStatus = "queued" | "running" | "completed" | "stopped" | "error";
@@ -164,18 +148,16 @@ type RunHandle = {
   /** When the current invocation started (epoch ms); undefined while queued. */
   startedAt: number | undefined;
   /**
-   * The transient systemd scope the current invocation runs in (#392):
-   * `glv-run-<run id>` when the per-run memory ceiling is on and the
-   * host has a user systemd, undefined otherwise. Stamped fresh per
-   * invocation (undefined when this one spawned directly) and recorded
-   * in run history so journal entries about a breached scope attribute
-   * back to the run.
+   * The systemd scope the current invocation runs in (`glv-run-<run id>`;
+   * undefined when it spawned directly). Stamped fresh per invocation
+   * and recorded in run history so a journal entry about a breached
+   * scope attributes back to the run (#392).
    */
   scopeUnit: string | undefined;
   /**
-   * This run's own memory-ceiling override (#392): undefined means the
+   * This run's own ceiling override (#392): undefined means the
    * server-wide config decides. A follow-up submit may set it; the
-   * override then applies from the session's next invocation.
+   * override applies from the session's next invocation.
    */
   memoryMax: MemoryCeiling | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */

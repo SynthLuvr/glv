@@ -283,12 +283,12 @@ const runProcess = async (
   handle: InternalHandle,
   invocation: Invocation,
 ): Promise<void> => {
-  // #392: resolve this invocation's memory scope before spawning — the
-  // run id is already stamped, so the scope unit names the invocation
-  // in the journal. An off or unavailable ceiling degrades to a direct
-  // spawn inside planRunScope (with a logged warning); scope mode keeps
-  // the agent in the process group execa creates below, so the stop
-  // ladder and settle reap still reach the whole tree (#379).
+  // #392: resolve this invocation's scope before spawning — the run id
+  // is already stamped, so the unit names the invocation in the journal.
+  // An off or unavailable ceiling degrades to a direct spawn inside
+  // planRunScope (with a logged warning); scope mode keeps the agent in
+  // the process group execa creates below, so the stop ladder and settle
+  // reap still reach the whole tree (#379).
   const scope = await planRunScope(
     handle.memoryMax ?? runner.config.memoryMax,
     handle.runId,
@@ -296,12 +296,7 @@ const runProcess = async (
   const launch =
     scope === undefined
       ? { binary: handle.agent.binary, args: invocation.args }
-      : scopeLaunch(
-          scope.unit,
-          scope.bytes,
-          handle.agent.binary,
-          invocation.args,
-        );
+      : scopeLaunch(scope, handle.agent.binary, invocation.args);
   // Stamped fresh per invocation — undefined resets a stale unit from a
   // previous chained prompt that spawned directly.
   handle.scopeUnit = scope?.unit;

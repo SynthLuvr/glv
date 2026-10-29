@@ -48,10 +48,10 @@ CREATE TABLE IF NOT EXISTS last_run (
 // One row per settled run (#384), keyed by the per-spawn run id. Unlike
 // the upserts above, appends instead of overwriting — capped at the
 // newest RUN_HISTORY_CAP rows per session, so a long-lived loop cannot
-// grow the file without bound. scope_unit names the transient systemd
-// scope the invocation ran in (#392), so a journal's oom-kill record for
-// glv-run-<run id> attributes back to the run; NULL when the run spawned
-// directly (ceiling off, or no user systemd on the host).
+// grow the file without bound. scope_unit names the systemd scope the
+// invocation ran in (#392), so a journal's oom-kill record for
+// glv-run-<run id> attributes back to the run; NULL when the run
+// spawned directly.
 const RUN_HISTORY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS run_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,13 +93,14 @@ const openStopNoticesDb = (dbPath: string): DatabaseSync => {
 };
 
 // Databases created before #392 lack run_history's scope_unit column;
-// CREATE TABLE IF NOT EXISTS cannot add it, so add it in place. A
-// hand-created table that already has it is left untouched.
+// CREATE TABLE IF NOT EXISTS cannot add it, so add it in place.
 const migrateRunHistoryScopeUnit = (db: DatabaseSync): void => {
   const columns = db.prepare("PRAGMA table_info(run_history)").all();
-  for (const column of columns)
-    if (isRecord(column) && column.name === "scope_unit") return;
-  db.exec("ALTER TABLE run_history ADD COLUMN scope_unit TEXT");
+  const hasScopeUnit = columns.some(
+    (column) => isRecord(column) && column.name === "scope_unit",
+  );
+  if (!hasScopeUnit)
+    db.exec("ALTER TABLE run_history ADD COLUMN scope_unit TEXT");
 };
 
 const recordStopNotice = (
