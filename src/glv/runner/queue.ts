@@ -112,7 +112,8 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.status = "running";
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
-    stdin: nextPrompt,
+    prompt: nextPrompt,
+    stdin: handle.agent.stdin(nextPrompt, false),
   };
 };
 
@@ -130,7 +131,7 @@ const enqueueInvocation = (
 
   const handle: InternalHandle = {
     sessionId: key,
-    prompt: invocation.stdin,
+    prompt: invocation.prompt,
     pendingPrompts: [],
     startedPrompts: [],
     workingDir,
@@ -192,7 +193,11 @@ const enqueueNewSession = (
   enqueueInvocation(
     runner,
     key,
-    { args: agent.newSession(prompt, key, model), stdin: prompt },
+    {
+      args: agent.newSession(prompt, key, model),
+      prompt,
+      stdin: agent.stdin(prompt, true),
+    },
     workingDir,
     agent,
     memoryMax,
@@ -210,7 +215,11 @@ const enqueueRun = (
   enqueueInvocation(
     runner,
     key,
-    { args: agent.resume(key, prompt), stdin: prompt },
+    {
+      args: agent.resume(key, prompt),
+      prompt,
+      stdin: agent.stdin(prompt, false),
+    },
     workingDir,
     agent,
     memoryMax,

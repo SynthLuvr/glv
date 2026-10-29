@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  capturePromptTo,
   captureStdinTo,
   captureTo,
   linesFromEnv,
+  readStdin,
   sleep,
   streamLines,
 } from "../../glv/tests/mock-common.js";
@@ -43,17 +45,88 @@ const titleLine = (sessionId: string, title: string): string =>
     timestamp: new Date().toISOString(),
   });
 
+// The bookkeeping line claude opens a headless transcript with — it
+// carries the working dir and a timestamp but no title.
+const openingLine = (sessionId: string): string =>
+  JSON.stringify({
+    type: "queue-operation",
+    operation: "enqueue",
+    sessionId,
+    cwd: process.cwd(),
+    timestamp: new Date().toISOString(),
+  });
+
 // Creates the session's transcript file the way claude does when a run
 // starts — before any output exists — so the server's file poll finds it.
-// A session name, when requested, rides along as an ai-title line.
+// Like real claude 2.1.289 under --print, it carries no title: one is
+// only written when the run asks for it (see answerTitleRequest).
 const createSession = (preassigned?: string): string | undefined => {
   const id = preassigned ?? randomUUID();
   const path = transcriptPath(id);
   if (path === undefined) return id;
   mkdirSync(dirname(path), { recursive: true });
-  const name = process.env.CLAUDE_MOCK_SESSION_NAME ?? "";
-  writeFileSync(path, titleLine(id, name) + "\n");
+  writeFileSync(path, openingLine(id) + "\n");
   return id;
+};
+
+type StdinFrames = {
+  /** The prompt text, unwrapped from its user frame. */
+  prompt: string;
+  /** Request id of a persisting generate_session_title request, if any. */
+  titleRequestId: string | undefined;
+};
+
+// Under `--input-format stream-json` real claude reads NDJSON frames: the
+// prompt in a user frame, control requests alongside it. Anything else
+// is a raw-text prompt.
+const decodeStdin = (raw: string, streamJson: boolean): StdinFrames => {
+  if (!streamJson) return { prompt: raw, titleRequestId: undefined };
+  const frames = raw
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const prompts = frames.flatMap((frame) => {
+    const message = frame.message as { content?: unknown } | undefined;
+    return frame.type === "user" && typeof message?.content === "string"
+      ? [message.content]
+      : [];
+  });
+  const titleRequest = frames.find((frame) => {
+    const request = frame.request as Record<string, unknown> | undefined;
+    return (
+      frame.type === "control_request" &&
+      request?.subtype === "generate_session_title" &&
+      request.persist === true
+    );
+  });
+  return {
+    prompt: prompts.join("\n"),
+    titleRequestId:
+      typeof titleRequest?.request_id === "string"
+        ? titleRequest.request_id
+        : undefined,
+  };
+};
+
+// Answers a persisting title request the way claude does: the title
+// (CLAUDE_MOCK_SESSION_NAME stands in for the model's) is appended to the
+// transcript as an ai-title line and echoed in a control_response on
+// stdout. An unset name means the titler produced nothing.
+const answerTitleRequest = (sessionId: string, requestId: string): void => {
+  const name = process.env.CLAUDE_MOCK_SESSION_NAME ?? "";
+  const path = transcriptPath(sessionId);
+  if (name !== "" && path !== undefined)
+    appendFileSync(path, titleLine(sessionId, name) + "\n");
+  console.log(
+    JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: requestId,
+        response: { title: name === "" ? null : name },
+      },
+    }),
+  );
 };
 
 const claudeCodeEnv = (): Record<string, string | undefined> =>
@@ -139,10 +212,23 @@ const main = async (): Promise<void> => {
       ? argValue(args, "--session-id")
       : createSession(argValue(args, "--session-id"));
 
-  await captureStdinTo("CLAUDE_MOCK_CAPTURE_STDIN");
+  // Captures record the decoded prompt, so suites shared with goose
+  // compare the same text whichever framing the flavor uses.
+  const frames = decodeStdin(
+    (await readStdin()).toString("utf8"),
+    argValue(args, "--input-format") === "stream-json",
+  );
+  capturePromptTo("CLAUDE_MOCK_CAPTURE_STDIN", Buffer.from(frames.prompt));
   captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());
   captureTo("CLAUDE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
   captureTo("CLAUDE_MOCK_CAPTURE_ENV", JSON.stringify(claudeCodeEnv()));
+
+  if (
+    frames.titleRequestId !== undefined &&
+    sessionId !== undefined &&
+    !neverCreate
+  )
+    answerTitleRequest(sessionId, frames.titleRequestId);
 
   const sleepMs = Number(process.env.CLAUDE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

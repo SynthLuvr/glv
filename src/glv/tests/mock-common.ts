@@ -79,14 +79,17 @@ const TRANSCRIPT_SUFFIX = ".invocations";
 const stdinTranscriptPath = (capturePath: string): string =>
   `${capturePath}${TRANSCRIPT_SUFFIX}`;
 
-// Reads all of stdin (the full prompt including file-path context) and
-// writes it to the capture file named by the env var, when set.
-const captureStdinTo = async (envVar: string): Promise<void> => {
-  const captureTo = process.env[envVar];
-  if (captureTo === undefined || captureTo === "") return;
+const readStdin = async (): Promise<Buffer> => {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  const content = Buffer.concat(chunks);
+  return Buffer.concat(chunks);
+};
+
+// Writes a prompt to the capture file named by the env var, when set,
+// and appends it to that file's invocation transcript.
+const capturePromptTo = (envVar: string, content: Buffer): void => {
+  const captureTo = process.env[envVar];
+  if (captureTo === undefined || captureTo === "") return;
   writeFileAtomic(captureTo, content);
   // Appends are small single writes; a concurrent invocation's append
   // can interleave but never loses an already-written entry.
@@ -94,6 +97,14 @@ const captureStdinTo = async (envVar: string): Promise<void> => {
     stdinTranscriptPath(captureTo),
     Buffer.concat([content, Buffer.from("\n")]),
   );
+};
+
+// Reads all of stdin (the full prompt including file-path context) and
+// writes it to the capture file named by the env var, when set.
+const captureStdinTo = async (envVar: string): Promise<void> => {
+  const captureTo = process.env[envVar];
+  if (captureTo === undefined || captureTo === "") return;
+  capturePromptTo(envVar, await readStdin());
 };
 
 const captureTo = (envVar: string, content: string): void => {
@@ -119,9 +130,11 @@ const streamLines = async (
 };
 
 export {
+  capturePromptTo,
   captureStdinTo,
   captureTo,
   linesFromEnv,
+  readStdin,
   sleep,
   stdinTranscriptPath,
   streamLines,

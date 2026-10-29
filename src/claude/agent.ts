@@ -26,8 +26,49 @@ const PERMISSION_MODES: readonly string[] = [
 // prompt — this sidesteps the OS argument-length limit and all shell-quoting
 // concerns, and works for arbitrarily long prompts. `--verbose` is required
 // for stream-json to emit the full event stream rather than just the final
-// result record.
-const STREAM_FLAGS = ["--print", "--output-format", "stream-json", "--verbose"];
+// result record. stdin is stream-json too (see stdinFrames below); claude
+// echoes nothing extra for it, so stdout is the same event stream as with
+// a raw-text prompt plus one control_response line per control request.
+const STREAM_FLAGS = [
+  "--print",
+  "--input-format",
+  "stream-json",
+  "--output-format",
+  "stream-json",
+  "--verbose",
+];
+
+// DESIGN DECISION: new sessions ask claude to title themselves. The
+// interactive REPL generates an ai-title after the first prompt, but a
+// headless --print run never does on its own, so glv-launched sessions
+// were listed under a truncation of their first prompt. Verified against
+// claude 2.1.289: a `generate_session_title` control request with
+// `persist: true` runs claude's own titler (the same small-model call and
+// prompt the REPL uses) and appends an ai-title line to the transcript,
+// which the store already prefers over the first prompt. The request runs
+// alongside the turn and is answered before the run exits. Follow-ups send
+// no request: a resumed transcript keeps the title it already has.
+const userFrame = (prompt: string): string =>
+  JSON.stringify({
+    type: "user",
+    message: { role: "user", content: prompt },
+  });
+
+const titleFrame = (prompt: string): string =>
+  JSON.stringify({
+    type: "control_request",
+    request_id: "glv-session-title",
+    request: {
+      subtype: "generate_session_title",
+      description: prompt,
+      persist: true,
+    },
+  });
+
+const stdinFrames = (prompt: string, newSession: boolean): string =>
+  (newSession ? [userFrame(prompt), titleFrame(prompt)] : [userFrame(prompt)])
+    .map((frame) => frame + "\n")
+    .join("");
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
@@ -97,6 +138,7 @@ const makeClaudeAgent = (
       ...permissionFlags(permissionMode),
       ...STREAM_FLAGS,
     ],
+    stdin: stdinFrames,
     // claude gates a directory it has never seen behind an interactive "do
     // you trust the files in this folder?" dialog that a headless --print run
     // can never answer, and drops project-scoped settings until it is

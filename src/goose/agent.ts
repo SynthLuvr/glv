@@ -63,6 +63,8 @@ const makeGooseAgent = (binary: string): AgentInvocation => ({
     key,
     ...STREAM_FLAGS,
   ],
+  // goose names its own sessions, so the prompt goes over as raw text.
+  stdin: (prompt) => prompt,
   env: () => ({}),
 });
 

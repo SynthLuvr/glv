@@ -12,7 +12,8 @@ import {
 // How the shared runner talks to one flavor's agent binary. argv is built
 // per invocation; the prompt itself always travels over stdin, so
 // arbitrarily long prompts never hit argument-length limits or shell
-// quoting.
+// quoting. How it is framed there is the flavor's call: goose reads raw
+// text, claude reads stream-json frames.
 type AgentInvocation = {
   /** Agent name in exit/error messages ("goose", "claude"). */
   readonly name: string;
@@ -30,6 +31,11 @@ type AgentInvocation = {
   ) => string[];
   /** argv for a follow-up run on an existing session. */
   readonly resume: (key: string, prompt: string) => string[];
+  /**
+   * The bytes written to the agent's stdin for one invocation;
+   * `newSession` tells a brand-new run from a follow-up.
+   */
+  readonly stdin: (prompt: string, newSession: boolean) => string;
   /** Extra environment variables for the agent process. */
   readonly env: () => Record<string, string>;
 };
@@ -189,6 +195,9 @@ type SpawnFn = (
 
 type Invocation = {
   args: string[];
+  /** The user's prompt as submitted (what the handle reports). */
+  prompt: string;
+  /** The prompt as framed for the agent's stdin. */
   stdin: string;
 };
 
