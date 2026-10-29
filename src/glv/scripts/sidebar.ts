@@ -219,16 +219,13 @@ const applyUnread = (): void => {
 };
 
 // ---------- new-session queue wait ----------
-// A create submitted while the concurrency pool is full queues and the
-// form's POST stays pending until a slot frees. The queued session has no
-// sidebar row yet — the agent writes it only once the run starts (goose
-// queues under a temp key discovered afterwards, claude under a
-// pre-assigned --session-id) — so the feed's queued state for that id
-// would otherwise be invisible and the submit would read as a silent
-// hang. While the create POST is in flight, a status for an id the
-// sidebar doesn't know drives a hint in the form: queued waits for a free
-// slot, running means the agent is starting, and a terminal status (or
-// the response itself) clears it.
+// A create submitted while the concurrency pool is full queues, and the
+// form's POST stays pending until a slot frees. The queued run has no
+// sidebar row yet — the agent writes the session only once the run
+// starts — so while the create is in flight a status for an id the
+// sidebar doesn't know drives a hint in the form: queued waits for a
+// free slot, running means the agent is starting, anything else clears
+// it.
 
 const NEW_SESSION_FORM = "form.new-session-form";
 
@@ -275,16 +272,19 @@ document.body.addEventListener("htmx:afterRequest", (e) => {
   removeQueueWaitHint();
 });
 
+const QUEUE_WAIT_TEXT: Partial<Record<FeedStatusPayload["status"], string>> = {
+  queued: "Waiting for a free slot…",
+  running: "Starting the session…",
+};
+
 const updateQueueWaitHint = (payload: FeedStatusPayload): void => {
   // An id with no sidebar row while the create pends is this create's
   // queued run — the feed emits deltas on change, so the first such event
   // is the queue state arriving.
   if (!createPending || findSessionItem(payload.sessionId) !== null) return;
-  if (payload.status === "queued")
-    showQueueWaitHint("Waiting for a free slot…");
-  else if (payload.status === "running")
-    showQueueWaitHint("Starting the session…");
-  else removeQueueWaitHint();
+  const text = QUEUE_WAIT_TEXT[payload.status];
+  if (text === undefined) removeQueueWaitHint();
+  else showQueueWaitHint(text);
 };
 
 const onStatusEvent = (payload: FeedStatusPayload): void => {

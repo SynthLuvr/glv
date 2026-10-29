@@ -26,10 +26,13 @@ import {
 const runSessionQueueSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
   let token = "";
-  let dirA: string;
-  let dirB: string;
-  let dirC: string;
-  let dirD: string;
+
+  const scratchDir = (name: string): string => {
+    const dir = join(env.scratchDir, name);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+
   beforeAll(async () => {
     env = await fx.startEnv(
       "glv-sessionqueue-",
@@ -42,14 +45,6 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
       ["--max-concurrent", "1"],
     );
     token = seedApiToken(env.dbs.authDb, "session-queue");
-    dirA = join(env.scratchDir, "queue-a");
-    dirB = join(env.scratchDir, "queue-b");
-    dirC = join(env.scratchDir, "queue-c");
-    dirD = join(env.scratchDir, "queue-d");
-    mkdirSync(dirA, { recursive: true });
-    mkdirSync(dirB, { recursive: true });
-    mkdirSync(dirC, { recursive: true });
-    mkdirSync(dirD, { recursive: true });
   }, 180000);
 
   afterAll(async () => {
@@ -57,12 +52,15 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
   });
 
   it("queues the second session and starts it when the slot frees", async () => {
+    const holdDir = scratchDir("hold-slot");
+    const queuedDir = scratchDir("queued-behind");
+
     // Fills the only slot; the mock holds it ~12s.
     const first = await bearerFetch(env, "/api/sessions", token, {
       method: "POST",
       body: new URLSearchParams({
         prompt: "first run — holds the slot",
-        working_dir: dirA,
+        working_dir: holdDir,
       }),
     });
     expect(first.status).toBe(201);
@@ -76,7 +74,7 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
       method: "POST",
       body: new URLSearchParams({
         prompt: "second run — must queue, not fail",
-        working_dir: dirB,
+        working_dir: queuedDir,
       }),
     });
     const elapsed = Date.now() - t0;
@@ -97,12 +95,15 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
   }, 60000);
 
   it("surfaces the queue wait on the form while the create waits for a slot", async () => {
+    const fillerDir = scratchDir("form-filler");
+    const formDir = scratchDir("form-subject");
+
     // Fill the only slot; the mock holds it ~12s.
     const filler = await bearerFetch(env, "/api/sessions", token, {
       method: "POST",
       body: new URLSearchParams({
         prompt: "queue-wait filler — holds the slot",
-        working_dir: dirC,
+        working_dir: fillerDir,
       }),
     });
     expect(filler.status).toBe(201);
@@ -110,7 +111,7 @@ const runSessionQueueSuite = (fx: FlavorFixture): void => {
     await withPage(env.context, async (page) => {
       await page.goto(env.baseUrl);
       await page.locator("form.new-session-form").waitFor();
-      await page.locator('input[name="working_dir"]').fill(dirD);
+      await page.locator('input[name="working_dir"]').fill(formDir);
       await page
         .locator("textarea[name=prompt]")
         .fill("second session — the pool is full");
