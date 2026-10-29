@@ -11,8 +11,14 @@ import {
 import type { LineBuffer } from "./ring-buffer.js";
 import { createRingBuffer } from "./ring-buffer.js";
 import { createRunner, getHandle, isTerminalStatus } from "./runner.js";
+import {
+  MEMORY_SPEC_ERROR,
+  parseMemoryCeiling,
+  RUN_SCOPE_PREFIX,
+} from "./scope.js";
 import type {
   AgentInvocation,
+  MemoryCeiling,
   ProcessResult,
   RunEndObserver,
   RunHandle,
@@ -27,6 +33,7 @@ import { makeRunnerConfig } from "./types.js";
 export type {
   AgentInvocation,
   LineBuffer,
+  MemoryCeiling,
   ProcessResult,
   RunEndObserver,
   RunHandle,
@@ -46,7 +53,10 @@ export {
   generateTempKey,
   getHandle,
   isTerminalStatus,
+  MEMORY_SPEC_ERROR,
   makeRunnerConfig,
+  parseMemoryCeiling,
+  RUN_SCOPE_PREFIX,
   rekey,
   stop,
   stopAll,

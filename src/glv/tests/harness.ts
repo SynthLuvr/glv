@@ -989,6 +989,11 @@ const startEnv = async (
         Object.entries(mockEnv(prefix, mock)),
       ),
     ),
+    // #392: the default fixture disables the per-run memory scope so
+    // suites stay deterministic on hosts with a live user systemd; the
+    // run-scope suite re-enables it per boot with a shimmed systemd-run
+    // on PATH. extraEnv below still wins.
+    GLV_RUN_MEMORY_MAX: "off",
     ...extraEnv,
   };
   // The environment every boot of this environment spawns serve with —

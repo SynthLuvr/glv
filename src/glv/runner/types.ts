@@ -1,8 +1,13 @@
 import { type } from "arktype";
 import type PQueue from "p-queue";
 import type { ModelSelection } from "../models.js";
-import { positiveEnvNumber } from "../util.js";
+import { nonEmptyEnv, positiveEnvNumber } from "../util.js";
 import type { LineBuffer } from "./ring-buffer.js";
+import {
+  MEMORY_SPEC_ERROR,
+  type MemoryCeiling,
+  parseMemoryCeiling,
+} from "./scope.js";
 
 // How the shared runner talks to one flavor's agent binary. argv is built
 // per invocation; the prompt itself always travels over stdin, so
@@ -47,6 +52,15 @@ type RunnerConfig = {
    * starve the concurrency pool.
    */
   startupTimeoutMs: number;
+  /**
+   * The server-wide per-run memory ceiling (#392): each invocation runs
+   * in its own transient systemd scope with MemoryMax set to this
+   * budget, so one ballooning run cannot OOM-kill the whole service.
+   * `{ kind: "off" }` restores the shared-cgroup behavior (with a
+   * logged warning); individual runs may override it (RunHandle's
+   * memoryMax).
+   */
+  memoryMax: MemoryCeiling;
 };
 
 const DEFAULT_STOP_GRACE_MS = 5000;
@@ -58,6 +72,11 @@ const DEFAULT_TERMINAL_RETENTION_MS = 30000;
 // (the same test-facing pattern as GLV_CRON_SESSION_TIMEOUT_MS).
 const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 
+// The default per-run ceiling (#392): generous enough that healthy
+// agent runs never graze it, tight enough that a runaway one dies alone
+// in its own scope. GLV_RUN_MEMORY_MAX and --run-memory-max override it.
+const DEFAULT_RUN_MEMORY_MAX_SPEC = "8G";
+
 const RunnerConfigSchema = type({
   maxConcurrent: "number.integer >= 1",
   stopGraceMs: "number.integer >= 1",
@@ -68,30 +87,31 @@ const RunnerConfigSchema = type({
 
 const makeRunnerConfig = (
   maxConcurrent: number,
-  stopGraceMs: number = DEFAULT_STOP_GRACE_MS,
-  maxLines: number = DEFAULT_MAX_LINES,
-  terminalRetentionMs: number = DEFAULT_TERMINAL_RETENTION_MS,
-  startupTimeoutMs: number = positiveEnvNumber(
-    "GLV_STARTUP_TIMEOUT_MS",
-    DEFAULT_STARTUP_TIMEOUT_MS,
-  ),
+  memoryMaxSpec?: string,
 ): RunnerConfig => {
-  const result = RunnerConfigSchema({
+  const config = {
     maxConcurrent,
-    stopGraceMs,
-    maxLines,
-    terminalRetentionMs,
-    startupTimeoutMs,
-  });
+    stopGraceMs: DEFAULT_STOP_GRACE_MS,
+    maxLines: DEFAULT_MAX_LINES,
+    terminalRetentionMs: DEFAULT_TERMINAL_RETENTION_MS,
+    startupTimeoutMs: positiveEnvNumber(
+      "GLV_STARTUP_TIMEOUT_MS",
+      DEFAULT_STARTUP_TIMEOUT_MS,
+    ),
+  };
+  const result = RunnerConfigSchema(config);
   if (result instanceof type.errors)
     throw new Error(`Invalid runner configuration: ${result.summary}`);
-  return {
-    maxConcurrent,
-    stopGraceMs,
-    maxLines,
-    terminalRetentionMs,
-    startupTimeoutMs,
-  };
+  const spec =
+    memoryMaxSpec ??
+    nonEmptyEnv("GLV_RUN_MEMORY_MAX", DEFAULT_RUN_MEMORY_MAX_SPEC);
+  const memoryMax = parseMemoryCeiling(spec);
+  if (memoryMax === undefined)
+    throw new Error(
+      `Invalid runner configuration: memory limit "${spec}" — ` +
+        MEMORY_SPEC_ERROR,
+    );
+  return { ...config, memoryMax };
 };
 
 type RunStatus = "queued" | "running" | "completed" | "stopped" | "error";
@@ -127,6 +147,19 @@ type RunHandle = {
   runId: string | undefined;
   /** When the current invocation started (epoch ms); undefined while queued. */
   startedAt: number | undefined;
+  /**
+   * The systemd scope the current invocation runs in (`glv-run-<run id>`;
+   * undefined when it spawned directly). Stamped fresh per invocation
+   * and recorded in run history so a journal entry about a breached
+   * scope attributes back to the run (#392).
+   */
+  scopeUnit: string | undefined;
+  /**
+   * This run's own ceiling override (#392): undefined means the
+   * server-wide config decides. A follow-up submit may set it; the
+   * override applies from the session's next invocation.
+   */
+  memoryMax: MemoryCeiling | undefined;
   /** FIFO queue of prompts not yet started (for chained-run display). */
   readonly pendingPrompts: readonly string[];
   /** Every prompt that has begun executing, oldest first (for stream replay). */
@@ -202,6 +235,7 @@ export type {
   InternalHandle,
   Invocation,
   LineBuffer,
+  MemoryCeiling,
   ProcessResult,
   RunEndObserver,
   RunHandle,

@@ -7,6 +7,7 @@ import type {
   AgentInvocation,
   InternalHandle,
   Invocation,
+  MemoryCeiling,
   RunHandle,
   Runner,
   RunStatus,
@@ -121,6 +122,7 @@ const enqueueInvocation = (
   invocation: Invocation,
   workingDir: string,
   agent: AgentInvocation,
+  memoryMax?: MemoryCeiling,
 ): RunHandle => {
   const existing = runner.registry.get(key);
   if (existing !== undefined && isActiveStatus(existing.status))
@@ -141,6 +143,8 @@ const enqueueInvocation = (
     stopReason: undefined,
     runId: undefined,
     startedAt: undefined,
+    scopeUnit: undefined,
+    memoryMax,
     cancelled: false,
     process: undefined,
     evictionTimer: undefined,
@@ -183,6 +187,7 @@ const enqueueNewSession = (
   prompt: string,
   workingDir: string,
   model?: ModelSelection,
+  memoryMax?: MemoryCeiling,
 ): RunHandle =>
   enqueueInvocation(
     runner,
@@ -190,6 +195,7 @@ const enqueueNewSession = (
     { args: agent.newSession(prompt, key, model), stdin: prompt },
     workingDir,
     agent,
+    memoryMax,
   );
 
 // A follow-up run on an existing session.
@@ -199,6 +205,7 @@ const enqueueRun = (
   key: string,
   prompt: string,
   workingDir: string,
+  memoryMax?: MemoryCeiling,
 ): RunHandle =>
   enqueueInvocation(
     runner,
@@ -206,6 +213,7 @@ const enqueueRun = (
     { args: agent.resume(key, prompt), stdin: prompt },
     workingDir,
     agent,
+    memoryMax,
   );
 
 const enqueueOrQueue = (
@@ -214,14 +222,18 @@ const enqueueOrQueue = (
   sessionId: string,
   prompt: string,
   workingDir: string,
+  memoryMax?: MemoryCeiling,
 ): { handle: RunHandle; queued: boolean } => {
   const existing = runner.registry.get(sessionId);
   if (existing !== undefined && isActiveStatus(existing.status)) {
     existing.pendingPrompts.push(prompt);
+    // A submitted ceiling override applies from the session's next
+    // invocation; the run in flight keeps the ceiling it started with.
+    if (memoryMax !== undefined) existing.memoryMax = memoryMax;
     return { handle: existing, queued: true };
   }
   return {
-    handle: enqueueRun(runner, agent, sessionId, prompt, workingDir),
+    handle: enqueueRun(runner, agent, sessionId, prompt, workingDir, memoryMax),
     queued: false,
   };
 };

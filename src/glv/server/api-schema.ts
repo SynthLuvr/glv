@@ -147,11 +147,16 @@ const lastRunField = (
   lastRun === undefined ? {} : { last_run: toApiLastRun(lastRun) };
 
 // One settled run as the history endpoint returns it: the last-run
-// verdict shape plus started_at, the instant the run's process spawned
-// (omitted for a run stopped while still queued). Built by composing
-// ApiLastRun, so the verdict fields cannot drift from the rows' and
-// the wait answer's spelling.
-const ApiRunHistoryEntry = ApiLastRun.and({ "started_at?": "string" });
+// verdict shape plus started_at (omitted for a run stopped while still
+// queued) and scope_unit, the systemd scope the run executed in (#392;
+// omitted when it spawned directly) — journalctl names the same unit
+// when the kernel OOM-kills a breached scope, so an entry attributes
+// itself to the run. Composed from ApiLastRun so the verdict fields
+// cannot drift from the last_run spelling.
+const ApiRunHistoryEntry = ApiLastRun.and({
+  "started_at?": "string",
+  "scope_unit?": "string",
+});
 
 type ApiRunHistoryEntryData = typeof ApiRunHistoryEntry.infer;
 
@@ -164,6 +169,7 @@ const toApiRunHistoryEntry = (
   ...(record.startedAt === undefined
     ? {}
     : { started_at: toApiTimestamp(record.startedAt) }),
+  ...(record.scopeUnit === undefined ? {} : { scope_unit: record.scopeUnit }),
 });
 
 // The run-state vocabulary every status field speaks: the live states
@@ -283,12 +289,23 @@ const ApiStartSessionForm = type({
   "model?": "string",
   "location?": "string",
   "parent_session?": "string",
+  /**
+   * This run's memory ceiling (#392): a size like "512M"/"8G" or "off";
+   * absent keeps the server-wide default (--run-memory-max /
+   * GLV_RUN_MEMORY_MAX).
+   */
+  "memory_max?": "string",
 });
 
 // The multipart form fields POST /api/sessions/:id/prompt accepts.
 const ApiFollowUpForm = type({
   prompt: "string",
   "location?": "string",
+  /**
+   * This run's memory ceiling (#392); see ApiStartSessionForm. On a
+   * submit queued behind a live run, applies from the next invocation.
+   */
+  "memory_max?": "string",
 });
 
 // The multipart form fields POST /api/sessions/:id/fork accepts: the
@@ -298,6 +315,8 @@ const ApiFollowUpForm = type({
 const ApiForkForm = type({
   "cutoff?": "string",
   "prompt?": "string",
+  /** This run's memory ceiling (#392); see ApiStartSessionForm. */
+  "memory_max?": "string",
 });
 
 // One scheduled-run row exactly as the cron endpoints return it (the

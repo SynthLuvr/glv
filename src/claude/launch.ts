@@ -33,7 +33,7 @@ const makeClaudeLauncher = (
   const keys = launcherKeys(prefix);
   const agent = prefixedInvocation(invocation, prefix);
   return {
-    startNew: (workingDir, prompt, model) => {
+    startNew: (workingDir, prompt, model, memoryMax) => {
       const sessionId = randomUUID();
       enqueueNewSession(
         runner,
@@ -42,6 +42,7 @@ const makeClaudeLauncher = (
         prompt,
         workingDir,
         model,
+        memoryMax,
       );
       return keys.out(sessionId);
     },
