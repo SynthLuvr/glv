@@ -38,7 +38,7 @@ const ExecaError = type({
 
 const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const proc = execa(binary, args, {
-    input: opts.stdin,
+    input: opts.stdin.kind === "one-shot" ? opts.stdin.input : undefined,
     cwd: opts.cwd,
     // execa extends process.env with this, so the rest of the environment
     // is still inherited.
@@ -49,6 +49,30 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     killDescendants: true,
   });
   const pid = proc.pid ?? -1;
+
+  // Held-open stdin: the prompt is written but the pipe stays open —
+  // the agent's session is "live" until the runner closes it (the
+  // stdin policy decides when).
+  if (opts.stdin.kind === "held") {
+    // EPIPE (agent died before reading) is swallowed deliberately: the
+    // exit verdict owns that failure.
+    proc.stdin?.on("error", () => undefined);
+    proc.stdin?.write(opts.stdin.input, "utf8", () => undefined);
+  }
+
+  // Ends stdin if it is still open, ignoring anything that can go
+  // wrong with a pipe whose far end is already gone. Idempotent by
+  // construction (writableEnded), so the policy, the teardown paths,
+  // and the process's own death can all call it freely.
+  const closeStdin = (): void => {
+    const stdin = proc.stdin;
+    if (stdin === undefined || stdin.writableEnded || stdin.destroyed) return;
+    try {
+      stdin.end();
+    } catch {
+      // the process died first; its exit owns the verdict
+    }
+  };
 
   const exit = proc.then(
     (r) => ({ exitCode: r.exitCode ?? 0 }),
@@ -86,6 +110,7 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
     stdout: proc,
     stderr: proc.iterable({ from: "stderr" }),
     exit,
+    closeStdin,
   };
 };
 
@@ -235,6 +260,8 @@ const drainStdout = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
   onFirstLine: () => void,
+  // Optional per-line observer (the stdin policy); absent means none.
+  onLine: (line: string) => void = () => undefined,
 ): Promise<unknown> => {
   let spoke = false;
   // Returns false when the run was stopped mid-stream — the drain stops
@@ -246,6 +273,9 @@ const drainStdout = async (
     }
     if (handle.status === "stopped") return false;
     handle.output.push(line);
+    // The stdin policy reacts to the same ingested lines the buffer
+    // keeps, so its view of the run can never drift from the record.
+    onLine(line);
     return true;
   };
   try {
@@ -309,8 +339,21 @@ const runProcess = async (
   });
   handle.process = proc;
 
+  // A held-open stdin gets its close policy attached here, fresh per
+  // invocation: the policy sees the ingested stream lines and closes
+  // the pipe when the agent has nothing left to wait for. Everything
+  // else in the run lifecycle — stop ladder, watchdog, settle — is
+  // unchanged by it; closing stdin only ever lets a parked process
+  // exit, it never kills or fails a run by itself.
+  const heldPolicy =
+    invocation.stdin.kind === "held"
+      ? invocation.stdin.policy(() => proc.closeStdin())
+      : undefined;
+
   // stop() may have set cancelled before we assigned the process
   if (handle.cancelled) {
+    heldPolicy?.stop();
+    proc.closeStdin();
     proc.kill("SIGINT");
     return;
   }
@@ -333,7 +376,12 @@ const runProcess = async (
   );
   const watchdog = armStartupWatchdog(runner, handle, proc, stderrTail.text);
   try {
-    const drainError = await drainStdout(proc, handle, () => watchdog.cancel());
+    const drainError = await drainStdout(
+      proc,
+      handle,
+      () => watchdog.cancel(),
+      (line) => heldPolicy?.onLine(line),
+    );
     const result = await proc.exit;
     watchdog.cancel();
     // The stderr iterable ends with the process; awaiting it after the
@@ -347,6 +395,11 @@ const runProcess = async (
     if (result.exitCode === null && drainError !== undefined) throw drainError;
     settleRun(handle, result, firstSeq, stderrTail.text());
   } finally {
+    // The policy's timers die with the process; stdin closes too, so a
+    // teardown path that never went through the policy (stop ladder,
+    // watchdog) still cannot leave the pipe wedged open.
+    heldPolicy?.stop();
+    proc.closeStdin();
     stopEscalation();
     watchdog.cancel();
   }

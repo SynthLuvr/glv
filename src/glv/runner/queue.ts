@@ -12,6 +12,7 @@ import type {
   Runner,
   RunStatus,
 } from "./types.js";
+import { planStdin } from "./types.js";
 
 // Stamps the run-history identity for a new invocation: a fresh run
 // id (both notifications of one settle share it, so the run records
@@ -112,7 +113,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.status = "running";
   return {
     args: handle.agent.resume(handle.sessionId, nextPrompt),
-    stdin: nextPrompt,
+    stdin: planStdin(handle.agent, nextPrompt),
   };
 };
 
@@ -120,6 +121,7 @@ const enqueueInvocation = (
   runner: Runner,
   key: string,
   invocation: Invocation,
+  prompt: string,
   workingDir: string,
   agent: AgentInvocation,
   memoryMax?: MemoryCeiling,
@@ -130,7 +132,7 @@ const enqueueInvocation = (
 
   const handle: InternalHandle = {
     sessionId: key,
-    prompt: invocation.stdin,
+    prompt,
     pendingPrompts: [],
     startedPrompts: [],
     workingDir,
@@ -192,7 +194,11 @@ const enqueueNewSession = (
   enqueueInvocation(
     runner,
     key,
-    { args: agent.newSession(prompt, key, model), stdin: prompt },
+    {
+      args: agent.newSession(prompt, key, model),
+      stdin: planStdin(agent, prompt),
+    },
+    prompt,
     workingDir,
     agent,
     memoryMax,
@@ -210,7 +216,8 @@ const enqueueRun = (
   enqueueInvocation(
     runner,
     key,
-    { args: agent.resume(key, prompt), stdin: prompt },
+    { args: agent.resume(key, prompt), stdin: planStdin(agent, prompt) },
+    prompt,
     workingDir,
     agent,
     memoryMax,

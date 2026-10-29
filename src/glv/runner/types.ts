@@ -9,6 +9,34 @@ import {
   parseMemoryCeiling,
 } from "./scope.js";
 
+// How the prompt travels over stdin, and what happens to the pipe
+// afterwards. "one-shot" (the default) writes the prompt and closes
+// stdin — the text-prompt model, where the agent answers the single
+// prompt it was fed and exits. "held" writes and keeps the pipe open:
+// for an agent whose headless mode reads streaming input (claude with
+// `--input-format stream-json`), an open stdin is what makes the
+// session "live" — pending background tasks survive the end of a turn,
+// their completion wakes the agent as a new turn, and the process
+// exits only once the policy below closes the pipe (ADR 0010).
+type StdinPlan =
+  | { readonly kind: "one-shot"; readonly input: string }
+  | {
+      readonly kind: "held";
+      readonly input: string;
+      readonly policy: StdinClosePolicy;
+    };
+
+// Watches the agent's own output stream and decides when a held-open
+// stdin may close — that is, when the process is allowed to exit.
+// Called once per invocation with the runner's (idempotent) close
+// handle; `onLine` sees every ingested stdout line, oldest first;
+// `stop` fires exactly once at process exit or teardown so pending
+// timers can be cancelled.
+type StdinClosePolicy = (close: () => void) => {
+  onLine: (line: string) => void;
+  stop: () => void;
+};
+
 // How the shared runner talks to one flavor's agent binary. argv is built
 // per invocation; the prompt itself always travels over stdin, so
 // arbitrarily long prompts never hit argument-length limits or shell
@@ -32,6 +60,12 @@ type AgentInvocation = {
   readonly resume: (key: string, prompt: string) => string[];
   /** Extra environment variables for the agent process. */
   readonly env: () => Record<string, string>;
+  /**
+   * The agent's stdin plan for a prompt; absent means one-shot text.
+   * claude supplies the held-open stream-json plan so background work
+   * can outlive a turn (ADR 0010).
+   */
+  readonly stdinPlan?: (prompt: string) => StdinPlan;
 };
 
 // The agent is not part of the config: one runner serves several agents
@@ -178,18 +212,29 @@ type SpawnedProcess = {
   /** Newline-split stderr, drained into a bounded diagnostic tail. */
   stderr: AsyncIterable<string>;
   exit: Promise<ProcessResult>;
+  /**
+   * Ends the agent's stdin, idempotently and safely at any point in the
+   * process's life. For a one-shot spawn this is a no-op (the prompt
+   * write already ended the pipe); for a held-open one it is the "you
+   * may exit now" signal.
+   */
+  closeStdin: () => void;
 };
 
 /** Subprocess factory; tests inject a fake to avoid spawning a real agent. */
 type SpawnFn = (
   binary: string,
   args: string[],
-  opts: { stdin: string; cwd: string; env: Record<string, string> },
+  opts: { stdin: StdinPlan; cwd: string; env: Record<string, string> },
 ) => SpawnedProcess;
+
+// The plan an agent with no opinion gets: the prompt as one-shot text.
+const planStdin = (agent: AgentInvocation, prompt: string): StdinPlan =>
+  agent.stdinPlan?.(prompt) ?? { kind: "one-shot", input: prompt };
 
 type Invocation = {
   args: string[];
-  stdin: string;
+  stdin: StdinPlan;
 };
 
 type InternalHandle = Omit<
@@ -244,5 +289,7 @@ export type {
   RunStatus,
   SpawnedProcess,
   SpawnFn,
+  StdinClosePolicy,
+  StdinPlan,
 };
-export { makeRunnerConfig };
+export { makeRunnerConfig, planStdin };

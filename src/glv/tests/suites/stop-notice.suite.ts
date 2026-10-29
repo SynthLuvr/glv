@@ -282,10 +282,10 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
   });
 
   // The kill-at-exit epilogue is claude's stream dialect, so the scenario
-  // binds only to flavors that can produce it: headless claude kills the
-  // plain background tasks its turn outlived after printing a clean
-  // result record and exits 0 — a session whose last words promised a
-  // report-back settles looking perfectly finished.
+  // binds only to flavors that can produce it. With held-open stdin
+  // (ADR 0010) glv-driven runs no longer produce it — the classifier is
+  // a tripwire for claude drift: if a release re-introduces an exit-time
+  // kill, the run must still surface it instead of settling clean.
   const killedTaskRecords = fx.killedTaskRecords;
   const cleanResultRecord = fx.cleanResultRecord;
 

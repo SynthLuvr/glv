@@ -24,16 +24,17 @@ For any non-trivial request:
   sure” beat a confident guess. More steps to the right answer beat
   fewer steps to a wrong one.
 
-## Background work must survive the turn
+## Background work outliving the turn
 
-Treat each turn as the lifetime of a process: when the turn ends, the
-host exits the process, and plain background jobs (Bash with
-`run_in_background`) are killed with it. Their completion can never wake
-you, so a promise to “report back” made on one is silently broken — the
-user just sees the session end. To watch something across turns, use the
-mechanism built to survive idle turns (in claude: the Monitor tool,
-never `run_in_background`); if your runtime offers no such mechanism,
-finish the work or stop it explicitly before ending the turn.
+Ending a turn does not necessarily end the run. When you leave
+background work pending (a watcher armed with Bash `run_in_background`,
+say), the host may keep the process alive until that work completes, and
+the completion wakes you for a follow-up turn — in glv this holds for
+claude runs even though they are headless, so “I’ll report back when it
+finishes” is a promise you can keep. If your runtime instead kills
+background jobs when the run ends, finish the work or stop it explicitly
+before ending the turn — never leave a report-back promise on work that
+cannot wake you.
 
 ## Git identity
 
