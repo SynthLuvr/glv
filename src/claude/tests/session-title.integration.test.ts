@@ -14,7 +14,12 @@ import { claudeFixture } from "./integration-harness.js";
 // session listed under its title — not a truncation of its prompt —
 // proves the request was sent and the title read back.
 
-type SessionRow = { name: string; status: string; user_set_name: number };
+type SessionRow = {
+  name: string;
+  status: string;
+  user_set_name: number;
+  last_run?: { ended_at: string };
+};
 
 const TITLE = "Parser refactor plan";
 const PROMPT = "Walk me through refactoring the stream parser into stages.";
@@ -55,7 +60,9 @@ describe("claude session auto-title", () => {
     }
   };
 
-  const isIdle = (row: SessionRow): boolean => row.status === "idle";
+  // Settled: no run queued or in flight ("completed" right after one).
+  const isSettled = (row: SessionRow): boolean =>
+    row.status !== "queued" && row.status !== "running";
 
   let sessionId = "";
 
@@ -72,7 +79,7 @@ describe("claude session auto-title", () => {
 
     const row = await waitForSession(
       sessionId,
-      (r) => isIdle(r) && r.name === TITLE,
+      (r) => isSettled(r) && r.name === TITLE,
     );
     expect(row.name).toBe(TITLE);
     // The title is claude's, not a viewer rename.
@@ -80,6 +87,7 @@ describe("claude session auto-title", () => {
   });
 
   it("keeps the title across a follow-up run", async () => {
+    const before = (await sessionOf(sessionId)).last_run?.ended_at;
     const res = await bearerFetch(
       env,
       `/api/sessions/${sessionId}/prompt`,
@@ -90,9 +98,11 @@ describe("claude session auto-title", () => {
       },
     );
     expect(res.status).toBeLessThan(300);
-    // Let the follow-up start before waiting for it to settle again.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const row = await waitForSession(sessionId, isIdle);
+    // The follow-up has run once a newer last-run verdict lands.
+    const row = await waitForSession(
+      sessionId,
+      (r) => isSettled(r) && r.last_run?.ended_at !== before,
+    );
     expect(row.name).toBe(TITLE);
   });
 });
