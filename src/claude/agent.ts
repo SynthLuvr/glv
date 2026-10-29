@@ -38,22 +38,22 @@ const STREAM_FLAGS = [
   "--verbose",
 ];
 
-// DESIGN DECISION: new sessions ask claude to title themselves. The
-// interactive REPL generates an ai-title after the first prompt, but a
-// headless --print run never does on its own, so glv-launched sessions
-// were listed under a truncation of their first prompt. Verified against
-// claude 2.1.289: a `generate_session_title` control request with
-// `persist: true` runs claude's own titler (the same small-model call and
-// prompt the REPL uses) and appends an ai-title line to the transcript,
-// which the store already prefers over the first prompt. The request runs
-// alongside the turn and is answered before the run exits. Follow-ups send
-// no request: a resumed transcript keeps the title it already has.
 const userFrame = (prompt: string): string =>
   JSON.stringify({
     type: "user",
     message: { role: "user", content: prompt },
   });
 
+// DESIGN DECISION: new sessions ask claude to title themselves. The
+// interactive REPL generates an ai-title after the first prompt, but a
+// headless --print run never does on its own, so glv-launched sessions
+// were listed under a truncation of their first prompt. Verified against
+// claude 2.1.289: this request with `persist: true` runs claude's own
+// titler (the same small-model call and prompt the REPL uses) and
+// appends an ai-title line to the transcript, which the store already
+// prefers over the first prompt. The request runs alongside the turn and
+// is answered before the run exits. Follow-ups send no request: a
+// resumed transcript keeps the title it already has.
 const titleFrame = (prompt: string): string =>
   JSON.stringify({
     type: "control_request",
@@ -65,10 +65,13 @@ const titleFrame = (prompt: string): string =>
     },
   });
 
-const stdinFrames = (prompt: string, newSession: boolean): string =>
-  (newSession ? [userFrame(prompt), titleFrame(prompt)] : [userFrame(prompt)])
-    .map((frame) => frame + "\n")
-    .join("");
+// One turn's stdin under `--input-format stream-json`: the prompt in a
+// user frame, and on a brand-new session the title request after it.
+const stdinFrames = (prompt: string, newSession: boolean): string => {
+  const frames = [userFrame(prompt)];
+  if (newSession) frames.push(titleFrame(prompt));
+  return frames.map((frame) => frame + "\n").join("");
+};
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a

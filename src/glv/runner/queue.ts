@@ -92,6 +92,18 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
   handle.evictionTimer = undefined;
 };
 
+// One follow-up turn on an existing session: the agent's resume argv
+// plus the prompt framed for its stdin.
+const resumeInvocation = (
+  agent: AgentInvocation,
+  key: string,
+  prompt: string,
+): Invocation => ({
+  args: agent.resume(key, prompt),
+  prompt,
+  stdin: agent.stdin(prompt, false),
+});
+
 // Advance to the next queued prompt after a run finishes, or end the chain.
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
@@ -110,11 +122,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.stopNotice = undefined;
   handle.stopReason = undefined;
   handle.status = "running";
-  return {
-    args: handle.agent.resume(handle.sessionId, nextPrompt),
-    prompt: nextPrompt,
-    stdin: handle.agent.stdin(nextPrompt, false),
-  };
+  return resumeInvocation(handle.agent, handle.sessionId, nextPrompt);
 };
 
 const enqueueInvocation = (
@@ -215,11 +223,7 @@ const enqueueRun = (
   enqueueInvocation(
     runner,
     key,
-    {
-      args: agent.resume(key, prompt),
-      prompt,
-      stdin: agent.stdin(prompt, false),
-    },
+    resumeInvocation(agent, key, prompt),
     workingDir,
     agent,
     memoryMax,

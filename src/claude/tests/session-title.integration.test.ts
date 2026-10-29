@@ -45,7 +45,6 @@ describe("claude session auto-title", () => {
     return ((await res.json()) as { session: SessionRow }).session;
   };
 
-  // Polls the detail endpoint until the run settles and the row matches.
   const waitForSession = async (
     id: string,
     done: (row: SessionRow) => boolean,
@@ -60,7 +59,6 @@ describe("claude session auto-title", () => {
     }
   };
 
-  // Settled: no run queued or in flight ("completed" right after one).
   const isSettled = (row: SessionRow): boolean =>
     row.status !== "queued" && row.status !== "running";
 
@@ -81,8 +79,7 @@ describe("claude session auto-title", () => {
       sessionId,
       (r) => isSettled(r) && r.name === TITLE,
     );
-    expect(row.name).toBe(TITLE);
-    // The title is claude's, not a viewer rename.
+    // The title is claude's own, not a viewer rename.
     expect(row.user_set_name).toBe(0);
   });
 
@@ -98,7 +95,7 @@ describe("claude session auto-title", () => {
       },
     );
     expect(res.status).toBeLessThan(300);
-    // The follow-up has run once a newer last-run verdict lands.
+    // A newer last-run verdict means the follow-up itself has settled.
     const row = await waitForSession(
       sessionId,
       (r) => isSettled(r) && r.last_run?.ended_at !== before,
