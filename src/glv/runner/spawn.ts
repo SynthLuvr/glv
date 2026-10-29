@@ -51,19 +51,18 @@ const defaultSpawn: SpawnFn = (binary, args, opts) => {
   const pid = proc.pid ?? -1;
 
   // Held-open stdin: the prompt is written but the pipe stays open —
-  // the agent's session is "live" until the runner closes it (the
-  // stdin policy decides when).
+  // the session is live until the close policy decides otherwise.
   if (opts.stdin.kind === "held") {
-    // EPIPE (agent died before reading) is swallowed deliberately: the
-    // exit verdict owns that failure.
+    // EPIPE (agent died before reading) is swallowed: the exit verdict
+    // owns that failure.
     proc.stdin?.on("error", () => undefined);
     proc.stdin?.write(opts.stdin.input, "utf8", () => undefined);
   }
 
-  // Ends stdin if it is still open, ignoring anything that can go
-  // wrong with a pipe whose far end is already gone. Idempotent by
-  // construction (writableEnded), so the policy, the teardown paths,
-  // and the process's own death can all call it freely.
+  // Ends stdin if it is still open, ignoring a pipe whose far end is
+  // already gone. Idempotent by construction (writableEnded), so the
+  // policy, the teardown paths, and the process's own death can all
+  // call it freely.
   const closeStdin = (): void => {
     const stdin = proc.stdin;
     if (stdin === undefined || stdin.writableEnded || stdin.destroyed) return;
@@ -260,7 +259,7 @@ const drainStdout = async (
   proc: SpawnedProcess,
   handle: InternalHandle,
   onFirstLine: () => void,
-  // Optional per-line observer (the stdin policy); absent means none.
+  // Optional per-line observer (the stdin close policy).
   onLine: (line: string) => void = () => undefined,
 ): Promise<unknown> => {
   let spoke = false;
@@ -273,8 +272,8 @@ const drainStdout = async (
     }
     if (handle.status === "stopped") return false;
     handle.output.push(line);
-    // The stdin policy reacts to the same ingested lines the buffer
-    // keeps, so its view of the run can never drift from the record.
+    // The close policy reacts to the same lines the buffer keeps, so
+    // its view of the run can never drift from the record.
     onLine(line);
     return true;
   };
@@ -340,11 +339,10 @@ const runProcess = async (
   handle.process = proc;
 
   // A held-open stdin gets its close policy attached here, fresh per
-  // invocation: the policy sees the ingested stream lines and closes
-  // the pipe when the agent has nothing left to wait for. Everything
-  // else in the run lifecycle — stop ladder, watchdog, settle — is
-  // unchanged by it; closing stdin only ever lets a parked process
-  // exit, it never kills or fails a run by itself.
+  // invocation: the policy watches the ingested stream lines and closes
+  // the pipe once the run has nothing left to wait for. Closing stdin
+  // only ever lets a parked process exit — it never kills or fails a
+  // run by itself.
   const heldPolicy =
     invocation.stdin.kind === "held"
       ? invocation.stdin.policy(() => proc.closeStdin())
@@ -395,9 +393,9 @@ const runProcess = async (
     if (result.exitCode === null && drainError !== undefined) throw drainError;
     settleRun(handle, result, firstSeq, stderrTail.text());
   } finally {
-    // The policy's timers die with the process; stdin closes too, so a
-    // teardown path that never went through the policy (stop ladder,
-    // watchdog) still cannot leave the pipe wedged open.
+    // The policy's timers die with the process, and stdin closes too,
+    // so a teardown path that never consulted the policy (stop ladder,
+    // watchdog) cannot leave the pipe wedged open.
     heldPolicy?.stop();
     proc.closeStdin();
     stopEscalation();

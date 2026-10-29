@@ -3,21 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  authedFetch,
   collectSse,
   type IntegrationEnv,
   parseSseData,
+  postFollowUp,
 } from "../../glv/tests/harness.js";
 import { claudeFixture } from "./integration-harness.js";
 
 // ADR 0010: claude runs hold stdin open (stream-json input) so pending
 // background tasks survive the turn that armed them and their
-// completion wakes the agent into a new turn — headless parity with an
-// interactive session. These scenarios drive the real server → runner →
-// spawn path against the scripted mock claude and prove, from the
-// pipe's own point of view, that glv held it open across the turn
-// boundary and closed it exactly when the run had nothing left to wait
-// for.
+// completion wakes the agent into a new turn. These scenarios drive the
+// real server → runner → spawn path against the scripted mock claude
+// and prove, from the pipe's own point of view, that glv held it open
+// across the turn boundary and closed it exactly when the run had
+// nothing left to wait for.
 
 // One line of the mock's stdin-lifecycle log, oldest first.
 type StdinPhase = {
@@ -45,18 +44,18 @@ const hasStatus = (
     (e) => e.event === "status" && parseSseData(e.data).status === status,
   );
 
-const startRun = (
-  env: IntegrationEnv,
-  id: string,
-  prompt: string,
-): Promise<Response> =>
-  authedFetch(env, `/sessions/${claudeFixture.viewId(id)}/prompt`, {
-    method: "POST",
-    body: new URLSearchParams({ prompt }),
-    headers: { "HX-Request": "true" },
-  });
-
 const SESSION = "stdin-1";
+
+// Seeds the session the scenarios run against, creating the working dir
+// the run spawns in.
+const seedSession = (env: IntegrationEnv, name: string): void => {
+  const workingDir = join(env.scratchDir, "w");
+  mkdirSync(workingDir, { recursive: true });
+  claudeFixture.seedSessions(env, [{ id: SESSION, name, workingDir }]);
+  claudeFixture.seedMessages(env, SESSION, [
+    { role: "user", content: [{ type: "text", text: "seed" }] },
+  ]);
+};
 
 describe("held-open stdin — background tasks outlive the turn (claude)", () => {
   describe("a completed task wakes the agent", () => {
@@ -78,18 +77,7 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
           CLAUDE_MOCK_CAPTURE_STDIN: promptCapture,
         },
       );
-      // The run spawns with this as cwd; it must exist.
-      mkdirSync(join(env.scratchDir, "w"), { recursive: true });
-      claudeFixture.seedSessions(env, [
-        {
-          id: SESSION,
-          name: "Stdin Wake",
-          workingDir: join(env.scratchDir, "w"),
-        },
-      ]);
-      claudeFixture.seedMessages(env, SESSION, [
-        { role: "user", content: [{ type: "text", text: "seed" }] },
-      ]);
+      seedSession(env, "Stdin Wake");
     }, 120000);
 
     afterAll(async () => {
@@ -111,16 +99,16 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
           ),
         30_000,
       );
-      const posted = await startRun(
+      const posted = await postFollowUp(
         env,
-        SESSION,
+        claudeFixture.viewId(SESSION),
         "watch the pr and report back",
       );
       expect(posted.status).toBe(200);
       const events = await stream;
 
-      // The run took the wake turn and finished cleanly — no error,
-      // and the last preview is the wake turn's report, not turn 1's.
+      // The run took the wake turn and finished cleanly — no error, and
+      // the last preview is the wake turn's report, not turn 1's.
       expect(hasStatus(events, "running")).toBe(true);
       expect(hasStatus(events, "completed")).toBe(true);
       expect(hasStatus(events, "error")).toBe(false);
@@ -130,10 +118,10 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
       );
 
       // The pipe's own account of the run: the prompt arrived as one
-      // stream-json user line; stdin was still open at turn 1's
-      // result and stayed open through the parked silence while the
-      // task ran; the wake turn ran and ended; only then did EOF
-      // arrive — glv closed the pipe at the wake result, not before.
+      // stream-json user line; stdin was still open at turn 1's result
+      // and through the parked silence while the task ran; the wake
+      // turn ran and ended; only then did EOF arrive — glv closed the
+      // pipe at the wake result, not before.
       const phases = readPhases(logPath);
       const promptLine = phase(phases, "prompt");
       expect(promptLine?.line).toContain('"type":"user"');
@@ -143,8 +131,8 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
       expect(phase(phases, "turn2-result")?.stdinOpen).toBe(true);
       expect(phase(phases, "eof")?.closedAfterWakeTurn).toBe(true);
 
-      // And the captured prompt is the decoded text — the same raw
-      // prompt every other suite sees, despite the new wire format.
+      // The captured prompt is the decoded text — the same raw prompt
+      // every other suite sees, despite the new wire format.
       expect(readFileSync(promptCapture, "utf8")).toBe(
         "watch the pr and report back",
       );
@@ -170,17 +158,7 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
           GLV_CLAUDE_STDIN_IDLE_MS: "700",
         },
       );
-      mkdirSync(join(env.scratchDir, "w"), { recursive: true });
-      claudeFixture.seedSessions(env, [
-        {
-          id: SESSION,
-          name: "Stdin NoWake",
-          workingDir: join(env.scratchDir, "w"),
-        },
-      ]);
-      claudeFixture.seedMessages(env, SESSION, [
-        { role: "user", content: [{ type: "text", text: "seed" }] },
-      ]);
+      seedSession(env, "Stdin NoWake");
     }, 120000);
 
     afterAll(async () => {
@@ -194,7 +172,11 @@ describe("held-open stdin — background tasks outlive the turn (claude)", () =>
         (evs) => hasStatus(evs, "completed") || hasStatus(evs, "error"),
         30_000,
       );
-      const posted = await startRun(env, SESSION, "watch silently please");
+      const posted = await postFollowUp(
+        env,
+        claudeFixture.viewId(SESSION),
+        "watch silently please",
+      );
       expect(posted.status).toBe(200);
       const events = await stream;
       expect(hasStatus(events, "completed")).toBe(true);

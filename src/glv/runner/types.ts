@@ -9,15 +9,13 @@ import {
   parseMemoryCeiling,
 } from "./scope.js";
 
-// How the prompt travels over stdin, and what happens to the pipe
-// afterwards. "one-shot" (the default) writes the prompt and closes
-// stdin — the text-prompt model, where the agent answers the single
-// prompt it was fed and exits. "held" writes and keeps the pipe open:
-// for an agent whose headless mode reads streaming input (claude with
-// `--input-format stream-json`), an open stdin is what makes the
-// session "live" — pending background tasks survive the end of a turn,
-// their completion wakes the agent as a new turn, and the process
-// exits only once the policy below closes the pipe (ADR 0010).
+// How the prompt travels over stdin. "one-shot" (the default) writes the
+// prompt and closes the pipe — the text-prompt model, where the agent
+// answers the single prompt it was fed and exits. "held" writes it and
+// keeps the pipe open: claude's stream-json input mode treats an open
+// stdin as "the session is live" — background tasks survive the end of a
+// turn, their completion wakes the agent into a new turn, and the
+// process exits only when the policy closes the pipe (ADR 0010).
 type StdinPlan =
   | { readonly kind: "one-shot"; readonly input: string }
   | {
@@ -26,12 +24,11 @@ type StdinPlan =
       readonly policy: StdinClosePolicy;
     };
 
-// Watches the agent's own output stream and decides when a held-open
-// stdin may close — that is, when the process is allowed to exit.
-// Called once per invocation with the runner's (idempotent) close
-// handle; `onLine` sees every ingested stdout line, oldest first;
-// `stop` fires exactly once at process exit or teardown so pending
-// timers can be cancelled.
+// Watches the agent's own stdout and decides when a held-open stdin may
+// close — that is, when the process is allowed to exit. Called once per
+// invocation with the runner's idempotent close handle; `onLine` sees
+// every ingested stream line, oldest first; `stop` fires once at exit
+// or teardown so pending timers are cancelled.
 type StdinClosePolicy = (close: () => void) => {
   onLine: (line: string) => void;
   stop: () => void;
@@ -62,8 +59,8 @@ type AgentInvocation = {
   readonly env: () => Record<string, string>;
   /**
    * The agent's stdin plan for a prompt; absent means one-shot text.
-   * claude supplies the held-open stream-json plan so background work
-   * can outlive a turn (ADR 0010).
+   * claude holds stdin open so background work outlives a turn
+   * (ADR 0010).
    */
   readonly stdinPlan?: (prompt: string) => StdinPlan;
 };
@@ -214,9 +211,9 @@ type SpawnedProcess = {
   exit: Promise<ProcessResult>;
   /**
    * Ends the agent's stdin, idempotently and safely at any point in the
-   * process's life. For a one-shot spawn this is a no-op (the prompt
-   * write already ended the pipe); for a held-open one it is the "you
-   * may exit now" signal.
+   * process's life: a no-op for a one-shot spawn (the prompt write
+   * already ended the pipe), the "you may exit now" signal for a
+   * held-open one.
    */
   closeStdin: () => void;
 };
@@ -227,10 +224,6 @@ type SpawnFn = (
   args: string[],
   opts: { stdin: StdinPlan; cwd: string; env: Record<string, string> },
 ) => SpawnedProcess;
-
-// The plan an agent with no opinion gets: the prompt as one-shot text.
-const planStdin = (agent: AgentInvocation, prompt: string): StdinPlan =>
-  agent.stdinPlan?.(prompt) ?? { kind: "one-shot", input: prompt };
 
 type Invocation = {
   args: string[];
@@ -292,4 +285,4 @@ export type {
   StdinClosePolicy,
   StdinPlan,
 };
-export { makeRunnerConfig, planStdin };
+export { makeRunnerConfig };

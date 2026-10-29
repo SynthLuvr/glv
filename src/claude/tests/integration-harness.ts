@@ -204,13 +204,12 @@ const claudeFixture: harness.FlavorFixture = {
     num_turns: 3,
     result: "mock claude reply",
   }),
-  // The kill epilogue claude 2.1.289 streams in the old text-stdin
-  // model, when no Monitor task is pending: the plain background tasks
-  // the turn outlived are killed at process teardown, each announced
-  // as a stopped task_notification. With glv's held-open stdin (ADR
-  // 0010) claude no longer tears tasks down this way; the classifier
-  // keeps watching for the shape as a drift tripwire, so the suite
-  // still scripts it.
+  // The kill epilogue claude 2.1.289 streams in the text-stdin model
+  // when no Monitor task is pending: the plain background tasks the
+  // turn outlived are killed at process teardown, each announced as a
+  // stopped task_notification. Held-open stdin (ADR 0010) keeps
+  // glv-driven runs from producing it; the classifier stays armed as a
+  // drift tripwire, so the suite still scripts it.
   killedTaskRecords: (summary) => [
     JSON.stringify({
       type: "system",

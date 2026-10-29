@@ -12,7 +12,11 @@ import type {
   Runner,
   RunStatus,
 } from "./types.js";
-import { planStdin } from "./types.js";
+
+// The plan an agent with no stdin opinion gets: the prompt as one-shot
+// text.
+const planStdin = (agent: AgentInvocation, prompt: string) =>
+  agent.stdinPlan?.(prompt) ?? { kind: "one-shot", input: prompt };
 
 // Stamps the run-history identity for a new invocation: a fresh run
 // id (both notifications of one settle share it, so the run records

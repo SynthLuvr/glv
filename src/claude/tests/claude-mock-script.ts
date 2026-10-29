@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isRecord } from "../../glv/parse.js";
+import { isRecord, JsonObject, parseJson } from "../../glv/parse.js";
 import {
   captureStdinTo,
   captureTo,
@@ -24,11 +24,10 @@ const DEFAULT_LINE = JSON.stringify({
 });
 
 // Session runs speak stream-json on stdin (ADR 0010): the prompt is one
-// newline-terminated JSON user line, and — the point of the change — the
-// pipe stays open until the runner closes it, so a read-to-EOF would
-// park the mock forever. The prompt is exactly one line: read up to the
-// first newline and stop, leaving the stream flowing so a later EOF
-// (the runner's "you may exit now") is still observable.
+// newline-terminated JSON user line, and the pipe stays open until the
+// runner closes it — so a read-to-EOF would park the mock forever. Read
+// up to the first newline and stop, leaving the stream flowing so a
+// later EOF is still observable.
 const readPromptLine = (): Promise<string> =>
   new Promise((resolve) => {
     let buffered = "";
@@ -52,21 +51,16 @@ const readPromptLine = (): Promise<string> =>
 // the same reading the real binary does. Anything else (a malformed
 // line, an older dialect) is captured verbatim.
 const decodeUserLine = (line: string): string => {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    if (!isRecord(parsed) || parsed.type !== "user") return line;
-    const message = parsed.message;
-    if (!isRecord(message)) return line;
-    const content = message.content;
-    return typeof content === "string" ? content : line;
-  } catch {
-    return line;
-  }
+  const parsed = parseJson(line, JsonObject);
+  if (!parsed.ok || parsed.data.type !== "user") return line;
+  const message = parsed.data.message;
+  if (!isRecord(message) || typeof message.content !== "string") return line;
+  return message.content;
 };
 
 // Reads the prompt the way claude now does, then captures the decoded
-// text wherever the suite asked (same capture files as before the
-// stream-json switch, so prompt assertions keep working unchanged).
+// text wherever the suite asked — the same files as before the
+// stream-json switch, so prompt assertions keep working unchanged.
 const capturePrompt = async (): Promise<string> => {
   const raw = await readPromptLine();
   const prompt = decodeUserLine(raw);
@@ -121,27 +115,24 @@ const TASK_ID = "bgtask1";
 const taskEvent = (subtype: string, fields: Record<string, unknown>) =>
   JSON.stringify({ type: "system", subtype, task_id: TASK_ID, ...fields });
 
-// The ADR 0010 scenarios, scripted from the record shapes verified
-// against real claude 2.1.289. The run arms a background task and ends
-// its turn; unlike the old text-stdin model the process must stay
-// alive until the task completes. "wake": the completion wakes the
-// agent into a second turn, and the runner closes stdin at that turn's
-// result. "nowake": the completion never wakes anyone, and the
-// runner's idle defense must close the pipe on its own.
+const assistantLine = (text: string): string =>
+  JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  });
+
+// The ADR 0010 scenarios: the run arms a background task and ends its
+// turn — unlike the old text-stdin model, the process must stay alive
+// until the task completes. "wake": the completion wakes the agent into
+// a second turn, and the runner closes stdin at that turn's result.
+// "nowake": the completion never wakes anyone, and the idle defense
+// must close the pipe on its own.
 const runBgTaskScenario = async (
   mode: string,
   sessionId: string | undefined,
 ): Promise<void> => {
   const say = (text: string): void => {
-    console.log(
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text }],
-        },
-      }),
-    );
+    console.log(assistantLine(text));
   };
   const result = (text: string): void => {
     console.log(
@@ -153,27 +144,15 @@ const runBgTaskScenario = async (
       }),
     );
   };
-  // Real claude commits each assistant message to the session
-  // transcript as it streams. The commit rides slightly behind the
-  // stream line so the server's stream poll flushes the line as a live
-  // preview first — the same race the real binary wins most of the
-  // time, and the ordering the stdin-lifecycle suite asserts on.
+  // Real claude commits each assistant message to the session transcript
+  // as it streams. The commit rides slightly behind the stream line so
+  // the server's stream poll flushes the line as a live preview first —
+  // the ordering the stdin-lifecycle suite asserts on.
   const sayAndCommit = async (text: string): Promise<void> => {
     say(text);
     await sleep(Number(process.env.CLAUDE_MOCK_BG_COMMIT_DELAY_MS ?? 2000));
-    if (sessionId !== undefined) {
-      commitLine(
-        sessionId,
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text }],
-          },
-        }),
-        Date.now(),
-      );
-    }
+    if (sessionId !== undefined)
+      commitLine(sessionId, assistantLine(text), Date.now());
   };
 
   // Turn 1: arm the watcher, reply, end the turn.
@@ -197,13 +176,11 @@ const runBgTaskScenario = async (
   result("Watcher armed");
   logStdinPhase("turn1-result");
 
-  // The task runs. The pipe must stay open across this silence — a
-  // one-shot stdin would have delivered EOF at the prompt.
-  const delay = Number(process.env.CLAUDE_MOCK_BG_WAKE_DELAY_MS ?? 800);
-  await sleep(delay);
+  // The task runs; the pipe must stay open across this silence.
+  await sleep(Number(process.env.CLAUDE_MOCK_BG_WAKE_DELAY_MS ?? 800));
   logStdinPhase("after-task-ran");
 
-  // Completion burst (snapshot empties first — the policy's signal).
+  // Completion burst (the snapshot empties first — the policy's signal).
   console.log(taskEvent("background_tasks_changed", { tasks: [] }));
   console.log(
     taskEvent("task_updated", {
@@ -219,7 +196,7 @@ const runBgTaskScenario = async (
   );
 
   if (mode === "wake") {
-    // The wake turn: runs unprompted, ends the session's work. The
+    // The wake turn runs unprompted and ends the session's work. The
     // commit is awaited before the EOF wait so the process never exits
     // with the transcript write still pending.
     console.log(JSON.stringify({ type: "system", subtype: "init" }));

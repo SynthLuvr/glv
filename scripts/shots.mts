@@ -193,10 +193,9 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
       "fatal: memory allocation of 1342177280 bytes failed",
   );
   // The drift-tripwire notice, worded exactly as stop-reason.ts
-  // classifies an exit-time kill. With held-open stdin (ADR 0010)
-  // glv-driven claude runs no longer produce the epilogue; a future
-  // claude that re-introduces it still surfaces this card, so the shot
-  // documents the wording reviewers would see in that case.
+  // classifies an exit-time kill. Held-open stdin (ADR 0010) keeps
+  // glv-driven claude runs from producing the epilogue; a future
+  // claude that re-introduces it still surfaces this card.
   recordStopNotice(
     notices,
     gooseFixture.viewId("shots-bg"),
@@ -394,9 +393,9 @@ const captureViews = async (
   await capture(page, "crash-notice-prompt-bar.png", "form.prompt-bar");
 
   // The drift-tripwire card (unchanged notice-card UI): glv-driven
-  // runs now hold stdin open and never produce the kill epilogue —
-  // see the bg-wake shots for what really happens — but the classifier
-  // stays armed for claude drift, and this is the card it would show.
+  // runs no longer produce the kill epilogue (see the bg-wake shots
+  // for what really happens), but the classifier stays armed for
+  // claude drift — this is the card it would show.
   await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId("shots-bg")}`);
   await page.locator("form.prompt-bar .status-hint.error").waitFor();
   await capture(page, "bg-tasks-notice-desktop.png");
@@ -643,8 +642,8 @@ const seededUpdatedAt = (env: IntegrationEnv): string => {
 // claude: the run arms a background watcher, ends its turn, and —
 // because glv holds stdin open — stays alive until the watcher
 // completes and wakes the agent for its report-back turn. Shot twice:
-// mid-park (turn 1 answered, watcher still pending, run still going)
-// and after the wake turn settles with the promised report.
+// mid-park (turn 1 answered, watcher pending, run still going) and
+// after the wake turn settles with the promised report.
 const captureWakeRun = async (browser: Browser): Promise<void> => {
   const env = await claudeFixture.startEnv(
     "glv-shots-wake-",

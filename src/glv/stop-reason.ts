@@ -14,10 +14,10 @@ import { JsonObject, parseJson } from "./parse.js";
 // finish — the agent's own announcement evaporates with the live preview.
 //
 // A second silent-stop shape needs no provider: headless claude kills the
-// plain background tasks its turn outlived (a watcher armed with Bash
-// run_in_background, say) right after printing its terminal result, then
-// exits 0. The kill rides the stream as a system task_notification
-// (status "stopped"), classified below into its own notice kind.
+// plain background tasks its turn outlived right after printing its
+// terminal result, then exits 0 — the kill rides the stream as a system
+// task_notification with status "stopped", classified below into its own
+// notice kind.
 
 // How many trailing stream lines to inspect. A refusal record is the
 // agent's last word (or nearly so — goose follows it with a "complete"
@@ -160,29 +160,30 @@ const splitStopNotice = (
   return { classification, detail: rest };
 };
 
-// The newest result record in the window, or -1.
-const newestResultIndex = (window: readonly string[]): number => {
-  for (let i = window.length - 1; i >= 0; i--) {
-    const record = parseRecord(window[i]);
-    if (record?.type === "result") return i;
-  }
-  return -1;
+// A stream line's killed-task summary when it carries one; undefined
+// when it does not ("" is a real summary on a record that names no
+// task).
+const killedTaskSummary = (line: string): string | undefined => {
+  const record = parseRecord(line);
+  if (record === undefined) return undefined;
+  const killed = KilledTaskRecord(record);
+  return killed instanceof type.errors ? undefined : (killed.summary ?? "");
 };
 
-// Finds a kill epilogue newer than the run's own last word, newest match
-// first. claude prints its terminal result first and kills afterwards, so
-// a killed-task record older than a result belongs to a mid-run TaskStop —
-// an ordinary monitoring handoff the run already handled. Without any
-// result record the whole window is eligible: a run that died right after
-// the kill (or a dialect that prints no result) still deserves the notice.
+// Finds a kill epilogue newer than the run's own last word, newest
+// match first. claude prints its terminal result first and kills
+// afterwards, so a killed-task record older than the newest result
+// belongs to a mid-run TaskStop — an ordinary handoff the run already
+// handled. Without any result record the whole window is eligible: a
+// run that died right after the kill still deserves the notice.
 const killedTaskNotice = (window: readonly string[]): string | undefined => {
-  const epilogue = window.slice(newestResultIndex(window) + 1);
-  for (const line of epilogue.toReversed()) {
-    const record = parseRecord(line);
-    if (record === undefined) continue;
-    const killed = KilledTaskRecord(record);
-    if (killed instanceof type.errors) continue;
-    return noticeForKilledTask(killed.summary ?? "");
+  const lastResult = window.findLastIndex(
+    (line) => parseRecord(line)?.type === "result",
+  );
+  const epilogue = window.slice(lastResult + 1).toReversed();
+  for (const line of epilogue) {
+    const summary = killedTaskSummary(line);
+    if (summary !== undefined) return noticeForKilledTask(summary);
   }
   return undefined;
 };
@@ -192,7 +193,7 @@ const killedTaskNotice = (window: readonly string[]): string | undefined => {
 // failure record as terminal, so it is the run's verdict. Structured
 // failure records only — an assistant *message about* a rate limit is
 // conversation, not a refusal, and must not trip this. A refusal outranks
-// the kill epilogue: a run that announced its own failure did end on
+// the kill epilogue: a run that announced its own failure ended on
 // purpose, whatever background work it also killed.
 const detectStopNotice = (lines: readonly string[]): string | undefined => {
   const window = lines.slice(-SCAN_LINES);

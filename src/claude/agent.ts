@@ -27,13 +27,12 @@ const PERMISSION_MODES: readonly string[] = [
 // prompt — this sidesteps the OS argument-length limit and all shell-quoting
 // concerns, and works for arbitrarily long prompts. `--verbose` is required
 // for stream-json to emit the full event stream rather than just the final
-// result record. `--input-format stream-json` switches the prompt itself
-// to one newline-terminated JSON user-message line, and — the reason it
-// is here — makes an open stdin mean "the session is live": with the
-// pipe held open, claude does not kill its pending background tasks at
-// the end of a turn, a completed task wakes the agent into a new turn,
-// and the process exits only when the pipe closes (the stdin policy
-// decides when). Verified against claude 2.1.289; see ADR 0010.
+// result record. `--input-format stream-json` also switches the prompt to
+// one newline-terminated JSON user line — and, the reason it is here, makes
+// an open stdin mean "the session is live": background tasks survive the
+// end of a turn, their completion wakes the agent into a new turn, and the
+// process exits only when the pipe closes (verified against claude
+// 2.1.289; see ADR 0010).
 const STREAM_FLAGS = [
   "--print",
   "--output-format",
@@ -126,9 +125,9 @@ const makeClaudeAgent = (
     // marks the directory trusted — what claude may do there is still bounded
     // by the permission mode.
     env: () => ({ CLAUDE_CODE_SANDBOXED: "1" }),
-    // Held-open stream-json stdin: the session stays live across turns,
-    // background tasks survive the turn that armed them, and the stdin
-    // policy closes the pipe when the run has nothing left to wait for.
+    // Held-open stream-json stdin: background tasks survive the turn
+    // that armed them, and the policy closes the pipe once the run has
+    // nothing left to wait for (ADR 0010).
     stdinPlan: (prompt: string) => ({
       kind: "held",
       input: streamJsonUserLine(prompt),
