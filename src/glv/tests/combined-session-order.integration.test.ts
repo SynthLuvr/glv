@@ -49,11 +49,12 @@ const utcNoon = (): number => {
   );
 };
 
-// The seeds and their true recency, newest first:
-//   claude-fresh (noon+61m) > goose-fresh (noon+5m) >
+// The seeds and their true recency, newest first, all as noon offsets:
+//   claude-fresh (noon+70m) > goose-fresh (noon+65m) >
 //   claude-stale (noon+60m) > goose-stale (noon)
 // The agents interleave, so any per-agent grouping (the string bug's
-// symptom) fails the expected order.
+// symptom — all claude rows, then all goose rows) fails the expected
+// order.
 const workDir = (name: string): string => join(env.scratchDir, name);
 const noon = utcNoon();
 
@@ -94,9 +95,9 @@ describe("combined viewer — mixed-agent session order", () => {
       },
     ]);
     backdateGooseSession(env, "order-goose-stale", noon);
-    backdateGooseSession(env, "order-goose-fresh", noon + 5 * MINUTE);
+    backdateGooseSession(env, "order-goose-fresh", noon + 65 * MINUTE);
     backdateClaudeSession(env, "order-claude-stale", noon + 60 * MINUTE);
-    backdateClaudeSession(env, "order-claude-fresh", noon + 61 * MINUTE);
+    backdateClaudeSession(env, "order-claude-fresh", noon + 70 * MINUTE);
 
     expect(
       await sidebarOrder([
@@ -118,7 +119,7 @@ describe("combined viewer — mixed-agent session order", () => {
     // agent again puts both claude rows first; only instant comparison
     // yields the true order.
     backdateGooseSession(env, "order-goose-fresh", noon + 90 * MINUTE);
-    backdateClaudeSession(env, "order-claude-fresh", noon + 62 * MINUTE);
+    backdateClaudeSession(env, "order-claude-fresh", noon + 75 * MINUTE);
 
     expect(
       await sidebarOrder([
