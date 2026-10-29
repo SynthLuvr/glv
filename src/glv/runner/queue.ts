@@ -53,6 +53,28 @@ const refreshQueuePositions = (runner: Runner): void => {
   }
 };
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// Resolves once the named run leaves the concurrency queue: true when it
+// reached "running" (or already settled past it), false when it went
+// terminal without ever starting — a stop while still queued. The wait is
+// unbounded by design: queueing for a slot is the runner's contract, and
+// slots free as the runs ahead settle. Callers that bound their own
+// post-start phase (the launchers' session-discovery poll) use this to
+// start their countdown at the moment the agent actually begins, so the
+// queue wait never eats into it.
+const awaitRunStart = async (
+  runner: Runner,
+  key: string,
+  pollMs = 50,
+): Promise<boolean> => {
+  const handle = runner.registry.get(key);
+  if (handle === undefined) return false;
+  while (handle.status === "queued") await sleep(pollMs);
+  return handle.status !== "stopped";
+};
+
 const isActiveStatus = (status: RunStatus): boolean =>
   status === "queued" || status === "running";
 
@@ -316,6 +338,7 @@ const stopAll = (runner: Runner, reason: string): number => {
 };
 
 export {
+  awaitRunStart,
   clearPending,
   enqueueNewSession,
   enqueueOrQueue,

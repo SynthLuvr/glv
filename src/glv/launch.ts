@@ -20,7 +20,11 @@ type SessionLauncher = {
   ) => string;
   /**
    * Resolve the run's real session id, or undefined when the agent did not
-   * create one within the timeout.
+   * create one within the timeout. The timeout bounds only the agent's own
+   * startup + session creation: a run still waiting in the runner's
+   * concurrency queue has not spawned, so waiting out the queue precedes
+   * the countdown and is unbounded (queueing for a slot is the runner's
+   * contract).
    */
   readonly awaitNew: (
     handle: string,

@@ -1,4 +1,5 @@
 import {
+  awaitRunStart,
   clearPending,
   enqueueNewSession,
   enqueueOrQueue,
@@ -44,6 +45,7 @@ export type {
   SpawnFn,
 };
 export {
+  awaitRunStart,
   clearPending,
   createRingBuffer,
   createRunner,
