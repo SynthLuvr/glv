@@ -13,13 +13,11 @@ import { JsonObject, parseJson } from "./parse.js";
 // without this classifier a refused run is indistinguishable from a clean
 // finish — the agent's own announcement evaporates with the live preview.
 //
-// A second silent-stop shape needs no provider at all: headless claude
-// kills the plain background tasks its turn outlived (a watcher armed
-// with Bash run_in_background, say) after printing its terminal result,
-// then exits 0 — so a session that promised "I'll report back when it
-// finishes" settles as a clean finish with the watcher dead. The kill
-// rides the stream as a system task_notification (status "stopped"),
-// classified below into its own notice kind.
+// A second silent-stop shape needs no provider: headless claude kills the
+// plain background tasks its turn outlived (a watcher armed with Bash
+// run_in_background, say) right after printing its terminal result, then
+// exits 0. The kill rides the stream as a system task_notification
+// (status "stopped"), classified below into its own notice kind.
 
 // How many trailing stream lines to inspect. A refusal record is the
 // agent's last word (or nearly so — goose follows it with a "complete"
@@ -42,13 +40,9 @@ const ResultRecord = type({
   result: "string",
 });
 
-// claude's terminal record in any mood — the newest one marks where the
-// run's own words end and the runtime's epilogue begins.
-const AnyResultRecord = type({ type: "'result'" });
-
-// The kill epilogue: a pending Monitor parks the process, so this shape
-// only streams when the run left plain background tasks and nothing
-// parked it. Verified against a controlled 2.1.289 --print run.
+// claude's kill epilogue. It only streams when no Monitor task is
+// pending — a pending monitor would park the process instead of killing
+// (verified against a controlled 2.1.289 --print run).
 const KilledTaskRecord = type({
   type: "'system'",
   subtype: "'task_notification'",
@@ -56,18 +50,22 @@ const KilledTaskRecord = type({
   "summary?": "string",
 });
 
-// What the kill broke: the agent armed work it meant to be woken by.
 const KILLED_TASK_DETAIL =
   "the agent left background work pending; a headless run cannot " +
   "outlive its turn, so the process killed it on exit and the agent " +
   "will not report back on its own";
 
-const refusalDetail = (line: string): string | undefined => {
+const parseRecord = (line: string) => {
   const parsed = parseJson(line, JsonObject);
-  if (!parsed.ok) return undefined;
-  const asError = ErrorRecord(parsed.data);
+  return parsed.ok ? parsed.data : undefined;
+};
+
+const refusalDetail = (line: string): string | undefined => {
+  const record = parseRecord(line);
+  if (record === undefined) return undefined;
+  const asError = ErrorRecord(record);
   if (!(asError instanceof type.errors)) return asError.error;
-  const asResult = ResultRecord(parsed.data);
+  const asResult = ResultRecord(record);
   if (!(asResult instanceof type.errors)) return asResult.result;
   return undefined;
 };
@@ -129,13 +127,15 @@ const classify = (detail: string): StopKind => {
 const noticeFor = (detail: string): string =>
   `${STOP_TEXT[classify(detail)].lead} ${truncate(detail, DETAIL_MAX)} ${ACTION_SENTENCE}`;
 
-// The killed-task notice names the work that died when the stream says
-// what it was ("Sleep 30s then print marker"); the provider's wording
-// has no part in it, so this bypasses classify on purpose.
-const noticeForKilledTask = (summary: string): string =>
-  `${STOP_TEXT["background-tasks"].lead} ` +
-  `${summary === "" ? "" : `"${truncate(summary, DETAIL_MAX)}" — `}` +
-  `${KILLED_TASK_DETAIL} ${ACTION_SENTENCE}`;
+// The killed-task notice quotes the work that died when the stream says
+// what it was; there is no provider detail to classify here.
+const noticeForKilledTask = (summary: string): string => {
+  const named = summary === "" ? "" : `"${truncate(summary, DETAIL_MAX)}" — `;
+  return (
+    `${STOP_TEXT["background-tasks"].lead} ` +
+    `${named}${KILLED_TASK_DETAIL} ${ACTION_SENTENCE}`
+  );
+};
 
 // Reverses noticeFor for the structured card: the lead and the trailing
 // action sentence peel off, leaving the provider's own words (reset time
@@ -160,29 +160,27 @@ const splitStopNotice = (
   return { classification, detail: rest };
 };
 
-// The newest result record in the window, or -1. claude prints its
-// terminal result first and kills afterwards, so a killed-task record
-// older than a result belongs to a mid-run TaskStop — an ordinary
-// monitoring handoff the run already handled — not to the run's ending.
+// The newest result record in the window, or -1.
 const newestResultIndex = (window: readonly string[]): number => {
   for (let i = window.length - 1; i >= 0; i--) {
-    const parsed = parseJson(window[i], JsonObject);
-    if (!parsed.ok) continue;
-    if (!(AnyResultRecord(parsed.data) instanceof type.errors)) return i;
+    const record = parseRecord(window[i]);
+    if (record?.type === "result") return i;
   }
   return -1;
 };
 
 // Finds a kill epilogue newer than the run's own last word, newest match
-// first. Absent a result record the whole window is eligible: a run that
-// died right after the kill (or a dialect that prints no result) still
-// deserves the notice.
+// first. claude prints its terminal result first and kills afterwards, so
+// a killed-task record older than a result belongs to a mid-run TaskStop —
+// an ordinary monitoring handoff the run already handled. Without any
+// result record the whole window is eligible: a run that died right after
+// the kill (or a dialect that prints no result) still deserves the notice.
 const killedTaskNotice = (window: readonly string[]): string | undefined => {
-  const newestResult = newestResultIndex(window);
-  for (let i = window.length - 1; i > newestResult; i--) {
-    const parsed = parseJson(window[i], JsonObject);
-    if (!parsed.ok) continue;
-    const killed = KilledTaskRecord(parsed.data);
+  const epilogue = window.slice(newestResultIndex(window) + 1);
+  for (const line of epilogue.toReversed()) {
+    const record = parseRecord(line);
+    if (record === undefined) continue;
+    const killed = KilledTaskRecord(record);
     if (killed instanceof type.errors) continue;
     return noticeForKilledTask(killed.summary ?? "");
   }
@@ -193,12 +191,12 @@ const killedTaskNotice = (window: readonly string[]): string | undefined => {
 // refusal the agent announced, newest match first: both agents treat the
 // failure record as terminal, so it is the run's verdict. Structured
 // failure records only — an assistant *message about* a rate limit is
-// conversation, not a refusal, and must not trip this. Refusals outrank
+// conversation, not a refusal, and must not trip this. A refusal outranks
 // the kill epilogue: a run that announced its own failure did end on
 // purpose, whatever background work it also killed.
 const detectStopNotice = (lines: readonly string[]): string | undefined => {
   const window = lines.slice(-SCAN_LINES);
-  for (const line of [...window].reverse()) {
+  for (const line of window.toReversed()) {
     const detail = refusalDetail(line);
     if (detail !== undefined && detail.trim() !== "") return noticeFor(detail);
   }

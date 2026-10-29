@@ -197,14 +197,13 @@ const claudeFixture: harness.FlavorFixture = {
       result: detail,
     }),
   // claude's clean headless verdict, printed before the kill epilogue.
-  cleanResultRecord: () =>
-    JSON.stringify({
-      type: "result",
-      subtype: "success",
-      is_error: false,
-      num_turns: 3,
-      result: "mock claude reply",
-    }),
+  cleanResultRecord: JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    num_turns: 3,
+    result: "mock claude reply",
+  }),
   // The kill epilogue claude 2.1.289 streams when no Monitor task is
   // pending: the plain background tasks the turn outlived are killed,
   // each announced as a stopped task_notification, and the process

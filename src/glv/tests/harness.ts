@@ -495,7 +495,7 @@ type FlavorFixture = {
    * The flavor's clean terminal verdict record, when its stream dialect
    * prints one (claude's headless result record); undefined otherwise.
    */
-  readonly cleanResultRecord?: () => string;
+  readonly cleanResultRecord?: string;
   /**
    * The kill epilogue a headless claude run streams when it kills the
    * plain background tasks its turn outlived — after the terminal result
