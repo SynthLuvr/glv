@@ -1,4 +1,5 @@
 import { namespacedId, splitNamespacedId } from "./agents.js";
+import { parseTimestamp } from "./format/index.js";
 import type { SessionFilter, SessionRow, SessionStore } from "./sessions.js";
 
 // One agent's store under the composite: the agent id that prefixes its
@@ -16,6 +17,17 @@ const prefixedRow = (agent: string, row: SessionRow): SessionRow => ({
   id: namespacedId(agent, row.id),
   agent,
 });
+
+// The instant updated_at names, for ordering across flavors: goose
+// spells it SQLite's zone-less "YYYY-MM-DD HH:MM:SS" and claude ISO
+// 8601, and lexicographic comparison reads 'T' > ' ', pinning one
+// flavor's same-day rows above the other's however old they are. A
+// value parseTimestamp cannot read sinks below every parsable one
+// rather than poisoning the subtraction with NaN.
+const instantOf = (row: SessionRow): number => {
+  const ms = parseTimestamp(row.updated_at);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
 
 // The SessionStore over several agents' stores: listing merges every
 // child (newest-first by updated_at, capped at the filter limit) and
@@ -53,32 +65,20 @@ const createCompositeSessionStore = (
     return groups;
   };
 
-  // Both children list newest-first; a stable two-way merge preserves
-  // that order across agents without a full re-sort. Ties (identical
-  // updated_at) keep the entry order the caller gave.
+  // The merged listing, newest first. A stable sort over the
+  // concatenated children asks nothing of their internal order — claude
+  // walks its files by mtime, which need not agree with the timestamps
+  // its rows carry — and keeps ties in entry order. Each child is
+  // already capped at the window, so at most children × limit rows
+  // sort.
   const mergeNewestFirst = (
     lists: readonly SessionRow[][],
     limit: number,
-  ): SessionRow[] => {
-    const merged: SessionRow[] = [];
-    const cursors = lists.map(() => 0);
-    while (merged.length < limit) {
-      let bestList = -1;
-      for (let i = 0; i < lists.length; i++) {
-        if (cursors[i] >= lists[i].length) continue;
-        if (bestList === -1) bestList = i;
-        else {
-          const a = lists[bestList][cursors[bestList]];
-          const b = lists[i][cursors[i]];
-          if (b.updated_at > a.updated_at) bestList = i;
-        }
-      }
-      if (bestList === -1) break;
-      merged.push(lists[bestList][cursors[bestList]]);
-      cursors[bestList]++;
-    }
-    return merged;
-  };
+  ): SessionRow[] =>
+    lists
+      .flat()
+      .sort((a, b) => instantOf(b) - instantOf(a))
+      .slice(0, limit);
 
   // The filter as one child sees it: the composite's id restriction
   // carries namespaced ids, so each child receives exactly its own
