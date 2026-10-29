@@ -275,6 +275,20 @@ const rekey = (runner: Runner, oldKey: string, newKey: string): boolean => {
 // Prefixed so it can never collide with a real agent session id.
 const generateTempKey = (): string => `tmp_${randomUUID()}`;
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// Resolves when the run leaves the queue: true once the run has started
+// (or already settled), false when it was stopped while queued. Unbounded
+// by design — queueing for a slot is the runner's contract, and slots
+// free as the runs ahead settle.
+const awaitRunStart = async (runner: Runner, key: string): Promise<boolean> => {
+  const handle = runner.registry.get(key);
+  if (handle === undefined) return false;
+  while (handle.status === "queued") await sleep(50);
+  return handle.status !== "stopped";
+};
+
 // Stops one session's live or queued run. `reason` is set only when the
 // stop did not come from the user (today, the server's shutdown
 // teardown), so the persisted verdict can say so (#379).
@@ -327,6 +341,7 @@ const stopAll = (runner: Runner, reason: string): number => {
 };
 
 export {
+  awaitRunStart,
   clearPending,
   enqueueNewSession,
   enqueueOrQueue,

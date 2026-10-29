@@ -1791,8 +1791,12 @@ pre::-webkit-scrollbar-thumb {
   background: var(--color-accent);
   color: var(--color-on-accent);
 }
-.send-btn:hover {
+.send-btn:hover:not(:disabled) {
   background: var(--color-accent-hover);
+}
+.send-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .stop-btn {
   background: var(--color-err);

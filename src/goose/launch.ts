@@ -6,6 +6,7 @@ import {
 } from "../glv/composite-launcher.js";
 import type { SessionLauncher } from "../glv/launch.js";
 import {
+  awaitRunStart,
   enqueueNewSession,
   generateTempKey,
   type Runner,
@@ -54,6 +55,7 @@ const makeGooseLauncher = (
       return keys.out(tempKey);
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {
+      if (!(await awaitRunStart(runner, handle))) return undefined;
       const known = knownIds.get(handle) ?? new Set<string>();
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {

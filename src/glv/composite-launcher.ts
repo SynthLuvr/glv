@@ -19,7 +19,10 @@ type AgentDispatchLauncher = {
   ) => string;
   /**
    * Resolve the run's real namespaced session id, or undefined when the
-   * agent did not create one within the timeout.
+   * agent did not create one within the timeout. The timeout bounds only
+   * the agent's own startup + session creation; a run queued behind the
+   * concurrency limit waits out the queue first, without spending the
+   * timeout.
    */
   readonly awaitNew: (
     handle: string,
