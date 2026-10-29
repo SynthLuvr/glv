@@ -39,7 +39,7 @@ const makeGooseLauncher = (
   const agent = prefixedInvocation(invocation, prefix);
   const knownIds = new Map<string, Set<string>>();
   return {
-    startNew: (workingDir, prompt, model) => {
+    startNew: (workingDir, prompt, model, memoryMax) => {
       const tempKey = generateTempKey();
       knownIds.set(keys.out(tempKey), new Set(sessionIdsInDir(db, workingDir)));
       enqueueNewSession(
@@ -49,6 +49,7 @@ const makeGooseLauncher = (
         prompt,
         workingDir,
         model,
+        memoryMax,
       );
       return keys.out(tempKey);
     },

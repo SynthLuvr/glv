@@ -74,7 +74,13 @@ live, with the upcoming runs previewed:
   descendants (MCP servers, tool-spawned background jobs) cannot outlive
   their run and leak inside the service’s cgroup. A run stopped by the
   server’s own shutdown teardown records why (`last_run` reason “server
-  shutdown”) instead of reading as a user stop.
+  shutdown”) instead of reading as a user stop. On hosts with a user
+  systemd, each run also gets its own transient scope with a memory
+  ceiling (`--run-memory-max`, default 8G; `off` disables; the write API
+  accepts a per-run `memory_max`) — a run that balloons past its ceiling
+  is OOM-killed inside its own `glv-run-<id>` scope, leaving the server
+  and sibling sessions untouched, and the scope unit is recorded in the
+  session’s run history for journal attribution.
 - **Tail external sessions.** Sessions started from the terminal,
   desktop, or another CLI are tracked too — glv polls the shared
   database and streams only the deltas, so you can keep an eye on a run

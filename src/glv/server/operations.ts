@@ -10,7 +10,14 @@ import {
   modelUnavailableError,
 } from "../models.js";
 import { bumpUsage } from "../prompts/db.js";
-import { enqueueOrQueue, getHandle, stop } from "../runner/index.js";
+import {
+  enqueueOrQueue,
+  getHandle,
+  MEMORY_SPEC_ERROR,
+  parseMemoryCeiling,
+  stop,
+} from "../runner/index.js";
+import type { MemoryCeiling } from "../runner/types.js";
 import { tagParentSession } from "../session-links.js";
 import type { SessionRow } from "../sessions.js";
 import { clearStopNotice } from "../stop-notices.js";
@@ -151,6 +158,23 @@ const createRunStatus = (
 ): RunStartStatus =>
   getHandle(ctx.runner, sessionId)?.status === "queued" ? "queued" : "started";
 
+// The submitted per-run memory ceiling (#392): "512M"/"8G" overrides
+// the server-wide default for this run, "off" exempts it, absent keeps
+// the default. Parsed once, here, so both session surfaces validate the
+// field identically and answer with the shared spec error.
+const parseMemoryMaxField = (
+  raw: string,
+): {
+  readonly ceiling: MemoryCeiling | undefined;
+  readonly invalid: boolean;
+} => {
+  if (raw === "") return { ceiling: undefined, invalid: false };
+  const ceiling = parseMemoryCeiling(raw);
+  return ceiling === undefined
+    ? { ceiling: undefined, invalid: true }
+    : { ceiling, invalid: false };
+};
+
 // Applies a creation-time name to a just-established session (#343):
 // the rename rides the same viewer-managed rename the browser's rename
 // action performs, so a driven loop can tell its runs apart at
@@ -196,6 +220,9 @@ const createSessionOperations = (ctx: ServerContext) => {
       bodyField("model"),
       ctx.defaultAgent.id,
     );
+    // #392: the submit's own memory ceiling, validated before anything
+    // is created so a typo fails loudly.
+    const memory = parseMemoryMaxField(bodyField("memory_max"));
 
     const files = collectFiles(body.uploads);
     // Validated before any directory or session is created.
@@ -212,6 +239,8 @@ const createSessionOperations = (ctx: ServerContext) => {
 
     if (prompt === "")
       return fail(422, "A prompt is required to start a session.");
+
+    if (memory.invalid) return fail(422, MEMORY_SPEC_ERROR);
 
     if (location !== undefined && !location.ok)
       return fail(422, location.error);
@@ -277,6 +306,7 @@ const createSessionOperations = (ctx: ServerContext) => {
             workingDir,
             fullPrompt,
             model,
+            memory.ceiling,
           );
 
           const sessionId = await ctx.launcher.awaitNew(
@@ -357,6 +387,12 @@ const createSessionOperations = (ctx: ServerContext) => {
     const prompt = firstString(body.prompt);
     if (prompt === "") return fail("A prompt is required.");
 
+    // #392: the submit's own memory ceiling, validated before the run is
+    // queued; an override on a chained submit applies from the session's
+    // next invocation.
+    const memory = parseMemoryMaxField(firstString(body.memory_max));
+    if (memory.invalid) return fail(MEMORY_SPEC_ERROR);
+
     // The agent spawns in the session's working directory; one swept
     // out from under the session would die at spawn with an opaque
     // ENOENT — reject it with the actual reason instead. Empty stays
@@ -398,6 +434,7 @@ const createSessionOperations = (ctx: ServerContext) => {
       id,
       fullPrompt,
       session.working_dir,
+      memory.ceiling,
     );
 
     // Continuing the session resolves whatever the last run's notice

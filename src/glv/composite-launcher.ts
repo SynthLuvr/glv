@@ -2,7 +2,7 @@ import { agentOfId, namespacedId } from "./agents.js";
 import type { EstablishOutcome, SessionLauncher } from "./launch.js";
 import type { ModelSelection } from "./models.js";
 import { type Runner, stop } from "./runner/index.js";
-import type { AgentInvocation } from "./runner/types.js";
+import type { AgentInvocation, MemoryCeiling } from "./runner/types.js";
 import type { SessionRow } from "./sessions.js";
 
 // The launcher routes consume: like SessionLauncher, but a new run names
@@ -15,6 +15,7 @@ type AgentDispatchLauncher = {
     workingDir: string,
     prompt: string,
     model?: ModelSelection,
+    memoryMax?: MemoryCeiling,
   ) => string;
   /**
    * Resolve the run's real namespaced session id, or undefined when the
@@ -56,11 +57,11 @@ const createCompositeLauncher = (
     return agent === undefined ? undefined : childOf(agent);
   };
   return {
-    startNewFor: (agent, workingDir, prompt, model) => {
+    startNewFor: (agent, workingDir, prompt, model, memoryMax) => {
       const child = childOf(agent);
       if (child === undefined)
         throw new Error(`agent "${agent}" is not enabled`);
-      return child.startNew(workingDir, prompt, model);
+      return child.startNew(workingDir, prompt, model, memoryMax);
     },
     awaitNew: async (handle, workingDir, timeoutMs) => {
       const child = childForHandle(handle);

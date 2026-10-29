@@ -24,4 +24,12 @@ const positiveEnvNumber = (name: string, fallback: number): number => {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
 
-export { errorMessage, positiveEnvNumber, unrefTimer };
+// Reads an environment variable as a non-empty string, falling back when
+// it is unset or empty. Used for textual configuration overrides like
+// GLV_RUN_MEMORY_MAX.
+const nonEmptyEnv = (name: string, fallback: string): string => {
+  const raw = process.env[name];
+  return raw === undefined || raw === "" ? fallback : raw;
+};
+
+export { errorMessage, nonEmptyEnv, positiveEnvNumber, unrefTimer };

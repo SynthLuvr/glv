@@ -48,7 +48,10 @@ CREATE TABLE IF NOT EXISTS last_run (
 // One row per settled run (#384), keyed by the per-spawn run id. Unlike
 // the upserts above, appends instead of overwriting — capped at the
 // newest RUN_HISTORY_CAP rows per session, so a long-lived loop cannot
-// grow the file without bound.
+// grow the file without bound. scope_unit names the transient systemd
+// scope the invocation ran in (#392), so a journal's oom-kill record for
+// glv-run-<run id> attributes back to the run; NULL when the run spawned
+// directly (ceiling off, or no user systemd on the host).
 const RUN_HISTORY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS run_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +60,8 @@ CREATE TABLE IF NOT EXISTS run_history (
   state TEXT NOT NULL,
   reason TEXT,
   started_at TEXT,
-  ended_at TEXT NOT NULL
+  ended_at TEXT NOT NULL,
+  scope_unit TEXT
 );
 CREATE INDEX IF NOT EXISTS run_history_session
   ON run_history(session_id, id);
@@ -84,7 +88,18 @@ const openStopNoticesDb = (dbPath: string): DatabaseSync => {
   db.exec(STOP_NOTICES_SCHEMA);
   db.exec(LAST_RUN_SCHEMA);
   db.exec(RUN_HISTORY_SCHEMA);
+  migrateRunHistoryScopeUnit(db);
   return db;
+};
+
+// Databases created before #392 lack run_history's scope_unit column;
+// CREATE TABLE IF NOT EXISTS cannot add it, so add it in place. A
+// hand-created table that already has it is left untouched.
+const migrateRunHistoryScopeUnit = (db: DatabaseSync): void => {
+  const columns = db.prepare("PRAGMA table_info(run_history)").all();
+  for (const column of columns)
+    if (isRecord(column) && column.name === "scope_unit") return;
+  db.exec("ALTER TABLE run_history ADD COLUMN scope_unit TEXT");
 };
 
 const recordStopNotice = (
@@ -263,6 +278,8 @@ const addVerdictRows = (
 type RunHistoryRecord = LastRunOutcome & {
   startedAt: string | undefined;
   endedAt: string;
+  /** The systemd scope the invocation ran in (#392); undefined when it spawned directly. */
+  scopeUnit: string | undefined;
 };
 
 // A stored run_history row, validated by ArkType at this boundary so
@@ -275,6 +292,7 @@ const runHistoryShape = {
   reason: "string | null",
   started_at: "string | null",
   ended_at: "string",
+  scope_unit: "string | null",
 } as const;
 
 const RunHistoryRow = type(runHistoryShape);
@@ -298,10 +316,10 @@ const recordRunHistory = (
   const runId = run.runId ?? randomUUID();
   db.prepare(
     `INSERT INTO run_history (${RUN_HISTORY_COLS}) ` +
-      "VALUES (?, ?, ?, ?, ?, ?) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?) " +
       "ON CONFLICT(run_id) DO UPDATE SET " +
       "state = excluded.state, reason = excluded.reason, " +
-      "ended_at = excluded.ended_at",
+      "ended_at = excluded.ended_at, scope_unit = excluded.scope_unit",
   ).run(
     runId,
     sessionId,
@@ -309,6 +327,7 @@ const recordRunHistory = (
     outcome.reason ?? null,
     run.startedAt === undefined ? null : new Date(run.startedAt).toISOString(),
     new Date().toISOString(),
+    run.scopeUnit ?? null,
   );
   db.prepare(
     "DELETE FROM run_history WHERE session_id = ? AND id NOT IN (" +
@@ -320,12 +339,13 @@ const recordRunHistory = (
 const runHistoryRowToRecord = (row: unknown): RunHistoryRecord | undefined => {
   const parsed = RunHistoryRow(row);
   if (parsed instanceof type.errors) return undefined;
-  const { state, reason, started_at, ended_at } = parsed;
+  const { state, reason, started_at, ended_at, scope_unit } = parsed;
   return {
     state,
     reason: reason ?? undefined,
     startedAt: started_at ?? undefined,
     endedAt: ended_at,
+    scopeUnit: scope_unit ?? undefined,
   };
 };
 

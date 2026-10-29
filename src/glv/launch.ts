@@ -1,4 +1,5 @@
 import type { ModelSelection } from "./models.js";
+import type { MemoryCeiling } from "./runner/types.js";
 import type { SessionRow } from "./sessions.js";
 
 type EstablishOutcome =
@@ -15,6 +16,7 @@ type SessionLauncher = {
     workingDir: string,
     prompt: string,
     model?: ModelSelection,
+    memoryMax?: MemoryCeiling,
   ) => string;
   /**
    * Resolve the run's real session id, or undefined when the agent did not

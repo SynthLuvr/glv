@@ -256,6 +256,13 @@ const serveCmd = program
     "max concurrent agent runs across both agents",
     cli.parsePositiveInt,
     6,
+  )
+  .option(
+    "--run-memory-max <spec>",
+    "per-run memory ceiling: each run spawns in its own systemd-run " +
+      '--user scope with MemoryMax set (a size like "8G" or "512M", or ' +
+      '"off" to disable); defaults to 8G, overridable per run via the ' +
+      "write API's memory_max field and per boot via GLV_RUN_MEMORY_MAX",
   );
 
 cli.addServeTailOptions(serveCmd);
@@ -292,7 +299,10 @@ serveCmd.action((opts: Record<string, unknown>) => {
     agents: specs,
     dataDirName: DATA_DIR,
     assetsFlavor: "glv",
-    runner: cli.makeRunnerConfig(Number(opts.maxConcurrent)),
+    runner: cli.makeRunnerConfig(Number(opts.maxConcurrent), {
+      memoryMaxSpec:
+        typeof opts.runMemoryMax === "string" ? opts.runMemoryMax : undefined,
+    }),
     authDbPath: paths.authDbPath,
     promptsDbPath: paths.promptsDbPath,
     groupsDbPath: paths.groupsDbPath,
