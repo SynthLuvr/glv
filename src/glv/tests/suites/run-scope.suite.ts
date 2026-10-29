@@ -29,7 +29,12 @@ const fakeSystemdRunPath = fileURLToPath(
   new URL("../fake-systemd-run.ts", import.meta.url),
 );
 
-const UNIT_PREFIX = `--unit=${RUN_SCOPE_PREFIX}`;
+// The argv flag that names the scope unit; a run scope is one whose unit
+// starts with the glv-run- prefix (the availability probe's line has no
+// --unit at all).
+const UNIT_ARG = "--unit=";
+const isRunUnitArg = (arg: string): boolean =>
+  arg.startsWith(`${UNIT_ARG}${RUN_SCOPE_PREFIX}`);
 
 type RunEntry = {
   state: string;
@@ -72,10 +77,12 @@ const runScopeSuite = (fx: FlavorFixture): void => {
   // probe's line has no --unit. Runs execute in submit order, so the
   // last one belongs to the most recently settled session.
   const scopeInvocations = (lines: readonly string[][]): string[][] =>
-    lines.filter((argv) => argv.some((arg) => arg.startsWith(UNIT_PREFIX)));
+    lines.filter((argv) => argv.some(isRunUnitArg));
 
+  // The full unit name (`glv-run-<run id>`) — the same string the run
+  // history records.
   const unitOf = (argv: readonly string[]): string | undefined =>
-    argv.find((arg) => arg.startsWith(UNIT_PREFIX))?.slice(UNIT_PREFIX.length);
+    argv.find(isRunUnitArg)?.slice(UNIT_ARG.length);
 
   const startScopeEnv = async (
     prefix: string,
