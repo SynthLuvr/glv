@@ -139,6 +139,7 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
     { id: SESSION_ID, name: "Screenshot Session", workingDir },
     { id: "shots-limit", name: "Usage Limit Session", workingDir },
     { id: "shots-crash", name: "Crashed Startup Session", workingDir },
+    { id: "shots-bg", name: "Background Watch Session", workingDir },
     { id: "shots-scroll", name: "Long Transcript Session", workingDir },
     { id: "shots-orch", name: "Issue loop 2/2 — glv#379, glv#328", workingDir },
     { id: "shots-w379f", name: "glv#379 fix", workingDir },
@@ -164,6 +165,14 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
       content: [{ type: "text", text: "Run the full migration suite" }],
     },
   ]);
+  gooseFixture.seedMessages(env, "shots-bg", [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Watch PR #394 and report back when CI settles" },
+      ],
+    },
+  ]);
   // A persisted stop notice for the limit session, exactly as the runner
   // records one when the provider refuses service.
   const notices = openStopNoticesDb(env.dbs.stopNoticesDb);
@@ -181,6 +190,19 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
     gooseFixture.viewId("shots-crash"),
     "goose exited with code 134 — last stderr:\n" +
       "fatal: memory allocation of 1342177280 bytes failed",
+  );
+  // The kill-at-exit notice, worded exactly as stop-reason.ts classifies
+  // a headless claude run that armed a plain background watcher, ended
+  // its turn, and had claude kill the watcher on exit.
+  recordStopNotice(
+    notices,
+    gooseFixture.viewId("shots-bg"),
+    "Session stopped early: pending background tasks were killed when " +
+      'the run ended. "CI watcher: sleep 30; until gh pr checks 394" ' +
+      "— the agent left background work pending; a headless run cannot " +
+      "outlive its turn, so the process killed it on exit and the " +
+      "agent will not report back on its own. " +
+      "Send a message to continue.",
   );
   notices.close();
   gooseFixture.seedMessages(env, SESSION_ID, [
@@ -367,6 +389,14 @@ const captureViews = async (
   await page.locator("form.prompt-bar .status-hint.error").waitFor();
   await capture(page, "crash-notice-desktop.png");
   await capture(page, "crash-notice-prompt-bar.png", "form.prompt-bar");
+
+  // The kill-at-exit notice: a run that armed a plain background watcher
+  // and ended its turn has claude kill the watcher on exit; the card
+  // names the work that died instead of reading as a clean finish.
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId("shots-bg")}`);
+  await page.locator("form.prompt-bar .status-hint.error").waitFor();
+  await capture(page, "bg-tasks-notice-desktop.png");
+  await capture(page, "bg-tasks-notice-prompt-bar.png", "form.prompt-bar");
 
   await page.setViewportSize(MOBILE);
   await showDetailPaneOnMobile(page);

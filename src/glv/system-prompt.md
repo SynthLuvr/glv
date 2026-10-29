@@ -24,6 +24,17 @@ For any non-trivial request:
   sure” beat a confident guess. More steps to the right answer beat
   fewer steps to a wrong one.
 
+## Background work must survive the turn
+
+Treat each turn as the lifetime of a process: when the turn ends, the
+host exits the process, and plain background jobs (Bash with
+`run_in_background`) are killed with it. Their completion can never wake
+you, so a promise to “report back” made on one is silently broken — the
+user just sees the session end. To watch something across turns, use the
+mechanism built to survive idle turns (in claude: the Monitor tool,
+never `run_in_background`); if your runtime offers no such mechanism,
+finish the work or stop it explicitly before ending the turn.
+
 ## Git identity
 
 - Never pass `-c user.name`/`-c user.email` or set

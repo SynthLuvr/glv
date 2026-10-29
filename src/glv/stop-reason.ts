@@ -12,6 +12,14 @@ import { JsonObject, parseJson } from "./parse.js";
 // Neither record lands in the session transcript the viewer renders, so
 // without this classifier a refused run is indistinguishable from a clean
 // finish — the agent's own announcement evaporates with the live preview.
+//
+// A second silent-stop shape needs no provider at all: headless claude
+// kills the plain background tasks its turn outlived (a watcher armed
+// with Bash run_in_background, say) after printing its terminal result,
+// then exits 0 — so a session that promised "I'll report back when it
+// finishes" settles as a clean finish with the watcher dead. The kill
+// rides the stream as a system task_notification (status "stopped"),
+// classified below into its own notice kind.
 
 // How many trailing stream lines to inspect. A refusal record is the
 // agent's last word (or nearly so — goose follows it with a "complete"
@@ -33,6 +41,26 @@ const ResultRecord = type({
   is_error: "true",
   result: "string",
 });
+
+// claude's terminal record in any mood — the newest one marks where the
+// run's own words end and the runtime's epilogue begins.
+const AnyResultRecord = type({ type: "'result'" });
+
+// The kill epilogue: a pending Monitor parks the process, so this shape
+// only streams when the run left plain background tasks and nothing
+// parked it. Verified against a controlled 2.1.289 --print run.
+const KilledTaskRecord = type({
+  type: "'system'",
+  subtype: "'task_notification'",
+  status: "'stopped'",
+  "summary?": "string",
+});
+
+// What the kill broke: the agent armed work it meant to be woken by.
+const KILLED_TASK_DETAIL =
+  "the agent left background work pending; a headless run cannot " +
+  "outlive its turn, so the process killed it on exit and the agent " +
+  "will not report back on its own";
 
 const refusalDetail = (line: string): string | undefined => {
   const parsed = parseJson(line, JsonObject);
@@ -56,9 +84,14 @@ const isNetworkFailure = (detail: string): boolean =>
 
 // Kinds the notice words differently; the provider's own phrasing rides
 // along so a reset time survives verbatim.
-type StopKind = "usage-limit" | "network" | "provider";
+type StopKind = "usage-limit" | "network" | "provider" | "background-tasks";
 
-const STOP_KINDS: readonly StopKind[] = ["usage-limit", "network", "provider"];
+const STOP_KINDS: readonly StopKind[] = [
+  "usage-limit",
+  "network",
+  "provider",
+  "background-tasks",
+];
 
 // Each kind carries both sentence forms: the lead that opens the flat
 // notice, and the title-case summary the structured prompt-bar card shows.
@@ -75,6 +108,12 @@ const STOP_TEXT: Record<StopKind, { lead: string; summary: string }> = {
     lead: "Session stopped early: the run ended with an error.",
     summary: "The run ended with an error",
   },
+  "background-tasks": {
+    lead:
+      "Session stopped early: pending background tasks were killed when " +
+      "the run ended.",
+    summary: "Background tasks killed at exit",
+  },
 };
 
 const ACTION_SENTENCE = "Send a message to continue.";
@@ -89,6 +128,14 @@ const classify = (detail: string): StopKind => {
 
 const noticeFor = (detail: string): string =>
   `${STOP_TEXT[classify(detail)].lead} ${truncate(detail, DETAIL_MAX)} ${ACTION_SENTENCE}`;
+
+// The killed-task notice names the work that died when the stream says
+// what it was ("Sleep 30s then print marker"); the provider's wording
+// has no part in it, so this bypasses classify on purpose.
+const noticeForKilledTask = (summary: string): string =>
+  `${STOP_TEXT["background-tasks"].lead} ` +
+  `${summary === "" ? "" : `"${truncate(summary, DETAIL_MAX)}" — `}` +
+  `${KILLED_TASK_DETAIL} ${ACTION_SENTENCE}`;
 
 // Reverses noticeFor for the structured card: the lead and the trailing
 // action sentence peel off, leaving the provider's own words (reset time
@@ -113,18 +160,49 @@ const splitStopNotice = (
   return { classification, detail: rest };
 };
 
+// The newest result record in the window, or -1. claude prints its
+// terminal result first and kills afterwards, so a killed-task record
+// older than a result belongs to a mid-run TaskStop — an ordinary
+// monitoring handoff the run already handled — not to the run's ending.
+const newestResultIndex = (window: readonly string[]): number => {
+  for (let i = window.length - 1; i >= 0; i--) {
+    const parsed = parseJson(window[i], JsonObject);
+    if (!parsed.ok) continue;
+    if (!(AnyResultRecord(parsed.data) instanceof type.errors)) return i;
+  }
+  return -1;
+};
+
+// Finds a kill epilogue newer than the run's own last word, newest match
+// first. Absent a result record the whole window is eligible: a run that
+// died right after the kill (or a dialect that prints no result) still
+// deserves the notice.
+const killedTaskNotice = (window: readonly string[]): string | undefined => {
+  const newestResult = newestResultIndex(window);
+  for (let i = window.length - 1; i > newestResult; i--) {
+    const parsed = parseJson(window[i], JsonObject);
+    if (!parsed.ok) continue;
+    const killed = KilledTaskRecord(parsed.data);
+    if (killed instanceof type.errors) continue;
+    return noticeForKilledTask(killed.summary ?? "");
+  }
+  return undefined;
+};
+
 // Inspects a run's buffered stream lines (oldest first) for a provider
 // refusal the agent announced, newest match first: both agents treat the
 // failure record as terminal, so it is the run's verdict. Structured
 // failure records only — an assistant *message about* a rate limit is
-// conversation, not a refusal, and must not trip this.
+// conversation, not a refusal, and must not trip this. Refusals outrank
+// the kill epilogue: a run that announced its own failure did end on
+// purpose, whatever background work it also killed.
 const detectStopNotice = (lines: readonly string[]): string | undefined => {
-  const newestFirst = lines.slice(-SCAN_LINES).reverse();
-  for (const line of newestFirst) {
+  const window = lines.slice(-SCAN_LINES);
+  for (const line of [...window].reverse()) {
     const detail = refusalDetail(line);
     if (detail !== undefined && detail.trim() !== "") return noticeFor(detail);
   }
-  return undefined;
+  return killedTaskNotice(window);
 };
 
 export { ACTION_SENTENCE, detectStopNotice, splitStopNotice };

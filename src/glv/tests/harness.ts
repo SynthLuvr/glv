@@ -491,6 +491,18 @@ type FlavorFixture = {
    * the agent prints when the provider refuses service.
    */
   readonly refusalRecord: (detail: string) => string;
+  /**
+   * The flavor's clean terminal verdict record, when its stream dialect
+   * prints one (claude's headless result record); undefined otherwise.
+   */
+  readonly cleanResultRecord?: () => string;
+  /**
+   * The kill epilogue a headless claude run streams when it kills the
+   * plain background tasks its turn outlived — after the terminal result
+   * record, before exiting 0. Undefined for flavors whose streams never
+   * carry one.
+   */
+  readonly killedTaskRecords?: (summary: string) => readonly string[];
   /** One NDJSON line in the foreign envelope — the viewer must drop it. */
   readonly foreignLine: string;
   /** Non-JSON banner text the flavor's agent may emit. */

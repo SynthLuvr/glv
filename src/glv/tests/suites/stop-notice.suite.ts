@@ -107,8 +107,9 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
         { id: "limit-1", name: "Limit", workingDir: join(e.scratchDir, "w") },
         { id: "net-1", name: "Net", workingDir: join(e.scratchDir, "w") },
         { id: "ok-1", name: "Ok", workingDir: join(e.scratchDir, "w") },
+        { id: "bg-1", name: "Bg", workingDir: join(e.scratchDir, "w") },
       ]);
-      for (const id of ["limit-1", "net-1", "ok-1"])
+      for (const id of ["limit-1", "net-1", "ok-1", "bg-1"])
         fx.seedMessages(e, id, [
           { role: "user", content: [{ type: "text", text: "seed" }] },
         ]);
@@ -276,6 +277,96 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       expect(after).not.toContain('class="status-hint error"');
     });
   });
+
+  // The kill-at-exit epilogue is claude's stream dialect, so the
+  // scenario binds only to flavors that produce it: headless claude
+  // kills the plain background tasks its turn outlived after printing a
+  // clean result record and exits 0 — a session whose last words
+  // promised a report-back settles looking perfectly finished.
+  const killedTaskRecords = fx.killedTaskRecords;
+  const cleanResultRecord = fx.cleanResultRecord;
+
+  if (killedTaskRecords !== undefined && cleanResultRecord !== undefined)
+    describe("background tasks killed at exit", () => {
+      const WATCHER = "CI watcher: sleep 30; until gh pr checks 394";
+
+      it("turns the silent kill into a stop notice on an exit-0 run", async () => {
+        writeLines("main.txt", [
+          fx.streamLine("Pushed the fix — CI is running. I'll report back."),
+          cleanResultRecord(),
+          ...killedTaskRecords(WATCHER),
+        ]);
+        const stream = collectSse(
+          env,
+          `/sessions/${fx.viewId("bg-1")}/events`,
+          (evs) =>
+            evs.some(
+              (e) =>
+                e.event === "status" && parseSseData(e.data).status === "error",
+            ),
+          15000,
+        );
+        await startRun(env, "bg-1", "watch the pr and report back please");
+        const events = await stream;
+        const statuses = events
+          .filter((e) => e.event === "status")
+          .map((e) => parseSseData(e.data).status);
+        expect(statuses).not.toContain("completed");
+        const error = events
+          .filter((e) => e.event === "status")
+          .map((e) => parseSseData(e.data))
+          .find((data) => data.status === "error");
+        expect(error?.error).toContain("Session stopped early");
+        expect(error?.error).toContain("background tasks were killed");
+        expect(error?.error).toContain(WATCHER);
+        expect(error?.error).toContain("Send a message to continue");
+      });
+
+      it("renders the kill card in the browser", async () => {
+        const html = await waitForPageText(
+          env,
+          "bg-1",
+          "Background tasks killed at exit",
+        );
+        expect(html).toContain(WATCHER);
+        await withPage(env.context, async (page) => {
+          await page.goto(`${env.baseUrl}/sessions/${fx.viewId("bg-1")}`);
+          const hint = page.locator("form.prompt-bar .status-hint.error");
+          await expect(hint).toContainText("Run stopped early");
+          await expect(hint.locator(".stop-notice-icon")).toBeVisible();
+          await expect(hint.locator(".stop-notice-title")).toContainText(
+            "Run stopped early",
+          );
+          await expect(
+            hint.locator(".stop-notice-classification"),
+          ).toContainText("Background tasks killed at exit");
+          await expect(hint.locator(".stop-notice-reason")).toContainText(
+            WATCHER,
+          );
+          await expect(hint.locator(".stop-notice-action")).toContainText(
+            "Send a message to continue",
+          );
+        });
+      });
+
+      it("keeps the notice across a server restart", async () => {
+        await env.restart();
+        const html = await pageHtml(env, "bg-1");
+        expect(html).toContain("Background tasks killed at exit");
+        expect(html).toContain(WATCHER);
+      });
+
+      it("does not flag a mid-run TaskStop followed by a clean finish", async () => {
+        writeLines("main.txt", [
+          ...killedTaskRecords("old watcher"),
+          fx.streamLine("Watcher handed off; continuing."),
+          cleanResultRecord(),
+        ]);
+        await startRun(env, "bg-1", "hand off cleanly please");
+        const html = await waitForIdleBar(env, "bg-1");
+        expect(html).not.toContain("Session stopped early");
+      });
+    });
 };
 
 export { runStopNoticeSuite };
