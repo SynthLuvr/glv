@@ -271,10 +271,9 @@ const listDirEntries = (dir: string): Dirent[] | undefined => {
 };
 
 // All transcript files across project directories, newest mtime first —
-// the candidate order the listing walks when filling its window (mtime
-// approximates the last transcript timestamp without parsing every
-// file); the composite store sorts the final list by each row's own
-// updated_at.
+// the walk order for filling a listing window (mtime approximates the
+// last transcript timestamp without parsing every file); the composite
+// store sorts merged rows by each row's own updated_at.
 const listSessionFiles = (root: string): SessionFile[] => {
   const dirs = listDirEntries(root);
   if (dirs === undefined) return [];

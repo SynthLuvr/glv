@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { claudeFixture } from "../../claude/tests/integration-harness.js";
+import { gooseFixture } from "../../goose/tests/integration-harness.js";
 import {
-  backdateClaudeSession,
-  backdateGooseSession,
   seedClaudeSessions,
   seedGooseSessions,
   startCombinedEnv,
@@ -15,12 +15,12 @@ import { authedFetch } from "./harness.js";
 
 // The sidebar's cross-agent ordering: one serve process, both agents,
 // sessions backdated so the two flavors' true recency interleaves. The
-// composite store must merge by the instant each updated_at names —
-// goose spells it as SQLite's zone-less "YYYY-MM-DD HH:MM:SS" while
-// claude spells ISO 8601 — because lexicographic comparison reads
-// 'T' > ' ' and pins every same-day claude row above every goose row,
-// however old. All timestamps are anchored inside one UTC calendar day
-// (noon ± minutes), the exact window where the string bug shows.
+// composite must merge by the instant each updated_at names — goose
+// spells it SQLite's zone-less "YYYY-MM-DD HH:MM:SS", claude ISO 8601,
+// and lexicographic comparison reads 'T' > ' ', pinning every same-day
+// claude row above every goose row however old. Every instant anchors
+// inside one UTC calendar day (noon ± minutes), the exact window where
+// the string bug mis-sorts.
 
 let env: IntegrationEnv;
 let home: string;
@@ -37,30 +37,28 @@ afterAll(async () => {
 
 const MINUTE = 60_000;
 
-// All four instants share the UTC date they are anchored to: each is
-// noon-anchored plus minutes, so no offset can cross midnight.
-const utcNoon = (): number => {
-  const now = new Date();
-  return Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    12,
-  );
-};
+// Noon of today's UTC date; every seeded instant is noon ± minutes, so
+// none can cross midnight into another calendar day.
+const now = new Date();
+const noon = Date.UTC(
+  now.getUTCFullYear(),
+  now.getUTCMonth(),
+  now.getUTCDate(),
+  12,
+);
 
-// The seeds and their true recency, newest first, all as noon offsets:
-//   claude-fresh (noon+70m) > goose-fresh (noon+65m) >
-//   claude-stale (noon+60m) > goose-stale (noon)
-// The agents interleave, so any per-agent grouping (the string bug's
-// symptom — all claude rows, then all goose rows) fails the expected
-// order.
+const SESSION_NAMES = [
+  "Order Claude Fresh",
+  "Order Claude Stale",
+  "Order Goose Fresh",
+  "Order Goose Stale",
+] as const;
+
 const workDir = (name: string): string => join(env.scratchDir, name);
-const noon = utcNoon();
 
-const sidebarOrder = async (names: string[]): Promise<string[]> => {
-  const res = await authedFetch(env, "/");
-  const html = await res.text();
+// The names in the order they appear in the sidebar HTML.
+const sidebarOrder = async (names: readonly string[]): Promise<string[]> => {
+  const html = await (await authedFetch(env, "/")).text();
   return names
     .map((name) => ({ name, at: html.indexOf(name) }))
     .filter((hit) => hit.at >= 0)
@@ -94,19 +92,22 @@ describe("combined viewer — mixed-agent session order", () => {
         workingDir: workDir("cf"),
       },
     ]);
-    backdateGooseSession(env, "order-goose-stale", noon);
-    backdateGooseSession(env, "order-goose-fresh", noon + 65 * MINUTE);
-    backdateClaudeSession(env, "order-claude-stale", noon + 60 * MINUTE);
-    backdateClaudeSession(env, "order-claude-fresh", noon + 70 * MINUTE);
+    // True recency interleaves the agents (the string bug's symptom is
+    // per-agent grouping): claude+70m > goose+65m > claude+60m > goose.
+    gooseFixture.backdateSession(env, "order-goose-stale", noon);
+    gooseFixture.backdateSession(env, "order-goose-fresh", noon + 65 * MINUTE);
+    claudeFixture.backdateSession(
+      env,
+      "order-claude-stale",
+      noon + 60 * MINUTE,
+    );
+    claudeFixture.backdateSession(
+      env,
+      "order-claude-fresh",
+      noon + 70 * MINUTE,
+    );
 
-    expect(
-      await sidebarOrder([
-        "Order Claude Fresh",
-        "Order Claude Stale",
-        "Order Goose Fresh",
-        "Order Goose Stale",
-      ]),
-    ).toEqual([
+    expect(await sidebarOrder(SESSION_NAMES)).toEqual([
       "Order Claude Fresh",
       "Order Goose Fresh",
       "Order Claude Stale",
@@ -115,20 +116,16 @@ describe("combined viewer — mixed-agent session order", () => {
   });
 
   it("lists goose newer than claude by true time, not by spelling", async () => {
-    // The mirrored seeding: goose freshest, claude oldest. Grouping by
-    // agent again puts both claude rows first; only instant comparison
-    // yields the true order.
-    backdateGooseSession(env, "order-goose-fresh", noon + 90 * MINUTE);
-    backdateClaudeSession(env, "order-claude-fresh", noon + 75 * MINUTE);
+    // Mirror the first seeding's top: goose freshest, claude second —
+    // only instant comparison yields this order.
+    gooseFixture.backdateSession(env, "order-goose-fresh", noon + 90 * MINUTE);
+    claudeFixture.backdateSession(
+      env,
+      "order-claude-fresh",
+      noon + 75 * MINUTE,
+    );
 
-    expect(
-      await sidebarOrder([
-        "Order Claude Fresh",
-        "Order Claude Stale",
-        "Order Goose Fresh",
-        "Order Goose Stale",
-      ]),
-    ).toEqual([
+    expect(await sidebarOrder(SESSION_NAMES)).toEqual([
       "Order Goose Fresh",
       "Order Claude Fresh",
       "Order Claude Stale",

@@ -18,6 +18,17 @@ const prefixedRow = (agent: string, row: SessionRow): SessionRow => ({
   agent,
 });
 
+// The instant updated_at names, for ordering across flavors: goose
+// spells it SQLite's zone-less "YYYY-MM-DD HH:MM:SS" and claude ISO
+// 8601, and lexicographic comparison reads 'T' > ' ', pinning one
+// flavor's same-day rows above the other's however old they are. A
+// value parseTimestamp cannot read sinks below every parsable one
+// rather than poisoning the subtraction with NaN.
+const instantOf = (row: SessionRow): number => {
+  const ms = parseTimestamp(row.updated_at);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
+
 // The SessionStore over several agents' stores: listing merges every
 // child (newest-first by updated_at, capped at the filter limit) and
 // mutations dispatch each id to the child its prefix names. Ids are
@@ -54,32 +65,20 @@ const createCompositeSessionStore = (
     return groups;
   };
 
-  // The merged listing, newest first. Rows compare by the instant
-  // updated_at names, never the raw string: the flavors spell that
-  // instant differently (goose: SQLite's zone-less "YYYY-MM-DD HH:MM:SS";
-  // claude: ISO 8601), and lexicographic comparison reads 'T' > ' ' —
-  // pinning one flavor's same-day rows above the other's however old
-  // they are. parseTimestamp (toIso) understands both spellings; a
-  // value it cannot parse sinks below every parsable one instead of
-  // poisoning the arithmetic with NaN. A stable sort over the
+  // The merged listing, newest first. A stable sort over the
   // concatenated children asks nothing of their internal order — claude
-  // walks its files by mtime, which need not agree with the transcript
-  // timestamps its rows carry — and keeps ties in entry order. Each
-  // list is already capped at the window, so the sort spans at most
-  // children × limit rows.
+  // walks its files by mtime, which need not agree with the timestamps
+  // its rows carry — and keeps ties in entry order. Each child is
+  // already capped at the window, so at most children × limit rows
+  // sort.
   const mergeNewestFirst = (
     lists: readonly SessionRow[][],
     limit: number,
-  ): SessionRow[] => {
-    const instantOf = (row: SessionRow): number => {
-      const ms = parseTimestamp(row.updated_at);
-      return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
-    };
-    return lists
+  ): SessionRow[] =>
+    lists
       .flat()
       .sort((a, b) => instantOf(b) - instantOf(a))
       .slice(0, limit);
-  };
 
   // The filter as one child sees it: the composite's id restriction
   // carries namespaced ids, so each child receives exactly its own
