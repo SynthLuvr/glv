@@ -1,4 +1,5 @@
 import { namespacedId, splitNamespacedId } from "./agents.js";
+import { parseTimestamp } from "./format/index.js";
 import type { SessionFilter, SessionRow, SessionStore } from "./sessions.js";
 
 // One agent's store under the composite: the agent id that prefixes its
@@ -53,31 +54,31 @@ const createCompositeSessionStore = (
     return groups;
   };
 
-  // Both children list newest-first; a stable two-way merge preserves
-  // that order across agents without a full re-sort. Ties (identical
-  // updated_at) keep the entry order the caller gave.
+  // The merged listing, newest first. Rows compare by the instant
+  // updated_at names, never the raw string: the flavors spell that
+  // instant differently (goose: SQLite's zone-less "YYYY-MM-DD HH:MM:SS";
+  // claude: ISO 8601), and lexicographic comparison reads 'T' > ' ' —
+  // pinning one flavor's same-day rows above the other's however old
+  // they are. parseTimestamp (toIso) understands both spellings; a
+  // value it cannot parse sinks below every parsable one instead of
+  // poisoning the arithmetic with NaN. A stable sort over the
+  // concatenated children asks nothing of their internal order — claude
+  // walks its files by mtime, which need not agree with the transcript
+  // timestamps its rows carry — and keeps ties in entry order. Each
+  // list is already capped at the window, so the sort spans at most
+  // children × limit rows.
   const mergeNewestFirst = (
     lists: readonly SessionRow[][],
     limit: number,
   ): SessionRow[] => {
-    const merged: SessionRow[] = [];
-    const cursors = lists.map(() => 0);
-    while (merged.length < limit) {
-      let bestList = -1;
-      for (let i = 0; i < lists.length; i++) {
-        if (cursors[i] >= lists[i].length) continue;
-        if (bestList === -1) bestList = i;
-        else {
-          const a = lists[bestList][cursors[bestList]];
-          const b = lists[i][cursors[i]];
-          if (b.updated_at > a.updated_at) bestList = i;
-        }
-      }
-      if (bestList === -1) break;
-      merged.push(lists[bestList][cursors[bestList]]);
-      cursors[bestList]++;
-    }
-    return merged;
+    const instantOf = (row: SessionRow): number => {
+      const ms = parseTimestamp(row.updated_at);
+      return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+    };
+    return lists
+      .flat()
+      .sort((a, b) => instantOf(b) - instantOf(a))
+      .slice(0, limit);
   };
 
   // The filter as one child sees it: the composite's id restriction

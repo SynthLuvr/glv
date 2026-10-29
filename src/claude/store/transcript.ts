@@ -270,8 +270,11 @@ const listDirEntries = (dir: string): Dirent[] | undefined => {
   return entries.ok ? entries.data : undefined;
 };
 
-// All transcript files across project directories, newest first — the file
-// mtime is claude's own "updated_at", so the sort matches the sidebar order.
+// All transcript files across project directories, newest mtime first —
+// the candidate order the listing walks when filling its window (mtime
+// approximates the last transcript timestamp without parsing every
+// file); the composite store sorts the final list by each row's own
+// updated_at.
 const listSessionFiles = (root: string): SessionFile[] => {
   const dirs = listDirEntries(root);
   if (dirs === undefined) return [];
