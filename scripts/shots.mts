@@ -8,6 +8,7 @@ import {
   expect,
   type Page,
 } from "@playwright/test";
+import { claudeFixture } from "../src/claude/tests/integration-harness.js";
 import {
   openSessionLinksDb,
   tagParentSession,
@@ -191,9 +192,11 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
     "goose exited with code 134 — last stderr:\n" +
       "fatal: memory allocation of 1342177280 bytes failed",
   );
-  // The kill-at-exit notice, worded exactly as stop-reason.ts classifies
-  // a headless claude run that armed a plain background watcher, ended
-  // its turn, and had claude kill the watcher on exit.
+  // The drift-tripwire notice, worded exactly as stop-reason.ts
+  // classifies an exit-time kill. With held-open stdin (ADR 0010)
+  // glv-driven claude runs no longer produce the epilogue; a future
+  // claude that re-introduces it still surfaces this card, so the shot
+  // documents the wording reviewers would see in that case.
   recordStopNotice(
     notices,
     gooseFixture.viewId("shots-bg"),
@@ -390,9 +393,10 @@ const captureViews = async (
   await capture(page, "crash-notice-desktop.png");
   await capture(page, "crash-notice-prompt-bar.png", "form.prompt-bar");
 
-  // The kill-at-exit notice: a run that armed a plain background watcher
-  // and ended its turn has claude kill the watcher on exit; the card
-  // names the work that died instead of reading as a clean finish.
+  // The drift-tripwire card (unchanged notice-card UI): glv-driven
+  // runs now hold stdin open and never produce the kill epilogue —
+  // see the bg-wake shots for what really happens — but the classifier
+  // stays armed for claude drift, and this is the card it would show.
   await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId("shots-bg")}`);
   await page.locator("form.prompt-bar .status-hint.error").waitFor();
   await capture(page, "bg-tasks-notice-desktop.png");
@@ -635,6 +639,84 @@ const seededUpdatedAt = (env: IntegrationEnv): string => {
   }
 };
 
+// ADR 0010's headline behavior, driven for real against the mock
+// claude: the run arms a background watcher, ends its turn, and —
+// because glv holds stdin open — stays alive until the watcher
+// completes and wakes the agent for its report-back turn. Shot twice:
+// mid-park (turn 1 answered, watcher still pending, run still going)
+// and after the wake turn settles with the promised report.
+const captureWakeRun = async (browser: Browser): Promise<void> => {
+  const env = await claudeFixture.startEnv(
+    "glv-shots-wake-",
+    undefined,
+    undefined,
+    {
+      CLAUDE_MOCK_BG_TASKS: "wake",
+      // A comfortable window to shoot the parked state before the
+      // completion wakes the agent.
+      CLAUDE_MOCK_BG_WAKE_DELAY_MS: "9000",
+    },
+  );
+  try {
+    const workingDir = join(env.scratchDir, "project");
+    mkdirSync(workingDir, { recursive: true });
+    claudeFixture.seedSessions(env, [
+      { id: "shots-wake", name: "CI watch — PR #394", workingDir },
+    ]);
+    claudeFixture.seedMessages(env, "shots-wake", [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "The test fix is pushed — keep an eye on CI?" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "On it." }],
+      },
+    ]);
+    const context = await browser.newContext({ viewport: DESKTOP });
+    await addSessionCookie(context, env);
+    const page = await context.newPage();
+    const id = claudeFixture.viewId("shots-wake");
+    await page.goto(`${env.baseUrl}/sessions/${id}`);
+    await page.locator("form.prompt-bar").waitFor();
+    await page
+      .locator('form.prompt-bar textarea[name="prompt"]')
+      .fill("Watch PR #394 and report back when CI settles");
+    await page.locator("form.prompt-bar button.send-btn").click();
+
+    // Mid-park: turn 1 has answered and ended, the watcher is still
+    // pending, and the run is alive — stop button up, no settle, no
+    // notice. This is the state the old model destroyed.
+    await page
+      .getByText("Watcher armed; I'll report back")
+      .first()
+      .waitFor({ timeout: 20000 });
+    await page
+      .locator("form.prompt-bar button.stop-btn")
+      .waitFor({ timeout: 10000 });
+    await capture(page, "bg-wake-running-desktop.png");
+    await capture(page, "bg-wake-running-prompt-bar.png", "form.prompt-bar");
+
+    // The wake turn: the watcher completed, the agent reports back as
+    // promised, and only now does the run settle — the reply lands in
+    // the transcript, not just the transient preview.
+    await page
+      .getByText("reporting back as promised")
+      .first()
+      .waitFor({ timeout: 30000 });
+    await page
+      .locator("form.prompt-bar button.send-btn")
+      .waitFor({ timeout: 10000 });
+    await capture(page, "bg-wake-settled-desktop.png");
+    await capture(page, "bg-wake-settled-prompt-bar.png", "form.prompt-bar");
+    await context.close();
+  } finally {
+    await env.cleanup();
+  }
+};
+
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
@@ -648,6 +730,7 @@ try {
   await captureCronEdit(browser, env);
   await captureScheduledRuns(browser, env);
   await captureCombined(browser, env);
+  await captureWakeRun(browser);
 } finally {
   await browser.close();
   teardown();

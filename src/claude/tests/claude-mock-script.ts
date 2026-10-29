@@ -128,7 +128,10 @@ const taskEvent = (subtype: string, fields: Record<string, unknown>) =>
 // agent into a second turn, and the runner closes stdin at that turn's
 // result. "nowake": the completion never wakes anyone, and the
 // runner's idle defense must close the pipe on its own.
-const runBgTaskScenario = async (mode: string): Promise<void> => {
+const runBgTaskScenario = async (
+  mode: string,
+  sessionId: string | undefined,
+): Promise<void> => {
   const say = (text: string): void => {
     console.log(
       JSON.stringify({
@@ -150,6 +153,28 @@ const runBgTaskScenario = async (mode: string): Promise<void> => {
       }),
     );
   };
+  // Real claude commits each assistant message to the session
+  // transcript as it streams. The commit rides slightly behind the
+  // stream line so the server's stream poll flushes the line as a live
+  // preview first — the same race the real binary wins most of the
+  // time, and the ordering the stdin-lifecycle suite asserts on.
+  const sayAndCommit = async (text: string): Promise<void> => {
+    say(text);
+    await sleep(Number(process.env.CLAUDE_MOCK_BG_COMMIT_DELAY_MS ?? 2000));
+    if (sessionId !== undefined) {
+      commitLine(
+        sessionId,
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text }],
+          },
+        }),
+        Date.now(),
+      );
+    }
+  };
 
   // Turn 1: arm the watcher, reply, end the turn.
   console.log(JSON.stringify({ type: "system", subtype: "init" }));
@@ -168,7 +193,7 @@ const runBgTaskScenario = async (mode: string): Promise<void> => {
       task_type: "local_bash",
     }),
   );
-  say("Watcher armed; I'll report back when it finishes.");
+  await sayAndCommit("Watcher armed; I'll report back when it finishes.");
   result("Watcher armed");
   logStdinPhase("turn1-result");
 
@@ -194,13 +219,18 @@ const runBgTaskScenario = async (mode: string): Promise<void> => {
   );
 
   if (mode === "wake") {
-    // The wake turn: runs unprompted, ends the session's work.
+    // The wake turn: runs unprompted, ends the session's work. The
+    // commit is awaited before the EOF wait so the process never exits
+    // with the transcript write still pending.
     console.log(JSON.stringify({ type: "system", subtype: "init" }));
-    say("The watcher finished — reporting back as promised.");
+    const wakeCommitted = sayAndCommit(
+      "The watcher finished — reporting back as promised.",
+    );
     result("Watcher finished");
     logStdinPhase("turn2-result");
-    const closed = await waitForStdinClose(10_000);
-    logStdinPhase("eof", { closedAfterWakeTurn: closed });
+    const closed = waitForStdinClose(10_000);
+    await wakeCommitted;
+    logStdinPhase("eof", { closedAfterWakeTurn: await closed });
   } else {
     // No wake ever comes; only the idle defense can end this run.
     const closed = await waitForStdinClose(30_000);
@@ -337,7 +367,7 @@ const main = async (): Promise<void> => {
   // streams the fixture's scripted lines as before.
   const bgMode = process.env.CLAUDE_MOCK_BG_TASKS;
   if (bgMode === "wake" || bgMode === "nowake") {
-    await runBgTaskScenario(bgMode);
+    await runBgTaskScenario(bgMode, sessionId);
     process.exit(0);
   }
 
