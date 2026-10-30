@@ -70,23 +70,20 @@ const claudeAdapter: harness.FlavorAdapter = {
   }),
 };
 
-// The claude listing walks transcript files by mtime but ranks rows by
-// the timestamps their lines carry, so seeds must never stamp a file's
-// mtime past the point a later seed's content timestamps reach — the two
-// orders flipped exactly that way on loaded CI runners (the
-// combined-identity window test). A process-wide monotonic clock keeps
-// every timestamp the fixtures write strictly increasing.
+// The listing fills small windows by walking transcript files
+// newest-mtime-first but ranks rows by the timestamps their lines carry,
+// so the two orders agree only while every stamp keeps strictly
+// increasing — one process-wide monotonic clock behind every seed
+// timestamp guarantees that, however fast seed calls follow one another.
 let seedClock = 0;
-const nextSeedTs = (): number => {
+const nextSeedTimestamp = (): number => {
   seedClock = Math.max(Date.now(), seedClock + 1000);
   return seedClock;
 };
 
 // The server reads fresh on every request, so sessions seeded here appear
-// in the sidebar on the next page load without a restart. Timestamps come
-// from the monotonic seed clock: each seed lands strictly after the last,
-// so the newest-first order stays deterministic however fast successive
-// seed calls follow one another.
+// in the sidebar on the next page load without a restart. Staggered mtimes
+// keep the newest-first sidebar order deterministic.
 const insertSessions = (
   projectsRoot: string,
   sessions: harness.SessionSeed[],
@@ -95,7 +92,7 @@ const insertSessions = (
     const dir = join(projectsRoot, encodeWorkingDir(s.workingDir));
     mkdirSync(dir, { recursive: true });
     const path = join(dir, `${s.id}.jsonl`);
-    const ts = nextSeedTs();
+    const ts = nextSeedTimestamp();
     writeFileSync(
       path,
       `${JSON.stringify({
@@ -147,15 +144,15 @@ const insertMessages = (
         aiTitle: "seed session",
         sessionId,
         cwd: "/seeded",
-        timestamp: new Date(nextSeedTs()).toISOString(),
+        timestamp: new Date(nextSeedTimestamp()).toISOString(),
       })}\n`,
     );
   }
   const parts: string[] = [];
-  let newest = 0;
+  let newestLineMs = 0;
   for (const m of messages) {
-    const t = m.createdTimestamp ?? nextSeedTs();
-    newest = Math.max(newest, t);
+    const t = m.createdTimestamp ?? nextSeedTimestamp();
+    newestLineMs = Math.max(newestLineMs, t);
     parts.push(
       JSON.stringify({
         parentUuid: null,
@@ -169,9 +166,10 @@ const insertMessages = (
     );
   }
   appendFileSync(path, `${parts.join("\n")}\n`);
-  // The mtime mirrors the newest line, so the file-walk order the listing
-  // windows with cannot disagree with the updated_at its rows carry.
-  utimesSync(path, new Date(), new Date(Math.max(newest, Date.now())));
+  // mtime tracks the newest line written (floored at now, so an empty or
+  // fully backdated seed still walks fresh) so the mtime walk cannot
+  // disagree with the updated_at the rows carry.
+  utimesSync(path, new Date(), new Date(Math.max(newestLineMs, Date.now())));
 };
 
 const startIntegrationEnv = harness.makeStartEnv(claudeAdapter);
