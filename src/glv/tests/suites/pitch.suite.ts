@@ -14,6 +14,14 @@ import {
 const runPitchSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
 
+  const expectAuthRedirect = async (path: string): Promise<void> => {
+    const res = await fetch(`${env.baseUrl}${path}`, {
+      redirect: "manual",
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location") ?? "").toContain("/auth/");
+  };
+
   beforeAll(async () => {
     env = await fx.startEnv("glv-pitch-");
   }, 180000);
@@ -65,16 +73,9 @@ const runPitchSuite = (fx: FlavorFixture): void => {
   });
 
   it("keeps the rest of the app behind the auth gate", async () => {
-    const viewer = await fetch(`${env.baseUrl}/`, { redirect: "manual" });
-    expect(viewer.status).toBe(302);
-    expect(viewer.headers.get("location") ?? "").toContain("/auth/");
-
+    await expectAuthRedirect("/");
     // Exact-path exemption: /pitch subpaths are not the sales page.
-    const sub = await fetch(`${env.baseUrl}/pitch/extra`, {
-      redirect: "manual",
-    });
-    expect(sub.status).toBe(302);
-    expect(sub.headers.get("location") ?? "").toContain("/auth/");
+    await expectAuthRedirect("/pitch/extra");
   });
 
   it("renders the hero and viewer links in a real browser", async () => {

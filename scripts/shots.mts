@@ -724,15 +724,11 @@ const capturePitch = async (browser: Browser, env: IntegrationEnv) => {
   await page.goto(`${env.baseUrl}/pitch`);
   await page.locator(".pitch-hero h1").waitFor();
   await capture(page, "pitch-desktop.png");
-  // Viewport shot scrolled to the features grid, offset by the sticky
-  // nav's height — an element shot would clip the card titles under it.
+  // Viewport shot scrolled to the features grid: an element shot would
+  // clip the card titles under the sticky nav, while scrollIntoView
+  // honors .pitch-section's scroll-margin-top and clears it.
   await page.evaluate(() => {
-    const section = document.querySelector("#features");
-    if (section !== null)
-      window.scrollTo(
-        0,
-        section.getBoundingClientRect().top + window.scrollY - 72,
-      );
+    document.querySelector("#features")?.scrollIntoView();
   });
   await page.waitForTimeout(400); // smooth-scroll settle
   await capture(page, "pitch-features-desktop.png");
