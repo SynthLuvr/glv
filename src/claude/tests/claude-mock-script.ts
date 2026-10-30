@@ -23,54 +23,100 @@ const DEFAULT_LINE = JSON.stringify({
   },
 });
 
-// Session runs speak stream-json on stdin (ADR 0010): the prompt is one
-// newline-terminated JSON user line, and the pipe stays open until the
-// runner closes it — so a read-to-EOF would park the mock forever. Read
-// up to the first newline and stop, leaving the stream flowing so a
-// later EOF is still observable.
-const readPromptLine = (): Promise<string> =>
+// Session runs speak stream-json on stdin (ADR 0010): NDJSON frames,
+// and the pipe stays open until the runner closes it — so a read-to-EOF
+// would park the mock forever. Read the first `count` newline-terminated
+// lines and stop, leaving the stream flowing so a later EOF is still
+// observable.
+const readStdinLines = (count: number): Promise<string[]> =>
   new Promise((resolve) => {
+    const lines: string[] = [];
     let buffered = "";
     const onData = (chunk: string): void => {
       buffered += chunk;
-      const newline = buffered.indexOf("\n");
-      if (newline >= 0) finish(buffered.slice(0, newline));
+      for (;;) {
+        const newline = buffered.indexOf("\n");
+        if (newline < 0) return;
+        lines.push(buffered.slice(0, newline));
+        buffered = buffered.slice(newline + 1);
+        if (lines.length === count) {
+          finish();
+          return;
+        }
+      }
     };
-    const finish = (value: string): void => {
+    const finish = (): void => {
       process.stdin.off("data", onData);
       process.stdin.off("end", onEnd);
-      resolve(value);
+      resolve(lines);
     };
-    const onEnd = (): void => finish(buffered);
+    const onEnd = (): void => {
+      // A pipe that closes mid-frame still hands over what it wrote.
+      if (buffered !== "") lines.push(buffered);
+      finish();
+    };
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", onData);
     process.stdin.on("end", onEnd);
   });
 
-// Narrows the stream-json user line back to the prompt text it wraps —
+// What one turn's stdin frames carry.
+type StdinFrames = {
+  /** The prompt text, unwrapped from its user frame. */
+  prompt: string;
+  /** Request id of the persisting title request, if one was sent. */
+  titleRequestId: string | undefined;
+};
+
+// Narrows a stream-json user frame back to the prompt text it wraps —
 // the same reading the real binary does. Anything else (a malformed
-// line, an older dialect) is captured verbatim.
-const decodeUserLine = (line: string): string => {
+// line, an older dialect) is not a user frame.
+const decodeUserFrame = (line: string): string | undefined => {
   const parsed = parseJson(line, JsonObject);
-  if (!parsed.ok || parsed.data.type !== "user") return line;
+  if (!parsed.ok || parsed.data.type !== "user") return undefined;
   const message = parsed.data.message;
-  if (!isRecord(message) || typeof message.content !== "string") return line;
+  if (!isRecord(message) || typeof message.content !== "string")
+    return undefined;
   return message.content;
 };
 
-// Reads the prompt the way claude now does, then captures the decoded
-// text wherever the suite asked — the same files as before the
+// The request id of a persisting generate_session_title control
+// request, when the line is one. The id rides the frame itself, not
+// the request payload.
+const titleRequestIdOf = (line: string): string | undefined => {
+  const parsed = parseJson(line, JsonObject);
+  if (!parsed.ok || parsed.data.type !== "control_request") return undefined;
+  const request = parsed.data.request;
+  if (
+    !isRecord(request) ||
+    request.subtype !== "generate_session_title" ||
+    request.persist !== true
+  )
+    return undefined;
+  return typeof parsed.data.request_id === "string"
+    ? parsed.data.request_id
+    : undefined;
+};
+
+// Reads the frames the way claude now does, then captures the decoded
+// prompt wherever the suite asked — the same files as before the
 // stream-json switch, so prompt assertions keep working unchanged.
-const capturePrompt = async (): Promise<string> => {
-  const raw = await readPromptLine();
-  const prompt = decodeUserLine(raw);
-  logStdinPhase("prompt", { line: raw });
+const captureStdin = (lines: string[]): StdinFrames => {
+  const userLine = lines[0] ?? "";
+  logStdinPhase("prompt", { line: userLine });
+  const frames: StdinFrames = {
+    prompt: decodeUserFrame(userLine) ?? userLine,
+    titleRequestId: lines
+      .slice(1)
+      .map(titleRequestIdOf)
+      .find((id) => id !== undefined),
+  };
   const capturePath = process.env.CLAUDE_MOCK_CAPTURE_STDIN;
   if (capturePath !== undefined && capturePath !== "") {
-    appendFileSync(capturePath, prompt);
-    appendFileSync(stdinTranscriptPath(capturePath), `${prompt}\n`);
+    appendFileSync(capturePath, frames.prompt);
+    appendFileSync(stdinTranscriptPath(capturePath), `${frames.prompt}\n`);
   }
-  return prompt;
+  return frames;
 };
 
 // Appends one observed phase of a stdin-lifecycle scenario, with
@@ -236,17 +282,49 @@ const titleLine = (sessionId: string, title: string): string =>
     timestamp: new Date().toISOString(),
   });
 
+// The bookkeeping line claude opens a headless transcript with — it
+// carries the working dir and a timestamp but no title.
+const openingLine = (sessionId: string): string =>
+  JSON.stringify({
+    type: "queue-operation",
+    operation: "enqueue",
+    sessionId,
+    cwd: process.cwd(),
+    timestamp: new Date().toISOString(),
+  });
+
 // Creates the session's transcript file the way claude does when a run
 // starts — before any output exists — so the server's file poll finds it.
-// A session name, when requested, rides along as an ai-title line.
+// Like real claude 2.1.289 under --print, it carries no title: one is
+// only written when the run asks for it (see answerTitleRequest).
 const createSession = (preassigned?: string): string | undefined => {
   const id = preassigned ?? randomUUID();
   const path = transcriptPath(id);
   if (path === undefined) return id;
   mkdirSync(dirname(path), { recursive: true });
-  const name = process.env.CLAUDE_MOCK_SESSION_NAME ?? "";
-  writeFileSync(path, titleLine(id, name) + "\n");
+  writeFileSync(path, openingLine(id) + "\n");
   return id;
+};
+
+// Answers a persisting title request the way claude does: the title
+// (CLAUDE_MOCK_SESSION_NAME stands in for the model's) is appended to the
+// transcript as an ai-title line and echoed in a control_response on
+// stdout. An unset name means the titler produced nothing.
+const answerTitleRequest = (sessionId: string, requestId: string): void => {
+  const name = process.env.CLAUDE_MOCK_SESSION_NAME ?? "";
+  const path = transcriptPath(sessionId);
+  if (name !== "" && path !== undefined)
+    appendFileSync(path, titleLine(sessionId, name) + "\n");
+  console.log(
+    JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: requestId,
+        response: { title: name === "" ? null : name },
+      },
+    }),
+  );
 };
 
 const claudeCodeEnv = (): Record<string, string | undefined> =>
@@ -332,10 +410,21 @@ const main = async (): Promise<void> => {
       ? argValue(args, "--session-id")
       : createSession(argValue(args, "--session-id"));
 
-  await capturePrompt();
+  // A new session's stdin carries two frames — the prompt and the title
+  // request (see agent.ts); a follow-up carries the prompt alone.
+  const frames = captureStdin(
+    await readStdinLines(args.includes("--resume") ? 1 : 2),
+  );
   captureTo("CLAUDE_MOCK_CAPTURE_CWD", process.cwd());
   captureTo("CLAUDE_MOCK_CAPTURE_ARGS", JSON.stringify(args));
   captureTo("CLAUDE_MOCK_CAPTURE_ENV", JSON.stringify(claudeCodeEnv()));
+
+  if (
+    frames.titleRequestId !== undefined &&
+    sessionId !== undefined &&
+    !neverCreate
+  )
+    answerTitleRequest(sessionId, frames.titleRequestId);
 
   const sleepMs = Number(process.env.CLAUDE_MOCK_SLEEP_MS ?? 0);
   if (sleepMs > 0) await sleep(sleepMs);

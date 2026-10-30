@@ -28,9 +28,9 @@ const PERMISSION_MODES: readonly string[] = [
 // concerns, and works for arbitrarily long prompts. `--verbose` is required
 // for stream-json to emit the full event stream rather than just the final
 // result record. `--input-format stream-json` also switches the prompt to
-// one newline-terminated JSON user line — and, the reason it is here, makes
-// an open stdin mean "the session is live": background tasks survive the
-// end of a turn, their completion wakes the agent into a new turn, and the
+// newline-terminated JSON frames — and, the reason it is here, makes an
+// open stdin mean "the session is live": background tasks survive the end
+// of a turn, their completion wakes the agent into a new turn, and the
 // process exits only when the pipe closes (verified against claude
 // 2.1.289; see ADR 0010).
 const STREAM_FLAGS = [
@@ -42,13 +42,40 @@ const STREAM_FLAGS = [
   "stream-json",
 ];
 
-// The prompt wrapped as one stream-json user line, the wire form
-// `--input-format stream-json` reads.
-const streamJsonUserLine = (prompt: string): string =>
-  `${JSON.stringify({
+const userFrame = (prompt: string): string =>
+  JSON.stringify({
     type: "user",
     message: { role: "user", content: prompt },
-  })}\n`;
+  });
+
+// DESIGN DECISION: new sessions ask claude to title themselves. The
+// interactive REPL generates an ai-title after the first prompt, but a
+// headless --print run never does on its own, so glv-launched sessions
+// were listed under a truncation of their first prompt. Verified against
+// claude 2.1.289: this request with `persist: true` runs claude's own
+// titler (the same small-model call and prompt the REPL uses) and
+// appends an ai-title line to the transcript, which the store already
+// prefers over the first prompt. The request runs alongside the turn and
+// is answered before the run exits. Follow-ups send no request: a
+// resumed transcript keeps the title it already has.
+const titleFrame = (prompt: string): string =>
+  JSON.stringify({
+    type: "control_request",
+    request_id: "glv-session-title",
+    request: {
+      subtype: "generate_session_title",
+      description: prompt,
+      persist: true,
+    },
+  });
+
+// The frames one turn writes to stream-json stdin: the prompt in a user
+// frame, and on a brand-new session the title request after it.
+const stdinFrames = (prompt: string, newSession: boolean): string => {
+  const frames = [userFrame(prompt)];
+  if (newSession) frames.push(titleFrame(prompt));
+  return frames.map((frame) => frame + "\n").join("");
+};
 
 // DESIGN DECISION: --append-system-prompt is passed on every invocation,
 // including resume (--resume) sessions — not just the first prompt of a
@@ -128,9 +155,9 @@ const makeClaudeAgent = (
     // Held-open stream-json stdin: background tasks survive the turn
     // that armed them, and the policy closes the pipe once the run has
     // nothing left to wait for (ADR 0010).
-    stdinPlan: (prompt: string) => ({
+    stdinPlan: (prompt: string, newSession: boolean) => ({
       kind: "held",
-      input: streamJsonUserLine(prompt),
+      input: stdinFrames(prompt, newSession),
       policy: claudeStdinPolicy,
     }),
   };

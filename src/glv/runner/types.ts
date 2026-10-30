@@ -37,7 +37,8 @@ type StdinClosePolicy = (close: () => void) => {
 // How the shared runner talks to one flavor's agent binary. argv is built
 // per invocation; the prompt itself always travels over stdin, so
 // arbitrarily long prompts never hit argument-length limits or shell
-// quoting.
+// quoting. How it travels there — raw text or framed — is the flavor's
+// call (see stdinPlan).
 type AgentInvocation = {
   /** Agent name in exit/error messages ("goose", "claude"). */
   readonly name: string;
@@ -58,11 +59,13 @@ type AgentInvocation = {
   /** Extra environment variables for the agent process. */
   readonly env: () => Record<string, string>;
   /**
-   * The agent's stdin plan for a prompt; absent means one-shot text.
-   * claude holds stdin open so background work outlives a turn
-   * (ADR 0010).
+   * The agent's stdin plan for one invocation; absent means one-shot
+   * text. `newSession` tells a brand-new run from a follow-up — claude
+   * frames the prompt as stream-json (a title request rides along on
+   * brand-new runs) and holds stdin open so background work outlives a
+   * turn (ADR 0010).
    */
-  readonly stdinPlan?: (prompt: string) => StdinPlan;
+  readonly stdinPlan?: (prompt: string, newSession: boolean) => StdinPlan;
 };
 
 // The agent is not part of the config: one runner serves several agents

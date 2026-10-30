@@ -11,12 +11,20 @@ import type {
   RunHandle,
   Runner,
   RunStatus,
+  StdinPlan,
 } from "./types.js";
 
-// The plan an agent with no stdin opinion gets: the prompt as one-shot
-// text.
-const planStdin = (agent: AgentInvocation, prompt: string) =>
-  agent.stdinPlan?.(prompt) ?? { kind: "one-shot", input: prompt };
+// The stdin plan an agent with no stdin opinion gets: the prompt as
+// one-shot text.
+const planStdin = (
+  agent: AgentInvocation,
+  prompt: string,
+  newSession: boolean,
+): StdinPlan =>
+  agent.stdinPlan?.(prompt, newSession) ?? {
+    kind: "one-shot",
+    input: prompt,
+  };
 
 // Stamps the run-history identity for a new invocation: a fresh run
 // id (both notifications of one settle share it, so the run records
@@ -97,6 +105,17 @@ const clearEviction = (handle: InternalHandle | undefined): void => {
   handle.evictionTimer = undefined;
 };
 
+// One follow-up turn on an existing session: the agent's resume argv
+// plus the stdin plan for its prompt.
+const resumeInvocation = (
+  agent: AgentInvocation,
+  key: string,
+  prompt: string,
+): Invocation => ({
+  args: agent.resume(key, prompt),
+  stdin: planStdin(agent, prompt, false),
+});
+
 // Advance to the next queued prompt after a run finishes, or end the chain.
 // A run that errored still chains onward; only "stopped" or an empty pending
 // queue ends it. Every state change here is synchronous, so observers never
@@ -115,10 +134,7 @@ const advanceChain = (handle: InternalHandle): Invocation | undefined => {
   handle.stopNotice = undefined;
   handle.stopReason = undefined;
   handle.status = "running";
-  return {
-    args: handle.agent.resume(handle.sessionId, nextPrompt),
-    stdin: planStdin(handle.agent, nextPrompt),
-  };
+  return resumeInvocation(handle.agent, handle.sessionId, nextPrompt);
 };
 
 const enqueueInvocation = (
@@ -200,7 +216,7 @@ const enqueueNewSession = (
     key,
     {
       args: agent.newSession(prompt, key, model),
-      stdin: planStdin(agent, prompt),
+      stdin: planStdin(agent, prompt, true),
     },
     prompt,
     workingDir,
@@ -220,7 +236,7 @@ const enqueueRun = (
   enqueueInvocation(
     runner,
     key,
-    { args: agent.resume(key, prompt), stdin: planStdin(agent, prompt) },
+    resumeInvocation(agent, key, prompt),
     prompt,
     workingDir,
     agent,
