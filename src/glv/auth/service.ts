@@ -456,6 +456,11 @@ const sessionCookieName = (authDbPath: string): string => {
 // whitelist them as a group without naming each file individually.
 const ASSET_PREFIX = "/assets/";
 
+// The public sales page: static marketing content carrying no session,
+// transcript, or API surface, so an unauthenticated visitor can see what
+// glv is without being handed a credential. Everything else stays gated.
+const PITCH_PATH = "/pitch";
+
 // Management routes (add/view passkeys, mint/revoke API tokens) require an
 // existing session, unlike the rest of /auth/* which is the public auth gate
 // itself. Enrollment redemption (/auth/enroll/:token) stays public because it
@@ -465,7 +470,8 @@ const isPublicPath = (path: string): boolean =>
   (path.startsWith("/auth/") &&
     !path.startsWith("/auth/devices") &&
     !path.startsWith("/auth/tokens")) ||
-  path.startsWith(ASSET_PREFIX);
+  path.startsWith(ASSET_PREFIX) ||
+  path === PITCH_PATH;
 
 // Reconstructs the browser-visible URL, honoring the standard reverse-proxy
 // headers. Behind a TLS-terminating proxy the backend hop is plain HTTP, so

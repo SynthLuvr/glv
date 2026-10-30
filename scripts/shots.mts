@@ -716,6 +716,40 @@ const captureWakeRun = async (browser: Browser): Promise<void> => {
   }
 };
 
+// The /pitch page: public (no credential needed), so this capture skips
+// the session cookie entirely — the same path an anonymous visitor takes.
+const capturePitch = async (browser: Browser, env: IntegrationEnv) => {
+  const light = await browser.newContext({ viewport: DESKTOP });
+  const page = await light.newPage();
+  await page.goto(`${env.baseUrl}/pitch`);
+  await page.locator(".pitch-hero h1").waitFor();
+  await capture(page, "pitch-desktop.png");
+  // Viewport shot scrolled to the features grid: an element shot would
+  // clip the card titles under the sticky nav, while scrollIntoView
+  // honors .pitch-section's scroll-margin-top and clears it.
+  await page.evaluate(() => {
+    document.querySelector("#features")?.scrollIntoView();
+  });
+  await page.waitForTimeout(400); // smooth-scroll settle
+  await capture(page, "pitch-features-desktop.png");
+  // Fresh load so the mobile shot is the hero, not a retained scroll.
+  await page.setViewportSize(MOBILE);
+  await page.goto(`${env.baseUrl}/pitch`);
+  await page.locator(".pitch-hero h1").waitFor();
+  await capture(page, "pitch-mobile.png");
+  await light.close();
+
+  const dark = await browser.newContext({
+    viewport: DESKTOP,
+    colorScheme: "dark",
+  });
+  const darkPage = await dark.newPage();
+  await darkPage.goto(`${env.baseUrl}/pitch`);
+  await darkPage.locator(".pitch-hero h1").waitFor();
+  await capture(darkPage, "pitch-dark.png");
+  await dark.close();
+};
+
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
 try {
@@ -730,6 +764,7 @@ try {
   await captureScheduledRuns(browser, env);
   await captureCombined(browser, env);
   await captureWakeRun(browser);
+  await capturePitch(browser, env);
 } finally {
   await browser.close();
   teardown();
