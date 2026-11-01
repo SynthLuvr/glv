@@ -199,13 +199,11 @@ const capturePreSwapTail = (): void => {
   };
 };
 
-// Set one offset, then re-apply it a frame later if the first application
-// clamped against a still-settling layout: enhancements, htmx swaps, and
-// font work land just after DOMContentLoaded, and a pane briefly shorter
-// than its final height would clamp the restored offset mid-transcript —
-// stranding the reader and re-saving the clamped value over the real one.
-// One frame later the geometry is final, so re-applying lands exactly; a
-// no-op when the first application already held.
+// The pane may still be settling into its final height at restore time —
+// enhancements and font work land just after DOMContentLoaded — so the
+// first set can clamp the offset, stranding the reader and re-saving the
+// clamped value. One frame later the geometry is final; re-applying is a
+// no-op when the first set already held.
 const applyScrollAt = (pane: HTMLElement, wanted: number): void => {
   pane.scrollTop = wanted;
   requestAnimationFrame(() => {

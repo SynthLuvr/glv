@@ -378,8 +378,8 @@ const capturePromptBarPlacement = async (
 };
 
 // Error-result presentation: the block as a fresh page load shows it
-// (collapsed by default now), and the same block opened — the tall body
-// stays height-capped with its own scrollbar.
+// (collapsed by default), and the same block opened — the tall body stays
+// height-capped with its own scrollbar.
 const captureErrorResult = async (
   browser: Browser,
   env: IntegrationEnv,

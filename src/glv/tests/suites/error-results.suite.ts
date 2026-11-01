@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { afterAll, beforeAll, it } from "vitest";
 import {
   type FlavorFixture,
@@ -7,15 +7,13 @@ import {
   withPage,
 } from "../harness.js";
 
-// Error results are block content like any other: collapsed until opened.
-// And because a tall error body sits at the transcript tail, it is also the
-// canary for scroll memory: the copy-button enhancement used to drop the
-// block-body height cap a frame after load, so a restored offset clamped
-// against the shorter first layout — stranding the reader mid-transcript
-// and overwriting the saved offset with the clamped value. The suite seeds
-// the saved offset the way the debounced save writes it, so it stays
-// deterministic on hosts whose headless compositor never dispatches scroll
-// events.
+// A tall error body at the transcript tail covers two regressions at once:
+// error results must collapse like every other block, and the copy-button
+// enhancement used to drop the block-body height cap a frame after load —
+// clamping a restored scroll offset against the shorter first layout. The
+// saved offset is seeded straight into localStorage, the way the debounced
+// save writes it, so the suite stays deterministic on hosts whose headless
+// compositor never dispatches scroll events.
 
 const runErrorResultsSuite = (fx: FlavorFixture): void => {
   let env: IntegrationEnv;
@@ -25,8 +23,8 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
     content: [{ type: "text", text: `Line ${i}. ${"filler ".repeat(20)}` }],
   }));
 
-  // Taller than the stylesheet's block-body cap (26rem) so losing the cap
-  // moves the pane the way the bug report describes.
+  // Taller than the stylesheet's block-body cap so losing the cap moves
+  // the pane the way the bug report describes.
   const STACK = Array.from(
     { length: 60 },
     (_, i) => `at frame ${i} in the failing code path`,
@@ -47,7 +45,11 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
   ];
 
   const SESSION_ID = "err-scroll";
-  const REOPEN = 300;
+  // The block-body cap from app.css (.block pre { max-height: 26rem }) at
+  // the 16px root font size.
+  const CAPPED_HEIGHT_PX = 26 * 16;
+  // Lets the post-load enhancements settle before the offset is read.
+  const SETTLE_MS = 300;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-error-results-", {});
@@ -70,24 +72,32 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
     await expect(page.locator("#messages article").first()).toBeVisible();
   };
 
-  // Simulates a prior visit's debounced save: reads the offset "scrolled to
-  // the bottom" produces (what the save stores) and the localStorage key the
-  // client derives from the rendered session root, then writes it — awaited,
-  // so the write can't race the next navigation.
+  // Seed the offset a prior visit's debounced save would have written: the
+  // bottom offset of the settled layout, under the localStorage key the
+  // client derives from the rendered session root. The evaluate is awaited,
+  // so the write cannot race the next navigation.
   const seedScrollAtBottom = async (page: Page): Promise<number> =>
-    page.evaluate(async (waitMs) => {
+    page.evaluate(async (settleMs) => {
       const pane = document.getElementById("detail-pane");
       const id = document
         .querySelector("#detail-pane [data-session-id]")
         ?.getAttribute("data-session-id");
       if (pane === null || id === null) throw new Error("no session root");
       await new Promise((resolve) => {
-        window.setTimeout(resolve, waitMs);
+        window.setTimeout(resolve, settleMs);
       });
       const maxScroll = pane.scrollHeight - pane.clientHeight;
       localStorage.setItem(`glv:scroll:${id}`, String(maxScroll));
       return maxScroll;
-    }, REOPEN);
+    }, SETTLE_MS);
+
+  const paneMetrics = (
+    pane: Locator,
+  ): Promise<{ top: number; fromBottom: number }> =>
+    pane.evaluate((el) => ({
+      top: Math.round(el.scrollTop),
+      fromBottom: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+    }));
 
   it("renders error results collapsed by default", async () => {
     await withPage(env.context, async (page) => {
@@ -95,12 +105,10 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
       const error = page.locator("details.tool-result.is-error");
       await expect(error).toHaveCount(1);
       await expect(error).not.toHaveAttribute("open");
-      // Collapsed, not gone — one click reveals the body.
       await expect(error.locator("summary .block-label")).toHaveText(
         "Error result",
       );
       await expect(error.locator("pre")).toContainText("Boom");
-      // A healthy result is collapsed too — same treatment.
       await expect(
         page.locator("details.tool-result:not(.is-error)"),
       ).not.toHaveAttribute("open");
@@ -111,9 +119,9 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
     await withPage(env.context, async (page) => {
       await openSession(page);
       const pre = page.locator("details.tool-result.is-error pre");
-      // The enhancement wraps every pre shortly after load; once it lands,
-      // the pre sits inside .code-block — where the cap must still hold,
-      // or the pane grows after the scroll restore has already run.
+      // The enhancement re-parents every pre under .code-block shortly
+      // after load; the cap must hold there too, or the pane grows after
+      // the scroll restore has run.
       await expect
         .poll(
           () =>
@@ -125,7 +133,11 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
             })),
           { timeout: 5000 },
         )
-        .toStrictEqual({ wrapped: true, height: 416, capped: true });
+        .toStrictEqual({
+          wrapped: true,
+          height: CAPPED_HEIGHT_PX,
+          capped: true,
+        });
     });
   });
 
@@ -138,20 +150,8 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
       await expect(page.locator("#messages article").first()).toBeVisible();
       const pane = page.locator("#detail-pane");
       await expect
-        .poll(
-          () =>
-            pane.evaluate((el) => ({
-              top: Math.round(el.scrollTop),
-              fromBottom: Math.round(
-                el.scrollHeight - el.scrollTop - el.clientHeight,
-              ),
-            })),
-          { timeout: 5000 },
-        )
-        .toStrictEqual({
-          top: maxScroll,
-          fromBottom: 0,
-        });
+        .poll(() => paneMetrics(pane), { timeout: 5000 })
+        .toStrictEqual({ top: maxScroll, fromBottom: 0 });
     });
   });
 
@@ -163,13 +163,9 @@ const runErrorResultsSuite = (fx: FlavorFixture): void => {
       await openSession(page);
       const pane = page.locator("#detail-pane");
       await expect
-        .poll(
-          () =>
-            pane.evaluate((el) =>
-              Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
-            ),
-          { timeout: 5000 },
-        )
+        .poll(async () => (await paneMetrics(pane)).fromBottom, {
+          timeout: 5000,
+        })
         .toBe(0);
     });
   });

@@ -1561,10 +1561,10 @@ body:has(.app[data-mobile-pane="sidebar"]) .scroll-latest {
   word-wrap: break-word;
   line-height: 1.6;
 }
-/* Descendant, not child: the copy-button enhancement re-parents every body
-   under a .code-block wrapper a frame after load, and a child selector
-   would silently drop the cap there — the pane grows after the scroll
-   restore ran, clamping the restored offset mid-transcript. */
+/* Descendant, not child: the copy-button enhancement re-parents every pre
+   under a .code-block wrapper a frame after load — a child selector would
+   silently drop the cap there, and the pane would grow after the scroll
+   restore ran. */
 .block pre {
   margin: 0;
   border-radius: 0;
