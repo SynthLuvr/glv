@@ -149,11 +149,12 @@ const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
   );
 };
 
+// Errors collapse like every other block: the is-error styling and the
+// summary preview flag them, but an open block would shove the whole
+// transcript around (and un-cap its body height once the copy-button
+// wrapper lands, breaking scroll restore — see .block pre in app.css).
 const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
-  <details
-    class={`block tool-result${info.isError ? " is-error" : ""}`}
-    open={info.isError ? true : undefined}
-  >
+  <details class={`block tool-result${info.isError ? " is-error" : ""}`}>
     <summary>
       <span class="block-icon">{info.isError ? "⚠️" : "📋"}</span>
       <span class="block-label">

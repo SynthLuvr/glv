@@ -199,6 +199,22 @@ const capturePreSwapTail = (): void => {
   };
 };
 
+// Set one offset, then re-apply it a frame later if the first application
+// clamped against a still-settling layout: enhancements, htmx swaps, and
+// font work land just after DOMContentLoaded, and a pane briefly shorter
+// than its final height would clamp the restored offset mid-transcript —
+// stranding the reader and re-saving the clamped value over the real one.
+// One frame later the geometry is final, so re-applying lands exactly; a
+// no-op when the first application already held.
+const applyScrollAt = (pane: HTMLElement, wanted: number): void => {
+  pane.scrollTop = wanted;
+  requestAnimationFrame(() => {
+    if (document.getElementById("detail-pane") !== pane) return;
+    if (Math.abs(pane.scrollTop - wanted) <= 0.5) return;
+    pane.scrollTop = wanted;
+  });
+};
+
 // Land on the saved offset after a swap. With nothing remembered, default to
 // the bottom for an active run (so live output is visible) and the top
 // otherwise. Same-session swaps (submit, stop, queue cancel) add cards below
@@ -218,7 +234,7 @@ const restoreScroll = (): void => {
   }
   const saved = savedOffset(sessionId);
   if (saved > 0) {
-    pane.scrollTop = saved;
+    applyScrollAt(pane, saved);
     return;
   }
   const status = root.getAttribute("data-run-status");
