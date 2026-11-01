@@ -419,4 +419,18 @@ const uiOnHistoryRestore = (): void => {
   uiSyncTitle();
   uiInit();
 };
+
+// A restore can land without the app shell: the body swap ran over a
+// truncated or shell-less response (the "no shell at all" state behind
+// the CI restore flake — the test harness observes exactly this), which
+// strands the user on a bare fragment with no tabs, no sidebar and no
+// way forward. A fresh load always carries the shell and re-derives the
+// pane for the restored URL, so reload once when the swap left nothing.
+// Cannot loop: a reloaded document fires no popstate, so this runs
+// again only after another explicit Back/Forward.
+const uiHealShelllessRestore = (): void => {
+  if (document.querySelector(".app") !== null) return;
+  window.location.reload();
+};
 document.body.addEventListener("htmx:historyRestore", uiOnHistoryRestore);
+document.body.addEventListener("htmx:historyRestore", uiHealShelllessRestore);
