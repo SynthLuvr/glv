@@ -251,17 +251,17 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
 
     it("accepts a timezone override and rejects an unknown zone", async () => {
       const target = new Date(Date.now() + 3_600_000);
-      // A zone with no DST so the wall clock maps cleanly: a fall-back
-      // zone (America/New_York) spells a target inside the repeated hour
-      // ambiguously, and the parser resolves it to the earlier
-      // occurrence — already in the past — so the create 422s for the
-      // hour after the transition.
+      // A no-DST zone: in a fall-back zone (America/New_York), a target
+      // inside the repeated wall-clock hour is ambiguous, the parser
+      // resolves it to the earlier — already past — occurrence, and the
+      // create 422s for the hour after the transition.
       const zone = "Pacific/Kiritimati";
+      // Spelled in the override's own wall clock so the moment is
+      // future wherever the server runs.
+      const schedule = formatOneShotInZone(target, zone);
       const ok = await postCron({
         name: "Zoned one-off",
-        // Spelled in the override's own wall clock so the moment is
-        // future wherever the server runs.
-        schedule: formatOneShotInZone(target, zone),
+        schedule,
         prompt: "Zoned run",
         working_dir: env.scratchDir,
         timezone: zone,
@@ -271,7 +271,7 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
 
       const bad = await postCron({
         name: "Bad zone",
-        schedule: formatOneShotInZone(target, zone),
+        schedule,
         prompt: "Zoned run",
         working_dir: env.scratchDir,
         timezone: "Bogus/Zone",

@@ -316,9 +316,9 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           workDir,
           capture: () =>
             existsSync(captureStdin) ? readFileSync(captureStdin, "utf-8") : "",
-          // The mock appends one line per invocation to this sibling of
-          // the overwrite capture, so reads survive past the next step —
-          // the transcript, not the capture, is the invocation history.
+          // The mock appends one line per invocation to this sibling
+          // of the overwrite capture, so reads survive the next step's
+          // overwrite.
           transcript: () =>
             existsSync(`${captureStdin}.invocations`)
               ? readFileSync(`${captureStdin}.invocations`, "utf-8")
@@ -546,38 +546,33 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           followUps: ["Overlap step two"],
         });
 
+        const invocationCount = (prompt: string): number =>
+          transcript()
+            .split("\n")
+            .filter((line) => line.includes(prompt)).length;
+
         // Step 1's prompt reached the agent: the first fire is in flight.
         expect(
           await pollUntil(
-            () => transcript().includes("Overlap step one"),
+            () => invocationCount("Overlap step one") > 0,
             30_000,
           ),
         ).toBe(true);
 
-        // Step 2's capture proves step 1 settled and the chain advanced
-        // on schedule. The invocation count is read at exactly that
-        // moment, so the invariant is timing-independent: however slowly
-        // the host spawns, no second step-one fire can have happened
-        // between the two captures unless a tick stacked a pipeline on
-        // the directory — the skip this test exists for. A working guard
-        // keeps the count at one because the in-flight marker spans the
-        // whole chain; a stacked pipeline's step-one capture (its own
-        // invocation, seconds behind or ahead) would land first and push
-        // the count to two.
+        // Step 2's prompt proves step 1 settled and the chain advanced
+        // on schedule. Reading step 1's count at exactly that moment
+        // makes the invariant timing-independent: no second step-one
+        // fire can have landed unless a tick stacked a second pipeline
+        // on the directory — the skip this test exists for. The guard
+        // keeps the count at one (the in-flight marker spans the whole
+        // chain); a stacked pipeline would push it to two.
         expect(
-          await pollUntil(() => {
-            const lines = transcript().split("\n");
-            return (
-              lines.filter((line) => line.includes("Overlap step two"))
-                .length === 1
-            );
-          }, 90_000),
+          await pollUntil(
+            () => invocationCount("Overlap step two") === 1,
+            90_000,
+          ),
         ).toBe(true);
-        expect(
-          transcript()
-            .split("\n")
-            .filter((line) => line.includes("Overlap step one")).length,
-        ).toBe(1);
+        expect(invocationCount("Overlap step one")).toBe(1);
       }, 200000);
     });
   });

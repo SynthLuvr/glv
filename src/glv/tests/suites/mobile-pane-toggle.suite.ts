@@ -104,21 +104,22 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         );
         await page.goBack();
         // The restore round-trips a cache-miss fetch, so allow more than
-        // the default timeout. A momentary runner stall can also sink
-        // that fetch outright, leaving no shell at all — reload then
-        // re-drives the same restore path. A shell that comes back on
-        // the wrong pane is the regression this test guards, so only
-        // the shell's absence is retried here, never the pane state.
-        await page
-          .locator(".app")
+        // the default timeout. A momentary runner stall can sink that
+        // fetch outright and leave no shell at all — a reload then
+        // re-drives the same restore path. Only the shell's absence is
+        // retried, never the pane: a shell back on the wrong pane is
+        // the regression this test guards.
+        const shell = page.locator(".app");
+        const cameBack = await shell
           .waitFor({ state: "attached", timeout: 10000 })
-          .catch(() => undefined);
-        if ((await page.locator(".app").count()) === 0) await page.reload();
-        await expect(page.locator(".app")).toHaveAttribute(
-          "data-mobile-pane",
-          "sidebar",
-          { timeout: 10000 },
-        );
+          .then(
+            () => true,
+            () => false,
+          );
+        if (!cameBack) await page.reload();
+        await expect(shell).toHaveAttribute("data-mobile-pane", "sidebar", {
+          timeout: 10000,
+        });
         await switchPane(page, "detail");
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",

@@ -94,11 +94,10 @@ const scopeLaunch = (
 
 // Probes the real mechanism once and caches the answer for the process
 // lifetime: a shimmed systemd-run on PATH (the integration suite)
-// answers as readily as a live user manager, and a host without the
-// binary at all (Windows, macOS) fails the spawn immediately. The probe
-// therefore runs on every platform — gating it on linux instead would
-// make the shim unreachable on Windows CI, where it is the only way the
-// wrapped path can run.
+// answers as readily as a live user manager. Runs on every platform —
+// a host without the binary at all (Windows, macOS) fails the spawn
+// immediately, but a linux-only gate would strand the shim on Windows
+// CI, where it is the only way the wrapped path can run.
 let scopeProbe: Promise<boolean> | undefined;
 
 const systemdUserScopeAvailable = (): Promise<boolean> => {
@@ -106,9 +105,8 @@ const systemdUserScopeAvailable = (): Promise<boolean> => {
     "systemd-run",
     ["--user", "--scope", "--quiet", "--", "true"],
     // Generous: the suite's shimmed systemd-run pays a script-loader
-    // start per invocation, several times a real systemd-run's
-    // milliseconds. A probe that times out would read as "unavailable"
-    // and silently degrade every run on that host to direct spawns.
+    // start per invocation. A timed-out probe reads as "unavailable"
+    // and silently degrades every run on that host to direct spawns.
     { timeout: 15_000, reject: false },
   )
     .then((result) => result.exitCode === 0)

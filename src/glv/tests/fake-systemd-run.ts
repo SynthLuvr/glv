@@ -19,9 +19,8 @@ if (logPath !== undefined && logPath !== "")
 const separator = args.indexOf("--");
 const command = separator >= 0 ? args.slice(separator + 1) : [];
 if (command.length === 0) process.exit(0);
-// The availability probe's wrapped command is `true`: Windows ships no
-// such binary, so the stand-in answers the way `true` does — exit 0,
-// having done nothing — instead of spawning one.
+// The availability probe wraps `true`, a binary Windows does not ship:
+// answer it with true's own exit 0 instead of spawning one.
 if (command[0] === "true") process.exit(0);
 
 const child = spawn(command[0], command.slice(1), { stdio: "inherit" });
