@@ -240,6 +240,34 @@ const startSeededEnv = async (): Promise<IntegrationEnv> => {
       ],
     })),
   );
+  // A failed run: a tall error result at the transcript tail, the state
+  // the error-result presentation and scroll-restore shots need.
+  gooseFixture.seedSessions(env, [
+    { id: "shots-error", name: "Failed Run", workingDir },
+  ]);
+  const errorStack = Array.from(
+    { length: 60 },
+    (_, i) => `at frame ${i} in the failing code path`,
+  ).join("\n");
+  gooseFixture.seedMessages(env, "shots-error", [
+    ...Array.from({ length: 30 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [
+        {
+          type: "text",
+          text: `Transcript line ${i}: step ${i} completed cleanly.`,
+        },
+      ],
+    })),
+    {
+      role: "assistant",
+      content: [
+        gooseFixture.toolRequest("developer__shell", { cmd: "build" }),
+        gooseFixture.toolResponse(`Error: build failed\n${errorStack}`, true),
+        { type: "text", text: "The build failed; see the error above." },
+      ],
+    },
+  ]);
   return env;
 };
 
@@ -346,6 +374,31 @@ const capturePromptBarPlacement = async (
     el.scrollTop = el.scrollHeight;
   });
   await capture(page, "session-end-desktop.png");
+  await context.close();
+};
+
+// Error-result presentation: the block as a fresh page load shows it
+// (collapsed by default), and the same block opened — the tall body stays
+// height-capped with its own scrollbar.
+const captureErrorResult = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(
+    `${env.baseUrl}/sessions/${gooseFixture.viewId("shots-error")}`,
+  );
+  await page.locator("form.prompt-bar").waitFor();
+  const pane = page.locator("#detail-pane");
+  await pane.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await capture(page, "error-result-on-load-desktop.png");
+  await page.locator("details.tool-result.is-error > summary").click();
+  await page.locator("details.tool-result.is-error pre").waitFor();
+  await capture(page, "error-result-opened-desktop.png");
   await context.close();
 };
 
@@ -752,19 +805,29 @@ const capturePitch = async (browser: Browser, env: IntegrationEnv) => {
 
 const env = await startSeededEnv();
 const { browser, teardown } = await launchBrowser();
+// --only=<name> runs one capture — before/after pairs for a PR need the
+// same shot against two trees without paying for the whole set twice.
+const only = process.argv.find((a) => a.startsWith("--only="))?.slice(7);
+const captures: ReadonlyArray<readonly [string, () => Promise<void>]> = [
+  ["suggestions", () => captureSuggestions(browser, env)],
+  ["views", () => captureViews(browser, env)],
+  ["dark", () => captureDarkViews(browser, env)],
+  ["placement", () => capturePromptBarPlacement(browser, env)],
+  ["tokens", () => captureTokens(browser, env)],
+  ["orchestrator", () => captureOrchestrator(browser, env)],
+  ["forks", () => captureForks(browser, env)],
+  ["cron-edit", () => captureCronEdit(browser, env)],
+  ["scheduled-runs", () => captureScheduledRuns(browser, env)],
+  ["combined", () => captureCombined(browser, env)],
+  ["wake-run", () => captureWakeRun(browser)],
+  ["pitch", () => capturePitch(browser, env)],
+  ["error-result", () => captureErrorResult(browser, env)],
+];
 try {
-  await captureSuggestions(browser, env);
-  await captureViews(browser, env);
-  await captureDarkViews(browser, env);
-  await capturePromptBarPlacement(browser, env);
-  await captureTokens(browser, env);
-  await captureOrchestrator(browser, env);
-  await captureForks(browser, env);
-  await captureCronEdit(browser, env);
-  await captureScheduledRuns(browser, env);
-  await captureCombined(browser, env);
-  await captureWakeRun(browser);
-  await capturePitch(browser, env);
+  for (const [name, run] of captures) {
+    if (only !== undefined && only !== name) continue;
+    await run();
+  }
 } finally {
   await browser.close();
   teardown();

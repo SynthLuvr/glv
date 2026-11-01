@@ -149,11 +149,11 @@ const ToolCallBlock = ({ info }: { info: ToolCallInfo }) => {
   );
 };
 
+// Errors collapse like every other block: the is-error styling and the
+// summary preview flag them, and a forced-open tall body would shove the
+// whole transcript around.
 const ToolResultBlock = ({ info }: { info: ToolResultInfo }) => (
-  <details
-    class={`block tool-result${info.isError ? " is-error" : ""}`}
-    open={info.isError ? true : undefined}
-  >
+  <details class={`block tool-result${info.isError ? " is-error" : ""}`}>
     <summary>
       <span class="block-icon">{info.isError ? "⚠️" : "📋"}</span>
       <span class="block-label">
