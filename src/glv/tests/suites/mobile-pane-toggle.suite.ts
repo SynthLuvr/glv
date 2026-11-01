@@ -178,6 +178,13 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
           "sidebar",
           { timeout: 15000 },
         );
+        // The healed page is freshly loaded; the pane attribute is
+        // server-rendered, so it says nothing about wiring. uiInit
+        // flips the sidebar button's aria-pressed, so that is the
+        // signal the tabs are live before driving them.
+        await expect(
+          page.locator('.mobile-pane-btn[data-pane="sidebar"]'),
+        ).toHaveAttribute("aria-pressed", "true", { timeout: 15000 });
         // The self-healed page is fully wired: the tabs work.
         await switchPane(page, "detail");
         await expect(page.locator(".app")).toHaveAttribute(
