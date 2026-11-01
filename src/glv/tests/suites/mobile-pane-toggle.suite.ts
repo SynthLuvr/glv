@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
+  authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
   withPage,
@@ -129,6 +130,32 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("#session-list")).toBeVisible();
       });
     }, 30000);
+
+    // The restore flow round-trips a server fetch whenever htmx's
+    // sessionStorage snapshot is missing (quota drop, raced save), and
+    // that fetch swaps its response into <body>. A fragment response
+    // there destroyed the page chrome — the exact failure behind the
+    // flaky restore test above — so the restore request must be served
+    // a full document, while the same URL stays fragment-shaped for an
+    // ordinary htmx swap request.
+    it("serves a full page to a history-restore fetch, a fragment otherwise", async () => {
+      const fragment = await authedFetch(env, "/", {
+        headers: { "HX-Request": "true" },
+      });
+      expect(fragment.status).toBe(200);
+      expect(await fragment.text()).not.toContain('class="app"');
+
+      const restore = await authedFetch(env, "/", {
+        headers: {
+          "HX-Request": "true",
+          "HX-History-Restore-Request": "true",
+        },
+      });
+      expect(restore.status).toBe(200);
+      const restoreHtml = await restore.text();
+      expect(restoreHtml).toContain('class="app"');
+      expect(restoreHtml).toContain('id="session-list"');
+    });
   });
 };
 

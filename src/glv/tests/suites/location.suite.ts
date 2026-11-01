@@ -89,9 +89,17 @@ const runLocationSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("form.new-session-form")).toBeVisible();
         // No geolocation grant — headless Chromium denies the request.
         await page.locator("form.new-session-form .location-btn").click();
+        // The product gives the geolocation callback a 15s window
+        // (GEO_OPTIONS.timeout) before surfacing the timeout message,
+        // and a contended browser can spend most of that window
+        // reaching even the instant denial — a 5s assertion failed CI
+        // while the error <p> was still empty. Budget past the
+        // product's own ceiling.
         const error = page.locator("form.new-session-form .upload-error");
-        await expect(error).toBeVisible();
-        await expect(error).toContainText(/denied|determined|took too long/);
+        await expect(error).toBeVisible({ timeout: 16_000 });
+        await expect(error).toContainText(/denied|determined|took too long/, {
+          timeout: 16_000,
+        });
       });
     });
 

@@ -15,10 +15,12 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
-  waitForFile,
   withPage,
 } from "../harness.js";
 import { stdinTranscriptPath } from "../mock-common.js";
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 const runUploadSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Upload Test Session";
@@ -130,11 +132,29 @@ const runUploadSuite = (fx: FlavorFixture): void => {
         // The agent received the absolute file path in its stdin (the
         // prompt). Read the transcript, not the latest-stdin capture:
         // the always-on suggestion ask overwrites that once the reply
-        // lands.
-        const captured = await waitForFile(stdinTranscriptPath(capturePath));
-        expect(captured).toContain(PROMPT_TEXT);
-        expect(captured).toContain(savedPath);
-        expect(captured).toContain("Attached files");
+        // lands. Poll for the needles themselves rather than waiting
+        // for the file to settle: the transcript is append-only across
+        // invocations, so a settle-based read can come back between
+        // appends and miss the main prompt line (it failed CI that
+        // way) — the needles, not file stability, are the condition.
+        const transcriptPath = stdinTranscriptPath(capturePath);
+        const needles = [PROMPT_TEXT, savedPath, "Attached files"];
+        const deadline = Date.now() + 30_000;
+        let captured = "";
+        while (Date.now() < deadline) {
+          try {
+            captured = readFileSync(transcriptPath, "utf-8");
+            if (needles.every((needle) => captured.includes(needle))) break;
+          } catch {
+            // the writer may not have started yet — keep polling
+          }
+          await sleep(50);
+        }
+        for (const needle of needles)
+          expect(
+            captured,
+            `${needle} missing from the invocation transcript`,
+          ).toContain(needle);
       });
     });
 
