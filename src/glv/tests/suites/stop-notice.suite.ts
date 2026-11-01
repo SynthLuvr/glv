@@ -9,6 +9,7 @@ import {
   type FlavorFixture,
   type IntegrationEnv,
   parseSseData,
+  sleep,
   withPage,
 } from "../harness.js";
 
@@ -46,9 +47,16 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
     });
 
   const pageHtml = async (e: IntegrationEnv, id: string): Promise<string> => {
-    const res = await authedFetch(e, `/sessions/${fx.viewId(id)}`);
-    expect(res.status).toBe(200);
-    return res.text();
+    // A fetch right after `restart` can land mid-boot and come back a
+    // 302; poll until the page is really served — the budget only runs
+    // out when the server is genuinely not serving this session.
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      const res = await authedFetch(e, `/sessions/${fx.viewId(id)}`);
+      if (res.status === 200) return res.text();
+      await sleep(250);
+    }
+    throw new Error(`session page for ${id} not served within 15s`);
   };
 
   // Polls the server-rendered session page until `needle` appears (or the
@@ -70,7 +78,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
           `page for ${id} never contained ${JSON.stringify(needle)}; ` +
             `last seen: ${html.slice(0, 500)}`,
         );
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await sleep(250);
     }
   };
 

@@ -15,8 +15,9 @@ import {
 // The one-shot's distance from boot. Even a slow, contended boot still
 // leaves the scheduler arming timers before the occurrence — and a boot
 // slower than the harness's own 60s HTTP deadline fails the suite
-// before any assertion runs. Short enough that the whole case fits
-// vitest's 120s per-test ceiling.
+// before any assertion runs. The test declares a 240s ceiling of its
+// own: the lead plus the poll windows must fit even when every poll
+// runs to its deadline.
 const LEAD_MS = 65_000;
 
 // The test stays silent this long past the scheduled instant before it
@@ -111,10 +112,13 @@ const runCronClockStepSuite = (fx: FlavorFixture): void => {
 
       // The fire ran the job for real: a session in the sidebar, the
       // job's prompt on the agent's stdin, the scheduler's event line.
+      // A 10s window here failed CI under four-shard load (the spawn
+      // and sidebar render landed seconds late); the polls only run
+      // long when the run is genuinely broken.
       expect(
         await pollUntil(
           async () => (await countSessions(env, "Clockstep Run")) >= 1,
-          10_000,
+          30_000,
         ),
       ).toBe(true);
       const capturedStdin = (): string =>
@@ -122,7 +126,7 @@ const runCronClockStepSuite = (fx: FlavorFixture): void => {
       expect(
         await pollUntil(
           () => capturedStdin().includes("Clockstep probe prompt"),
-          10_000,
+          30_000,
         ),
       ).toBe(true);
       expect(env.serverStdout()).toContain(
@@ -133,10 +137,10 @@ const runCronClockStepSuite = (fx: FlavorFixture): void => {
       expect(
         await pollUntil(
           () => cronJobRow(env.dbs.cronDb, "clockstep-once") === undefined,
-          10_000,
+          30_000,
         ),
       ).toBe(true);
-    });
+    }, 240000);
   });
 };
 

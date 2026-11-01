@@ -1414,6 +1414,7 @@ export {
   rmScratch,
   seedApiToken,
   seedCronJobRow,
+  sleep,
   spawnLauncher,
   spawnLauncherSync,
   startEnv,

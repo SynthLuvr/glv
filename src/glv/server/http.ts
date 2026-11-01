@@ -13,8 +13,15 @@ const headerValue = (
   value: string | string[] | undefined,
 ): string | undefined => (Array.isArray(value) ? value[0] : value);
 
+// Route code answers an HX-Request with the detail-only fragment its swap
+// target wants. The history-restore fetch is the exception: on a cache
+// miss htmx re-requests the URL (historyRestoreAsHxRequest) and swaps the
+// response into <body>, where a fragment would replace the whole page
+// chrome with a bare detail pane — so it must get the full document,
+// which htmx's makeFragment extracts the body of, like a plain navigation.
 const isHtmxRequest = (request: FastifyRequest): boolean =>
-  headerValue(request.headers["hx-request"]) === "true";
+  headerValue(request.headers["hx-request"]) === "true" &&
+  headerValue(request.headers["hx-history-restore-request"]) !== "true";
 
 // Fastify's default query parser yields strings and string arrays (repeated
 // keys); route code always wants the first value, like Hono's req.query().

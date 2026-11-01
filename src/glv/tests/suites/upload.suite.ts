@@ -15,10 +15,33 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
-  waitForFile,
+  sleep,
   withPage,
 } from "../harness.js";
 import { stdinTranscriptPath } from "../mock-common.js";
+
+// Polls the append-only stdin transcript until every needle is present.
+// The transcript grows across invocations — the always-on suggestion ask
+// appends right after the main prompt — so a settle-based read can land
+// between appends and miss a needle: the needles, not file stability,
+// are the condition.
+const waitForTranscript = async (
+  path: string,
+  needles: readonly string[],
+): Promise<string> => {
+  const deadline = Date.now() + 30_000;
+  let captured = "";
+  while (Date.now() < deadline) {
+    try {
+      captured = readFileSync(path, "utf-8");
+      if (needles.every((needle) => captured.includes(needle))) break;
+    } catch {
+      // the writer may not have started yet — keep polling
+    }
+    await sleep(50);
+  }
+  return captured;
+};
 
 const runUploadSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Upload Test Session";
@@ -131,10 +154,16 @@ const runUploadSuite = (fx: FlavorFixture): void => {
         // prompt). Read the transcript, not the latest-stdin capture:
         // the always-on suggestion ask overwrites that once the reply
         // lands.
-        const captured = await waitForFile(stdinTranscriptPath(capturePath));
-        expect(captured).toContain(PROMPT_TEXT);
-        expect(captured).toContain(savedPath);
-        expect(captured).toContain("Attached files");
+        const needles = [PROMPT_TEXT, savedPath, "Attached files"];
+        const captured = await waitForTranscript(
+          stdinTranscriptPath(capturePath),
+          needles,
+        );
+        for (const needle of needles)
+          expect(
+            captured,
+            `${needle} missing from the invocation transcript`,
+          ).toContain(needle);
       });
     });
 

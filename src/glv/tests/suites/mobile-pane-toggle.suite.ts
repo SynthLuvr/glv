@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
+  authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
   withPage,
@@ -129,6 +130,29 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         await expect(page.locator("#session-list")).toBeVisible();
       });
     }, 30000);
+
+    // A history-restore cache miss re-fetches the URL and swaps the
+    // response into <body> — the exact failure behind the flaky restore
+    // test above — so that fetch must be served the full document,
+    // while the same URL stays a fragment for an ordinary htmx swap.
+    it("serves a full page to a history-restore fetch, a fragment otherwise", async () => {
+      const fragment = await authedFetch(env, "/", {
+        headers: { "HX-Request": "true" },
+      });
+      expect(fragment.status).toBe(200);
+      expect(await fragment.text()).not.toContain('class="app"');
+
+      const restore = await authedFetch(env, "/", {
+        headers: {
+          "HX-Request": "true",
+          "HX-History-Restore-Request": "true",
+        },
+      });
+      expect(restore.status).toBe(200);
+      const restoreHtml = await restore.text();
+      expect(restoreHtml).toContain('class="app"');
+      expect(restoreHtml).toContain('id="session-list"');
+    });
   });
 };
 
