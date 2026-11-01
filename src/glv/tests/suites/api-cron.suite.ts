@@ -251,21 +251,27 @@ const runApiCronSuite = (fx: FlavorFixture): void => {
 
     it("accepts a timezone override and rejects an unknown zone", async () => {
       const target = new Date(Date.now() + 3_600_000);
+      // A zone with no DST so the wall clock maps cleanly: a fall-back
+      // zone (America/New_York) spells a target inside the repeated hour
+      // ambiguously, and the parser resolves it to the earlier
+      // occurrence — already in the past — so the create 422s for the
+      // hour after the transition.
+      const zone = "Pacific/Kiritimati";
       const ok = await postCron({
         name: "Zoned one-off",
         // Spelled in the override's own wall clock so the moment is
         // future wherever the server runs.
-        schedule: formatOneShotInZone(target, "America/New_York"),
+        schedule: formatOneShotInZone(target, zone),
         prompt: "Zoned run",
         working_dir: env.scratchDir,
-        timezone: "America/New_York",
+        timezone: zone,
       });
       expect(ok.status).toBe(201);
-      expect(((await ok.json()) as JobJson).timezone).toBe("America/New_York");
+      expect(((await ok.json()) as JobJson).timezone).toBe(zone);
 
       const bad = await postCron({
         name: "Bad zone",
-        schedule: formatOneShotInZone(target, "America/New_York"),
+        schedule: formatOneShotInZone(target, zone),
         prompt: "Zoned run",
         working_dir: env.scratchDir,
         timezone: "Bogus/Zone",
