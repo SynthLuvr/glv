@@ -105,24 +105,21 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         );
         await page.goBack();
         // The restore round-trips a cache-miss fetch, so allow more than
-        // the default timeout. A momentary runner stall can sink that
-        // fetch outright and leave no shell at all — the product's
-        // restore guard then reloads by itself, and the shell's absence
-        // here re-drives a reload too, bounded: under shard load even a
-        // reload's document has been observed to land shell-less (CI
-        // 41337073063, attempt 1). Only the shell's absence is retried,
-        // never the pane: a shell back on the wrong pane is the
-        // regression this test guards.
+        // the default timeout. A stalled fetch can sink the restore and
+        // leave no shell at all; the product's guard reloads on its own,
+        // and this loop re-drives that reload when even the reloaded
+        // document lands shell-less (CI 41337073063, attempt 1). Only
+        // the shell's absence is retried, never the pane: a shell back
+        // on the wrong pane is the regression this test guards.
         const shell = page.locator(".app");
-        const shellIsGone = (budget: number): Promise<boolean> =>
+        const shellAttached = (budget: number): Promise<boolean> =>
           shell.waitFor({ state: "attached", timeout: budget }).then(
-            () => false,
             () => true,
+            () => false,
           );
-        // First budget covers the restore round-trip; the shorter ones
-        // only need to span a reload.
+        // The first budget spans the restore round-trip; the rest only a reload.
         for (const budget of [10000, 5000, 5000]) {
-          if (!(await shellIsGone(budget))) break;
+          if (await shellAttached(budget)) break;
           await page.reload();
         }
         await expect(shell).toHaveAttribute("data-mobile-pane", "sidebar", {
@@ -138,12 +135,11 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
       });
     }, 45000);
 
-    // A restore whose response carries no app shell — a truncated or
-    // shell-less body, the "no shell at all" CI state (run 41337073063,
-    // attempt 1) — must not strand the page: the restore guard reloads,
-    // and the reloaded document re-derives the pane for the URL. The
-    // restore fetch is fulfilled shell-less here to drive the real
-    // swap → guard → reload path end to end.
+    // A restore whose response carries no app shell — the truncated-body
+    // CI state (run 41337073063, attempt 1) — must not strand the page:
+    // the guard reloads, and the fresh load re-derives the pane for the
+    // URL. The restore fetch is answered shell-less here so the real
+    // swap → guard → reload path runs end to end.
     it("reloads itself when a history restore lands without the app shell", async () => {
       await withPage(env.context, async (page) => {
         await page.setViewportSize(VIEWPORT);
@@ -178,14 +174,13 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
           "sidebar",
           { timeout: 15000 },
         );
-        // The healed page is freshly loaded; the pane attribute is
-        // server-rendered, so it says nothing about wiring. uiInit
-        // flips the sidebar button's aria-pressed, so that is the
-        // signal the tabs are live before driving them.
+        // The healed page is a fresh load, so the pane attribute is
+        // server-rendered and says nothing about wiring; uiInit flipping
+        // the sidebar button's aria-pressed is the signal the tabs are
+        // live before driving them.
         await expect(
           page.locator('.mobile-pane-btn[data-pane="sidebar"]'),
         ).toHaveAttribute("aria-pressed", "true", { timeout: 15000 });
-        // The self-healed page is fully wired: the tabs work.
         await switchPane(page, "detail");
         await expect(page.locator(".app")).toHaveAttribute(
           "data-mobile-pane",
