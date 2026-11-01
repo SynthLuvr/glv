@@ -286,6 +286,7 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
         env: IntegrationEnv;
         workDir: string;
         capture: () => string;
+        transcript: () => string;
         countSessions: () => Promise<number>;
       };
 
@@ -315,6 +316,13 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           workDir,
           capture: () =>
             existsSync(captureStdin) ? readFileSync(captureStdin, "utf-8") : "",
+          // The mock appends one line per invocation to this sibling
+          // of the overwrite capture, so reads survive the next step's
+          // overwrite.
+          transcript: () =>
+            existsSync(`${captureStdin}.invocations`)
+              ? readFileSync(`${captureStdin}.invocations`, "utf-8")
+              : "",
           countSessions: () =>
             countSessionsNamed(env, mock.sessionName ?? "Session"),
         };
@@ -525,7 +533,7 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
       }, 240000);
 
       it("skips fires while a chain is still running instead of stacking pipelines", async () => {
-        const { env, workDir, countSessions } = await bootChainEnv(
+        const { env, workDir, transcript } = await bootChainEnv(
           "glv-chain-overlap-",
           { sessionName: "Overlap Chain", sleepMs: 8000 },
         );
@@ -538,18 +546,33 @@ const runCronChainSuite = (fx: FlavorFixture): void => {
           followUps: ["Overlap step two"],
         });
 
-        // The first fire starts step 1; the in-flight marker now spans
-        // the whole chain, so every tick until it finishes must skip
-        // rather than stack a second pipeline on the directory.
+        const invocationCount = (prompt: string): number =>
+          transcript()
+            .split("\n")
+            .filter((line) => line.includes(prompt)).length;
+
+        // Step 1's prompt reached the agent: the first fire is in flight.
         expect(
-          await pollUntil(async () => (await countSessions()) >= 1, 30_000),
+          await pollUntil(
+            () => invocationCount("Overlap step one") > 0,
+            30_000,
+          ),
         ).toBe(true);
-        // Several fire windows pass deep inside step 1's 8s run: still
-        // exactly one session.
-        await sleep(3000);
-        expect(await countSessions()).toBe(1);
-        await sleep(3000);
-        expect(await countSessions()).toBe(1);
+
+        // Step 2's prompt proves step 1 settled and the chain advanced
+        // on schedule. Reading step 1's count at exactly that moment
+        // makes the invariant timing-independent: no second step-one
+        // fire can have landed unless a tick stacked a second pipeline
+        // on the directory — the skip this test exists for. The guard
+        // keeps the count at one (the in-flight marker spans the whole
+        // chain); a stacked pipeline would push it to two.
+        expect(
+          await pollUntil(
+            () => invocationCount("Overlap step two") === 1,
+            90_000,
+          ),
+        ).toBe(true);
+        expect(invocationCount("Overlap step one")).toBe(1);
       }, 200000);
     });
   });
