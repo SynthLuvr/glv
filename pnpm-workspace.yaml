@@ -2,11 +2,12 @@ allowBuilds:
   "@ast-grep/cli": true
   "@parcel/watcher": true
   esbuild: true
-minimumReleaseAgeExclude:
-  - ts-canon@0.3.2
-  # croner 11.0.0 shipped 2026-10-26, inside the 24h freshness window;
-  # the next dependency sweep can drop this entry.
-  - croner@11.0.0
+permissions:
+  # arktype ships pnpm "agent skills" (permission added in pnpm 12.11).
+  # Denied so installs never link dependency-provided skill files into
+  # the repo; flipping to true is a deliberate maintainer decision.
+  arktype:
+    skills: false
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
 # 127; pnpm's per-platform default handles every script fine.

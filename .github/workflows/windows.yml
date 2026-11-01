@@ -49,8 +49,8 @@ jobs:
         shell: pwsh
         run: |
           $zip = "$env:RUNNER_TEMP\pandoc.zip"
-          $dir = "$env:RUNNER_TEMP\pandoc-3.12.1"
-          Invoke-WebRequest -Uri https://github.com/jgm/pandoc/releases/download/3.12.1/pandoc-3.12.1-windows-x86_64.zip -OutFile $zip
+          $dir = "$env:RUNNER_TEMP\pandoc-3.13"
+          Invoke-WebRequest -Uri https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-windows-x86_64.zip -OutFile $zip
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP"
           Add-Content $env:GITHUB_PATH $dir
           & "$dir\pandoc.exe" --version | Select-Object -First 1
