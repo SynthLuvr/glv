@@ -15,12 +15,33 @@ import {
   authedFetch,
   type FlavorFixture,
   type IntegrationEnv,
+  sleep,
   withPage,
 } from "../harness.js";
 import { stdinTranscriptPath } from "../mock-common.js";
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+// Polls the append-only stdin transcript until every needle is present.
+// The transcript grows across invocations — the always-on suggestion ask
+// appends right after the main prompt — so a settle-based read can land
+// between appends and miss a needle: the needles, not file stability,
+// are the condition.
+const waitForTranscript = async (
+  path: string,
+  needles: readonly string[],
+): Promise<string> => {
+  const deadline = Date.now() + 30_000;
+  let captured = "";
+  while (Date.now() < deadline) {
+    try {
+      captured = readFileSync(path, "utf-8");
+      if (needles.every((needle) => captured.includes(needle))) break;
+    } catch {
+      // the writer may not have started yet — keep polling
+    }
+    await sleep(50);
+  }
+  return captured;
+};
 
 const runUploadSuite = (fx: FlavorFixture): void => {
   const SESSION_NAME = "Upload Test Session";
@@ -132,24 +153,12 @@ const runUploadSuite = (fx: FlavorFixture): void => {
         // The agent received the absolute file path in its stdin (the
         // prompt). Read the transcript, not the latest-stdin capture:
         // the always-on suggestion ask overwrites that once the reply
-        // lands. Poll for the needles themselves rather than waiting
-        // for the file to settle: the transcript is append-only across
-        // invocations, so a settle-based read can come back between
-        // appends and miss the main prompt line (it failed CI that
-        // way) — the needles, not file stability, are the condition.
-        const transcriptPath = stdinTranscriptPath(capturePath);
+        // lands.
         const needles = [PROMPT_TEXT, savedPath, "Attached files"];
-        const deadline = Date.now() + 30_000;
-        let captured = "";
-        while (Date.now() < deadline) {
-          try {
-            captured = readFileSync(transcriptPath, "utf-8");
-            if (needles.every((needle) => captured.includes(needle))) break;
-          } catch {
-            // the writer may not have started yet — keep polling
-          }
-          await sleep(50);
-        }
+        const captured = await waitForTranscript(
+          stdinTranscriptPath(capturePath),
+          needles,
+        );
         for (const needle of needles)
           expect(
             captured,

@@ -112,10 +112,9 @@ const runCronClockStepSuite = (fx: FlavorFixture): void => {
 
       // The fire ran the job for real: a session in the sidebar, the
       // job's prompt on the agent's stdin, the scheduler's event line.
-      // Each side effect gets the same 30s budget the marker poll has:
-      // a 10s window failed CI under four-shard load (the spawn and
-      // sidebar render landed seconds late), and the polls only ever
-      // run long when the run is genuinely broken.
+      // A 10s window here failed CI under four-shard load (the spawn
+      // and sidebar render landed seconds late); the polls only run
+      // long when the run is genuinely broken.
       expect(
         await pollUntil(
           async () => (await countSessions(env, "Clockstep Run")) >= 1,

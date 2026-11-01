@@ -1251,32 +1251,30 @@ const runCronUiSuite = (fx: FlavorFixture): void => {
       expect(sessionId).toBeDefined();
 
       // The scheduler tags each fired session in the sidecar moments
-      // after that session itself becomes visible in the store (the
+      // after the session itself becomes visible in the store (the
       // agent reports the id first, then establish + tag land). A
       // once-per-second job piles up sessions, so the sidebar-meta
       // wait below passes on an earlier fire's tag while the captured
       // session's own tag is still in flight — a transcript read that
-      // trusts the sidebar wait races it and flakes. Poll the
-      // transcript itself until its header carries the chip.
-      const badgeDeadline = Date.now() + 30_000;
-      let metaHtml = "";
-      while (Date.now() < badgeDeadline) {
-        const meta = await authedFetch(env, "/sessions/sidebar-meta");
-        metaHtml = await meta.text();
-        if (metaHtml.includes("cron-chip")) break;
-        await sleep(500);
-      }
+      // trusts the sidebar wait races it and flakes, so each surface
+      // polls until its own markup carries the chip.
+      const fetchUntilChip = async (path: string): Promise<string> => {
+        const deadline = Date.now() + 30_000;
+        let html = "";
+        while (Date.now() < deadline) {
+          const res = await authedFetch(env, path);
+          html = await res.text();
+          if (html.includes("cron-chip")) break;
+          await sleep(500);
+        }
+        return html;
+      };
+
+      const metaHtml = await fetchUntilChip("/sessions/sidebar-meta");
       expect(metaHtml).toContain("cron-chip");
       expect(metaHtml).toContain("nightly-watch");
 
-      let transcriptHtml = "";
-      const transcriptDeadline = Date.now() + 30_000;
-      while (Date.now() < transcriptDeadline) {
-        const transcript = await authedFetch(env, `/sessions/${sessionId}`);
-        transcriptHtml = await transcript.text();
-        if (transcriptHtml.includes("cron-chip")) break;
-        await sleep(500);
-      }
+      const transcriptHtml = await fetchUntilChip(`/sessions/${sessionId}`);
       expect(transcriptHtml).toContain("cron-chip");
       expect(transcriptHtml).toContain("nightly-watch");
     });

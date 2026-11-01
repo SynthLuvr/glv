@@ -9,6 +9,7 @@ import {
   type FlavorFixture,
   type IntegrationEnv,
   parseSseData,
+  sleep,
   withPage,
 } from "../harness.js";
 
@@ -45,24 +46,17 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
       headers: { "HX-Request": "true" },
     });
 
-  const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
   const pageHtml = async (e: IntegrationEnv, id: string): Promise<string> => {
-    // A fetch right after `restart` can land in the fresh boot's first
-    // instants and come back a 302 instead of the session page; poll
-    // until the page is really served. The budget only ever runs out
-    // when the server is genuinely not serving this session, which
-    // stays a failure.
+    // A fetch right after `restart` can land mid-boot and come back a
+    // 302; poll until the page is really served — the budget only runs
+    // out when the server is genuinely not serving this session.
     const deadline = Date.now() + 15_000;
-    let res: Response;
-    do {
-      res = await authedFetch(e, `/sessions/${fx.viewId(id)}`);
+    while (Date.now() < deadline) {
+      const res = await authedFetch(e, `/sessions/${fx.viewId(id)}`);
       if (res.status === 200) return res.text();
       await sleep(250);
-    } while (Date.now() < deadline);
-    expect(res.status).toBe(200);
-    return res.text();
+    }
+    throw new Error(`session page for ${id} not served within 15s`);
   };
 
   // Polls the server-rendered session page until `needle` appears (or the
@@ -84,7 +78,7 @@ const runStopNoticeSuite = (fx: FlavorFixture): void => {
           `page for ${id} never contained ${JSON.stringify(needle)}; ` +
             `last seen: ${html.slice(0, 500)}`,
         );
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await sleep(250);
     }
   };
 

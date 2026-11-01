@@ -13,16 +13,12 @@ const headerValue = (
   value: string | string[] | undefined,
 ): string | undefined => (Array.isArray(value) ? value[0] : value);
 
-// htmx tags every ajax-driven request with `HX-Request: true`, and route
-// code answers those with the detail-only fragment the swap target wants.
-// The history-restore fetch is the one exception: on a cache miss htmx
-// re-requests the URL carrying `HX-History-Restore-Request: true` (htmx
-// 2.x, historyRestoreAsHxRequest) and swaps the response into <body>'s
-// innerHTML — a fragment there would replace the whole page chrome
-// (`.app`, the sidebar, every wired script node) with a bare detail pane.
-// htmx's makeFragment extracts the body of a full-document response, so
-// the restore fetch must be answered with the complete page, exactly
-// like a plain navigation.
+// Route code answers an HX-Request with the detail-only fragment its swap
+// target wants. The history-restore fetch is the exception: on a cache
+// miss htmx re-requests the URL (historyRestoreAsHxRequest) and swaps the
+// response into <body>, where a fragment would replace the whole page
+// chrome with a bare detail pane — so it must get the full document,
+// which htmx's makeFragment extracts the body of, like a plain navigation.
 const isHtmxRequest = (request: FastifyRequest): boolean =>
   headerValue(request.headers["hx-request"]) === "true" &&
   headerValue(request.headers["hx-history-restore-request"]) !== "true";
