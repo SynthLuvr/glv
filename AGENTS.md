@@ -297,3 +297,7 @@ usually a cast-free narrowing (`instanceof` guard, ArkType predicate,
 explicit annotation from an already-typed value) — not a rule exemption
 (per-line `// ast-grep-ignore: no-unsafe-cast` comments exist, but a
 narrowing beats a suppression).
+
+Validate untrusted input with ArkType. Docs: https://arktype.io/llms.txt
+(The ArkType skill linked by pnpm — see `permissions` in
+`pnpm-workspace.yaml` — gives agents the same guidance offline.)

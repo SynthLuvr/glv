@@ -2,11 +2,22 @@ allowBuilds:
   "@ast-grep/cli": true
   "@parcel/watcher": true
   esbuild: true
-minimumReleaseAgeExclude:
-  - ts-canon@0.3.2
-  # croner 11.0.0 shipped 2026-10-26, inside the 24h freshness window;
-  # the next dependency sweep can drop this entry.
-  - croner@11.0.0
+permissions:
+  # arktype ships pnpm "agent skills" (permission added in pnpm 12.11).
+  # Approved per the ArkType maintainers' recommendation: releases after
+  # 2.2.8 include skills/arktype/SKILL.md in the package so tools like
+  # pnpm can link the copy matching the installed version —
+  # https://arktype.io/docs/agents
+  arktype:
+    skills: true
+skills:
+  # Where pnpm links approved dependency skills — Claude Code's
+  # project-level skills dir. pnpm refuses to link without an explicit
+  # list when no agent skill dir exists at the workspace root. The
+  # links themselves are gitignored (pnpm-* — they point into
+  # node_modules and are re-created by each developer's install).
+  dirs:
+    - .claude/skills
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
 # bash.exe (which has no node), so lifecycle scripts died with exit
 # 127; pnpm's per-platform default handles every script fine.
