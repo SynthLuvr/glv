@@ -105,19 +105,23 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         );
         await page.goBack();
         // The restore round-trips a cache-miss fetch, so allow more than
-        // the default timeout. A momentary runner stall can sink that
-        // fetch outright and leave no shell at all — a reload then
-        // re-drives the same restore path. Only the shell's absence is
-        // retried, never the pane: a shell back on the wrong pane is
-        // the regression this test guards.
+        // the default timeout. A stalled fetch can sink the restore and
+        // leave no shell at all; the product's guard reloads on its own,
+        // and this loop re-drives that reload when even the reloaded
+        // document lands shell-less (CI 41337073063, attempt 1). Only
+        // the shell's absence is retried, never the pane: a shell back
+        // on the wrong pane is the regression this test guards.
         const shell = page.locator(".app");
-        const cameBack = await shell
-          .waitFor({ state: "attached", timeout: 10000 })
-          .then(
+        const shellAttached = (budget: number): Promise<boolean> =>
+          shell.waitFor({ state: "attached", timeout: budget }).then(
             () => true,
             () => false,
           );
-        if (!cameBack) await page.reload();
+        // The first budget spans the restore round-trip; the rest only a reload.
+        for (const budget of [10000, 5000, 5000]) {
+          if (await shellAttached(budget)) break;
+          await page.reload();
+        }
         await expect(shell).toHaveAttribute("data-mobile-pane", "sidebar", {
           timeout: 10000,
         });
@@ -129,7 +133,61 @@ const runMobilePaneToggleSuite = (fx: FlavorFixture): void => {
         await switchPane(page, "sidebar");
         await expect(page.locator("#session-list")).toBeVisible();
       });
-    }, 30000);
+    }, 45000);
+
+    // A restore whose response carries no app shell — the truncated-body
+    // CI state (run 41337073063, attempt 1) — must not strand the page:
+    // the guard reloads, and the fresh load re-derives the pane for the
+    // URL. The restore fetch is answered shell-less here so the real
+    // swap → guard → reload path runs end to end.
+    it("reloads itself when a history restore lands without the app shell", async () => {
+      await withPage(env.context, async (page) => {
+        await page.setViewportSize(VIEWPORT);
+        await page.goto(`${env.baseUrl}/`);
+        await selectSession(page, "mp-a");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
+        // Only the restore fetch is answered shell-less; the plain GET
+        // the guard's reload issues must reach the server untouched.
+        await page.route(`${env.baseUrl}/`, async (route) => {
+          if (
+            route.request().headers()["hx-history-restore-request"] === "true"
+          ) {
+            await route.fulfill({
+              status: 200,
+              contentType: "text/html; charset=utf-8",
+              body: "<p>chromeless</p>",
+            });
+            return;
+          }
+          await route.continue();
+        });
+        // Drop the push-time snapshot so the restore takes the fetch leg.
+        await page.evaluate(() =>
+          sessionStorage.removeItem("htmx-history-cache"),
+        );
+        await page.goBack();
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "sidebar",
+          { timeout: 15000 },
+        );
+        // The healed page is a fresh load, so the pane attribute is
+        // server-rendered and says nothing about wiring; uiInit flipping
+        // the sidebar button's aria-pressed is the signal the tabs are
+        // live before driving them.
+        await expect(
+          page.locator('.mobile-pane-btn[data-pane="sidebar"]'),
+        ).toHaveAttribute("aria-pressed", "true", { timeout: 15000 });
+        await switchPane(page, "detail");
+        await expect(page.locator(".app")).toHaveAttribute(
+          "data-mobile-pane",
+          "detail",
+        );
+      });
+    }, 45000);
 
     // A history-restore cache miss re-fetches the URL and swaps the
     // response into <body> — the exact failure behind the flaky restore

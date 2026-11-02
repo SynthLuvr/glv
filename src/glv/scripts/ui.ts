@@ -415,8 +415,18 @@ const uiPaneForPath = (path: string): string =>
 // init against the fresh DOM; every step is idempotent, and the swap is
 // synchronous (swapDelay 0), so the new nodes are in place here.
 const uiOnHistoryRestore = (): void => {
+  // A stalled restore fetch can swap in a body without the app shell,
+  // stranding the user on a chromeless fragment. A fresh load always
+  // carries the shell and re-derives the pane, and it cannot loop: a
+  // reloaded document fires no popstate, so this runs again only after
+  // another explicit Back/Forward.
+  if (document.querySelector(".app") === null) {
+    window.location.reload();
+    return;
+  }
   uiApplyPane(uiPaneForPath(window.location.pathname));
   uiSyncTitle();
   uiInit();
 };
+
 document.body.addEventListener("htmx:historyRestore", uiOnHistoryRestore);
