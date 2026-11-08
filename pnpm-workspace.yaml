@@ -14,8 +14,9 @@ skills:
   # Where pnpm links approved dependency skills — Claude Code's
   # project-level skills dir. pnpm refuses to link without an explicit
   # list when no agent skill dir exists at the workspace root. The
-  # links themselves are gitignored (pnpm-* — they point into
-  # node_modules and are re-created by each developer's install).
+  # links themselves are gitignored (.claude/skills/.gitignore, kept by
+  # pnpm — they point into node_modules and are re-created by each
+  # developer's install).
   dirs:
     - .claude/skills
 # Keep scriptShell unset — forcing bash made Windows pick WSL's
