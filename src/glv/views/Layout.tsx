@@ -11,6 +11,16 @@ type LayoutProps = PropsWithChildren<{
 // of the light theme on reload.
 const themeBootstrap = `(function(){try{var t=localStorage.getItem('glv-theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`;
 
+// The stylesheet link is render-critical and its failure is invisible to
+// the user until a manual reload: a failed stylesheet is neither retried
+// by the browser nor re-fetched for the rest of the cache lifetime. On a
+// tunnel or mobile connection the failure is a transient transport error,
+// so ask once more over a fresh connection and apply the result as a
+// late <style> — a brief unstyled flash instead of a permanently
+// unstyled page. The DOMContentLoaded check covers failures that fired
+// before this listener could attach.
+const stylesheetRetryBootstrap = `(function(){var l=document.currentScript.previousElementSibling;var n=0;var delays=[0,2000,8000,20000,45000,90000];var attempt=function(){if(n>=delays.length)return;if(document.querySelector("style[data-appcss-retry]"))return;var ok=false;try{ok=(l.sheet!==null&&l.sheet.cssRules.length>0)}catch(e){ok=false}if(ok)return;var d=delays[n++];setTimeout(function(){fetch(l.href+"?retry="+Date.now()).then(function(r){return r.text()}).then(function(css){var s=document.createElement("style");s.textContent=css;s.setAttribute("data-appcss-retry","1");document.head.appendChild(s);n=delays.length}).catch(attempt)},d)};l.addEventListener("error",attempt);document.addEventListener("DOMContentLoaded",attempt)})();`;
+
 const Layout = ({ title, agentName, children }: LayoutProps) => (
   <html lang="en">
     <head>
@@ -27,6 +37,9 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />
+      <script
+        dangerouslySetInnerHTML={{ __html: stylesheetRetryBootstrap }}
+      ></script>
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
       <script src="/assets/rename.js" defer></script>
@@ -41,4 +54,4 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
   </html>
 );
 
-export { Layout, themeBootstrap };
+export { Layout, stylesheetRetryBootstrap, themeBootstrap };
