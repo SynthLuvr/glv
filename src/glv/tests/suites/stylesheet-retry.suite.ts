@@ -7,17 +7,14 @@ import {
   withPage,
 } from "../harness.js";
 
-// The stylesheet rides a <link>, and a failed stylesheet request is
-// otherwise fatal for the page's appearance until a manual reload: the
-// browser neither retries it nor re-fetches it while the cache entry is
-// fresh. A transient transport failure (tunnel flap, mobile network
-// handover) during the one load that actually fetches the stylesheet is
+// The styling rides a <link>, and the browser neither retries a failed
+// stylesheet request nor re-fetches it while its cache entry is fresh —
 // the reported "detail page comes back as unstyled text" bug. Layout and
-// AuthLayout therefore wire a retry bootstrap that refetches the
-// stylesheet over a fresh connection and applies it as a late <style>.
+// AuthLayout wire a bootstrap that refetches the stylesheet over a fresh
+// connection and applies it as a late <style>.
 
 const runStylesheetRetrySuite = (fx: FlavorFixture): void => {
-  let env: IntegrationEnv | undefined;
+  let env: IntegrationEnv;
 
   beforeAll(async () => {
     env = await fx.startEnv("glv-style-retry-");
@@ -31,24 +28,21 @@ const runStylesheetRetrySuite = (fx: FlavorFixture): void => {
   });
 
   it("wires the retry bootstrap under the stylesheet link", async () => {
-    const res = await authedFetch(env!, `/sessions/${fx.viewId("retry-a")}`);
+    const res = await authedFetch(env, `/sessions/${fx.viewId("retry-a")}`);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<link rel="stylesheet" href="/assets/app.css"/>');
     expect(html).toContain("?retry=");
     expect(html).toContain("previousElementSibling");
-    const login = await fetch(`${env!.baseUrl}/auth/login`);
+    const login = await fetch(`${env.baseUrl}/auth/login`);
     expect(login.status).toBe(200);
     expect(await login.text()).toContain("?retry=");
   });
 
   it("recovers styling automatically when the stylesheet request fails", async () => {
-    const e = env;
-    if (e === undefined) throw new Error("environment not started");
-    await withPage(e.context, async (page) => {
-      await page.setViewportSize({ width: 412, height: 915 });
-      // The first stylesheet request dies mid-connection; any later
-      // attempt (the bootstrap's retry) goes through.
+    await withPage(env.context, async (page) => {
+      // The first stylesheet request dies mid-connection; the bootstrap's
+      // retry goes through afterwards.
       let first = true;
       await page.route("**/assets/app.css*", (route) => {
         if (first) {
@@ -57,9 +51,9 @@ const runStylesheetRetrySuite = (fx: FlavorFixture): void => {
         }
         return route.continue();
       });
-      await page.goto(`${e.baseUrl}/sessions/${fx.viewId("retry-a")}`);
-      // No manual reload: the retry must land the stylesheet and the
-      // page must end up styled (the UA serif stack means it did not).
+      await page.goto(`${env.baseUrl}/sessions/${fx.viewId("retry-a")}`);
+      // The UA serif stack means the stylesheet never landed; with no
+      // manual reload, the retry alone must restyle the page.
       await expect
         .poll(
           () => page.evaluate(() => getComputedStyle(document.body).fontFamily),

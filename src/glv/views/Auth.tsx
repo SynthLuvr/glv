@@ -27,9 +27,7 @@ const AuthLayout = ({ title, agentName, children }: AuthLayoutProps) => (
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />
-      <script
-        dangerouslySetInnerHTML={{ __html: stylesheetRetryBootstrap }}
-      ></script>
+      <script dangerouslySetInnerHTML={{ __html: stylesheetRetryBootstrap }} />
       <script src="/assets/passkey.js" defer></script>
     </head>
     <body>
