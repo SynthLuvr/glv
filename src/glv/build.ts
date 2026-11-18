@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import {
-  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type } from "arktype";
 import { buildSync } from "esbuild";
@@ -116,9 +116,40 @@ const recordedFingerprint = (outputDir: string): unknown => {
   }
 };
 
-const assetsUpToDate = (outputDir: string, fingerprint: string): boolean =>
-  recordedFingerprint(outputDir) === fingerprint &&
-  OUTPUT_FILES.every((name) => existsSync(join(outputDir, name)));
+// The manifest alone says the inputs are current, but the outputs it
+// vouches for can still be broken on disk: a build killed mid-write
+// (systemd cgroup stop, Ctrl+C, OOM, disk-full) leaves a truncated file
+// beside a manifest from the last successful build — whose fingerprint
+// still matches, since the sources did not change. Serving that state
+// ships an empty or half-written stylesheet with a 24h browser cache
+// header, so freshness is judged from content AND integrity: every
+// output must exist and be non-empty to count as reusable.
+const assetsUpToDate = (outputDir: string, fingerprint: string): boolean => {
+  if (recordedFingerprint(outputDir) !== fingerprint) return false;
+  return OUTPUT_FILES.every((name) => {
+    try {
+      return statSync(join(outputDir, name)).size > 0;
+    } catch {
+      return false;
+    }
+  });
+};
+
+// Writes via a pid-suffixed sibling temp file renamed into place, so two
+// concurrent builds (parallel vitest files each booting serve, a `pnpm
+// build` racing a boot) never interleave partial writes into a target
+// that readers and the up-to-date gate treat as whole. A crash between
+// write and rename leaves only an inert dot-tmp behind, never a
+// truncated output with a fresh manifest.
+const writeAssetAtomic = (
+  outputDir: string,
+  name: string,
+  data: string | Uint8Array,
+): void => {
+  const tmp = join(outputDir, `.${basename(name)}.${process.pid}.tmp`);
+  writeFileSync(tmp, data);
+  renameSync(tmp, join(outputDir, name));
+};
 
 type BuildAssetsOptions = {
   /** Overrides dist/<flavor> as the output directory (tests use a scratch dir). */
@@ -143,6 +174,9 @@ const buildAssets = (
   );
   if (assetsUpToDate(outputDir, fingerprint)) return false;
   mkdirSync(outputDir, { recursive: true });
+  // Tailwind writes the stylesheet in place; land it on a sibling temp
+  // path so a reader (or a second builder) never sees a partial file.
+  const cssTmp = join(outputDir, `.app.css.${process.pid}.tmp`);
   execaSync(
     process.execPath,
     [
@@ -150,12 +184,16 @@ const buildAssets = (
       "-i",
       join(GLV_SRC, "styles", "app.css"),
       "-o",
-      join(outputDir, "app.css"),
+      cssTmp,
       "--minify",
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
-  buildSync({
+  renameSync(cssTmp, join(outputDir, "app.css"));
+  // Bundled in memory and written through the same atomic path as the
+  // stylesheet: buildSync's direct writes have the same partial-file
+  // exposure as the CLI's.
+  const bundled = buildSync({
     entryPoints: CLIENT_ENTRIES,
     bundle: true,
     format: "iife",
@@ -163,9 +201,15 @@ const buildAssets = (
     outdir: outputDir,
     platform: "browser",
     target: ["es2020"],
+    write: false,
   });
-  writeFileSync(
-    manifestPath(outputDir),
+  if (bundled.outputFiles === undefined)
+    throw new Error("esbuild returned no output files");
+  for (const file of bundled.outputFiles)
+    writeAssetAtomic(outputDir, basename(file.path), file.contents);
+  writeAssetAtomic(
+    outputDir,
+    basename(manifestPath(outputDir)),
     `${JSON.stringify({ fingerprint })}\n`,
   );
   console.log(`glv assets built → ${outputDir}`);

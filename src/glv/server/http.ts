@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
@@ -36,16 +37,57 @@ const extractIds = (value: unknown): string[] => {
   return typeof value === "string" ? [value] : [];
 };
 
+// Assets answer with a strong ETag and no-cache: the browser may store
+// the response but must revalidate before reuse. An unversioned asset
+// URL plus a long blind freshness window (the old public, max-age=86400)
+// let one bad or truncated response poison the browser for a day — the
+// styling-disappears-after-a-while report — and kept a rebuilt server's
+// new stylesheet unseen until that window lapsed. Revalidation turns
+// both into one cheap 304 when nothing changed, and heals any stale or
+// poisoned entry on the next load.
+const etagOf = (body: string): string =>
+  `"${createHash("sha256").update(body).digest("hex")}"`;
+
+// RFC 9110 If-None-Match: a comma-separated candidate list, weak tags
+// compared on their opaque value, "*" matching whatever exists.
+const etagMatches = (ifNoneMatch: string, etag: string): boolean => {
+  const candidates = ifNoneMatch
+    .split(",")
+    .map((candidate) => candidate.trim());
+  if (candidates.includes("*")) return true;
+  return candidates.some((candidate) => candidate.replace(/^W\//, "") === etag);
+};
+
+// Body-less responses (304 here, HEAD/OPTIONS/416 in send-file.ts) bypass
+// Fastify's serializer — it would turn a null payload into a JSON "null"
+// body with an application/json content type — and write the exact wire
+// bytes instead.
+const sendNotModified = (reply: FastifyReply, etag: string): FastifyReply => {
+  reply.hijack();
+  reply.raw.writeHead(304, {
+    ETag: etag,
+    "Cache-Control": "no-cache",
+  });
+  reply.raw.end();
+  return reply;
+};
+
 const serveAsset = (
   reply: FastifyReply,
   body: string,
   contentType: string,
-): FastifyReply =>
-  reply
+): FastifyReply => {
+  const etag = etagOf(body);
+  const ifNoneMatch = headerValue(reply.request.headers["if-none-match"]);
+  if (ifNoneMatch !== undefined && etagMatches(ifNoneMatch, etag))
+    return sendNotModified(reply, etag);
+  return reply
     .status(200)
     .header("Content-Type", contentType)
-    .header("Cache-Control", "public, max-age=86400")
+    .header("Cache-Control", "no-cache")
+    .header("ETag", etag)
     .send(body);
+};
 
 // Serializes a hono/jsx child to an HTML string response — hono's
 // c.html(el) equivalent, now explicit at each call site.
