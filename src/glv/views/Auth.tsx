@@ -1,6 +1,7 @@
 import type { Child } from "hono/jsx";
 import type { ApiTokenSummary, CredentialSummary } from "../auth/db.js";
 import { HeadMeta } from "./head.js";
+import { stylesheetRetryBootstrap } from "./Layout.js";
 
 // Mirrors the inline bootstrap in Layout.tsx so the saved theme applies before
 // first paint on the auth screens (which use a standalone layout).
@@ -26,6 +27,7 @@ const AuthLayout = ({ title, agentName, children }: AuthLayoutProps) => (
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />
+      <script dangerouslySetInnerHTML={{ __html: stylesheetRetryBootstrap }} />
       <script src="/assets/passkey.js" defer></script>
     </head>
     <body>

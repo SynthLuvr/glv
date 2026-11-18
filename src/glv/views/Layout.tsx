@@ -11,6 +11,15 @@ type LayoutProps = PropsWithChildren<{
 // of the light theme on reload.
 const themeBootstrap = `(function(){try{var t=localStorage.getItem('glv-theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`;
 
+// A failed stylesheet request is neither retried nor re-fetched while its
+// cache entry is fresh, so one transient transport error (tunnel flap,
+// mobile network handover) leaves the page unstyled until a manual reload.
+// On failure, refetch over a fresh connection and apply the result as a
+// late <style> — a brief unstyled flash instead of a permanently unstyled
+// page. The DOMContentLoaded probe catches failures that fired before the
+// error listener attached.
+const stylesheetRetryBootstrap = `(function(){var l=document.currentScript.previousElementSibling,delays=[0,2000,8000,20000,45000,90000],n=0,done=false;var attempt=function(){if(done||n>=delays.length)return;try{if(l.sheet&&l.sheet.cssRules.length>0)return}catch(e){}setTimeout(function(){if(done)return;fetch(l.href+"?retry="+Date.now()).then(function(r){return r.text()}).then(function(css){if(done)return;var s=document.createElement("style");s.textContent=css;s.setAttribute("data-appcss-retry","1");document.head.appendChild(s);done=true}).catch(attempt)},delays[n++])};l.addEventListener("error",attempt);document.addEventListener("DOMContentLoaded",attempt)})();`;
+
 const Layout = ({ title, agentName, children }: LayoutProps) => (
   <html lang="en">
     <head>
@@ -27,6 +36,7 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
       <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       <title>{title}</title>
       <link rel="stylesheet" href="/assets/app.css" />
+      <script dangerouslySetInnerHTML={{ __html: stylesheetRetryBootstrap }} />
       <script src="/assets/htmx.min.js" defer></script>
       <script src="/assets/stream.js" defer></script>
       <script src="/assets/rename.js" defer></script>
@@ -41,4 +51,4 @@ const Layout = ({ title, agentName, children }: LayoutProps) => (
   </html>
 );
 
-export { Layout, themeBootstrap };
+export { Layout, stylesheetRetryBootstrap, themeBootstrap };
