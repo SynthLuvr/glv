@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -444,6 +444,39 @@ const captureStylesheetFailure = async (
   await auth.close();
 };
 
+const captureDistTruncation = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  // The real failure chain behind the unstyled-phone reports, server
+  // side: a build killed mid-write leaves a truncated app.css beside a
+  // manifest whose fingerprint still matches, and the next boot used to
+  // serve that snapshot as a healthy 200 — pinned into the browser by
+  // the old 24h cache header. Truncate the real dist output and restart
+  // serve, then shoot the session view: before this branch the boot
+  // skips the rebuild and the page renders as raw UA-styled text; with
+  // the fix the boot rebuilds and the page is styled.
+  const cssPath = join(process.cwd(), "dist", "glv", "app.css");
+  writeFileSync(cssPath, "");
+  await env.restart();
+
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await page.locator("form.prompt-bar").waitFor();
+  // Unstyled, the DOM stacks with the sidebar first; scroll to the
+  // detail pane so both trees frame the same content.
+  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
+  await capture(page, "dist-truncation-desktop.png");
+
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
+  await capture(page, "dist-truncation-mobile.png");
+  await context.close();
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -865,6 +898,7 @@ const captures: ReadonlyArray<readonly [string, () => Promise<void>]> = [
   ["pitch", () => capturePitch(browser, env)],
   ["error-result", () => captureErrorResult(browser, env)],
   ["stylesheet-failure", () => captureStylesheetFailure(browser, env)],
+  ["dist-truncation", () => captureDistTruncation(browser, env)],
 ];
 try {
   for (const [name, run] of captures) {
