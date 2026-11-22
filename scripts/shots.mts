@@ -402,6 +402,48 @@ const captureErrorResult = async (
   await context.close();
 };
 
+// One transient transport error on the stylesheet request used to leave the
+// page permanently unstyled until a manual reload — PR #409 added a retry
+// bootstrap that refetches over a fresh connection and applies the CSS as a
+// late <style>. This capture blocks the initial request while letting the
+// `?retry=` refetch through, so the pair of shots (run against the two trees
+// with --only=stylesheet-failure) shows exactly what the retry changes: the
+// page heals itself with #409, and stays unstyled without it. Same block on
+// the auth screens, which embed the bootstrap in their standalone layout.
+const failStylesheetButLetRetryThrough = async (page: Page): Promise<void> => {
+  await page.route("**/app.css*", (route) => {
+    const retried = new URL(route.request().url()).searchParams.has("retry");
+    if (retried) return route.continue();
+    return route.abort();
+  });
+};
+
+const captureStylesheetFailure = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  await failStylesheetButLetRetryThrough(page);
+  await page.goto(env.baseUrl);
+  await page.locator("body").waitFor();
+  // The retry delays are 0/2s/8s/…: four seconds is enough for the first
+  // refetch to land (healed) — or to prove that nothing heals the page.
+  await page.waitForTimeout(4000);
+  await capture(page, "appcss-failure-app.png");
+
+  const auth = await browser.newContext({ viewport: DESKTOP });
+  const authPage = await auth.newPage();
+  await failStylesheetButLetRetryThrough(authPage);
+  await authPage.goto(`${env.baseUrl}/auth/login`);
+  await authPage.locator("body").waitFor();
+  await authPage.waitForTimeout(4000);
+  await capture(authPage, "appcss-failure-auth.png");
+  await context.close();
+  await auth.close();
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -822,6 +864,7 @@ const captures: ReadonlyArray<readonly [string, () => Promise<void>]> = [
   ["wake-run", () => captureWakeRun(browser)],
   ["pitch", () => capturePitch(browser, env)],
   ["error-result", () => captureErrorResult(browser, env)],
+  ["stylesheet-failure", () => captureStylesheetFailure(browser, env)],
 ];
 try {
   for (const [name, run] of captures) {
