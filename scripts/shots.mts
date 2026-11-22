@@ -448,11 +448,12 @@ const captureStylesheetOutage = async (
   browser: Browser,
   env: IntegrationEnv,
 ): Promise<void> => {
-  // The reported failure and the fix, in one run: abort every app.css
-  // request for a few seconds (a tunnel death window), shoot the unstyled
+  // The reported failure and the fix, in one run, at the phone viewport
+  // the report came from: abort every app.css request for a few seconds
+  // (a tunnel death window / mobile handover), shoot the unstyled detail
   // render, release, and shoot again after the watchdog heals the page —
   // no reload, no navigation.
-  const context = await browser.newContext({ viewport: DESKTOP });
+  const context = await browser.newContext({ viewport: MOBILE });
   await addSessionCookie(context, env);
   const page = await context.newPage();
   let released = false;
@@ -461,9 +462,15 @@ const captureStylesheetOutage = async (
     return route.abort();
   });
   await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await showDetailPaneOnMobile(page);
   await page.locator("form.prompt-bar").waitFor();
-  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
-  await capture(page, "stylesheet-outage-unstyled.png");
+  // Frame the detail pane from its top — the title/meta/icons stack the
+  // report's screenshot shows (unstyled, the sessions pane stacks above,
+  // so the pane itself is what must scroll into view).
+  await page.evaluate(() => {
+    document.querySelector(".detail")?.scrollIntoView();
+  });
+  await capture(page, "stylesheet-outage-unstyled-mobile.png");
 
   released = true;
   await expect
@@ -474,11 +481,9 @@ const captureStylesheetOutage = async (
       },
     )
     .toContain("system-ui");
-  await capture(page, "stylesheet-outage-healed-desktop.png");
-
-  await page.setViewportSize(MOBILE);
-  await showDetailPaneOnMobile(page);
-  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    document.querySelector(".detail")?.scrollIntoView();
+  });
   await capture(page, "stylesheet-outage-healed-mobile.png");
   await context.close();
 };
