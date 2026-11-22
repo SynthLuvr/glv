@@ -2,6 +2,17 @@
 @import "./pitch.css";
 
 /*
+  Watchdog sentinel. The inline stylesheet-watchdog (see stylesheetWatchdog
+  in Layout.tsx) polls this custom property on <html> to learn whether
+  app.css actually applied: a pending, failed, or content-less stylesheet
+  response leaves it unset, and that — not the link's error event alone —
+  is what the watchdog retries against.
+*/
+:root {
+  --glv-css: loaded;
+}
+
+/*
   Design tokens live in Tailwind v4's CSS-first `@theme` block. Each
   `--color-*` entry generates both a `:root` CSS custom property and a set of
   utility classes (bg-surface, text-muted, border-border, ...), so the whole
