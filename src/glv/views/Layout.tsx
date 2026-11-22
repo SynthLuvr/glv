@@ -36,7 +36,7 @@ const themeBootstrap = `(function(){try{var t=localStorage.getItem('glv-theme');
 const stylesheetWatchdog = `(function(){
   var SENTINEL = "--glv-css";
   var link = null, timer = 0, delay = 500, failed = false, applied = null;
-  var seenAt = 0;
+  var seenAt = 0, attempts = 0;
   var styled = function(){
     try {
       return getComputedStyle(document.documentElement)
@@ -47,15 +47,23 @@ const stylesheetWatchdog = `(function(){
     fetch(link.href + "?retry=" + Date.now(), { cache: "reload" })
       .then(function(r){ return r.text(); })
       .then(function(css){
-        if (css.indexOf(SENTINEL) < 0) return;
+        if (css.indexOf(SENTINEL) < 0) {
+          console.warn("app.css watchdog: response carried no sentinel, ignoring ("
+            + (++attempts) + " attempts)");
+          return;
+        }
         if (!applied) {
           applied = document.createElement("style");
           applied.id = "app-css-healed";
           document.head.appendChild(applied);
         }
         applied.textContent = css;
+        applied.dataset.attempts = String(attempts);
       })
-      .catch(function(){});
+      .catch(function(e){
+        console.warn("app.css watchdog: attempt " + (++attempts)
+          + " failed — retrying; error:", e);
+      });
   };
   var tick = function(){
     if (styled()) return;
