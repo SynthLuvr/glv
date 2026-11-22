@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Child } from "hono/jsx";
 import { renderToString } from "hono/jsx/dom/server";
@@ -43,16 +44,62 @@ const extractIds = (value: unknown): string[] => {
   return typeof value === "string" ? [value] : [];
 };
 
+// Assets answer with a strong ETag and no-cache: the browser may store
+// the response but must revalidate before reuse. An unversioned asset
+// URL plus a long blind freshness window (the old public, max-age=86400)
+// let one bad response — a truncated stylesheet from an interrupted
+// build — poison the browser for a day, which is the styling-randomly-
+// disappears report. Revalidation turns both the poisoned entry and a
+// rebuilt server's new stylesheet into one cheap 304 on the next load,
+// and heals either on the very next navigation.
+const etagOf = (body: string): string =>
+  `"${createHash("sha256").update(body).digest("hex")}"`;
+
+// RFC 9110 If-None-Match: a comma-separated candidate list, weak tags
+// compared on their opaque value, "*" matching whatever exists.
+const etagMatches = (ifNoneMatch: string, etag: string): boolean => {
+  const candidates = ifNoneMatch
+    .split(",")
+    .map((candidate) => candidate.trim());
+  if (candidates.includes("*")) return true;
+  return candidates.some((candidate) => candidate.replace(/^W\//, "") === etag);
+};
+
+// Body-less responses (HEAD/OPTIONS/304/416) bypass Fastify's serializer —
+// it would turn a null payload into a JSON "null" body with an
+// application/json content type — and write the exact wire bytes instead.
+// Lives here rather than in send-file.ts so serveAsset and sendFile share
+// one definition (send-file already imports from this module).
+const sendHeadOnly = (
+  reply: FastifyReply,
+  status: number,
+  headers: Record<string, string>,
+): FastifyReply => {
+  reply.hijack();
+  reply.raw.writeHead(status, headers);
+  reply.raw.end();
+  return reply;
+};
+
 const serveAsset = (
   reply: FastifyReply,
   body: string,
   contentType: string,
-): FastifyReply =>
-  reply
+): FastifyReply => {
+  const etag = etagOf(body);
+  const ifNoneMatch = headerValue(reply.request.headers["if-none-match"]);
+  if (ifNoneMatch !== undefined && etagMatches(ifNoneMatch, etag))
+    return sendHeadOnly(reply, 304, {
+      ETag: etag,
+      "Cache-Control": "no-cache",
+    });
+  return reply
     .status(200)
     .header("Content-Type", contentType)
-    .header("Cache-Control", "public, max-age=86400")
+    .header("Cache-Control", "no-cache")
+    .header("ETag", etag)
     .send(body);
+};
 
 // Serializes a hono/jsx child to an HTML string response — hono's
 // c.html(el) equivalent, now explicit at each call site.
@@ -83,6 +130,7 @@ export {
   isHtmxRequest,
   isRecord,
   queryValue,
+  sendHeadOnly,
   sendHtml,
   sendNotFound,
   sendText,

@@ -1,6 +1,6 @@
 import { createReadStream, type Stats } from "node:fs";
 import type { FastifyReply } from "fastify";
-import { headerValue } from "./http.js";
+import { headerValue, sendHeadOnly } from "./http.js";
 
 // Vendored from @hono/node-server's serveStatic lineage (and now Fastify's
 // reply): neither framework ships a sendFile that serves an
@@ -155,20 +155,6 @@ const rangeResponse = (
       "Content-Range": `bytes ${resolved.start}-${resolved.end}/${size}`,
     })
     .send(createReadStream(path, resolved));
-};
-
-// Body-less responses (HEAD/OPTIONS/304/416) bypass Fastify's serializer —
-// it would turn a null payload into a JSON "null" body with an
-// application/json content type — and write the exact wire bytes instead.
-const sendHeadOnly = (
-  reply: FastifyReply,
-  status: number,
-  headers: Record<string, string>,
-): FastifyReply => {
-  reply.hijack();
-  reply.raw.writeHead(status, headers);
-  reply.raw.end();
-  return reply;
 };
 
 const fileResponse = (
