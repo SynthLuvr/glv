@@ -444,6 +444,45 @@ const captureStylesheetFailure = async (
   await auth.close();
 };
 
+const captureStylesheetOutage = async (
+  browser: Browser,
+  env: IntegrationEnv,
+): Promise<void> => {
+  // The reported failure and the fix, in one run: abort every app.css
+  // request for a few seconds (a tunnel death window), shoot the unstyled
+  // render, release, and shoot again after the watchdog heals the page —
+  // no reload, no navigation.
+  const context = await browser.newContext({ viewport: DESKTOP });
+  await addSessionCookie(context, env);
+  const page = await context.newPage();
+  let released = false;
+  await page.route(/\/assets\/app\.css/, (route) => {
+    if (released) return route.continue();
+    return route.abort();
+  });
+  await page.goto(`${env.baseUrl}/sessions/${gooseFixture.viewId(SESSION_ID)}`);
+  await page.locator("form.prompt-bar").waitFor();
+  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
+  await capture(page, "stylesheet-outage-unstyled.png");
+
+  released = true;
+  await expect
+    .poll(
+      () => page.evaluate(() => getComputedStyle(document.body).fontFamily),
+      {
+        timeout: 30000,
+      },
+    )
+    .toContain("system-ui");
+  await capture(page, "stylesheet-outage-healed-desktop.png");
+
+  await page.setViewportSize(MOBILE);
+  await showDetailPaneOnMobile(page);
+  await page.locator("form.prompt-bar").scrollIntoViewIfNeeded();
+  await capture(page, "stylesheet-outage-healed-mobile.png");
+  await context.close();
+};
+
 const captureViews = async (
   browser: Browser,
   env: IntegrationEnv,
@@ -865,6 +904,7 @@ const captures: ReadonlyArray<readonly [string, () => Promise<void>]> = [
   ["pitch", () => capturePitch(browser, env)],
   ["error-result", () => captureErrorResult(browser, env)],
   ["stylesheet-failure", () => captureStylesheetFailure(browser, env)],
+  ["stylesheet-outage", () => captureStylesheetOutage(browser, env)],
 ];
 try {
   for (const [name, run] of captures) {
